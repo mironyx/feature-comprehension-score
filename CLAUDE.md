@@ -4,23 +4,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Feature Comprehension Score Tool
 
-## Project Context
-
-A tool that measures whether engineering teams understand what they built, using Peter Naur's Theory Building framework. Generates comprehension assessments from development artefacts (requirements, design docs, code, tests), collects team responses, scores against a fixed rubric, and produces reports.
-
-This project is also a deliberate case study: we apply our own Engineering Delivery Framework to build it ("dogfooding"). Every process decision and artefact contributes to validating both the framework and the metric.
-
-**Key references (read when relevant, not every session):**
-- `engineering-delivery-framework.md` — The full framework (metrics, patterns, playbook)
-- `feature-comprehension-score-article.md` — The published article explaining the FCS metric
-- `feature-comprehension-tool-plan.md` — Implementation plan with phases and success criteria
-- `docs/adr/` — Architecture Decision Records (design justification artefacts)
-- `docs/requirements/` — Requirements documents
+Measures whether engineering teams understand what they built, using Peter Naur's Theory Building framework. Also a dogfooding case study for our own Engineering Delivery Framework.
 
 ## Current Phase
 
 **Phase 0: Foundation** — Requirements, design documents, ADRs, project structure.
 Tech stack is NOT yet decided. Do not assume any language or framework.
+
+## Task Tracking
+
+- **Project board** — Check `gh project item-list 1 --owner leonids2005` for current task statuses and priorities.
+- **GitHub Issues** — source of truth for what needs doing. Use `gh issue` to create, update, close.
+- **Plan files** (`docs/plans/`) — execution context for how work gets done. Agents read/write these locally.
+- **Labels:** `L1-capabilities` through `L5-implementation` map to design-down levels.
+- **Milestones:** map to project phases.
+- **Flow:** Issue created → added to board → agent works with local plan file → updates board status → closes issue on completion.
+
+## Key References
+
+Read when relevant, not every session. CLAUDE.md tells Claude **where to look**, not what to know.
+
+| Document | Path | Purpose |
+|----------|------|---------|
+| FCS article | `local-docs/feature-comprehension-score-article.md` | The published metric explanation |
+| Requirements plan | `docs/plans/2026-03-03-v1-requirements-plan.md` | V1 requirements context |
+| Implementation plan | `docs/plans/2026-03-04-implementation-plan.md` | Phases and success criteria |
+| ADRs | `docs/adr/` | Architecture Decision Records |
+| V1 requirements | `docs/requirements/v1-requirements.md` | User stories and acceptance criteria |
+| Design docs | `docs/design/` | Component and interaction design |
+| Drift reports | `docs/reports/` | Garbage collection output |
+
+## Design-Down Process
+
+All features follow five levels, completed in order. No code until Level 5.
+
+1. **Capabilities** — What does the system need to do?
+2. **Components** — What are the building blocks?
+3. **Interactions** — How do components communicate?
+4. **Contracts** — What are the interfaces?
+5. **Implementation** — Write the code. Only after Level 4 is approved.
 
 ## How to Work
 
@@ -29,6 +51,17 @@ Tech stack is NOT yet decided. Do not assume any language or framework.
 - **British English** in all documentation and comments.
 - **Markdown** for all documentation. Use consistent heading hierarchy.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
+
+## Code Quality — CodeScene Integration
+
+CodeScene is installed as a VS Code extension and reports code health issues in the Problems tab. The VS Code extension shares diagnostics automatically — you can see CodeScene warnings directly.
+
+When writing or modifying code:
+- Check VS Code diagnostics after each change for CodeScene warnings.
+- Fix CodeScene issues before considering a task complete.
+- Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
+- If a CodeScene issue conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
+- Do not suppress or disable CodeScene rules without discussing with the user first.
 
 ## Verification Commands
 
