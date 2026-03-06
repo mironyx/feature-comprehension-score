@@ -85,29 +85,27 @@
 
 **Required issue hygiene:**
 
-1. **Labels for workflow state:**
-   - `ready` — unblocked, can be picked up by an agent or human
-   - `blocked` — has unresolved dependencies (blocker noted in issue body)
-   - `in-progress` — currently being worked on
-   - Existing labels (`L1-capabilities` through `L5-implementation`) remain for design-level classification
+1. **Board columns for workflow state:**
+   - **Todo** — unblocked, can be picked up. Ordered by priority (highest at top).
+   - **Blocked** — has unresolved dependencies (blocker noted in issue body as `Blocked by: #N`).
+   - **In Progress** — currently being worked on.
+   - **Done** — completed.
+   - Existing labels (`L1-capabilities` through `L5-implementation`) remain for design-level classification.
+   - *Decision:* Board columns used instead of labels to avoid duplicating state.
 
-2. **Priority via project board ordering:**
-   - The GitHub Project board "Todo" column must be ordered by priority (highest at top)
-   - Agents pick the top `ready` item: `gh issue list --label ready --json number,title | head -1`
-
-3. **Explicit dependency references in issue body:**
+2. **Explicit dependency references in issue body:**
    - Every blocked issue must include a line: `Blocked by: #N, #M`
-   - When a blocking issue is closed, the agent removes `blocked` and adds `ready` to downstream issues
+   - When a blocking issue is closed, the agent moves downstream issues from Blocked to Todo
 
-4. **Definition of done checklist in every issue** (see R2)
+3. **Definition of done checklist in every issue** (see R2)
 
 **Agent task discovery protocol:**
 ```
-gh issue list --label ready --state open --json number,title,labels
+gh project item-list 1 --owner leonids2005
 ```
-This single command returns the available work. No cross-referencing needed.
+Check the board for Todo items. Priority is determined by position (highest at top).
 
-**Maintenance rule:** When completing a task, the agent closes the issue and updates labels on dependent issues. This keeps the backlog self-maintaining.
+**Maintenance rule:** When completing a task, the agent closes the issue and moves dependent issues from Blocked to Todo. This keeps the backlog self-maintaining.
 
 #### Ephemeral local sub-tasks
 
@@ -362,17 +360,17 @@ The realistic parallelism ceiling for this project in Phase 0 is **2-3 agents** 
 
 The following should be done in the next session to implement these process improvements:
 
-| # | Action | Creates |
-|---|--------|---------|
-| 1 | Add `ready`, `blocked`, and `in-progress` labels to GitHub repo | Agent-readable task states |
-| 2 | Update all open issue labels to reflect current blocked/ready state | Accurate board state |
-| 3 | Add definition-of-done checklist to all open issues | Consistent completion criteria |
-| 4 | Reorder project board "Todo" column by priority | Queryable priority ordering |
-| 5 | Create `docs/sessions/` directory with retrospective entries for sessions 1-3 | Session continuity |
-| 6 | Add `docs/sessions/` to the CLAUDE.md key references table | Agent discoverability |
-| 7 | Update CLAUDE.md with session start/end/per-task protocols | Codified workflow |
-| 8 | Commit all untracked files | Clean repo state |
-| 9 | Fix trivial documentation inconsistencies (drift W4, W5, W7) | Reduced drift |
+| # | Action | Creates | Status |
+|---|--------|---------|--------|
+| 1 | Add `ready`, `blocked`, and `in-progress` labels to GitHub repo | Agent-readable task states | **Modified** — used board "Blocked" column instead of labels to avoid duplicating board state |
+| 2 | Update all open issue labels to reflect current blocked/ready state | Accurate board state | **Done** — #7, #8 moved to Blocked; all others in correct columns |
+| 3 | Add definition-of-done checklist to all open issues | Consistent completion criteria | **Done (simplified)** — two-item checklist (artefact + commit). Drift scan kept as session-level activity, not per-task gate |
+| 4 | Reorder project board "Todo" column by priority | Queryable priority ordering | **Done** — ordered: #2 > #5 > #9 > #10 > #11 > #12 |
+| 5 | Create `docs/sessions/` directory with retrospective entries for sessions 1-3 | Session continuity | **Done** — three session logs written |
+| 6 | Add `docs/sessions/` to the CLAUDE.md key references table | Agent discoverability | **Done** |
+| 7 | Update CLAUDE.md with session start/end/per-task protocols | Codified workflow | **Done** — added as guidance, not enforced ceremony. Session boundaries are informal for now |
+| 8 | Commit all untracked files | Clean repo state | **Done** — two commits: `6a61202`, `68211c2` |
+| 9 | Fix trivial documentation inconsistencies (drift W4, W5, W7) | Reduced drift | **Done** — W5, W7 were already fixed in requirements v0.2. Cleaned up remaining Repo Admin reference (W4) |
 
 ---
 

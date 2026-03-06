@@ -55,32 +55,13 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
 
-## Session Protocol
+## Session Guidance
 
-### Session start
+Not enforced ceremony — use judgement. Session boundaries are informal.
 
-1. Read CLAUDE.md (orientation)
-2. Read the latest session log in `docs/sessions/` (what happened recently)
-3. Check the project board for available work: `gh project item-list 1 --owner leonids2005`
-4. Identify highest-priority Todo items
-5. Confirm with user (or auto-pick if running autonomously)
-
-### Per-task
-
-1. Move issue to In Progress on board
-2. Break into local sub-tasks (ephemeral, via TodoWrite)
-3. Read all referenced documents
-4. Do the work
-5. Commit with conventional commit referencing issue number
-6. Close the issue
-7. Move any newly unblocked downstream issues from Blocked to Todo
-
-### Session end
-
-1. Commit all completed work (one commit per task)
-2. Write session log to `docs/sessions/YYYY-MM-DD-session-N.md`
-3. Commit session log
-4. Push to remote
+- **Orientation:** Read the latest session log in `docs/sessions/` and check the project board.
+- **Per-task:** Move issue to In Progress, do the work, commit referencing issue number, close issue, unblock downstream issues (Blocked → Todo).
+- **Wrapping up:** Write a session log to `docs/sessions/YYYY-MM-DD-session-N.md` capturing completed work, decisions made, and next steps. Push to remote.
 
 ## Code Quality — CodeScene Integration
 
