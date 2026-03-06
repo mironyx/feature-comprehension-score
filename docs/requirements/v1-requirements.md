@@ -48,7 +48,7 @@
 
 **Notes:**
 - GitHub roles (org admin, repo admin/maintainer) are used for permission checks but are not separate app roles.
-- "Repo Admin" capabilities (repo-level configuration, gate skip) are exercised by Org Admins.
+- Repo-level configuration and gate skip capabilities are exercised by Org Admins.
 - Author and Reviewer are contextual — a User becomes an Author or Reviewer for a specific assessment, not permanently.
 
 ---

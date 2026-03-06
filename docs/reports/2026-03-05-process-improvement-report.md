@@ -77,67 +77,70 @@
 
 ## 3. Recommendations
 
-### R1: Create a single-source prioritised backlog
+### R1: Make GitHub Issues the single-source prioritised backlog
 
 **Problem addressed:** P1, P2
 
-**Proposal:** Maintain a `docs/backlog.md` file that serves as the authoritative, ordered task list. This file is the first thing any agent reads after CLAUDE.md. It replaces the need to cross-reference the implementation plan, issue list, and drift report to determine next actions.
+**Principle:** GitHub Issues is the source of truth for what needs doing. No separate `backlog.md` file — that would create a second source that drifts from the issues. Instead, make the issue system itself queryable and ordered.
 
-**Format:**
+**Required issue hygiene:**
 
-```markdown
-# Backlog
+1. **Labels for workflow state:**
+   - `ready` — unblocked, can be picked up by an agent or human
+   - `blocked` — has unresolved dependencies (blocker noted in issue body)
+   - `in-progress` — currently being worked on
+   - Existing labels (`L1-capabilities` through `L5-implementation`) remain for design-level classification
 
-Last updated: 2026-03-05
+2. **Priority via project board ordering:**
+   - The GitHub Project board "Todo" column must be ordered by priority (highest at top)
+   - Agents pick the top `ready` item: `gh issue list --label ready --json number,title | head -1`
 
-## Ready (unblocked, in priority order)
+3. **Explicit dependency references in issue body:**
+   - Every blocked issue must include a line: `Blocked by: #N, #M`
+   - When a blocking issue is closed, the agent removes `blocked` and adds `ready` to downstream issues
 
-1. **Housekeeping: fix documentation inconsistencies** — #13
-   - Fix Repo Admin → Org Admin (W4, W5), Naur layer names (W7), add Story 2.9 to design (W2)
-   - DoD: requirements doc updated, drift scan confirms W4/W5/W7/W2 resolved, committed
+4. **Definition of done checklist in every issue** (see R2)
 
-2. **ADR-0002: Hosting — Vercel vs GCP Cloud Run** — #5
-   - Blocks: L3 Interactions (#8), all deployment design
-   - DoD: ADR file written, requirements updated, design doc deployment references resolved, committed
-
-3. **ADR-0004: Roles & access control model** — #2
-   - Blocks: all UI stories, ADR-0008
-   - DoD: ADR file written, requirements roles section aligned, committed
-
-## Blocked
-
-- **ADR-0008: Data model & multi-tenancy** — #7 — blocked by #2 (ADR-0004)
-- **Design L3: Interactions** — #8 — blocked by #5 (ADR-0002) and L2 completion
-- **Design L2: Complete for Epics 1, 3, 6** — needs issue — blocked by #2 (ADR-0004)
-
-## Low priority (do when convenient)
-
-- **ADR-0005: Single aggregate score** — #10 — not blocking
-- **ADR-0006: Soft/Hard enforcement modes** — #11 — not blocking
-- **ADR-0007: PR size threshold criteria** — #12 — not blocking
+**Agent task discovery protocol:**
 ```
+gh issue list --label ready --state open --json number,title,labels
+```
+This single command returns the available work. No cross-referencing needed.
 
-**Maintenance rule:** Update `backlog.md` at the end of every session. When an item is completed, remove it from the backlog and move any newly unblocked items from "Blocked" to "Ready". This is the session's final action before committing.
+**Maintenance rule:** When completing a task, the agent closes the issue and updates labels on dependent issues. This keeps the backlog self-maintaining.
+
+#### Ephemeral local sub-tasks
+
+When an agent picks up an issue, it may need to break it into sub-steps. These are tracked locally using the agent's task management tool (e.g., TodoWrite) — they are ephemeral and not persisted as GitHub Issues. They exist only for the duration of the session.
+
+Example: Issue #2 "ADR-0004: Roles & access control model" might decompose locally into:
+1. Read requirements roles section and implementation plan decisions
+2. Read spike-004 findings on org membership
+3. Draft ADR using `/create-adr` template
+4. Update requirements to reference ADR-0004
+5. Commit and close issue
+
+These sub-tasks are working memory, not backlog items. They are not created as GitHub Issues because they have no independent value — they only exist in the context of completing the parent issue.
 
 ### R2: Add a definition of done checklist to each task
 
 **Problem addressed:** P3
 
-**Proposal:** Every backlog item and every GitHub issue includes a "Definition of Done" checklist. Standard items:
+**Proposal:** Every GitHub issue includes a "Definition of Done" checklist in its body. Standard items:
 
 - [ ] Primary artefact created/updated (ADR file, design section, etc.)
 - [ ] Cross-references added to related documents (requirements, design, other ADRs)
-- [ ] Committed to repository
+- [ ] Committed to repository with conventional commit referencing issue number
 - [ ] Drift scan confirms no new critical/warning items introduced
-- [ ] Backlog updated (completed item removed, blocked items reassessed)
+- [ ] Downstream issue labels updated (remove `blocked`, add `ready` where applicable)
 
-This prevents the ADR-0003 situation where the ADR was accepted but the requirements document was not updated to reflect its decisions.
+This prevents the ADR-0003 situation where the ADR was accepted but the requirements document was not updated to reflect its decisions. The checklist is enforced by convention: an agent should not close an issue until all items are ticked.
 
 ### R3: Commit atomically per completed task
 
 **Problem addressed:** P4
 
-**Proposal:** One commit per completed backlog item. Use conventional commit messages that reference the issue number:
+**Proposal:** One commit per completed issue. Use conventional commit messages that reference the issue number:
 
 ```
 docs: ADR-0004 roles and access control model (#2)
@@ -151,34 +154,60 @@ Commit immediately after completing each task, not at the end of the session. Th
 
 **Problem addressed:** P5
 
-**Proposal:** Create `docs/session-log.md` — a chronological, append-only log updated at the end of each session. Each entry records:
+**Proposal:** One file per session in `docs/sessions/`, named `YYYY-MM-DD-session-N.md`. Written at the end of each session. This is the first thing any agent reads after CLAUDE.md to orient itself.
+
+Each session log captures four sections:
+
+#### Section 1: Completed work
+Factual record of what was done. Issues closed, artefacts created or updated, commits made. Brief — one line per item with references to files and issue numbers.
+
+#### Section 2: Decisions made
+Significant decisions from conversation that are not yet captured in ADRs, requirements, or design documents. This is the safety net for decisions that happen verbally and would otherwise be lost between sessions. Each entry should note whether the decision is already recorded in a durable artefact or still needs to be.
+
+#### Section 3: Conversation summary
+Brief narrative of what was discussed, including dead ends, rejected approaches, and context that shaped decisions. Not a transcript — a distillation. The goal is to prevent the next session from re-exploring paths already explored or re-asking questions already answered.
+
+#### Section 4: Next session guidance
+Prioritised list of 2-4 items the next session should start with. Directly answers "what should I do next?" without re-analysis. Should reference GitHub issue numbers where applicable.
+
+**Template:**
 
 ```markdown
-## 2026-03-05 — Session 3
+# Session N — YYYY-MM-DD
 
-### Completed
-- Design document L1 (Capabilities) and partial L2 (Components)
-- Research spike 003 (GitHub Check API) → findings in spike-003-github-check-api.md
-- Research spike 004 (Supabase Auth) → findings in spike-004-supabase-auth-github-oauth.md
-- ADR-0003 accepted (Supabase Auth + GitHub OAuth)
-- First drift scan → 23% coverage, 3 critical, 8 warnings
+## Completed work
 
-### Decisions made
-- Confirmed: Check Run + branch protection = merge blocking mechanism
-- Confirmed: PKCE flow for Next.js, provider token captured at callback
-- Confirmed: Org membership fetched via GitHub API, not from Supabase session
+- Closed #6: ADR-0003 Auth — Supabase Auth + GitHub OAuth
+  - Created `docs/adr/0003-auth-supabase-auth-github-oauth.md`
+  - Commit: `abc1234`
+- Completed research spike 004 (Supabase Auth)
+  - Created `docs/design/spike-004-supabase-auth-github-oauth.md`
 
-### Open questions carried forward
-- ADR-0002 (Hosting) still undecided — needed before L3 design
-- Trivial commit heuristic undefined (drift W8)
+## Decisions made
 
-### Next session should start with
-1. Fix documentation inconsistencies (drift W4, W5, W7, W2) — 15 min
-2. Decide ADR-0002 (Hosting)
-3. Write ADR-0004 (Roles)
+- **PKCE flow for Next.js App Router** — provider token must be captured
+  in `/auth/callback` route handler, not middleware.
+  Recorded in: ADR-0003 and spike-004.
+- **Org membership not in Supabase session** — must fetch via GitHub API
+  on each login and cache.
+  Recorded in: spike-004. NOT yet in requirements or design doc.
+
+## Conversation summary
+
+Explored two approaches for auth: NextAuth.js vs Supabase Auth. Rejected
+NextAuth because [reason]. Discussed token lifecycle — concluded that
+provider tokens should be encrypted in Supabase Vault rather than stored
+in plain text. User confirmed that org membership caching with 1-hour TTL
+is acceptable.
+
+## Next session should start with
+
+1. Fix documentation inconsistencies — drift W4, W5, W7 (#2 partial)
+2. Write ADR-0002: Hosting — Vercel vs GCP (#5)
+3. Write ADR-0004: Roles & access control (#2)
 ```
 
-This gives any future session (human or agent) a 30-second orientation. The "next session should start with" section directly answers "what should I do next?" without re-analysis.
+**Maintenance rule:** The session log is the last thing written before the final commit. It should be committed alongside any issue label updates.
 
 ### R5: Run drift scan as a gate
 
@@ -191,17 +220,6 @@ This gives any future session (human or agent) a 30-second orientation. The "nex
 2. **Before any Level transition** — before starting L3 design, run a scan to confirm L2 is complete and consistent. Before starting L4, confirm L3 is clean. This prevents building on a drifted foundation.
 
 The drift report file continues to be generated, but the actionable items from it should be reflected as backlog items rather than existing only in the report.
-
-### R6: Use GitHub issue labels for agent-readiness
-
-**Problem addressed:** P1, P2
-
-**Proposal:** Add two labels to the GitHub issue system:
-
-- `ready` — task is unblocked and can be picked up
-- `blocked` — task has unresolved dependencies (noted in issue body)
-
-When a blocking task is completed, the agent updates downstream issues: remove `blocked` label, add `ready` label. This makes `gh issue list --label ready` a reliable way to find available work.
 
 ---
 
@@ -222,21 +240,14 @@ Today, these would be done sequentially in a single session. With multiple agent
 
 #### 4.1 Backlog must be machine-readable
 
-The `backlog.md` format proposed in R1 is human-readable but not easily parseable by agents. For multi-agent coordination, consider a structured format. Options:
+GitHub Issues with labels (as defined in R1) provide this. The coordination mechanism:
 
-**Option A: GitHub Issues as source of truth** (recommended for V1)
-- Use issue labels (`ready`, `blocked`, `in-progress`) as the coordination mechanism
-- Each agent claims a task by adding the `in-progress` label and self-assigning
-- Before starting, the agent runs `gh issue list --label ready` to find available work
-- After completing, the agent closes the issue, removes `blocked` from downstream issues, adds `ready` to newly unblocked ones
-- `backlog.md` becomes a human-readable view generated from issue state, not the source of truth
+- Each agent discovers work via `gh issue list --label ready --state open`
+- Claims a task by changing label from `ready` to `in-progress` and self-assigning
+- After completing, closes the issue, removes `blocked` from downstream issues, adds `ready` to newly unblocked ones
+- Priority is determined by project board ordering — agents pick the top `ready` item
 
-**Option B: Structured backlog file** (if GitHub Issues prove too coarse)
-- Use a JSON or YAML backlog file with explicit dependency edges
-- Agents read the file, claim a task by writing their session ID into it, and update on completion
-- Risk: merge conflicts if two agents update simultaneously
-
-Recommendation: Start with Option A. GitHub Issues already exist, have an API, and support atomic label operations.
+No separate backlog file. GitHub Issues is the single source of truth.
 
 #### 4.2 Tasks must be independently completable
 
@@ -261,17 +272,18 @@ When an agent starts a session, it follows this protocol:
 
 ```
 1. Read CLAUDE.md (orientation)
-2. Read docs/session-log.md (last entry — what happened recently)
-3. Read docs/backlog.md (or run `gh issue list --label ready`)
+2. Read latest session log in docs/sessions/ (what happened recently)
+3. Run `gh issue list --label ready --state open` (available work)
 4. Pick the highest-priority ready task
-5. Claim it (label → in-progress, or update backlog.md)
-6. Do the work
-7. Commit with conventional commit referencing issue number
-8. Run drift scan
-9. Update downstream issue labels (unblock dependents)
-10. Close the issue
-11. Append to session log
-12. Update backlog.md
+5. Claim it (label → in-progress, assign self)
+6. Break into local sub-tasks (ephemeral, via TodoWrite or similar)
+7. Do the work
+8. Commit with conventional commit referencing issue number
+9. Run drift scan
+10. Update downstream issue labels (unblock dependents)
+11. Close the issue
+12. Write session log file to docs/sessions/
+13. Commit session log
 ```
 
 This protocol is deterministic. Any agent following it will pick up the right task, do it, and leave the project in a clean state for the next agent.
@@ -314,8 +326,8 @@ The realistic parallelism ceiling for this project in Phase 0 is **2-3 agents** 
 
 ```
 1. Read CLAUDE.md
-2. Read last session-log entry
-3. Read backlog.md
+2. Read latest session log in docs/sessions/
+3. Run `gh issue list --label ready --state open`
 4. Identify highest-priority ready items
 5. Confirm with user (or auto-pick if running autonomously)
 ```
@@ -325,22 +337,23 @@ The realistic parallelism ceiling for this project in Phase 0 is **2-3 agents** 
 ```
 1. Commit all completed work (one commit per task)
 2. Run drift scan
-3. Update backlog (remove completed, unblock dependents)
-4. Update session log (completed, decisions, next steps)
-5. Commit session log and backlog updates
+3. Update downstream issue labels (remove blocked, add ready)
+4. Write session log file to docs/sessions/
+5. Commit session log
 6. Push to remote
 ```
 
 ### Per-task protocol
 
 ```
-1. Mark task as in-progress (backlog + issue label)
-2. Read all referenced documents
-3. Do the work
-4. Apply definition-of-done checklist
-5. Commit
-6. Mark task as complete
-7. Assess whether downstream tasks are now unblocked
+1. Change issue label from ready to in-progress
+2. Break into local ephemeral sub-tasks
+3. Read all referenced documents
+4. Do the work
+5. Apply definition-of-done checklist from issue
+6. Commit with conventional commit referencing issue number
+7. Close the issue
+8. Update labels on downstream issues
 ```
 
 ---
@@ -351,15 +364,15 @@ The following should be done in the next session to implement these process impr
 
 | # | Action | Creates |
 |---|--------|---------|
-| 1 | Create `docs/backlog.md` with current prioritised task list | Single-source backlog |
-| 2 | Create `docs/session-log.md` with retrospective entries for days 1-3 | Session continuity |
-| 3 | Add `ready` and `blocked` labels to GitHub issues | Agent-readable task states |
-| 4 | Update issue labels to reflect current blocked/ready state | Accurate board state |
-| 5 | Create a GitHub issue template with definition-of-done checklist | Consistent completion criteria |
-| 6 | Add backlog.md and session-log.md to the CLAUDE.md key references table | Agent discoverability |
-| 7 | Commit all untracked files | Clean repo state |
-| 8 | Fix trivial documentation inconsistencies (drift W4, W5, W7) | Reduced drift |
-| 9 | Update CLAUDE.md with session start/end protocols | Codified workflow |
+| 1 | Add `ready`, `blocked`, and `in-progress` labels to GitHub repo | Agent-readable task states |
+| 2 | Update all open issue labels to reflect current blocked/ready state | Accurate board state |
+| 3 | Add definition-of-done checklist to all open issues | Consistent completion criteria |
+| 4 | Reorder project board "Todo" column by priority | Queryable priority ordering |
+| 5 | Create `docs/sessions/` directory with retrospective entries for sessions 1-3 | Session continuity |
+| 6 | Add `docs/sessions/` to the CLAUDE.md key references table | Agent discoverability |
+| 7 | Update CLAUDE.md with session start/end/per-task protocols | Codified workflow |
+| 8 | Commit all untracked files | Clean repo state |
+| 9 | Fix trivial documentation inconsistencies (drift W4, W5, W7) | Reduced drift |
 
 ---
 
@@ -369,12 +382,46 @@ After implementing these changes, track:
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Session orientation time (before productive work starts) | Significant (re-reading multiple docs) | Minimal (read session log + backlog) |
+| Session orientation time (before productive work starts) | Significant (re-reading multiple docs) | Minimal (read session log + `gh issue list --label ready`) |
 | Tasks completed but with missing cross-references | At least 1 (ADR-0003 vs requirements) | 0 (definition of done prevents this) |
 | Drift report critical items | 3 | 0 within one session of being reported |
 | Commits per completed task | < 1 (batched) | 1 (atomic) |
 | Untracked files at session end | Multiple | 0 |
-| Agent able to determine next task without human guidance | No | Yes (backlog.md or `gh issue list --label ready`) |
+| Agent able to determine next task without human guidance | No | Yes (`gh issue list --label ready`) |
+
+---
+
+## 8. Recurring Process Retrospectives
+
+Process improvement is not a one-off. This report captures the initial state, but the process will evolve as we move through phases, introduce multi-agent work, and start writing code.
+
+### The `/retro` command
+
+A `/retro` command has been created (`.claude/commands/retro.md`) to run process retrospectives. It gathers data from session logs, git history, GitHub Issues, drift reports, and previous retros, then produces a structured report with a health scorecard and concrete actions.
+
+### Cadence
+
+- **Phase transitions** — run `/retro` before moving from Phase 0 to Phase 1, Phase 1 to Phase 2, etc. The process that works for "documents only" will not work for "documents + code".
+- **Every 3-5 sessions** — if 3 or more sessions have passed since the last retro, the session end protocol should prompt running `/retro` before continuing with feature work.
+- **Before starting multi-agent work** — the first time we run parallel agents, run a retro to confirm the coordination mechanisms (labels, scoped tasks, branch conventions) are in place.
+- **When something feels off** — if tasks are being picked up in the wrong order, drift is accumulating, or sessions are spending too much time on orientation, that is a signal to run a retro.
+
+### What the retro tracks
+
+Each retro produces a health scorecard across six dimensions:
+
+| Dimension | What it measures |
+|-----------|-----------------|
+| Backlog hygiene | Are issues labelled, prioritised, and dependencies explicit? |
+| Definition of done | Are issues closed with all checklist items completed? |
+| Commit discipline | Atomic commits per task, conventional messages, no untracked files? |
+| Session continuity | Are session logs written with all four sections? Can the next session orient quickly? |
+| Drift management | Is drift scan running regularly? Are critical items resolved promptly? |
+| Multi-agent readiness | Are tasks scoped to single files? Can agents work independently? |
+
+### Tracking improvement over time
+
+Each retro checks whether actions from the previous retro were implemented. This creates accountability — a recommendation that was not acted on will resurface in the next retro rather than being silently forgotten.
 
 ---
 

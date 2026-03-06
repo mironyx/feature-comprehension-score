@@ -18,6 +18,7 @@ Tech stack is NOT yet decided. Do not assume any language or framework.
 - **Plan files** (`docs/plans/`) — execution context for how work gets done. Agents read/write these locally.
 - **Labels:** `L1-capabilities` through `L5-implementation` map to design-down levels.
 - **Milestones:** map to project phases.
+- **Board columns:** Todo, Blocked, In Progress, Done. Items in Todo are ordered by priority (highest at top).
 - **Flow:** Issue created → added to board → agent works with local plan file → updates board status → closes issue on completion.
 
 ## Key References
@@ -33,6 +34,7 @@ Read when relevant, not every session. CLAUDE.md tells Claude **where to look**,
 | V1 requirements | `docs/requirements/v1-requirements.md` | User stories and acceptance criteria |
 | Design docs | `docs/design/` | Component and interaction design |
 | Drift reports | `docs/reports/` | Garbage collection output |
+| Session logs | `docs/sessions/` | Per-session record of work, decisions, and next steps |
 
 ## Design-Down Process
 
@@ -51,6 +53,34 @@ All features follow five levels, completed in order. No code until Level 5.
 - **British English** in all documentation and comments.
 - **Markdown** for all documentation. Use consistent heading hierarchy.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
+- **One commit per completed task.** Use conventional commit messages referencing the issue number.
+
+## Session Protocol
+
+### Session start
+
+1. Read CLAUDE.md (orientation)
+2. Read the latest session log in `docs/sessions/` (what happened recently)
+3. Check the project board for available work: `gh project item-list 1 --owner leonids2005`
+4. Identify highest-priority Todo items
+5. Confirm with user (or auto-pick if running autonomously)
+
+### Per-task
+
+1. Move issue to In Progress on board
+2. Break into local sub-tasks (ephemeral, via TodoWrite)
+3. Read all referenced documents
+4. Do the work
+5. Commit with conventional commit referencing issue number
+6. Close the issue
+7. Move any newly unblocked downstream issues from Blocked to Todo
+
+### Session end
+
+1. Commit all completed work (one commit per task)
+2. Write session log to `docs/sessions/YYYY-MM-DD-session-N.md`
+3. Commit session log
+4. Push to remote
 
 ## Code Quality — CodeScene Integration
 
@@ -79,6 +109,7 @@ docs/
   requirements/     # Requirements documents per phase
   design/           # Design documents
   reports/          # Drift reports and garbage collection output
+  sessions/         # Per-session logs (YYYY-MM-DD-session-N.md)
 src/                # Source code (structure TBD pending tech stack ADR)
 tests/              # Test files (structure TBD)
 ```
@@ -93,7 +124,11 @@ tests/              # Test files (structure TBD)
 
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
+
+## Custom Commands
+
 - `/drift-scan` — Run garbage collection scan for drift between requirements and design artefacts
+- `/retro` — Run a process retrospective: review sessions, assess process health, produce improvement actions
 
 ## Custom Agents
 
