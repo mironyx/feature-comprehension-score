@@ -99,6 +99,7 @@ tests/              # Test files (structure TBD)
 
 - ADR format: `docs/adr/NNNN-title.md` using the template in `/create-adr`
 - Commit messages: conventional commits (`feat:`, `docs:`, `fix:`, `chore:`)
+- **No Co-Authored-By trailers** in commit messages.
 - Branch naming: `feat/short-description`, `docs/short-description`
 
 ## Custom Skills
