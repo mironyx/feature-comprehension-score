@@ -661,7 +661,7 @@ Changes take effect on the next assessment only. In-progress assessments use the
 | **RLS enforcement** | All database access | Supabase RLS policies scope every query to the user's organisations; no application-level tenant filtering |
 | **LLM error handling** | Question generation, scoring, relevance | Retry 3× with exponential backoff; graceful degradation on exhaustion (Story 4.5) |
 
-**Status:** Draft.
+**Status:** Approved.
 
 ---
 
