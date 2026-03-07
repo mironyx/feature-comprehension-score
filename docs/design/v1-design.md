@@ -126,7 +126,7 @@ The building blocks of the system.
 
 ### Component 1: Next.js Application
 
-The single application serving all functionality. Hosted on Vercel or GCP (ADR-0002 pending).
+The single application serving all functionality. Hosted on GCP Cloud Run (ADR-0002).
 
 | Responsibility | Detail |
 |---------------|--------|

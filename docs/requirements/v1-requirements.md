@@ -489,7 +489,7 @@ Modification capacity (safe change paths): "Given the following codebase and req
 
 ## Epic 5: Web Application & Authentication
 
-The Next.js web application. Handles authentication, question answering, results, and configuration. Hosting platform TBD (ADR-0002 pending: Vercel vs GCP Cloud Run).
+The Next.js web application hosted on GCP Cloud Run (ADR-0002). Handles authentication, question answering, results, and configuration.
 
 ### Story 5.1: GitHub OAuth Authentication
 
