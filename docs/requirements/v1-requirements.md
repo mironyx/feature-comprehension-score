@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-05 |
+| Last updated | 2026-03-07 |
 
 ## Change Log
 
@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-03-03 | LS | Initial draft |
 | 0.2 | 2026-03-05 | LS / Claude | Applied confirmed decisions from implementation plan review: simplified roles, updated Naur layer names, added Story 2.9, updated FCS creation flow, deferred auto-save and Naur layer breakdown, added trivial commit detection |
+| 0.3 | 2026-03-07 | LS / Claude | Story 3.1: FCS participants auto-suggested from PR authors/reviewers instead of manual entry (L3 design decision) |
 
 ---
 
@@ -322,7 +323,8 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
   - Feature name/title (free text)
   - Description (optional)
   - Merged PR selection: one or more merged PRs from the repository (the system extracts artefacts from the selected PRs, reusing the same extraction logic as PRCC)
-  - Participant list: GitHub usernames of team members
+  - Participant list: auto-suggested from the authors and reviewers of the selected merged PRs. Org Admin can add or remove participants before confirming.
+- Given I select merged PRs, the system auto-suggests participants from those PRs' authors and reviewers.
 - Given I submit, the system fetches artefacts from the selected PRs via GitHub API and initiates question generation.
 - Given a selected PR has an active or in-progress PRCC assessment, the system displays a warning before proceeding.
 - Given the artefacts are insufficient (e.g., single empty file), the system warns the initiator and proceeds (thin artefacts produce thin questions — by design).

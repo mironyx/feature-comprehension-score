@@ -489,7 +489,7 @@ Org Admin        Next.js App          GitHub API        Claude API       Supabas
 
 **PR context extraction:** Reuses the same extraction logic as PRCC (diff, files, description, linked issues, tests) but applied across multiple merged PRs. If the PR context is insufficient (e.g., single empty file, no description), the system warns the Org Admin and proceeds — thin context produces thin questions, surfacing the quality gap by design (Story 3.1).
 
-**Note:** Story 3.1 currently specifies manual participant entry. The auto-suggest approach is a refinement — requires a requirements update.
+**Note:** Story 3.1 updated in requirements v0.3 to reflect auto-suggest participant selection from PR authors/reviewers.
 
 #### Phase 2: Participant answering (Story 3.3)
 
