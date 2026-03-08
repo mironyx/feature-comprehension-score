@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.3 |
+| Version | 0.4 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-07 |
+| Last updated | 2026-03-08 |
 
 ## Change Log
 
@@ -17,6 +17,7 @@
 | 0.1 | 2026-03-03 | LS | Initial draft |
 | 0.2 | 2026-03-05 | LS / Claude | Applied confirmed decisions from implementation plan review: simplified roles, updated Naur layer names, added Story 2.9, updated FCS creation flow, deferred auto-save and Naur layer breakdown, added trivial commit detection |
 | 0.3 | 2026-03-07 | LS / Claude | Story 3.1: FCS participants auto-suggested from PR authors/reviewers instead of manual entry (L3 design decision) |
+| 0.4 | 2026-03-08 | LS / Claude | Story 1.1: Added acceptance criteria for org/repo soft-delete (active/inactive status on uninstall/removal) |
 
 ---
 
@@ -71,6 +72,8 @@ Enable organisations to install the GitHub App, onboard repositories, and config
 - Given the app is installed on an organisation that already exists (reinstallation), then the existing organisation record is reactivated rather than duplicated.
 - Given the Org Admin selects specific repositories during installation (not "all repositories"), then only those repositories are registered.
 - Given the Org Admin later adds or removes repositories from the app installation via GitHub settings, then the database reflects the change.
+- Given the Org Admin uninstalls the GitHub App from the organisation, the organisation record is set to inactive (soft-deleted). Active assessments are not deleted.
+- Given a repository is removed from the app installation, the repository record is set to inactive. Existing assessment data is retained.
 
 **Notes:** The GitHub App must request the minimum permissions needed: read access to pull requests, code, and metadata; write access to checks and statuses.
 
