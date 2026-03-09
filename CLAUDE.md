@@ -20,6 +20,20 @@ Tech stack is NOT yet decided. Do not assume any language or framework.
 - **Milestones:** map to project phases.
 - **Board columns:** Todo, Blocked, In Progress, Done. Items in Todo are ordered by priority (highest at top).
 - **Flow:** Issue created → added to board → agent works with local plan file → updates board status → closes issue on completion.
+- **No work without an issue.** If a task has no GitHub issue, create one before starting work.
+
+### Project Board IDs (stable — do not re-query)
+
+| Entity | ID |
+|--------|----|
+| Project | `PVT_kwHOAOSb584BQzxy` |
+| Status field | `PVTSSF_lAHOAOSb584BQzxyzg-0mow` |
+| Todo | `8ecf3a65` |
+| Blocked | `942c7ae6` |
+| In Progress | `b4f43653` |
+| Done | `38eaf939` |
+
+**Status helper:** `./scripts/gh-project-status.sh <issue-number> <status>` — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh).
 
 ## Key References
 
