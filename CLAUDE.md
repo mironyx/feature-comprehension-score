@@ -8,8 +8,10 @@ Measures whether engineering teams understand what they built, using Peter Naur'
 
 ## Current Phase
 
-**Phase 0: Foundation** — Requirements, design documents, ADRs, project structure.
-Tech stack is NOT yet decided. Do not assume any language or framework.
+**Phase 0.5: Scaffolding & Infrastructure** — Project initialisation, test infrastructure, CI/CD, architecture guardrails.
+Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS), Anthropic Claude API, GCP Cloud Run.
+Development approach: TDD/BDD-first, PR-based workflow, specialised role agents (Tester → Developer → Reviewer).
+See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for full details.
 
 ## Task Tracking
 
@@ -20,21 +22,35 @@ Tech stack is NOT yet decided. Do not assume any language or framework.
 - **Milestones:** map to project phases.
 - **Board columns:** Todo, Blocked, In Progress, Done. Items in Todo are ordered by priority (highest at top).
 - **Flow:** Issue created → added to board → agent works with local plan file → updates board status → closes issue on completion.
+- **No work without an issue.** If a task has no GitHub issue, create one before starting work.
+
+### Project Board IDs (stable — do not re-query)
+
+| Entity       | ID                               |
+| ------------ | -------------------------------- |
+| Project      | `PVT_kwHOAOSb584BQzxy`           |
+| Status field | `PVTSSF_lAHOAOSb584BQzxyzg-0mow` |
+| Todo         | `8ecf3a65`                       |
+| Blocked      | `942c7ae6`                       |
+| In Progress  | `b4f43653`                       |
+| Done         | `38eaf939`                       |
+
+**Status helper:** `./scripts/gh-project-status.sh <issue-number> <status>` — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh).
 
 ## Key References
 
 Read when relevant, not every session. CLAUDE.md tells Claude **where to look**, not what to know.
 
-| Document | Path | Purpose |
-|----------|------|---------|
-| FCS article | `local-docs/feature-comprehension-score-article.md` | The published metric explanation |
-| Requirements plan | `docs/plans/2026-03-03-v1-requirements-plan.md` | V1 requirements context |
-| Implementation plan | `docs/plans/2026-03-04-implementation-plan.md` | Phases and success criteria |
-| ADRs | `docs/adr/` | Architecture Decision Records |
-| V1 requirements | `docs/requirements/v1-requirements.md` | User stories and acceptance criteria |
-| Design docs | `docs/design/` | Component and interaction design |
-| Drift reports | `docs/reports/` | Garbage collection output |
-| Session logs | `docs/sessions/` | Per-session record of work, decisions, and next steps |
+| Document            | Path                                                | Purpose                                               |
+| ------------------- | --------------------------------------------------- | ----------------------------------------------------- |
+| FCS article         | `local-docs/feature-comprehension-score-article.md` | The published metric explanation                      |
+| Requirements plan   | `docs/plans/2026-03-03-v1-requirements-plan.md`     | V1 requirements context                               |
+| Implementation plan | `docs/plans/2026-03-04-implementation-plan.md`      | Phases and success criteria                           |
+| ADRs                | `docs/adr/`                                         | Architecture Decision Records                         |
+| V1 requirements     | `docs/requirements/v1-requirements.md`              | User stories and acceptance criteria                  |
+| Design docs         | `docs/design/`                                      | Component and interaction design                      |
+| Drift reports       | `docs/reports/`                                     | Garbage collection output                             |
+| Session logs        | `docs/sessions/`                                    | Per-session record of work, decisions, and next steps |
 
 ## Design-Down Process
 
@@ -54,6 +70,8 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Markdown** for all documentation. Use consistent heading hierarchy.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
+- **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval).
+- **TDD/BDD-first.** Tests written before implementation. BDD-style naming: `Given/When/Then` in `describe`/`it` blocks.
 
 ## Session Guidance
 
@@ -68,6 +86,7 @@ Not enforced ceremony — use judgement. Session boundaries are informal.
 CodeScene is installed as a VS Code extension and reports code health issues in the Problems tab. The VS Code extension shares diagnostics automatically — you can see CodeScene warnings directly.
 
 When writing or modifying code:
+
 - Check VS Code diagnostics after each change for CodeScene warnings.
 - Fix CodeScene issues before considering a task complete.
 - Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
@@ -76,9 +95,14 @@ When writing or modifying code:
 
 ## Verification Commands
 
-These will be populated once the tech stack is decided. For now:
 - Markdown lint: `npx markdownlint-cli2 "**/*.md"`
 - Spell check: `npx cspell "**/*.md"`
+- Type check: `npx tsc --noEmit`
+- Unit tests: `npx vitest run`
+- E2E tests: `npx playwright test`
+- Lint: `npm run lint`
+- Build: `npm run build`
+- Supabase reset: `npx supabase db reset`
 
 **Note:** Markdown linting runs automatically after Write/Edit operations via post-tool-use hooks (configured in [settings.json](settings.json)).
 
@@ -89,10 +113,24 @@ docs/
   adr/              # Architecture Decision Records (NNNN-title.md)
   requirements/     # Requirements documents per phase
   design/           # Design documents
+  plans/            # Implementation and workflow plans
   reports/          # Drift reports and garbage collection output
   sessions/         # Per-session logs (YYYY-MM-DD-session-N.md)
-src/                # Source code (structure TBD pending tech stack ADR)
-tests/              # Test files (structure TBD)
+src/
+  app/              # Next.js App Router (pages, API routes, layouts)
+  lib/
+    engine/         # Assessment engine — pure business logic (no framework imports)
+    github/         # GitHub API client (Octokit wrapper)
+    supabase/       # Supabase client, helpers, type-safe queries
+  types/            # Shared TypeScript types and Zod schemas
+supabase/
+  migrations/       # SQL migration files (YYYYMMDDHHMMSS_name.sql)
+  seed.sql          # Test seed data
+tests/
+  e2e/              # Playwright E2E tests (*.e2e.ts)
+  fixtures/         # Test fixtures (LLM responses, GitHub API payloads)
+  mocks/            # MSW handlers for external APIs
+  helpers/          # Test utilities, factories, auth helpers
 ```
 
 ## Conventions

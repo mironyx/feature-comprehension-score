@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.5 |
+| Version | 0.7 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-04 |
-| Last updated | 2026-03-08 |
+| Last updated | 2026-03-09 |
 
 ## Change Log
 
@@ -19,6 +19,8 @@
 | 0.3 | 2026-03-06 | L3 Interactions: assessment lifecycle, PRCC flow, FCS flow, auth/session flow, configuration flow |
 | 0.4 | 2026-03-08 | L4 Contracts: database schema, RLS policies, API route contracts, LLM prompt/response schemas, webhook contract |
 | 0.5 | 2026-03-08 | L4 review: drop trigger (app-layer updated_at), drop github_repo_full_name (derived via join), drop is_admin (use github_role), add pgsodium key management docs, RESTful API (answers/PUT assessment/GET pr-participants), expand Naur layers in LLM system prompt |
+| 0.6 | 2026-03-09 | Drift report fixes: corrected Naur layer names in L1 C4 table (W2); added L4 section 4.8 PR Metadata Export contract (W1); added trivial commit heuristic contract to section 4.2 (I3) |
+| 0.7 | 2026-03-09 | Story 2.9 decision revised: PR metadata export uses Check Run only (not Commit Status API). Section 4.8 rewritten. L3 inline note updated. |
 
 ---
 
@@ -76,7 +78,7 @@ What the system does, grouped by domain. Each capability maps to stories in the 
 
 | Capability | Stories |
 |-----------|---------|
-| Generate 3-5 questions across Naur's three layers (world-to-program mapping, design justification, modification capacity) from artefacts | 4.1 |
+| Generate 3-5 questions across Naur's three layers: world-to-program mapping, design justification, modification capacity — from artefacts | 4.1 |
 | Generate fixed rubric (questions + weights + reference answers) in single LLM call | 4.1 |
 | Flag artefact quality (code-only, code+requirements, etc.) | 4.1 |
 | Score individual answers against reference (separate LLM call per answer) | 4.2 |
@@ -417,7 +419,7 @@ Assessment API        Claude API          Supabase DB         GitHub API
 
 **LLM error handling (Story 4.5):** Each scoring call retries up to 3 times with exponential backoff. If a scoring call fails after retries, the individual answer is marked `scoring_failed` and the aggregate is calculated from available scores. The assessment completes with a `scoring_incomplete` flag.
 
-**PR metadata export (Story 2.9):** After Check Run completion, the aggregate score and outcome are written to the PR as a commit status for external systems to consume.
+**PR metadata export (Story 2.9):** The Check Run is the metadata export mechanism for external systems. The aggregate score and outcome are surfaced via the Check Run `output.summary` field and the `external_id` field, which cross-references the assessment in Supabase. No separate commit status is written.
 
 #### PRCC sub-flows
 
@@ -1135,6 +1137,27 @@ $$;
 ```
 
 Safe because it only links the authenticated user (`auth.uid()`) to a participant record matching their GitHub user ID — cannot be used to impersonate another user.
+
+#### Trivial commit heuristic
+
+Determines whether a new commit pushed to a PR should invalidate the existing assessment (Story 2.8). Called by the webhook handler on `synchronize` events after debounce.
+
+**Definition:** A commit is **trivial** if it satisfies **both** of the following conditions:
+
+1. **Net line delta ≤ `trivial_commit_threshold`** (default: 5 lines, configurable in `org_config` / `repository_config`)
+   - Calculated as: `lines_added + lines_removed` across all changed files in the push diff
+2. **All changed files are documentation or comment-only** — i.e., every changed file matches at least one of:
+   - File extension is one of: `.md`, `.txt`, `.rst`, `.adoc`
+   - Every changed line (in the unified diff) is either a comment line (starts with `#`, `//`, `/*`, `*`, `*/`, `--`) or a blank line
+
+A commit satisfying **either** condition alone is not sufficient — both must hold. This prevents gaming by disguising large changes as comment-only.
+
+**Implementation note:** The heuristic is evaluated using the `files` array from the GitHub `push` webhook payload and/or `GET /repos/{owner}/{repo}/compare/{before}...{after}`. The `trivial_commit_threshold` is resolved via `get_effective_config()`.
+
+**Edge cases:**
+- If the diff is unavailable (GitHub API error), the commit is treated as non-trivial (safe default — assessment regenerates).
+- Binary file changes are always treated as non-trivial regardless of line count.
+- If `trivial_commit_threshold` is set to `0`, the trivial commit exception is effectively disabled — all commits invalidate the assessment.
 
 #### Config cascade function
 
@@ -1984,6 +2007,49 @@ Sent immediately when FCS assessment is created and rubric generation completes.
 Sent once after configurable timeout (default 48 hours). No further follow-up after the reminder.
 
 **Status:** Under review.
+
+---
+
+### 4.8 PR Metadata Export Contract
+
+Surfaces the PRCC assessment outcome to external systems via the existing Check Run (Story 2.9). No separate GitHub commit status is written in V1.
+
+**Decision:** Use **Check Run only** (Option B from spike-003 Finding 6). The Check Run already carries the aggregate score and outcome in its `output.summary` field. External tools can query:
+
+```
+GET /repos/{owner}/{repo}/commits/{ref}/check-runs?check_name=Comprehension+Check
+```
+
+and read the score from `output.summary`, or use `external_id` to cross-reference the assessment in the Supabase API.
+
+**Rationale:** Avoids adding `statuses: write` to the GitHub App permission manifest in V1. Reduces surface area — the Check Run is already the canonical signal. Commit status can be added in V2 if external tooling demands a cleaner machine-readable endpoint.
+
+#### Check Run fields used for export
+
+| Check Run field | Value written | Purpose |
+|----------------|---------------|----------|
+| `external_id` | Assessment UUID (from Supabase `assessments.id`) | Allows external tools to query our API for full assessment data |
+| `output.title` | `Comprehension Check — {outcome}` (e.g. `Comprehension Check — Passed`) | Human-readable state |
+| `output.summary` | `Aggregate comprehension: {score}% \| Participants: {n}/{total} \| Outcome: {outcome}` | Machine-parseable score line |
+| `details_url` | `https://{app-domain}/assessment/{assessment_id}` | Link to full results in web app |
+
+#### Summary format
+
+`output.summary` uses a consistent pipe-delimited format for reliable parsing:
+
+```
+Aggregate comprehension: 74% | Participants: 3/3 | Outcome: passed
+Aggregate comprehension: 51% | Participants: 3/3 | Outcome: failed (threshold: 70%)
+Aggregate comprehension: — | Participants: 0/3 | Outcome: skipped
+Aggregate comprehension: — | Participants: — | Outcome: generation_failed
+```
+
+**Notes:**
+- `external_id` is set when the Check Run is first created and does not change, even if the assessment is invalidated and recreated (in which case a new Check Run is created with a new `external_id`).
+- Assessment data (full rubric, answers, scores) remains in Supabase only. The Check Run carries summary information only — no participant data, no individual scores.
+- V2 consideration: add a separate commit status (`fcs/comprehension-score`) for teams with external dashboards or metrics pipelines that prefer the Commit Status API.
+
+**Status:** Approved.
 
 ---
 
