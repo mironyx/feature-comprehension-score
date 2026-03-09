@@ -424,3 +424,164 @@ Each retro checks whether actions from the previous retro were implemented. This
 ---
 
 *This report was generated from analysis of the project's git history, GitHub issues, project board, requirements, design documents, implementation plan, drift report, and CLAUDE.md configuration.*
+
+---
+
+## 9. Follow-up Observations — 2026-03-09
+
+Observations from session work after the initial report. Recorded as a brain dump; structured below into problems and proposed actions.
+
+### New Problems Identified
+
+#### P7: GitHub project status updates are operationally expensive
+
+**Observation:** Moving an issue to "In Progress" on the GitHub project board requires a chain of four `gh` CLI calls chained with inline Python: get project ID, get item ID, get field ID, get option ID — then a final `gh project item-edit`. This is fragile, verbose, and slow. Example (actually executed in session):
+
+```bash
+gh project item-edit \
+  --project-id $(gh project list --owner leonids2005 --format json | python3 -c "import json,sys; print(json.load(sys.stdin)['projects'][0]['id'])") \
+  --id $(gh project item-list 1 --owner leonids2005 --format json | python3 -c "import json,sys; [print(i['id']) for i in json.load(sys.stdin)['items'] if i.get('content',{}).get('number')==8]") \
+  --field-id $(gh project field-list 1 --owner leonids2005 --format json | python3 -c "import json,sys; [print(f['id']) for f in json.load(sys.stdin)['fields'] if f['name']=='Status']") \
+  --single-select-option-id $(gh project field-list 1 --owner leonids2005 --format json | python3 -c "import json,sys; [print(o['id']) for o in next(f for f in json.load(sys.stdin)['fields'] if f['name']=='Status').get('options',[]) if o['name']=='In Progress']")
+```
+
+The same four-call pattern repeats for every status transition (In Progress → Done). In practice, status updates were missed or deferred to the end of the session because the cost of doing them correctly was too high mid-task.
+
+**Impact:** Issues were not moved to "In Progress" when work started, and status updates were batched at session end rather than per-task. This defeats the real-time board visibility that R1 was designed to provide.
+
+#### P8: Session startup is slow — multiple round trips to orient
+
+**Observation:** Even with session logs in place (R4), starting a session still required several sequential `gh` calls to discover project state: listing issues, checking board columns, identifying blockers. The session log helps but does not eliminate the back-and-forth.
+
+**Impact:** Session start friction remains high. The orientation protocol is correct in theory but each step requires a network round trip, and blocked items require reading their body to understand why they are blocked.
+
+#### P9: Work started without a GitHub issue
+
+**Observation:** In at least one instance, work began on a task that had no corresponding GitHub issue. The task was completed and committed, but no issue was created, claimed, or closed — breaking the backlog-as-truth-source principle from R1.
+
+**Impact:** The backlog is incomplete. Completed work is not traceable to an issue. The board does not reflect what was actually done.
+
+#### P10: Commit and status discipline slipped mid-session
+
+**Observation:** The intended per-task protocol (commit → close issue → update status) was not consistently followed. Commits and issue closures were deferred to session end. Status updates were incorrect at points during the session.
+
+**Impact:** Mid-session state was unreliable. A second agent reading the board during the session would have seen an inaccurate picture. The post-session cleanup worked, but the process relies on the agent remembering to batch-fix at the end.
+
+#### P11: Scope inflation risk from low-cost AI generation
+
+**Observation:** When generating design and documentation is cheap (AI-assisted), there is a pull toward adding more detail, more sections, more coverage — beyond what is actually needed. Brevity requires more discipline than verbosity when the marginal cost of an extra paragraph is near zero.
+
+**Impact:** Documents grow longer than necessary. ADRs in particular accumulated sections (Forces, Implications subsections) that added length without adding decision clarity. The user explicitly noted this in Session 5 (ADR-0006 trimmed from 174 to 134 lines).
+
+#### P12: Markdown linting and spell-check add friction without proportionate value
+
+**Observation:** Lint and spell-check steps were experienced as overhead that slowed sessions without catching meaningful issues. For a documentation-heavy pre-code phase, formatting consistency is less valuable than content accuracy.
+
+**Impact:** Process friction. Steps that do not pay for themselves should be removed or made optional.
+
+#### P13: Context window fills before session work is complete
+
+**Observation:** Long sessions accumulate context (file reads, command outputs, conversation history) that can exhaust the model's context window before the intended session scope is finished. Work may be cut short or require a new session to complete partial tasks.
+
+**Impact:** Unfinished tasks, incomplete commits, or tasks that span sessions unintentionally — increasing the orientation cost for the next session.
+
+---
+
+### New Recommendations
+
+#### R6: Create a `gh-project` helper script for status updates
+
+**Problem addressed:** P7
+
+**Proposal:** Write a small shell script `scripts/gh-project-status.sh` that wraps the four-call chain into a single command:
+
+```bash
+./scripts/gh-project-status.sh <issue-number> <status>
+# e.g.
+./scripts/gh-project-status.sh 8 "In Progress"
+./scripts/gh-project-status.sh 8 "Done"
+```
+
+The script resolves project ID, item ID, field ID, and option ID internally. The agent calls one line instead of four chained subshells. This removes the friction that caused status updates to be skipped.
+
+**Alternative considered:** A custom `/gh-status` skill in `.claude/commands/`. This keeps the logic in the agent layer rather than a shell script, which may be preferable for portability.
+
+#### R7: Encode project IDs in CLAUDE.md to eliminate discovery round trips
+
+**Problem addressed:** P7, P8
+
+**Proposal:** The GitHub project ID, Status field ID, and status option IDs (Todo, Blocked, In Progress, Done) are stable — they do not change between sessions. Cache them in `CLAUDE.md` or a dedicated `docs/project-config.md`. The agent reads them once at session start rather than querying for them each time.
+
+This reduces the four-call chain to a single `gh project item-edit` call with known IDs.
+
+#### R8: Enforce "no work without an issue" rule in session protocol
+
+**Problem addressed:** P9
+
+**Proposal:** Add an explicit gate to the per-task protocol:
+
+```
+0. If no issue exists for the task → create one before starting
+1. Move issue to In Progress (using R6 helper)
+2. ... (existing steps)
+```
+
+The session log "Next session should start with" section must reference issue numbers. If it cannot, the issue does not exist and must be created.
+
+#### R9: Tighten ADR format — three sections maximum for straightforward decisions
+
+**Problem addressed:** P11
+
+**Proposal:** The ADR template should distinguish between:
+
+- **Simple decisions** (one viable option, context is clear): Status, Context, Decision, Consequences — four sections, target ≤ 60 lines.
+- **Contested decisions** (multiple real alternatives evaluated): add Options Considered and Rationale — target ≤ 100 lines.
+
+Forces, Implications subsections, and LLM call strategy tables are only added if they contain information not already present elsewhere. Default posture: omit and add only if needed.
+
+#### R10: Remove markdown lint and spell-check from session protocol
+
+**Problem addressed:** P12
+
+**Proposal:** Drop lint and spell-check as session steps. They are not in the current protocol (CLAUDE.md) but may be invoked ad hoc. Explicitly note in CLAUDE.md that these are not required steps. The drift scan and definition-of-done checklist are the quality gates; formatting consistency is not a gate.
+
+#### R11: Scope sessions explicitly — stop before context fills
+
+**Problem addressed:** P13
+
+**Proposal:** At session start, after identifying the task list, estimate whether the full scope fits in one session. If not, scope down to a single issue before starting. The "Next session should start with" section in the session log is the handoff mechanism — it is better to finish one task cleanly and hand off than to half-finish two tasks.
+
+Add to the per-task protocol:
+
+```
+Before starting: confirm this task can be completed before context fills.
+If uncertain, pick a smaller task or explicitly scope to a subset.
+```
+
+#### R12: Introduce PR-based review flow for agent-produced work
+
+**Problem addressed:** P11 (quality, not just brevity)
+
+**Proposal:** For substantive artefacts (ADRs, design sections, requirements changes), introduce a lightweight PR review loop:
+
+1. Agent produces artefact on a feature branch and opens a draft PR.
+2. A second agent (or async review) checks the PR against the definition of done and flags issues as PR comments.
+3. Human reviews the PR (with agent commentary already present) and merges or requests changes.
+4. After merge, issue is closed.
+
+**Current constraint:** This adds overhead that is disproportionate for Phase 0 single-author documentation. Recommended to trial when parallel agents are active (see §4) — the review step is most valuable when an agent is working autonomously on a branch and the human is not present for the session.
+
+**Minimum viable version for now:** Agent opens a PR instead of committing directly to `main`. Human merges. No second agent review yet. This alone gives a review checkpoint without requiring parallel agent infrastructure.
+
+---
+
+### Updated Immediate Actions
+
+| # | Action | Priority | Status |
+|---|--------|----------|--------|
+| A1 | Write `scripts/gh-project-status.sh` helper (R6) | High | Pending |
+| A2 | Cache project/field/option IDs in CLAUDE.md (R7) | High | Pending |
+| A3 | Add "no work without an issue" gate to CLAUDE.md per-task protocol (R8) | Medium | Pending |
+| A4 | Update ADR template with size guidance (R9) | Medium | Pending |
+| A5 | Add explicit note to CLAUDE.md: lint/spell-check not required (R10) | Low | Pending |
+| A6 | Add session scoping step to CLAUDE.md session start protocol (R11) | Medium | Pending |
