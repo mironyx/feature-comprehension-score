@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
+| Version | 0.6 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-08 |
+| Last updated | 2026-03-09 |
 
 ## Change Log
 
@@ -18,6 +18,8 @@
 | 0.2 | 2026-03-05 | LS / Claude | Applied confirmed decisions from implementation plan review: simplified roles, updated Naur layer names, added Story 2.9, updated FCS creation flow, deferred auto-save and Naur layer breakdown, added trivial commit detection |
 | 0.3 | 2026-03-07 | LS / Claude | Story 3.1: FCS participants auto-suggested from PR authors/reviewers instead of manual entry (L3 design decision) |
 | 0.4 | 2026-03-08 | LS / Claude | Story 1.1: Added acceptance criteria for org/repo soft-delete (active/inactive status on uninstall/removal) |
+| 0.5 | 2026-03-09 | LS / Claude | Drift report fixes: replaced Repo Admin with Org Admin (W3, Stories 1.3, 2.7, 6.1); removed deprecated FCS Initiator and FCS Participant role names (W4, Roles section and Story 3.3); removed auto-save from Story 5.3 acceptance criteria (W5); rewrote Story 3.1 artefact selection to merged PRs only (W6); fixed Epic 5 hosting reference to GCP Cloud Run (I1); added Research Spikes to Appendix (I2) |
+| 0.6 | 2026-03-09 | LS / Claude | Story 2.9: updated acceptance criteria to reference Check Run as the metadata export mechanism (not commit status or label), aligned with design doc v0.7 decision |
 
 ---
 
@@ -43,8 +45,8 @@
 
 | Role | Type | Description |
 |------|------|-----------|
-| **Org Admin** | Persistent | Highest app role. Installs the GitHub App, configures organisation-level and repository-level settings. Maps to GitHub organisation owner/admin. Also has FCS Initiator capability (can create feature assessments). |
-| **User** | Persistent | Any authenticated user who belongs to an organisation with the app installed. Can view assessments for their orgs, answer assessments they are listed on, and be nominated as an FCS participant. |
+| **Org Admin** | Persistent | Highest app role. Installs the GitHub App, configures organisation-level and repository-level settings. Maps to GitHub organisation owner/admin. Can create FCS assessments. |
+| **User** | Persistent | Any authenticated user who belongs to an organisation with the app installed. Can view assessments for their orgs, answer assessments they are listed on, and be nominated as a participant. |
 | **Author** | Contextual | PR author in a PRCC assessment. Assigned automatically when a PR triggers PRCC. |
 | **Reviewer** | Contextual | Required reviewer on a PR in a PRCC assessment. Assigned automatically. |
 
@@ -102,7 +104,7 @@ Enable organisations to install the GitHub App, onboard repositories, and config
 
 **Acceptance Criteria:**
 
-- Given a registered repository, the Org Admin can configure:
+- Given a registered repository, an Org Admin can configure:
   - **PRCC enabled/disabled** (default: enabled)
   - **FCS enabled/disabled** (default: enabled)
   - **Enforcement mode for PRCC:** Soft or Hard (default: Soft)
@@ -113,6 +115,7 @@ Enable organisations to install the GitHub App, onboard repositories, and config
   - **Exempt file patterns:** Glob patterns for files that should not trigger PRCC (e.g., `*.md`, `*.json`, `package-lock.json`)
 - Given a configuration change is saved, then it takes effect for the next assessment (not retroactively).
 - Given no configuration has been set for a repository, then organisation-level defaults are used.
+- Only Org Admins can access and modify repository configuration.
 
 ---
 
@@ -267,11 +270,11 @@ The preventative quality gate. When a PR is opened or updated on a PRCC-enabled 
 
 **Acceptance Criteria:**
 
-- Given a PR has a PRCC assessment pending, an Org Admin can mark the assessment as "skipped" from the web app with a mandatory reason.
+- Given a PR has a PRCC assessment pending, an Org Admin can mark the assessment as "skipped" from the web app with a mandatory reason. Only Org Admins can skip assessments.
 - Given an assessment is skipped, the GitHub Check is set to "neutral" with annotation "Comprehension check skipped: [reason]".
 - The skip event is recorded (user, timestamp, reason).
 - Skips are visible in organisation-level reporting (skip rate is a tracked metric).
-- PR Authors cannot skip their own assessments unless they are also Org Admins.
+- PR Authors cannot skip their own assessments unless they are also Org Admins (role check via GitHub API).
 
 ---
 
@@ -302,10 +305,10 @@ The preventative quality gate. When a PR is opened or updated on a PRCC-enabled 
 
 **Acceptance Criteria:**
 
-- Given a PRCC assessment completes (pass or fail), the aggregate score is written to the PR as a commit status or label.
-- Given a PRCC assessment is skipped, the skip status and reason are written to the PR metadata.
-- The metadata format is consistent and machine-readable for external tooling.
-- Assessment data remains in Supabase (the metadata is a reference/summary only, not the full assessment).
+- Given a PRCC assessment completes (pass or fail), the aggregate score and outcome are surfaced via the GitHub Check Run `output.summary` field in a consistent, machine-readable format (pipe-delimited: `Aggregate comprehension: {score}% | Participants: {n}/{total} | Outcome: {outcome}`).
+- Given a PRCC assessment is skipped, the Check Run `output.summary` reflects the skipped outcome.
+- External systems can query the Check Run via `GET /repos/{owner}/{repo}/commits/{ref}/check-runs?check_name=Comprehension+Check` and use the `external_id` field to cross-reference with the Supabase API for full assessment data.
+- Assessment data remains in Supabase only (the Check Run carries summary information, not the full assessment).
 
 ---
 
@@ -325,7 +328,7 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
 - I provide:
   - Feature name/title (free text)
   - Description (optional)
-  - Merged PR selection: one or more merged PRs from the repository (the system extracts artefacts from the selected PRs, reusing the same extraction logic as PRCC)
+  - One or more merged PRs from the repository (the system extracts artefacts from the selected PRs, reusing the same extraction logic as PRCC)
   - Participant list: auto-suggested from the authors and reviewers of the selected merged PRs. Org Admin can add or remove participants before confirming.
 - Given I select merged PRs, the system auto-suggests participants from those PRs' authors and reviewers.
 - Given I submit, the system fetches artefacts from the selected PRs via GitHub API and initiates question generation.
@@ -358,7 +361,7 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
 
 - All acceptance criteria from Story 2.4 apply (authentication, access control, question display, submission, no resubmission).
 - FCS assessments do not block any GitHub process (no Check Run).
-- Given not all participants have completed, the Org Admin can see a completion dashboard showing who has and has not answered (by name — visible to Org Admin only for follow-up).
+- Given not all participants have completed, the Org Admin can see a completion dashboard showing which participants have and have not answered (visible to Org Admin only for follow-up purposes).
 
 ---
 
@@ -494,6 +497,8 @@ Modification capacity (safe change paths): "Given the following codebase and req
 
 The Next.js web application hosted on GCP Cloud Run (ADR-0002). Handles authentication, question answering, results, and configuration.
 
+**Hosting:** GCP Cloud Run (see ADR-0002). Not Vercel.
+
 ### Story 5.1: GitHub OAuth Authentication
 
 **As a** user,
@@ -586,7 +591,7 @@ Result pages for individual assessments and organisation-level overview. Focus o
   - Per-question aggregate score (no individual attribution)
   - The questions (reference answers NOT shown for PRCC — prevents answer sharing on future PRs)
 - Does NOT show: individual participant scores, which participant answered which way, or reference answers.
-- Accessible to: all participants, Org Admins.
+- Accessible to: all participants and Org Admins. Access verified via organisation membership check.
 
 ---
 
@@ -695,13 +700,24 @@ Links to ADRs that informed these requirements:
 | ADR | Decision |
 |-----|----------|
 | ADR-0001 | GitHub App as integration mechanism (vs GitHub Action) |
-| ADR-0002 | Hosting: Vercel vs GCP Cloud Run |
+| ADR-0002 | Hosting: GCP Cloud Run (chosen over Vercel) |
 | ADR-0003 | Auth: Supabase Auth + GitHub OAuth |
 | ADR-0004 | Roles & access control model |
 | ADR-0005 | Single aggregate score (no author/reviewer split) |
 | ADR-0006 | Soft/Hard enforcement modes |
 | ADR-0007 | PR size threshold criteria (lines vs files vs combination) |
 | ADR-0008 | Data model & multi-tenancy approach |
+
+---
+
+## Appendix: Research Spikes
+
+Research spikes that informed design decisions and ADRs:
+
+| Spike | Topic | Informed |
+|-------|-------|----------|
+| spike-003 | GitHub Check API — Check Runs vs Commit Statuses, permissions, webhook events, re-run behaviour | ADR-0001 (GitHub App integration), Story 2.9 L4 contract (PR metadata export via commit status) |
+| spike-004 | Supabase Auth + GitHub OAuth — session management, JWT handling, RLS integration, org membership verification | ADR-0003 (Auth: Supabase Auth + GitHub OAuth) |
 
 ---
 
