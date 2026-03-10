@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint & Type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Markdownlint
+        run: npm run lint:md
+
+      - name: Type-check
+        run: npm run type-check
+
+  unit-tests:
+    name: Unit tests
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run unit tests
+        run: npx vitest run --exclude '**/*.integration.test.ts' --passWithNoTests
+
+  build:
+    name: Build
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build Next.js
+        run: npm run build
+
+  docker:
+    name: Docker build
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t fcs-app:ci .
+
+  # ---------- Scaffolded stages — activate when ready ----------
+
+  # integration-tests:
+  #   name: Integration tests (Supabase)
+  #   needs: quality
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #         cache: npm
+  #
+  #     - run: npm ci
+  #
+  #     - name: Install Supabase CLI
+  #       run: npx supabase --version
+  #
+  #     - name: Start Supabase
+  #       run: npx supabase start --ignore-health-check
+  #
+  #     - name: Reset database (apply migrations + seed)
+  #       run: npx supabase db reset
+  #
+  #     - name: Run integration tests
+  #       run: npx vitest run --testPathPattern '\.integration\.test\.ts$'
+  #       env:
+  #         SUPABASE_URL: http://127.0.0.1:54321
+  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  #         SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+  # e2e:
+  #   name: E2E tests (Playwright)
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #         cache: npm
+  #
+  #     - run: npm ci
+  #
+  #     - name: Install Playwright browsers
+  #       run: npx playwright install --with-deps chromium
+  #
+  #     - name: Build application
+  #       run: npm run build
+  #
+  #     - name: Run E2E tests
+  #       run: npx playwright test
+
+  # hadolint:
+  #   name: Dockerfile lint (Hadolint)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: hadolint/hadolint-action@v3.1.0
+  #       with:
+  #         dockerfile: Dockerfile
+
+  # trivy:
+  #   name: Container security scan (Trivy)
+  #   needs: docker
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - name: Build Docker image
+  #       run: docker build -t fcs-app:ci .
+  #
+  #     - uses: aquasecurity/trivy-action@0.28.0
+  #       with:
+  #         image-ref: fcs-app:ci
+  #         format: table
+  #         exit-code: 1
+  #         severity: CRITICAL,HIGH
+
+  # sonar:
+  #   name: SonarCloud analysis
+  #   needs: unit-tests
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #
+  #     - uses: SonarSource/sonarcloud-github-action@v3
+  #       env:
+  #         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  #       with:
+  #         args: >
+  #           -Dsonar.projectKey=feature-comprehension-score
+  #           -Dsonar.organization=leonids2005
+  #           -Dsonar.sources=src
+  #           -Dsonar.tests=tests
+  #           -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
