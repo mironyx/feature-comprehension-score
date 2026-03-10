@@ -11,7 +11,8 @@
     "format:check": "prettier --check .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint:md": "markdownlint-cli2 \"docs/**/*.md\" \"*.md\""
   },
   "dependencies": {
     "next": "^15.2.0",
@@ -27,6 +28,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.2.0",
+    "markdownlint-cli2": "^0.21.0",
     "prettier": "^3.4.0",
     "supabase": "^2.77.0",
     "typescript": "^5.7.0",

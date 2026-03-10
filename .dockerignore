@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.gitignore
+supabase/.temp
+coverage
+test-results
+playwright-report
+local-docs
+docs
+tests
+*.md
+!README.md
+.env*
+.vscode
