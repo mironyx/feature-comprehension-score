@@ -11,6 +11,9 @@
     "format:check": "prettier --check .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run --testPathPattern '\\.integration\\.test\\.ts$'",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint:md": "markdownlint-cli2 \"docs/**/*.md\" \"*.md\""

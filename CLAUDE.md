@@ -71,7 +71,32 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
 - **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval).
-- **TDD/BDD-first.** Tests written before implementation. BDD-style naming: `Given/When/Then` in `describe`/`it` blocks.
+- **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
+
+## TDD Discipline
+
+Strict Red-Green-Refactor. No exceptions.
+
+1. **RED** — Write a failing test first. Run it. Confirm it fails for the right reason.
+2. **GREEN** — Write the minimum code to make the test pass. No more.
+3. **REFACTOR** — Clean up while tests stay green. Apply SOLID principles here.
+
+Rules:
+
+- Never write implementation code without a failing test.
+- One test at a time. Do not batch a test suite then implement.
+- Tests exercise behaviour through public interfaces, not implementation details.
+- Tests read as specifications (BDD: `Given/When/Then` in `describe`/`it` blocks).
+- Run tests after every change — `npx vitest run` for unit, `npx tsc --noEmit` for types.
+
+## Coding Principles
+
+- **SOLID** — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion. Apply during refactoring, not as upfront ceremony.
+- **Clean Architecture** — `src/lib/engine/` is pure domain logic: no framework imports, no I/O, no Supabase/Next.js dependencies. Depend inward, never outward.
+- **Dependency Inversion at boundaries** — Engine depends on interfaces (ports). Adapters (`github/`, `supabase/`) implement them. Inject dependencies, don't import concrete implementations into domain code.
+- **Functions over classes** unless state management genuinely requires it. Prefer composition over inheritance.
+- **Types as documentation** — Use discriminated unions, branded types, and Zod schemas. Avoid `any` and type assertions.
+- **FIRST tests** — Fast, Independent, Repeatable, Self-validating, Timely.
 
 ## Session Guidance
 
