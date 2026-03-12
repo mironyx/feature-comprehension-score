@@ -109,28 +109,28 @@ jobs:
   #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
   #         SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
-  # e2e:
-  #   name: E2E tests (Playwright)
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 20
-  #         cache: npm
-  #
-  #     - run: npm ci
-  #
-  #     - name: Install Playwright browsers
-  #       run: npx playwright install --with-deps chromium
-  #
-  #     - name: Build application
-  #       run: npm run build
-  #
-  #     - name: Run E2E tests
-  #       run: npx playwright test
+  e2e:
+    name: E2E tests (Playwright)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run E2E tests
+        run: npx playwright test
 
   # hadolint:
   #   name: Dockerfile lint (Hadolint)

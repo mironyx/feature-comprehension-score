@@ -12,6 +12,7 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "lint:md": "markdownlint-cli2 \"docs/**/*.md\" \"*.md\""
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
+    "@playwright/test": "^1.58.2",
     "@supabase/supabase-js": "^2.99.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
@@ -29,6 +31,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.2.0",
     "markdownlint-cli2": "^0.21.0",
+    "msw": "^2.12.10",
     "prettier": "^3.4.0",
     "supabase": "^2.77.0",
     "typescript": "^5.7.0",

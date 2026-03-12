@@ -11,6 +11,7 @@ export default defineConfig({
       'src/**/*.integration.test.ts',
       'tests/**/*.integration.test.ts',
     ],
+    setupFiles: ['./tests/setup.ts'],
     coverage: {
       provider: 'v8',
       thresholds: {
