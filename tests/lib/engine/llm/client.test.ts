@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
-import { AnthropicClient } from './client';
+import { AnthropicClient } from '@/lib/engine/llm/client';
 
 const TestSchema = z.object({
   answer: z.string(),

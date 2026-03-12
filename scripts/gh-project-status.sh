@@ -39,7 +39,7 @@ fi
 # This is the one lookup we cannot cache — item IDs change when issues
 # are removed and re-added to the board.
 ITEM_ID=$(gh project item-list 1 --owner "$OWNER" --format json \
-  | python3 -c "
+  | python -c "
 import json, sys
 data = json.load(sys.stdin)
 for item in data['items']:
