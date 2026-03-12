@@ -47,7 +47,7 @@ export class AnthropicClient implements LLMClient {
       });
 
       const textContent = response.content.find((c) => c.type === 'text');
-      if (!textContent || textContent.type !== 'text') {
+      if (!textContent || textContent.type !== 'text') { // second check narrows type for TS
         return failure(makeError('malformed_response', 'No text content in response', true));
       }
 

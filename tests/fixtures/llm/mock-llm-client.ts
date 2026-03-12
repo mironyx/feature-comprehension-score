@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { LLMClient, LLMError, LLMErrorCode, LLMResult } from '@/lib/engine/llm/types';
+import type { LLMClient, LLMError, LLMErrorCode } from '@/lib/engine/llm/types';
 import {
   QuestionGenerationResponseSchema,
   ScoringResponseSchema,
@@ -27,42 +27,41 @@ const defaultResponses = new Map<ZodType, unknown>([
   [RelevanceResponseSchema, relevanceFixture.valid],
 ]);
 
+function success<T>(data: T) {
+  return { success: true as const, data };
+}
+
+function failure(error: LLMError) {
+  return { success: false as const, error };
+}
+
 export function createMockLLMClient(options?: MockLLMClientOptions): LLMClient {
   return {
-    async generateStructured<T extends ZodType>(request: {
-      prompt: string;
-      systemPrompt: string;
-      schema: T;
-      model?: string;
-      maxTokens?: number;
-    }): Promise<LLMResult<T['_output']>> {
+    generateStructured: async (request) => {
       if (options?.error) {
-        const error: LLMError = {
+        return failure({
           code: options.error.code,
           message: options.error.message ?? 'Mocked error',
           retryable: RETRYABLE_CODES.has(options.error.code),
-        };
-        return { success: false, error };
+        });
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy output<T>
       const overrideResponse = options?.responses?.get(request.schema);
       if (overrideResponse !== undefined) {
-        return { success: true, data: overrideResponse as T['_output'] };
+        return success(overrideResponse as any);
       }
 
       const defaultResponse = defaultResponses.get(request.schema);
       if (defaultResponse !== undefined) {
-        return { success: true, data: defaultResponse as T['_output'] };
+        return success(defaultResponse as any);
       }
 
-      return {
-        success: false,
-        error: {
-          code: 'unknown',
-          message: `No fixture registered for schema`,
-          retryable: false,
-        },
-      };
+      return failure({
+        code: 'unknown',
+        message: 'No fixture registered for schema',
+        retryable: false,
+      });
     },
   };
 }

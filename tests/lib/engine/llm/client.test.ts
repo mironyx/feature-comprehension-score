@@ -109,13 +109,7 @@ describe('LLM client wrapper', () => {
         .mockRejectedValueOnce(rateLimitError)
         .mockResolvedValueOnce(makeValidResponse());
 
-      const fastClient = new AnthropicClient({
-        apiKey: 'test-key',
-        anthropicClient: mockAnthropic as unknown as Anthropic,
-        retryConfig: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 100 },
-      });
-
-      const result = await fastClient.generateStructured(TEST_REQUEST);
+      const result = await client.generateStructured(TEST_REQUEST);
 
       expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(3);
       expect(result.success).toBe(true);
@@ -127,13 +121,7 @@ describe('LLM client wrapper', () => {
       const serverError = Object.assign(new Error('Internal server error'), { status: 500 });
       mockAnthropic.messages.create.mockRejectedValue(serverError);
 
-      const fastClient = new AnthropicClient({
-        apiKey: 'test-key',
-        anthropicClient: mockAnthropic as unknown as Anthropic,
-        retryConfig: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 100 },
-      });
-
-      const result = await fastClient.generateStructured(TEST_REQUEST);
+      const result = await client.generateStructured(TEST_REQUEST);
 
       expect(result.success).toBe(false);
       if (!result.success) {
