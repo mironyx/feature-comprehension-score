@@ -3,6 +3,9 @@ import path from 'path';
 
 export default defineConfig({
   test: {
+    typecheck: {
+      tsconfig: './tsconfig.test.json',
+    },
     globals: true,
     environment: 'node',
     include: [
