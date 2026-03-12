@@ -46,3 +46,6 @@ supabase/.temp/
 
 # local-docs
 /local-docs
+
+# VS Code diagnostics export
+/.diagnostics

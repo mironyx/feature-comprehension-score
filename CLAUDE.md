@@ -106,17 +106,19 @@ Not enforced ceremony — use judgement. Session boundaries are informal.
 - **Per-task:** Move issue to In Progress, do the work, commit referencing issue number, close issue, unblock downstream issues (Blocked → Todo).
 - **Wrapping up:** Write a session log to `docs/sessions/YYYY-MM-DD-session-N.md` capturing completed work, decisions made, and next steps. Push to remote.
 
-## Code Quality — CodeScene Integration
+## Code Quality — Diagnostics Pipeline
 
-CodeScene is installed as a VS Code extension and reports code health issues in the Problems tab. The VS Code extension shares diagnostics automatically — you can see CodeScene warnings directly.
+CodeScene (and other VS Code extensions) report code health issues via VS Code's diagnostics API (Problems tab). A custom VS Code extension (`diagnostics-exporter`) reads these diagnostics and writes them to `.diagnostics/`, mirroring the source tree structure (e.g., `src/lib/engine/scoring.ts` -> `.diagnostics/src/lib/engine/scoring.ts`).
 
-When writing or modifying code:
+**Two feedback channels:**
 
-- Check VS Code diagnostics after each change for CodeScene warnings.
-- Fix CodeScene issues before considering a task complete.
+1. **Automatic (hook)** — A PostToolUse hook on Write/Edit waits 3s for the extension to export, then injects diagnostics as inline context. Configured in `.claude/settings.json`. No action needed — diagnostics appear automatically after editing source files.
+2. **Manual (`/diag`)** — Batch check across all changed files. Use before committing or when you want a full scan. Accepts optional file arguments.
+
+- Review and fix diagnostics before considering a task complete.
 - Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
-- If a CodeScene issue conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
-- Do not suppress or disable CodeScene rules without discussing with the user first.
+- If a diagnostic conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
+- Do not suppress or disable diagnostic rules without discussing with the user first.
 
 ## Verification Commands
 
@@ -169,6 +171,7 @@ tests/
 
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
+- `/diag` — Batch check VS Code extension diagnostics for changed files before committing
 
 ## Custom Commands
 
@@ -178,3 +181,4 @@ tests/
 ## Custom Agents
 
 - `requirements-design-drift` — Read-only agent that scans for misalignment between requirements and design documents. Produces drift reports with coverage matrices and prioritised recommendations. Inspired by the OpenAI Codex "garbage collection" pattern.
+- `diagnostics-checker` — Background agent that reads VS Code extension diagnostics from `.diagnostics/` after code changes. Launch after writing/editing source files to catch code quality issues before committing.
