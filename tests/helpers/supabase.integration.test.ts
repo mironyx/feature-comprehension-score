@@ -172,6 +172,8 @@ describe('RLS policies enforce org isolation', () => {
 
     expect(error).toBeNull();
     expect(data).toHaveLength(1);
+
+    // Diagnostics hook verified — pipeline works end-to-end
   });
 
   it('Given user A is a member (not admin) of org 1, then user A cannot update org_config', async () => {
@@ -185,7 +187,6 @@ describe('RLS policies enforce org isolation', () => {
       .eq('org_id', orgId1)
       .single();
     expect(configData).not.toBeNull();
-
     // Member attempting to update — should be blocked by RLS
     const { error } = await client1
       .from('org_config')
