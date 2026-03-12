@@ -67,10 +67,10 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Small PRs.** Target < 200 lines. This is a tracked quality gate.
 - **Document decisions as ADRs.** Use `/create-adr` skill. Every significant technical choice gets recorded — these become artefacts for our own FCS assessment.
 - **British English** in all documentation and comments.
-- **Markdown** for all documentation. Use consistent heading hierarchy.
+- **Markdown** for all documentation. Use consistent heading hierarchy. Wrap bare URLs in angle brackets (`<https://...>`) to pass markdownlint MD034.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
-- **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval).
+- **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval). During review, check design adequacy: were the design contracts precise enough to implement from? If not, update `docs/design/` in the same PR.
 - **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
 
 ## TDD Discipline

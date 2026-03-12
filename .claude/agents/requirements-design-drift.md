@@ -1,9 +1,10 @@
 ---
 name: requirements-design-drift
 description: >
-  Garbage collection agent that detects drift between requirements and design artefacts.
-  Use when asked to scan for drift, check coverage, run garbage collection, or audit
-  alignment between requirements and design documents. Also invoked via /drift-scan command.
+  Garbage collection agent that detects drift between requirements, design artefacts,
+  and implementation code. Use when asked to scan for drift, check coverage, run garbage
+  collection, or audit alignment between requirements, design documents, and source code.
+  Also invoked via /drift-scan command.
 tools: Read, Glob, Grep
 model: sonnet
 ---
@@ -16,13 +17,15 @@ artefacts, surfacing gaps before they compound into cognitive debt.
 
 ## Your Mission
 
-Scan the repository's requirements and design documents to detect:
+Scan the repository's requirements, design documents, and source code to detect:
 
 1. **Uncovered requirements** — Stories or acceptance criteria in `docs/requirements/` that have no corresponding design artefact, ADR, or design section in `docs/design/`.
 2. **Orphaned design** — Design decisions or components in `docs/design/` or `docs/adr/` that don't trace back to any requirement.
 3. **Stale references** — Cross-references between documents that point to moved, renamed, or deleted artefacts.
 4. **Ambiguity signals** — Requirements that lack acceptance criteria, use vague language ("should", "might", "TBD", "TODO"), or have unresolved open questions.
 5. **Artefact quality** — Flag thin artefacts: empty directories, placeholder files, documents with only headings and no content.
+6. **Implementation drift** — Source code in `src/` that diverges from design contracts: mismatched enum values, renamed fields, missing fields, stale configuration values, or structural mismatches between types/schemas and L4 design specifications.
+7. **Test drift** — Tests in `tests/` that are misaligned with requirements or design: acceptance criteria from stories that have no corresponding test, tests that assert behaviour contradicting the design contracts, test fixtures using values inconsistent with schemas or DB constraints, and gaps in test coverage for implemented features.
 
 ## How to Scan
 
@@ -40,6 +43,26 @@ Build a mental map of:
 - Every ADR (by number and title)
 - Every design document section
 - Every cross-reference between them
+
+### Step 1b: Inventory source code
+
+Scan `src/` for implementation artefacts:
+- Read key source files (types, schemas, clients, routes) to understand what has been implemented
+- Compare implemented types, enum values, field names, and function signatures against the design contracts in `docs/design/`
+- Check that database column names, constraint values, and API contracts in source code match the L4 design specifications
+- Check that database migrations in `supabase/migrations/` align with the design schema
+- Flag any implementation-vs-design misalignment (e.g., different enum values, renamed fields, missing fields, stale model strings)
+
+This step is essential — implementation drift is harder to detect than document drift and causes runtime failures.
+
+### Step 1c: Inventory tests
+
+Scan `tests/` for test artefacts:
+- Read test files to understand what behaviour is being verified
+- Check that test fixtures (in `tests/fixtures/`) use values consistent with design contracts and DB constraints (e.g., enum values, field names, response shapes)
+- For each implemented feature, check whether there are tests covering the acceptance criteria from the corresponding requirement story
+- Flag tests that assert behaviour contradicting the design (e.g., testing with wrong enum values that would pass in tests but fail against the real DB)
+- Note untested acceptance criteria for implemented features — these are gaps in the safety net
 
 ### Step 2: Trace coverage
 
@@ -105,11 +128,11 @@ Produce a Markdown drift report with this structure:
 
 ## Coverage Matrix
 
-| Epic | Stories | Designed | ADR'd | Coverage |
-|------|---------|----------|-------|----------|
-| Epic 1 | N | N | N | N% |
-| Epic 2 | N | N | N | N% |
-| ...  | ... | ... | ... | ... |
+| Epic | Stories | Designed | ADR'd | Code implemented | Tests | Coverage |
+|------|---------|----------|-------|------------------|-------|----------|
+| Epic 1 | N | N | N | [summary of impl status] | [test coverage summary] | N% |
+| Epic 2 | N | N | N | [summary of impl status] | [test coverage summary] | N% |
+| ...  | ... | ... | ... | ... | ... | ... |
 
 ## Recommendations
 
