@@ -4,30 +4,32 @@ export const questionGenerationFixture = {
   valid: {
     questions: [
       {
-        id: 'q1',
-        text: 'Why was this change introduced?',
+        question_number: 1,
+        question_text: 'Why was this change introduced?',
         weight: 3,
-        naur_layer: 'world_mapping',
+        naur_layer: 'world_to_program',
         reference_answer:
           'To fix a race condition in the payment processor that caused duplicate charges under high load.',
       },
       {
-        id: 'q2',
-        text: 'What does this change do at a high level?',
+        question_number: 2,
+        question_text: 'What does this change do at a high level?',
         weight: 2,
-        naur_layer: 'design',
+        naur_layer: 'design_justification',
         reference_answer:
           'It adds a distributed lock around the charge creation step using Redis.',
       },
       {
-        id: 'q3',
-        text: 'How does the locking mechanism work?',
+        question_number: 3,
+        question_text: 'How does the locking mechanism work?',
         weight: 1,
-        naur_layer: 'modification',
+        naur_layer: 'modification_capacity',
         reference_answer:
           'A Redis SET NX with TTL is used to acquire a lock keyed on the payment intent ID before calling Stripe.',
       },
     ],
+    artefact_quality: 'code_only',
+    artefact_quality_note: 'Only source code changes were available for analysis.',
   } satisfies QuestionGenerationResponse,
 
   malformedJson: 'Here are the questions: { invalid json',
@@ -35,11 +37,11 @@ export const questionGenerationFixture = {
   missingFields: {
     questions: [
       {
-        id: 'q1',
-        text: 'Why was this change introduced?',
+        question_number: 1,
+        question_text: 'Why was this change introduced?',
       },
     ],
   },
 
-  partialResponse: '{"questions": [{"id": "q1", "text": "Why',
+  partialResponse: '{"questions": [{"question_number": 1, "question_text": "Why',
 };

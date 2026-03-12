@@ -46,14 +46,15 @@ export function createMockLLMClient(options?: MockLLMClientOptions): LLMClient {
         });
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy output<T>
       const overrideResponse = options?.responses?.get(request.schema);
       if (overrideResponse !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
         return success(overrideResponse as any);
       }
 
       const defaultResponse = defaultResponses.get(request.schema);
       if (defaultResponse !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
         return success(defaultResponse as any);
       }
 
