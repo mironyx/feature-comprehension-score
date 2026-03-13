@@ -32,7 +32,7 @@
 
 **Impact:** Uncertainty about whether the quality feedback loop is operational. Without visible confirmation, the diagnostics pipeline may silently stop working and no one would notice.
 
-**Suggested action:** Add a brief status line to hook output even when no diagnostics are found (e.g., "Diagnostics: 0 issues in <file>") so there is always visible evidence the hook ran. Consider logging hook invocations to a file for debugging.
+**Suggested action:** Add a brief status line to hook output even when no diagnostics are found (e.g., "Diagnostics: 0 issues in `file`") so there is always visible evidence the hook ran. Consider logging hook invocations to a file for debugging.
 
 ### Claude Code diff display in VS Code is inconsistent
 
