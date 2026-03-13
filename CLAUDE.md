@@ -67,11 +67,36 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Small PRs.** Target < 200 lines. This is a tracked quality gate.
 - **Document decisions as ADRs.** Use `/create-adr` skill. Every significant technical choice gets recorded — these become artefacts for our own FCS assessment.
 - **British English** in all documentation and comments.
-- **Markdown** for all documentation. Use consistent heading hierarchy.
+- **Markdown** for all documentation. Use consistent heading hierarchy. Wrap bare URLs in angle brackets (`<https://...>`) to pass markdownlint MD034.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
-- **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval).
-- **TDD/BDD-first.** Tests written before implementation. BDD-style naming: `Given/When/Then` in `describe`/`it` blocks.
+- **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval). During review, check design adequacy: were the design contracts precise enough to implement from? If not, update `docs/design/` in the same PR.
+- **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
+
+## TDD Discipline
+
+Strict Red-Green-Refactor. No exceptions.
+
+1. **RED** — Write a failing test first. Run it. Confirm it fails for the right reason.
+2. **GREEN** — Write the minimum code to make the test pass. No more.
+3. **REFACTOR** — Clean up while tests stay green. Apply SOLID principles here.
+
+Rules:
+
+- Never write implementation code without a failing test.
+- One test at a time. Do not batch a test suite then implement.
+- Tests exercise behaviour through public interfaces, not implementation details.
+- Tests read as specifications (BDD: `Given/When/Then` in `describe`/`it` blocks).
+- Run tests after every change — `npx vitest run` for unit, `npx tsc --noEmit` for types.
+
+## Coding Principles
+
+- **SOLID** — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion. Apply during refactoring, not as upfront ceremony.
+- **Clean Architecture** — `src/lib/engine/` is pure domain logic: no framework imports, no I/O, no Supabase/Next.js dependencies. Depend inward, never outward.
+- **Dependency Inversion at boundaries** — Engine depends on interfaces (ports). Adapters (`github/`, `supabase/`) implement them. Inject dependencies, don't import concrete implementations into domain code.
+- **Functions over classes** unless state management genuinely requires it. Prefer composition over inheritance.
+- **Types as documentation** — Use discriminated unions, branded types, and Zod schemas. Avoid `any` and type assertions.
+- **FIRST tests** — Fast, Independent, Repeatable, Self-validating, Timely.
 
 ## Session Guidance
 
@@ -81,17 +106,19 @@ Not enforced ceremony — use judgement. Session boundaries are informal.
 - **Per-task:** Move issue to In Progress, do the work, commit referencing issue number, close issue, unblock downstream issues (Blocked → Todo).
 - **Wrapping up:** Write a session log to `docs/sessions/YYYY-MM-DD-session-N.md` capturing completed work, decisions made, and next steps. Push to remote.
 
-## Code Quality — CodeScene Integration
+## Code Quality — Diagnostics Pipeline
 
-CodeScene is installed as a VS Code extension and reports code health issues in the Problems tab. The VS Code extension shares diagnostics automatically — you can see CodeScene warnings directly.
+CodeScene (and other VS Code extensions) report code health issues via VS Code's diagnostics API (Problems tab). A custom VS Code extension (`diagnostics-exporter`) reads these diagnostics and writes them to `.diagnostics/`, mirroring the source tree structure (e.g., `src/lib/engine/scoring.ts` -> `.diagnostics/src/lib/engine/scoring.ts`).
 
-When writing or modifying code:
+**Two feedback channels:**
 
-- Check VS Code diagnostics after each change for CodeScene warnings.
-- Fix CodeScene issues before considering a task complete.
+1. **Automatic (hook)** — A PostToolUse hook on Write/Edit waits 3s for the extension to export, then injects diagnostics as inline context. Configured in `.claude/settings.json`. No action needed — diagnostics appear automatically after editing source files.
+2. **Manual (`/diag`)** — Batch check across all changed files. Use before committing or when you want a full scan. Accepts optional file arguments.
+
+- Review and fix diagnostics before considering a task complete.
 - Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
-- If a CodeScene issue conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
-- Do not suppress or disable CodeScene rules without discussing with the user first.
+- If a diagnostic conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
+- Do not suppress or disable diagnostic rules without discussing with the user first.
 
 ## Verification Commands
 
@@ -144,6 +171,7 @@ tests/
 
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
+- `/diag` — Batch check VS Code extension diagnostics for changed files before committing
 
 ## Custom Commands
 
@@ -153,3 +181,4 @@ tests/
 ## Custom Agents
 
 - `requirements-design-drift` — Read-only agent that scans for misalignment between requirements and design documents. Produces drift reports with coverage matrices and prioritised recommendations. Inspired by the OpenAI Codex "garbage collection" pattern.
+- `diagnostics-checker` — Background agent that reads VS Code extension diagnostics from `.diagnostics/` after code changes. Launch after writing/editing source files to catch code quality issues before committing.

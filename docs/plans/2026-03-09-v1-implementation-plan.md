@@ -4,7 +4,7 @@
 
 This plan covers the full implementation of the Feature Comprehension Score Tool from first line of code to deployable product. It builds on the completed Phase 0 foundation (requirements v0.6, design v0.7, 8 ADRs) and adds a dedicated scaffolding phase for test infrastructure and architecture guardrails before any feature code is written.
 
-All development follows a **TDD/BDD-first** discipline: tests are written before implementation, using BDD-style naming (`Given/When/Then` in `describe`/`it` blocks). The test pyramid — unit → integration → E2E — governs where coverage effort is spent.
+All development follows a **TDD/BDD-first** discipline: tests are written before implementation, using BDD-style naming (`Given/When/Then` in `describe`/`it` blocks). A module-specific test diamond strategy (ADR-0009) governs where coverage effort is spent — heavy unit tests for the pure engine, heavy integration tests for API routes and webhooks.
 
 ## Current State
 
@@ -83,13 +83,25 @@ Every task follows the Red-Green-Refactor cycle:
 2. **Green:** Write the minimum code to make tests pass
 3. **Refactor:** Clean up while keeping tests green
 
-### Test Pyramid
+### Test Strategy — Module-Specific Diamond (ADR-0009)
 
-| Layer | Tool | What it covers | Rough ratio |
-|-------|------|----------------|-------------|
-| **Unit** | Vitest | Pure functions, business logic, utilities, LLM prompt builders, score calculations | ~70% |
-| **Integration** | Vitest + Supabase test client | API routes against test database, RLS policy enforcement, webhook handlers | ~20% |
-| **E2E** | Playwright | Critical user journeys: auth flow, answer submission, results viewing, config changes | ~10% |
+Rather than a uniform test pyramid, test ratios match the nature of each module:
+
+| Module | Unit | Integration | E2E | Rationale |
+|--------|------|-------------|-----|-----------|
+| Engine (`src/lib/engine/`) | 70% | 20% | 10% | Pure functions — unit tests are fast and reliable |
+| API routes + webhooks (`src/app/api/`) | 20% | 70% | 10% | Integration catches real DB/auth/RLS bugs |
+| UI pages (`src/app/`) | — | — | 100% | User journeys, not component snapshots |
+| **Overall** | ~35% | ~45% | ~20% | Diamond shape |
+
+Static analysis (TypeScript strict, ESLint, architecture fitness tests, CodeScene) forms the base layer.
+
+| Layer | Tool | What it covers |
+|-------|------|----------------|
+| **Static** | TypeScript, ESLint, CodeScene | Type errors, import violations, complexity, code health |
+| **Unit** | Vitest | Pure functions, business logic, score calculations, prompt builders |
+| **Integration** | Vitest + Supabase test client | API routes against test database, RLS policy enforcement, webhook handlers |
+| **E2E** | Playwright | Critical user journeys: auth flow, answer submission, results viewing, config changes |
 
 ### Test Data Strategy
 
@@ -105,7 +117,11 @@ Every task follows the Red-Green-Refactor cycle:
 Enforced in CI from day one:
 
 - **Dependency boundaries** — Assessment engine must not import from Next.js, GitHub, or Supabase modules (pure business logic)
+- **Dependency inversion** — Engine defines port interfaces; adapters (`github/`, `supabase/`) implement them. No concrete infrastructure imports in domain code.
+- **Clean Architecture layer direction** — Dependencies point inward: `app/ → lib/`, never `lib/ → app/`. Engine has zero external dependencies.
 - **Import restrictions** — No circular dependencies; enforced via ESLint rules
+- **Complexity limits** — ESLint `max-complexity` rule. CodeScene flags brain methods, bumpy road patterns, and deeply nested logic.
+- **Single Responsibility** — Enforced via module structure, file size awareness, and CodeScene code health metrics
 - **Bundle size limits** — Tracked per route (prevent accidental bloat)
 - **PR size** — Target < 200 lines changed (dogfooding our own quality gate)
 - **TypeScript strict mode** — No `any`, no implicit returns, strict null checks
@@ -1427,7 +1443,10 @@ Each stage fails fast — no point running E2E if unit tests fail.
 | ADR-0006: Enforcement Modes | [docs/adr/0006-soft-hard-enforcement-modes.md](docs/adr/0006-soft-hard-enforcement-modes.md) |
 | ADR-0007: PR Size Threshold | [docs/adr/0007-pr-size-threshold.md](docs/adr/0007-pr-size-threshold.md) |
 | ADR-0008: Data Model | [docs/adr/0008-data-model-multi-tenancy.md](docs/adr/0008-data-model-multi-tenancy.md) |
+| ADR-0009: Test Diamond | [docs/adr/0009-test-diamond-strategy.md](docs/adr/0009-test-diamond-strategy.md) |
+| Multi-Agent Workflow | [docs/plans/2026-03-09-multi-agent-workflow.md](docs/plans/2026-03-09-multi-agent-workflow.md) |
 
 ---
 
 *Created: 2026-03-09*
+*Updated: 2026-03-11 — Test diamond strategy (ADR-0009), expanded architecture guardrails (SOLID, Clean Architecture), multi-agent workflow companion doc*

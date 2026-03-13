@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+PYTHON=$(command -v python3 || command -v python || echo "")
+if [[ -z "$PYTHON" ]]; then
+  echo "Error: python not found (tried python3 and python)"
+  exit 1
+fi
+
 PROJECT_ID="PVT_kwHOAOSb584BQzxy"
 FIELD_ID="PVTSSF_lAHOAOSb584BQzxyzg-0mow"
 
@@ -39,7 +45,7 @@ fi
 # This is the one lookup we cannot cache — item IDs change when issues
 # are removed and re-added to the board.
 ITEM_ID=$(gh project item-list 1 --owner "$OWNER" --format json \
-  | python3 -c "
+  | "$PYTHON" -c "
 import json, sys
 data = json.load(sys.stdin)
 for item in data['items']:
