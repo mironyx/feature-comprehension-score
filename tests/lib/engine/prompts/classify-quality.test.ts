@@ -75,4 +75,31 @@ describe('classifyArtefactQuality', () => {
       test_files: [{ path: 'test.ts', content: 'test' }],
     })).toBe('code_and_requirements');
   });
+
+  describe('Given edge cases', () => {
+    it('treats empty pr_description as absent', () => {
+      expect(classifyArtefactQuality({
+        ...baseArtefacts,
+        pr_description: '',
+      })).toBe('code_only');
+    });
+
+    it('treats empty arrays as absent', () => {
+      expect(classifyArtefactQuality({
+        ...baseArtefacts,
+        test_files: [],
+        linked_issues: [],
+        context_files: [],
+      })).toBe('code_only');
+    });
+
+    it('treats undefined optional fields as absent', () => {
+      expect(classifyArtefactQuality({
+        ...baseArtefacts,
+        test_files: undefined,
+        linked_issues: undefined,
+        context_files: undefined,
+      })).toBe('code_only');
+    });
+  });
 });

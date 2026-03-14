@@ -1,21 +1,66 @@
-MIT License
+Business Source License 1.1
 
-Copyright (c) 2026 leonids2005
+Parameters:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright (c) 2026 mironyx
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Change Date: 2028-03-14
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+---
+
+Licensor: mironyx
+
+Licensed Work: Feature Comprehension Score Tool
+
+The Business Source License (this document) is not an Open Source license. However, the Licensed Work will eventually be made available under an Open Source License, as stated in this License.
+
+License grant
+------------
+
+Licensor hereby grants you each a non-exclusive, worldwide, royalty-free license to do the following things for the term starting on the date the Licensed Work is first distributed and lasting until the Change Date:
+
+1. Use, copy, modify, and distribute the Licensed Work
+2. Use, copy, modify, and distribute any modified versions of the Licensed Work made by you
+3. Use, copy, modify, and distribute any work, including portions of the Licensed Work, that you create by combining the Licensed Work with other software
+
+The license rights granted above are perpetual and will survive the termination or expiration of this License.
+
+Restrictions
+------------
+
+You may not do any of the following:
+
+1. Make the Licensed Work available to others as a service (including as part of a service offering), unless you are the Change Date Licensor
+2. Remove, obscure, or alter any trademark, copyright, or other proprietary notices displayed in or on the Licensed Work
+3. Use the trademarks of Licensor in connection with the Licensed Work, except as required for reasonable and customary use in describing the origin of the Licensed Work
+
+Change Date
+-----------
+
+The Change Date is the date the Licensed Work converts to an Open Source License as described below.
+
+Open Source License
+-------------------
+
+On the Change Date, the Licensed Work will become available under the following Open Source License:
+
+Apache License, Version 2.0
+
+The Open Source License will apply retroactively to the Licensed Work and any modified versions created by you.
+
+No additional warranties or rights are granted by this License beyond those expressly granted in the Open Source License.
+
+Termination
+-----------
+
+This License terminates automatically if you breach any of its terms. However, if you cure the breach within 30 days of becoming aware of it, this License will be reinstated.
+
+Disclaimer
+-----------
+
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+Limitation of Liability
+-----------------------
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS IN THE LICENSED WORK.

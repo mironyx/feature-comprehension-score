@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.6 |
+| Version | 0.7 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-09 |
+| Last updated | 2026-03-14 |
 
 ## Change Log
 
@@ -20,6 +20,7 @@
 | 0.4 | 2026-03-08 | LS / Claude | Story 1.1: Added acceptance criteria for org/repo soft-delete (active/inactive status on uninstall/removal) |
 | 0.5 | 2026-03-09 | LS / Claude | Drift report fixes: replaced Repo Admin with Org Admin (W3, Stories 1.3, 2.7, 6.1); removed deprecated FCS Initiator and FCS Participant role names (W4, Roles section and Story 3.3); removed auto-save from Story 5.3 acceptance criteria (W5); rewrote Story 3.1 artefact selection to merged PRs only (W6); fixed Epic 5 hosting reference to GCP Cloud Run (I1); added Research Spikes to Appendix (I2) |
 | 0.6 | 2026-03-09 | LS / Claude | Story 2.9: updated acceptance criteria to reference Check Run as the metadata export mechanism (not commit status or label), aligned with design doc v0.7 decision |
+| 0.7 | 2026-03-14 | LS / Claude | Added V2 section with PR Decorator feature (Epic 7) |
 
 ---
 
@@ -652,6 +653,37 @@ Result pages for individual assessments and organisation-level overview. Focus o
 - Simple line chart of aggregate score over time (one data point per assessment).
 - Shows repository's current configuration.
 - Fewer than 3 assessments: chart replaced with "Trend data available after 3 or more assessments."
+
+---
+
+## V2 Features
+
+Features confirmed for V2 but not in scope for V1. Captured here to preserve intent without creating scope creep pressure.
+
+### Epic 7: PR Decorator
+
+A companion feature to FCS assessment. Generates exploratory, reflection-focused questions and posts them as a GitHub PR comment when a PR is submitted. Not a gate — no scoring, no blocking. Purpose is developer learning and theory building at the moment of highest context.
+
+**Motivation:** Meets developers where they already are (the PR), requires no intent or discipline, and brings standardised questions to the developer rather than requiring self-directed LLM use. Distinct from FCS assessment: this is a learning aid, not a measurement instrument.
+
+**Two distinct question modes (same analysis engine, different prompt):**
+
+| | PR Decorator | FCS Assessment |
+|---|---|---|
+| **Purpose** | Learning / reflection | Measurement |
+| **Audience** | Developer | Team + Leadership |
+| **Tone** | Conversational, exploratory | Structured, standardised |
+| **Timing** | At PR submission | Post-sprint / post-feature |
+| **Stakes** | None — no score | Produces the FCS metric |
+| **Questions** | Open, "dig deeper" style | Targeted, comprehension-testing |
+
+**High-level stories (to be detailed in V2 requirements):**
+
+- **Story 7.1: PR decorator question generation** — On PR open/ready-for-review, generate 3–5 exploratory questions from PR artefacts using a dedicated "reflection" prompt mode (not the assessment scoring prompt). Post as a GitHub PR comment. No scoring, no participant list, no check run.
+- **Story 7.2: PR decorator configuration** — Org Admin can enable/disable PR decorator independently of PRCC. Configurable question count (default: 3).
+- **Story 7.3: Optional response capture** — If developers reply to the PR comment with answers, optionally capture responses as enrichment data for the FCS trend analysis pipeline. (Requires design — privacy implications to consider.)
+
+**Sequencing note:** Ship FCS assessment V1 first. Add PR decorator once a design partner is using the product — their feedback will determine exactly what "reflection" questions should look like.
 
 ---
 
