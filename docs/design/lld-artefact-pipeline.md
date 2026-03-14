@@ -224,10 +224,10 @@ RawArtefactSet (from extraction)
 classifyArtefactQuality()  →  ArtefactQuality enum
   │
   ▼
-truncateArtefacts()        →  TruncatedArtefactSet (fits token budget)
+truncateArtefacts()        →  AssembledArtefactSet (fits token budget)
   │
   ▼
-buildPrompt(layer)         →  { systemPrompt, userPrompt }
+buildQuestionGenerationPrompt()  →  { systemPrompt, userPrompt }
   │
   ▼
 LLMClient.generateStructured()
@@ -272,6 +272,7 @@ interface AssembledArtefactSet extends RawArtefactSet {
   question_count: number;           // 3–5, from effective config
   artefact_quality: ArtefactQuality;  // classified from available artefacts
   token_budget_applied: boolean;    // true if any truncation occurred
+  truncation_notes?: string[];      // human-readable notes on what was truncated/dropped
 }
 ```
 
@@ -287,9 +288,25 @@ files from the listing on demand.
 
 ### 3.3 Artefact Quality Classification
 
-Pure function, no I/O. Determines what categories of artefacts are present:
+Pure function, no I/O. Determines what categories of artefacts are present using
+a lookup table keyed on three boolean flags: `hasTests`, `hasRequirements`,
+`hasDesignDocs`.
 
 ```typescript
+type QualityKey = `${boolean}-${boolean}-${boolean}`;
+
+/** Key: hasTests-hasRequirements-hasDesignDocs */
+const qualityMap: Record<QualityKey, ArtefactQuality> = {
+  'true-true-true':   'code_requirements_and_design',
+  'true-true-false':  'code_and_requirements',
+  'true-false-true':  'code_and_design',
+  'true-false-false': 'code_and_tests',
+  'false-true-true':  'code_requirements_and_design',
+  'false-true-false': 'code_and_requirements',
+  'false-false-true': 'code_and_design',
+  'false-false-false': 'code_only',
+};
+
 function classifyArtefactQuality(artefacts: RawArtefactSet): ArtefactQuality {
   const hasTests = (artefacts.test_files?.length ?? 0) > 0;
   const hasRequirements =
@@ -297,18 +314,19 @@ function classifyArtefactQuality(artefacts: RawArtefactSet): ArtefactQuality {
     (artefacts.linked_issues?.length ?? 0) > 0;
   const hasDesignDocs = (artefacts.context_files?.length ?? 0) > 0;
 
-  if (hasTests && (hasRequirements || hasDesignDocs)) return 'code_requirements_and_design';
-  if (hasRequirements || hasDesignDocs) return 'code_and_requirements';
-  if (hasTests) return 'code_and_tests';
-  return 'code_only';
+  return qualityMap[`${hasTests}-${hasRequirements}-${hasDesignDocs}`];
 }
 ```
 
-With supplementary context files (section 2.5), the `code_requirements_and_design`
-label is now accurate — it reflects the presence of design documents configured by
-the Org Admin. Token budget concerns are handled by the truncation pipeline: if
-context files are large, they are truncated by the same priority ordering as other
-artefacts.
+**Five quality levels:** `code_only`, `code_and_tests`, `code_and_requirements`,
+`code_and_design`, `code_requirements_and_design`. The `code_and_design` variant
+distinguishes design docs (`context_files`) from requirements (`pr_description`,
+`linked_issues`). Tests do not upgrade the quality tier when requirements or
+design docs are present — they add coverage evidence but don't change the
+artefact category for question generation purposes.
+
+Token budget concerns are handled by the truncation pipeline: if context files
+are large, they are truncated by the same priority ordering as other artefacts.
 
 ### 3.4 Token Budget and Truncation
 
@@ -336,14 +354,17 @@ priorities 4–7 when the total exceeds the token budget.
 ```typescript
 function truncateArtefacts(
   raw: RawArtefactSet,
-  tokenBudget: number = 100_000,
-): TruncatedArtefactSet {
-  // 1. Always include pr_description, linked_issues, file_listing (small, high value)
-  // 2. Include pr_diff — truncate tail if it alone exceeds remaining budget
-  // 3. Include file_contents (already curated by adapter) up to remaining budget
-  //    — drop lowest-priority files first
-  // 4. Include test_files with remaining budget
-  // 5. If any artefact was truncated or dropped, set token_budget_applied = true
+  options: TruncationOptions,
+): AssembledArtefactSet {
+  // 1. Deduct high-priority items (pr_description, linked_issues, file_listing)
+  //    — always included even if they exceed budget (soft cap)
+  // 2. Clamp remaining budget to zero if high-priority items exceeded it
+  // 3. Truncate context_files if they exceed 30% of remaining budget
+  // 4. Truncate pr_diff if it exceeds 60% of remaining budget
+  // 5. Include file_contents up to 70% of remaining budget — drop from tail
+  // 6. Include test_files with whatever budget remains — drop if none left
+  // 7. Populate truncation_notes describing what was truncated/dropped
+  // 8. Set token_budget_applied = true if any notes were generated
 }
 ```
 
@@ -358,12 +379,9 @@ exceeds budget, drop files from the tail. Files exceeding an individual file bud
 
 ### 3.5 Prompt Builders
 
-Three prompt builders, one per Naur layer. Each takes an `AssembledArtefactSet` and
-returns `{ systemPrompt: string, userPrompt: string }`.
-
-The system prompt is the same for all three layers (the LLM generates questions
-across all three in a single call per the L4 contract). So there is actually **one**
-prompt builder for question generation, not three separate ones.
+One prompt builder for question generation. It takes an `AssembledArtefactSet` and
+returns `{ systemPrompt: string, userPrompt: string }`. The system prompt describes
+all three Naur layers; the LLM generates questions across all three in a single call.
 
 **Correction from issue #25:** The issue says "Build three system prompts (one per
 Naur layer)". However, the L4 contract (design doc section 4.6) specifies a **single
@@ -422,12 +440,12 @@ function buildQuestionGenerationPrompt(
 |------|--------|-----|
 | {path} | {status} | +{additions} -{deletions} |
 
-## Code Diff
-{pr_diff}
-
 ## Context Documents
 ### {path}
 {content}
+
+## Code Diff
+{pr_diff}
 
 ## Full File Contents (selected)
 ### {path}
@@ -436,12 +454,20 @@ function buildQuestionGenerationPrompt(
 ## Test Files (selected)
 ### {path}
 {content}
+
+## Truncation Notice
+Some artefacts were truncated or dropped to fit the token budget:
+- {truncation_notes[]}
+Derive your reference answers only from the artefacts provided.
+Note any limitations caused by truncation.
 ```
 
 Sections are omitted if the corresponding artefact is absent (e.g. no linked
-issues section if `linked_issues` is empty). The "Changed Files Overview" gives
-the LLM scope awareness of all changes even when full content is only provided
-for a subset.
+issues section if `linked_issues` is empty, no truncation notice if nothing was
+truncated). Context documents appear before the code diff so the LLM has design
+context before seeing the changes. The "Changed Files Overview" gives the LLM
+scope awareness of all changes even when full content is only provided for a
+subset.
 
 **Future improvements:**
 
