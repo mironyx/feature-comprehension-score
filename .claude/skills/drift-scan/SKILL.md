@@ -1,12 +1,12 @@
 ---
-description: Run garbage collection scan for drift between requirements, design artefacts, and implemented code. Produces a drift report in docs/reports/.
+name: drift-scan
+description: Run garbage collection scan for drift between requirements, design artefacts, and implemented code. Use when completing a batch of changes, before starting a new phase, or at session end when significant code was written. Produces a drift report in docs/reports/.
+allowed-tools: Read, Write, Bash, Glob, Grep
 ---
 
 # Drift Scan — Garbage Collection for Cognitive Debt
 
-## What This Does
-
-Detects misalignment across the full delivery stack: Requirements ↔ Design ↔ Code. Inspired by the OpenAI Codex "garbage collection" pattern.
+Detects misalignment across the full delivery stack: Requirements ↔ Design ↔ Code.
 
 ## Instructions
 
@@ -66,10 +66,3 @@ Detects misalignment across the full delivery stack: Requirements ↔ Design ↔
    - The overall drift score
    - The top 3 most critical findings
    - The file path to the full report
-
-## When to Run
-
-- After completing a batch of requirement or design changes
-- Before starting a new implementation phase
-- At session end when significant code was written
-- As a regular cadence check (e.g., weekly during active development)
