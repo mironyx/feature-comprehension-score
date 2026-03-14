@@ -62,6 +62,7 @@ describe('buildQuestionGenerationPrompt', () => {
     expect(userPrompt).not.toContain('## Linked Issues');
     expect(userPrompt).not.toContain('## Context Documents');
     expect(userPrompt).not.toContain('## Test Files');
+    expect(userPrompt).not.toContain('## Truncation Notice');
   });
 
   it('includes changed files overview table', () => {
@@ -90,6 +91,46 @@ describe('buildQuestionGenerationPrompt', () => {
 
     expect(userPrompt).toContain('Type: feature');
   });
+
+  it('omits PR Description section when pr_description is empty string', () => {
+    const withEmpty: AssembledArtefactSet = {
+      ...fullArtefacts,
+      pr_description: '',
+    };
+    const { userPrompt } = buildQuestionGenerationPrompt(withEmpty);
+
+    expect(userPrompt).not.toContain('## PR Description');
+  });
+
+  it('omits PR Description section when pr_description is whitespace only', () => {
+    const withWhitespace: AssembledArtefactSet = {
+      ...fullArtefacts,
+      pr_description: '   \n  ',
+    };
+    const { userPrompt } = buildQuestionGenerationPrompt(withWhitespace);
+
+    expect(userPrompt).not.toContain('## PR Description');
+  });
+
+  it('includes truncation notice when truncation_notes are present', () => {
+    const truncated: AssembledArtefactSet = {
+      ...fullArtefacts,
+      token_budget_applied: true,
+      truncation_notes: ['Code diff truncated', '2 of 3 test files dropped'],
+    };
+    const { userPrompt } = buildQuestionGenerationPrompt(truncated);
+
+    expect(userPrompt).toContain('## Truncation Notice');
+    expect(userPrompt).toContain('Code diff truncated');
+    expect(userPrompt).toContain('2 of 3 test files dropped');
+    expect(userPrompt).toContain('token budget');
+  });
+
+  it('omits truncation notice when truncation_notes is undefined', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt(fullArtefacts);
+
+    expect(userPrompt).not.toContain('## Truncation Notice');
+  });
 });
 
 describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
@@ -106,5 +147,9 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('weight');
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('reference_answer');
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('naur_layer');
+  });
+
+  it('lists all artefact quality variants including code_and_design', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('code_and_design');
   });
 });
