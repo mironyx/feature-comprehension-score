@@ -1,16 +1,31 @@
 import type { ArtefactQuality } from '../llm/schemas';
 import type { RawArtefactSet } from './artefact-types';
 
+type QualityKey = `${boolean}-${boolean}-${boolean}`;
+
+/** Key: hasTests-hasRequirements-hasDesignDocs */
+const qualityMap: Record<QualityKey, ArtefactQuality> = {
+  'true-true-true': 'code_requirements_and_design',
+  'true-true-false': 'code_and_requirements',
+  'true-false-true': 'code_and_design',
+  'true-false-false': 'code_and_tests',
+  'false-true-true': 'code_requirements_and_design',
+  'false-true-false': 'code_and_requirements',
+  'false-false-true': 'code_and_design',
+  'false-false-false': 'code_only',
+};
+
+function hasContent(items: unknown[] | undefined): boolean {
+  return (items?.length ?? 0) > 0;
+}
+
 export function classifyArtefactQuality(artefacts: RawArtefactSet): ArtefactQuality {
-  const hasTests = (artefacts.test_files?.length ?? 0) > 0;
+  const hasTests = hasContent(artefacts.test_files);
   const hasRequirements =
     (artefacts.pr_description?.length ?? 0) > 0 ||
-    (artefacts.linked_issues?.length ?? 0) > 0;
-  const hasDesignDocs = (artefacts.context_files?.length ?? 0) > 0;
+    hasContent(artefacts.linked_issues);
+  const hasDesignDocs = hasContent(artefacts.context_files);
 
-  if (hasRequirements && hasDesignDocs) return 'code_requirements_and_design';
-  if (hasRequirements) return 'code_and_requirements';
-  if (hasDesignDocs) return 'code_and_design';
-  if (hasTests) return 'code_and_tests';
-  return 'code_only';
+  const key: QualityKey = `${hasTests}-${hasRequirements}-${hasDesignDocs}`;
+  return qualityMap[key];
 }

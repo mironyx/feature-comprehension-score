@@ -64,56 +64,36 @@ export function buildQuestionGenerationPrompt(
 }
 
 function formatUserPrompt(artefacts: AssembledArtefactSet): string {
-  const sections: string[] = [];
+  const sections: (string | undefined)[] = [
+    formatAssessmentContext(artefacts),
+    formatPrDescription(artefacts),
+    formatLinkedIssues(artefacts),
+    formatFileListingTable(artefacts),
+    formatContextDocuments(artefacts),
+    `## Code Diff\n\n${artefacts.pr_diff}`,
+    formatFileContents(artefacts),
+    formatTestFiles(artefacts),
+    formatTruncationNotice(artefacts),
+  ];
 
-  sections.push(formatAssessmentContext(artefacts));
-
-  if (artefacts.pr_description?.trim()) {
-    sections.push(`## PR Description\n\n${artefacts.pr_description}`);
-  }
-
-  if (artefacts.linked_issues && artefacts.linked_issues.length > 0) {
-    const issues = artefacts.linked_issues
-      .map(issue => `### Issue: ${issue.title}\n\n${issue.body}`)
-      .join('\n\n');
-    sections.push(`## Linked Issues\n\n${issues}`);
-  }
-
-  sections.push(formatFileListingTable(artefacts));
-
-  if (artefacts.context_files && artefacts.context_files.length > 0) {
-    const docs = artefacts.context_files
-      .map(f => `### ${f.path}\n\n${f.content}`)
-      .join('\n\n');
-    sections.push(`## Context Documents\n\n${docs}`);
-  }
-
-  sections.push(`## Code Diff\n\n${artefacts.pr_diff}`);
-
-  if (artefacts.file_contents.length > 0) {
-    const files = artefacts.file_contents
-      .map(f => `### ${f.path}\n\n${f.content}`)
-      .join('\n\n');
-    sections.push(`## Full File Contents (selected)\n\n${files}`);
-  }
-
-  if (artefacts.test_files && artefacts.test_files.length > 0) {
-    const tests = artefacts.test_files
-      .map(f => `### ${f.path}\n\n${f.content}`)
-      .join('\n\n');
-    sections.push(`## Test Files (selected)\n\n${tests}`);
-  }
-
-  if (artefacts.truncation_notes && artefacts.truncation_notes.length > 0) {
-    const items = artefacts.truncation_notes.map(n => `- ${n}`).join('\n');
-    sections.push(`## Truncation Notice\n\nSome artefacts were truncated or dropped to fit the token budget:\n\n${items}\n\nDerive your reference answers only from the artefacts provided. Note any limitations caused by truncation.`);
-  }
-
-  return sections.join('\n\n');
+  return sections.filter(Boolean).join('\n\n');
 }
 
 function formatAssessmentContext(artefacts: AssembledArtefactSet): string {
   return `## Assessment Context\n\n- Type: ${artefacts.artefact_type}\n- Question count: ${artefacts.question_count}`;
+}
+
+function formatPrDescription(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.pr_description?.trim()) return undefined;
+  return `## PR Description\n\n${artefacts.pr_description}`;
+}
+
+function formatLinkedIssues(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.linked_issues?.length) return undefined;
+  const issues = artefacts.linked_issues
+    .map(issue => `### Issue: ${issue.title}\n\n${issue.body}`)
+    .join('\n\n');
+  return `## Linked Issues\n\n${issues}`;
 }
 
 function formatFileListingTable(artefacts: AssembledArtefactSet): string {
@@ -122,4 +102,34 @@ function formatFileListingTable(artefacts: AssembledArtefactSet): string {
     .map(f => `| ${f.path} | ${f.status} | +${f.additions} -${f.deletions} |`)
     .join('\n');
   return `## Changed Files Overview\n\n${header}\n${rows}`;
+}
+
+function formatContextDocuments(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.context_files?.length) return undefined;
+  const docs = artefacts.context_files
+    .map(f => `### ${f.path}\n\n${f.content}`)
+    .join('\n\n');
+  return `## Context Documents\n\n${docs}`;
+}
+
+function formatFileContents(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.file_contents.length) return undefined;
+  const files = artefacts.file_contents
+    .map(f => `### ${f.path}\n\n${f.content}`)
+    .join('\n\n');
+  return `## Full File Contents (selected)\n\n${files}`;
+}
+
+function formatTestFiles(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.test_files?.length) return undefined;
+  const tests = artefacts.test_files
+    .map(f => `### ${f.path}\n\n${f.content}`)
+    .join('\n\n');
+  return `## Test Files (selected)\n\n${tests}`;
+}
+
+function formatTruncationNotice(artefacts: AssembledArtefactSet): string | undefined {
+  if (!artefacts.truncation_notes?.length) return undefined;
+  const items = artefacts.truncation_notes.map(n => `- ${n}`).join('\n');
+  return `## Truncation Notice\n\nSome artefacts were truncated or dropped to fit the token budget:\n\n${items}\n\nDerive your reference answers only from the artefacts provided. Note any limitations caused by truncation.`;
 }
