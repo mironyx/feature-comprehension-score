@@ -11,6 +11,7 @@ export const ArtefactQualitySchema = z.enum([
   'code_only',
   'code_and_tests',
   'code_and_requirements',
+  'code_and_design',
   'code_requirements_and_design',
 ]);
 export type ArtefactQuality = z.infer<typeof ArtefactQualitySchema>;
