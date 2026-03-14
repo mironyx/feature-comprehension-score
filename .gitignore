@@ -49,3 +49,6 @@ supabase/.temp/
 
 # VS Code diagnostics export
 /.diagnostics
+
+#hook log
+/.claude/hooks/hook.log
