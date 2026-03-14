@@ -14,7 +14,7 @@ describe('classifyArtefactQuality', () => {
     expect(classifyArtefactQuality(baseArtefacts)).toBe('code_only');
   });
 
-  it('returns code_and_tests when test_files present', () => {
+  it('returns code_and_tests when only test_files present', () => {
     expect(classifyArtefactQuality({
       ...baseArtefacts,
       test_files: [{ path: 'test.ts', content: 'test' }],
@@ -35,26 +35,44 @@ describe('classifyArtefactQuality', () => {
     })).toBe('code_and_requirements');
   });
 
-  it('returns code_and_requirements when context_files present', () => {
+  it('returns code_and_design when only context_files present', () => {
     expect(classifyArtefactQuality({
       ...baseArtefacts,
       context_files: [{ path: 'docs/design.md', content: '# Design' }],
-    })).toBe('code_and_requirements');
+    })).toBe('code_and_design');
   });
 
-  it('returns code_requirements_and_design when tests and requirements present', () => {
+  it('returns code_and_design when context_files and tests present but no requirements', () => {
+    expect(classifyArtefactQuality({
+      ...baseArtefacts,
+      test_files: [{ path: 'test.ts', content: 'test' }],
+      context_files: [{ path: 'docs/design.md', content: '# Design' }],
+    })).toBe('code_and_design');
+  });
+
+  it('returns code_requirements_and_design when requirements and design docs present', () => {
+    expect(classifyArtefactQuality({
+      ...baseArtefacts,
+      pr_description: 'Description',
+      context_files: [{ path: 'docs/design.md', content: '# Design' }],
+    })).toBe('code_requirements_and_design');
+  });
+
+  it('returns code_requirements_and_design when all artefact types present', () => {
     expect(classifyArtefactQuality({
       ...baseArtefacts,
       pr_description: 'Description',
       test_files: [{ path: 'test.ts', content: 'test' }],
+      linked_issues: [{ title: 'Issue', body: 'Body' }],
+      context_files: [{ path: 'docs/design.md', content: '# Design' }],
     })).toBe('code_requirements_and_design');
   });
 
-  it('returns code_requirements_and_design when tests and context_files present', () => {
+  it('returns code_and_requirements when requirements and tests present but no design docs', () => {
     expect(classifyArtefactQuality({
       ...baseArtefacts,
+      pr_description: 'Description',
       test_files: [{ path: 'test.ts', content: 'test' }],
-      context_files: [{ path: 'docs/design.md', content: '# Design' }],
-    })).toBe('code_requirements_and_design');
+    })).toBe('code_and_requirements');
   });
 });

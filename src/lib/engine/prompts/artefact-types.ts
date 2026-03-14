@@ -37,5 +37,6 @@ export const AssembledArtefactSetSchema = RawArtefactSetSchema.extend({
   question_count: z.number().int().min(3).max(5),
   artefact_quality: ArtefactQualitySchema,
   token_budget_applied: z.boolean(),
+  truncation_notes: z.array(z.string()).optional(),
 });
 export type AssembledArtefactSet = z.infer<typeof AssembledArtefactSetSchema>;

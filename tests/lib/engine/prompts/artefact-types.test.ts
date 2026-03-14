@@ -211,5 +211,45 @@ describe('Artefact input types', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('accepts code_and_design as a valid artefact_quality', () => {
+      const result = AssembledArtefactSetSchema.safeParse({
+        ...rawBase,
+        question_count: 3,
+        artefact_quality: 'code_and_design',
+        token_budget_applied: false,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts optional truncation_notes array', () => {
+      const result = AssembledArtefactSetSchema.safeParse({
+        ...rawBase,
+        question_count: 3,
+        artefact_quality: 'code_only',
+        token_budget_applied: true,
+        truncation_notes: ['Code diff truncated', '2 of 3 test files dropped'],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.truncation_notes).toEqual([
+          'Code diff truncated',
+          '2 of 3 test files dropped',
+        ]);
+      }
+    });
+
+    it('validates without truncation_notes (field is optional)', () => {
+      const result = AssembledArtefactSetSchema.safeParse({
+        ...rawBase,
+        question_count: 3,
+        artefact_quality: 'code_only',
+        token_budget_applied: false,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.truncation_notes).toBeUndefined();
+      }
+    });
   });
 });

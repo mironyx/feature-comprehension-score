@@ -8,8 +8,9 @@ export function classifyArtefactQuality(artefacts: RawArtefactSet): ArtefactQual
     (artefacts.linked_issues?.length ?? 0) > 0;
   const hasDesignDocs = (artefacts.context_files?.length ?? 0) > 0;
 
-  if (hasTests && (hasRequirements || hasDesignDocs)) return 'code_requirements_and_design';
-  if (hasRequirements || hasDesignDocs) return 'code_and_requirements';
+  if (hasRequirements && hasDesignDocs) return 'code_requirements_and_design';
+  if (hasRequirements) return 'code_and_requirements';
+  if (hasDesignDocs) return 'code_and_design';
   if (hasTests) return 'code_and_tests';
   return 'code_only';
 }

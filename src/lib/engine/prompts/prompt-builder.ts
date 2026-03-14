@@ -43,7 +43,7 @@ Respond with a JSON object matching this exact schema:
 - weight: Integer 1-3 reflecting importance (3 = critical to understanding)
 - naur_layer: One of "world_to_program", "design_justification", "modification_capacity"
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts
-- artefact_quality: One of "code_only", "code_and_tests", "code_and_requirements", "code_requirements_and_design"
+- artefact_quality: One of "code_only", "code_and_tests", "code_and_requirements", "code_and_design", "code_requirements_and_design"
 - artefact_quality_note: Explain what categories of artefacts were available and any gaps
 
 ## Constraints
@@ -68,7 +68,7 @@ function formatUserPrompt(artefacts: AssembledArtefactSet): string {
 
   sections.push(formatAssessmentContext(artefacts));
 
-  if (artefacts.pr_description) {
+  if (artefacts.pr_description?.trim()) {
     sections.push(`## PR Description\n\n${artefacts.pr_description}`);
   }
 
@@ -102,6 +102,11 @@ function formatUserPrompt(artefacts: AssembledArtefactSet): string {
       .map(f => `### ${f.path}\n\n${f.content}`)
       .join('\n\n');
     sections.push(`## Test Files (selected)\n\n${tests}`);
+  }
+
+  if (artefacts.truncation_notes && artefacts.truncation_notes.length > 0) {
+    const items = artefacts.truncation_notes.map(n => `- ${n}`).join('\n');
+    sections.push(`## Truncation Notice\n\nSome artefacts were truncated or dropped to fit the token budget:\n\n${items}\n\nDerive your reference answers only from the artefacts provided. Note any limitations caused by truncation.`);
   }
 
   return sections.join('\n\n');
