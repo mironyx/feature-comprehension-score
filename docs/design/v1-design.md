@@ -1908,7 +1908,14 @@ Generates the complete rubric (questions, weights, reference answers) from PR/fe
     }
   ],
   "artefact_quality": "code_only",
-  "artefact_quality_note": "string"
+  "artefact_quality_note": "string",
+  "additional_context_suggestions": [
+    {
+      "artefact_type": "design_document",
+      "description": "Architecture document explaining module boundaries",
+      "expected_benefit": "Would enable deeper design justification questions"
+    }
+  ]
 }
 ```
 
@@ -1920,8 +1927,11 @@ Generates the complete rubric (questions, weights, reference answers) from PR/fe
 | `question_text` | Non-empty, short-answer format |
 | `reference_answer` | Non-empty, derived from artefacts |
 | `artefact_quality` | One of: `code_only`, `code_and_tests`, `code_and_requirements`, `code_requirements_and_design` |
+| `additional_context_suggestions` | Optional array. Each item: `artefact_type` (string), `description` (string), `expected_benefit` (string). Omitted when artefacts are sufficient. |
 
-**Validation:** Malformed or non-conforming responses trigger retry (Story 4.5). After 3 failures, assessment status → `generation_failed`, Check Run → `neutral`.
+**Purpose of `additional_context_suggestions`:** The LLM reports what extra artefacts would materially improve question quality. This serves as: (a) an indicator for when to invest in agentic artefact retrieval (V2), (b) a quality signal alongside `artefact_quality` — it tells us *what's missing*, not just *what's present*, and (c) a configurable hook — a future version could automatically fetch suggested artefacts and re-generate.
+
+**Validation:** Malformed or non-conforming responses trigger retry (Story 4.5). After 3 failures, assessment status → `generation_failed`, Check Run → `neutral`. The `additional_context_suggestions` field is optional and not validated beyond schema conformance — its absence is valid.
 
 #### Answer scoring
 
