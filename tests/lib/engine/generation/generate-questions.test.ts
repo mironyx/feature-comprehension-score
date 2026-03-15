@@ -236,7 +236,7 @@ describe('generateQuestions', () => {
       });
 
       expect(generateStructured).toHaveBeenCalledOnce();
-      const call = generateStructured.mock.calls[0][0];
+      const call = generateStructured.mock.calls[0]![0];
       expect(call.systemPrompt).toContain('software comprehension assessor');
       expect(call.prompt).toContain('Question count: 3');
       expect(call.schema).toBe(QuestionGenerationResponseSchema);

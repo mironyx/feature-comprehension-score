@@ -8,9 +8,22 @@
 
 set -euo pipefail
 
-PYTHON=$(command -v python3 || command -v python || echo "")
+# Find a real Python, skipping the Windows Store stub in WindowsApps.
+find_python() {
+  for candidate in python3 python; do
+    local p
+    p=$(command -v "$candidate" 2>/dev/null) || continue
+    # Skip the Microsoft Store redirect stub
+    [[ "$p" == */WindowsApps/* ]] && continue
+    # Verify it actually runs
+    "$p" --version &>/dev/null && echo "$p" && return 0
+  done
+  return 1
+}
+
+PYTHON=$(find_python)
 if [[ -z "$PYTHON" ]]; then
-  echo "Error: python not found (tried python3 and python)"
+  echo "Error: python not found (tried python3 and python, skipped WindowsApps stubs)"
   exit 1
 fi
 
