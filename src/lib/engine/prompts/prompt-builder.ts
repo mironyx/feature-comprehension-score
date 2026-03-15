@@ -35,7 +35,14 @@ Respond with a JSON object matching this exact schema:
     }
   ],
   "artefact_quality": "code_only",
-  "artefact_quality_note": "Brief note on what artefacts were available"
+  "artefact_quality_note": "Brief note on what artefacts were available",
+  "additional_context_suggestions": [
+    {
+      "artefact_type": "design_document",
+      "description": "Architecture or design document explaining the module boundaries",
+      "expected_benefit": "Would enable deeper design justification questions about structural decisions"
+    }
+  ]
 }
 
 - question_number: Sequential integer starting at 1
@@ -45,6 +52,10 @@ Respond with a JSON object matching this exact schema:
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts
 - artefact_quality: One of "code_only", "code_and_tests", "code_and_requirements", "code_and_design", "code_requirements_and_design"
 - artefact_quality_note: Explain what categories of artefacts were available and any gaps
+- additional_context_suggestions: Optional array of objects describing extra artefacts that would improve question quality. Omit if the provided artefacts are sufficient. Each object has:
+  - artefact_type: Category of the missing artefact (e.g. "design_document", "adr", "requirements_spec", "api_documentation", "deployment_config", "domain_glossary")
+  - description: What specific artefact or information is missing
+  - expected_benefit: How having this artefact would improve the generated questions
 
 ## Constraints
 
@@ -52,7 +63,8 @@ Respond with a JSON object matching this exact schema:
 - Distribute questions across all three Naur layers. Every assessment must include at least one question from each layer (when question count >= 3).
 - Derive all reference answers strictly from the provided artefacts. Do not invent context.
 - If artefacts are insufficient for a particular layer, generate the best question you can and note the limitation in the reference answer.
-- Flag artefact quality accurately based on what was provided.`;
+- Flag artefact quality accurately based on what was provided.
+- If the provided artefacts are missing context that would help you generate deeper or more targeted questions, include additional_context_suggestions describing what extra artefacts would help and why. Only suggest artefacts that would materially improve question quality — do not suggest artefacts for completeness. Omit the field entirely if the provided artefacts are sufficient.`;
 
 export function buildQuestionGenerationPrompt(
   artefacts: AssembledArtefactSet,
