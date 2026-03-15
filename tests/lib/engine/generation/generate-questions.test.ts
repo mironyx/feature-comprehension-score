@@ -179,7 +179,7 @@ describe('generateQuestions', () => {
       expect(result.error.code).toBe('validation_failed');
       expect(result.error.message).toContain('3');
       expect(result.error.message).toContain('2');
-      expect(result.error.retryable).toBe(false);
+      expect(result.error.retryable).toBe(true);
     });
   });
 
