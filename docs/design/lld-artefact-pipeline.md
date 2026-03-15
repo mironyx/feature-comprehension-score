@@ -469,6 +469,23 @@ context before seeing the changes. The "Changed Files Overview" gives the LLM
 scope awareness of all changes even when full content is only provided for a
 subset.
 
+**Additional context suggestions:** The LLM response includes an optional
+`additional_context_suggestions` field — an array of artefacts that would
+materially improve question quality if provided. This is a passive signal in V1
+(logged/stored with the assessment as metadata, not acted upon). It serves three
+purposes:
+
+1. **Agentic readiness indicator** — If the LLM consistently requests the same
+   types of artefacts (e.g., design docs, ADRs), this is evidence that an
+   agentic approach (where the LLM requests and retrieves additional artefacts
+   mid-generation) would add value. Tracked as data to inform the V2 decision.
+2. **Quality signal** — Complements `artefact_quality` by telling us *what's
+   missing*, not just *what's present*. Surfaced alongside artefact quality in
+   assessment results.
+3. **Configurable hook (V2)** — A future version could enable automatic retrieval
+   of suggested artefacts and re-generation. This would be opt-in and
+   configurable, as it increases LLM cost (additional calls).
+
 **Future improvements:**
 
 - **Dogfooding / prompt testing** — Before the product is live, we can validate

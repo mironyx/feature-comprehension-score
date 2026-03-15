@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.7 |
+| Version | 0.8 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-14 |
+| Last updated | 2026-03-15 |
 
 ## Change Log
 
@@ -21,6 +21,7 @@
 | 0.5 | 2026-03-09 | LS / Claude | Drift report fixes: replaced Repo Admin with Org Admin (W3, Stories 1.3, 2.7, 6.1); removed deprecated FCS Initiator and FCS Participant role names (W4, Roles section and Story 3.3); removed auto-save from Story 5.3 acceptance criteria (W5); rewrote Story 3.1 artefact selection to merged PRs only (W6); fixed Epic 5 hosting reference to GCP Cloud Run (I1); added Research Spikes to Appendix (I2) |
 | 0.6 | 2026-03-09 | LS / Claude | Story 2.9: updated acceptance criteria to reference Check Run as the metadata export mechanism (not commit status or label), aligned with design doc v0.7 decision |
 | 0.7 | 2026-03-14 | LS / Claude | Added V2 section with PR Decorator feature (Epic 7) |
+| 0.8 | 2026-03-15 | LS / Claude | Story 4.1: added additional_context_suggestions to LLM response (passive metadata). V2: added OSS model consideration and agentic artefact retrieval sections. Out of Scope: added OSS models and agentic retrieval entries. |
 
 ---
 
@@ -430,6 +431,7 @@ Modification capacity (safe change paths): "Given the following codebase and req
 - Reference answers are never shown to participants until assessment completion (FCS) or not at all (PRCC).
 - Given code-only artefacts (no requirements, no design docs), the system generates code-focused questions and includes metadata flag: `artefact_quality: code_only`.
 - The system uses the Anthropic Claude API for generation.
+- Given the artefacts provided are incomplete (e.g., code-only, no design docs), the LLM response includes optional `additional_context_suggestions` — a list of artefact types that would improve question quality if available. This metadata is stored with the assessment for analysis but not acted upon in V1.
 
 ---
 
@@ -687,6 +689,25 @@ A companion feature to FCS assessment. Generates exploratory, reflection-focused
 
 ---
 
+### OSS / Alternative LLM Models for Question Generation
+
+V1 uses the Anthropic Claude API exclusively for question generation and scoring. For V2, evaluate open-source or alternative models to reduce cost:
+
+- **Question generation** — The most token-intensive operation. OSS models (e.g., Llama, Mistral, DeepSeek) running on self-hosted infrastructure or via cheaper API providers could reduce per-assessment cost significantly. Quality trade-off must be benchmarked against Claude output.
+- **Relevance detection** — Binary classification task. Likely achievable with smaller, cheaper models. Good candidate for early migration.
+- **Answer scoring** — Requires nuanced semantic comparison. Quality is critical here. Likely remains on Claude longer, but worth benchmarking.
+- **Model abstraction** — The `LLMClient` port interface already abstracts the provider. Adding an alternative provider is an adapter change, not an architecture change.
+
+### Agentic Artefact Retrieval
+
+V1 captures `additional_context_suggestions` from the LLM as passive metadata. For V2, evaluate an agentic approach where the system automatically retrieves suggested artefacts and re-generates questions:
+
+- The V1 `additional_context_suggestions` data provides evidence for whether this would add value (if the LLM consistently requests the same artefact types, the investment is justified).
+- Cost implications: additional LLM calls and GitHub API calls per assessment. Should be opt-in and configurable per organisation.
+- Aligns with the `ArtefactSource` port design — the agent would call back into the same extraction interface.
+
+---
+
 ## Out of Scope for V1
 
 | Item | Rationale |
@@ -704,6 +725,8 @@ A companion feature to FCS assessment. Generates exploratory, reflection-focused
 | **Multiple enforcement modes per repo** | V1: one mode per repository. Per-path or per-label modes deferred. |
 | **Re-assessment / retake** | PRCC: new commits trigger new assessment. FCS: Org Admin creates new assessment. No retake flow. |
 | **Self-hosted / on-premise** | V1 is SaaS. |
+| **OSS / alternative LLM models** | V1 uses Anthropic Claude exclusively. Model abstraction exists via LLMClient port. Benchmark alternatives in V2. |
+| **Agentic artefact retrieval** | V1 captures `additional_context_suggestions` as passive metadata. Automatic retrieval and re-generation deferred to V2. |
 | **LLM cost controls / rate limiting** | V1: cost monitoring is operator responsibility. |
 | **Webhook retry / delivery guarantee** | V1 relies on GitHub delivery. Manual "trigger assessment" button is V2. |
 | **Framework metrics tracking** | Coding Time, PR Size, Review Time etc. are not tracked by this tool in V1. Focus is comprehension only. |

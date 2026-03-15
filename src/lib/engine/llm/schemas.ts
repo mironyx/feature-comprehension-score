@@ -25,10 +25,18 @@ export const QuestionSchema = z.object({
 });
 export type Question = z.infer<typeof QuestionSchema>;
 
+export const AdditionalContextSuggestionSchema = z.object({
+  artefact_type: z.string(),
+  description: z.string(),
+  expected_benefit: z.string(),
+});
+export type AdditionalContextSuggestion = z.infer<typeof AdditionalContextSuggestionSchema>;
+
 export const QuestionGenerationResponseSchema = z.object({
   questions: z.array(QuestionSchema).min(1).max(5),
   artefact_quality: ArtefactQualitySchema,
   artefact_quality_note: z.string(),
+  additional_context_suggestions: z.array(AdditionalContextSuggestionSchema).optional(),
 });
 export type QuestionGenerationResponse = z.infer<typeof QuestionGenerationResponseSchema>;
 
