@@ -39,7 +39,7 @@ export async function generateQuestions(
       error: {
         code: 'validation_failed',
         message: `Expected ${expected} questions but received ${actual}`,
-        retryable: false,
+        retryable: true,
       },
     };
   }
