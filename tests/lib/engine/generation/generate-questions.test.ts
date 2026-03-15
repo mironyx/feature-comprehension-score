@@ -142,6 +142,47 @@ describe('generateQuestions', () => {
     });
   });
 
+  describe('Given the LLM returns fewer questions than requested', () => {
+    it('then it returns a validation_failed error', async () => {
+      const twoQuestions: QuestionGenerationResponse = {
+        questions: [
+          {
+            question_number: 1,
+            question_text: 'Why was this change introduced?',
+            weight: 3,
+            naur_layer: 'world_to_program',
+            reference_answer: 'To fix a race condition.',
+          },
+          {
+            question_number: 2,
+            question_text: 'What does this change do?',
+            weight: 2,
+            naur_layer: 'design_justification',
+            reference_answer: 'Adds a distributed lock.',
+          },
+        ],
+        artefact_quality: 'code_only',
+        artefact_quality_note: 'Only source code.',
+      };
+      const responses = new Map([
+        [QuestionGenerationResponseSchema, twoQuestions],
+      ]);
+      const llmClient = createMockLLMClient({ responses });
+      const result = await generateQuestions({
+        artefacts: codeOnlyArtefacts,
+        llmClient,
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+
+      expect(result.error.code).toBe('validation_failed');
+      expect(result.error.message).toContain('3');
+      expect(result.error.message).toContain('2');
+      expect(result.error.retryable).toBe(false);
+    });
+  });
+
   describe('Given code-only artefacts', () => {
     it('then it returns questions with artefact_quality flag set to code_only', async () => {
       const llmClient = createMockLLMClient();

@@ -19,11 +19,30 @@ export async function generateQuestions(
   const { artefacts, llmClient, model, maxTokens } = request;
   const { systemPrompt, userPrompt } = buildQuestionGenerationPrompt(artefacts);
 
-  return llmClient.generateStructured<typeof QuestionGenerationResponseSchema>({
+  const result = await llmClient.generateStructured<typeof QuestionGenerationResponseSchema>({
     systemPrompt,
     prompt: userPrompt,
     schema: QuestionGenerationResponseSchema,
     model,
     maxTokens,
   });
+
+  if (!result.success) {
+    return result;
+  }
+
+  const actual = result.data.questions.length;
+  const expected = artefacts.question_count;
+  if (actual !== expected) {
+    return {
+      success: false,
+      error: {
+        code: 'validation_failed',
+        message: `Expected ${expected} questions but received ${actual}`,
+        retryable: false,
+      },
+    };
+  }
+
+  return result;
 }
