@@ -33,7 +33,7 @@ export const AdditionalContextSuggestionSchema = z.object({
 export type AdditionalContextSuggestion = z.infer<typeof AdditionalContextSuggestionSchema>;
 
 export const QuestionGenerationResponseSchema = z.object({
-  questions: z.array(QuestionSchema).min(1).max(5),
+  questions: z.array(QuestionSchema).min(3).max(5),
   artefact_quality: ArtefactQualitySchema,
   artefact_quality_note: z.string(),
   additional_context_suggestions: z.array(AdditionalContextSuggestionSchema).optional(),
