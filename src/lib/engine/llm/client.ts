@@ -40,7 +40,7 @@ export class AnthropicClient implements LLMClient {
 
     return this.withRetry(async () => {
       const response = await this.client.messages.create({
-        model: model ?? 'claude-sonnet-4-20250514',
+        model: model ?? 'claude-sonnet-4-5-20250514',
         max_tokens: maxTokens ?? 4096,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }],
