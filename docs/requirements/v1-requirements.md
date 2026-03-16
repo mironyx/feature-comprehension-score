@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.8 |
+| Version | 0.9 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-15 |
+| Last updated | 2026-03-16 |
 
 ## Change Log
 
@@ -22,6 +22,7 @@
 | 0.6 | 2026-03-09 | LS / Claude | Story 2.9: updated acceptance criteria to reference Check Run as the metadata export mechanism (not commit status or label), aligned with design doc v0.7 decision |
 | 0.7 | 2026-03-14 | LS / Claude | Added V2 section with PR Decorator feature (Epic 7) |
 | 0.8 | 2026-03-15 | LS / Claude | Story 4.1: added additional_context_suggestions to LLM response (passive metadata). V2: added OSS model consideration and agentic artefact retrieval sections. Out of Scope: added OSS models and agentic retrieval entries. |
+| 0.9 | 2026-03-16 | LS / Claude | Story 3.4: added self-directed private view for FCS participants (own scores, Naur layer, submitted answers — no reference answers). Added Story 3.6: FCS Self-Reassessment (re-answer flow, locked aggregate). Per ADR-0005 revision (Option 4). |
 
 ---
 
@@ -376,13 +377,22 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
 **Acceptance Criteria:**
 
 - Given all participants have submitted, the system scores all answers and calculates the aggregate Feature Comprehension Score.
-- The FCS result page shows:
+- The FCS result page (Org Admin view) shows:
   - Overall aggregate score (percentage)
   - Per-question aggregate score (how the group did on each question, no individual attribution)
   - The questions with reference answers (now visible, since assessment is complete)
   - Artefact quality signal: a note if artefacts were thin (e.g., "Questions generated from code only — no requirements or design documents available")
-- Individual participant scores are not displayed.
+- Individual participant scores are not displayed to Org Admins or other participants.
 - The Org Admin can trigger scoring before all participants answer (with warning that score is based on partial data).
+- Given a participant views the FCS results page, they see a **self-directed private view** showing:
+  - Their own per-question scores (0.0–1.0)
+  - The Naur layer each question targets (domain intent / design justification / modification capacity)
+  - The questions and their own submitted answers
+  - Reference answers are **not** shown in the self-view (prevents gaming on re-assessment)
+- The self-directed view is visible only to the participant themselves — no other user (including Org Admins) can access it.
+- See ADR-0005 (revised) for rationale.
+
+**Notes:** The self-directed view is a learning aid, not a reporting mechanism. The team aggregate is the organisational metric. PRCC results pages do not include a self-directed view — see Story 6.1.
 
 ---
 
@@ -397,6 +407,27 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
 - Given an FCS assessment has been open for more than the configured timeframe, the Org Admin can "close" the assessment and trigger scoring on responses received.
 - The result clearly indicates: "Score based on N of M participants".
 - Participants who did not respond are recorded as "did not participate" (not scored as zero).
+
+---
+
+### Story 3.6: FCS Self-Reassessment
+
+**As a** participant,
+**I want to** re-answer an FCS assessment after seeing my scores,
+**so that** I can test whether I have closed my comprehension gaps.
+
+**Acceptance Criteria:**
+
+- Given I have completed an FCS assessment and can see my self-directed scores (Story 3.4), I can choose to re-answer the assessment at any time.
+- Given I start a re-assessment, I see the same questions as the original assessment (the rubric is fixed).
+- Given I submit re-assessment answers, they are scored against the same rubric and my self-directed view updates with the new scores.
+- Given I re-assess, the **team aggregate score is not affected** — it is locked at first completion and never recalculated from re-assessment answers.
+- Given I have re-assessed multiple times, my self-directed view shows only the most recent scores (not a history of all attempts).
+- Given I re-assess, my original answers and scores are retained in the database for audit purposes but are not displayed.
+- Re-assessment is available only for FCS assessments, not PRCC.
+- There is no limit on the number of re-assessments a participant can perform.
+
+**Notes:** Re-assessment is a learning exercise. The participant studies the artefacts (code, design docs, PRs) to improve their understanding, then re-answers to verify. This aligns with Naur's theory building — comprehension is built through engagement with the artefacts, not by reading reference answers.
 
 ---
 
@@ -715,7 +746,7 @@ V1 captures `additional_context_suggestions` from the LLM as passive metadata. F
 | **Jira integration** | Adds complexity. V1 relies on artefacts in GitHub repo and PR metadata. |
 | **GitLab / Bitbucket support** | V1 is GitHub-only. Architecture should not preclude future support. |
 | **CLI interface** | Both PRCC and FCS are web-based. |
-| **Individual score tracking across assessments** | By design, prevents surveillance perception. Individual scores exist only within a single assessment for aggregate calculation. |
+| **Individual score tracking across assessments** | By design, prevents surveillance perception. Individual scores are visible only to the participant within a single FCS assessment (self-directed view, ADR-0005). No cross-assessment individual tracking. |
 | **Custom prompt templates** | V1 uses fixed prompt templates. Customisable per-repo is V2. |
 | **Team entity / team management** | Repository is the grouping unit. Teams are implicit. |
 | **Slack / Teams notifications** | V1: email (FCS) and GitHub Check (PRCC) only. |
@@ -723,7 +754,7 @@ V1 captures `additional_context_suggestions` from the LLM as passive metadata. F
 | **Artefact quality as numerical score** | V1 surfaces artefact quality as qualitative note, not number. |
 | **Trend alerts / threshold notifications** | Overview dashboard is the mechanism for spotting trends. |
 | **Multiple enforcement modes per repo** | V1: one mode per repository. Per-path or per-label modes deferred. |
-| **Re-assessment / retake** | PRCC: new commits trigger new assessment. FCS: Org Admin creates new assessment. No retake flow. |
+| **Re-assessment / retake (PRCC)** | PRCC: new commits trigger new assessment. No self-reassessment for PRCC (it is a gate, not a learning tool). FCS self-reassessment is in scope — see Story 3.6. |
 | **Self-hosted / on-premise** | V1 is SaaS. |
 | **OSS / alternative LLM models** | V1 uses Anthropic Claude exclusively. Model abstraction exists via LLMClient port. Benchmark alternatives in V2. |
 | **Agentic artefact retrieval** | V1 captures `additional_context_suggestions` as passive metadata. Automatic retrieval and re-generation deferred to V2. |

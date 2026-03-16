@@ -1,7 +1,7 @@
-# 0005. Single Aggregate Score (No Author/Reviewer Split)
+# 0005. Single Aggregate Score with Self-Directed View
 
-**Date:** 2026-03-07
-**Status:** Accepted
+**Date:** 2026-03-07 (revised 2026-03-16)
+**Status:** Accepted (revised)
 **Deciders:** LS, Claude
 
 ## Context
@@ -64,24 +64,47 @@ Aggregate score shown to all participants. Org Admins additionally see per-parti
   - Individual LLM-scored results are not reliable enough for individual evaluation. A participant scoring 0.6 vs 0.7 may reflect LLM variance, not a meaningful comprehension difference.
   - Requires additional access control logic, UI views, and data retention policy considerations.
 
+### Option 4: Aggregate score + self-directed private view (FCS only)
+
+Aggregate score shown to Org Admins and in reports (as Option 1). Additionally, each FCS participant sees their *own* per-question scores privately after assessment completion. No one else — not Org Admins, not other participants — can see an individual's scores. Participants can re-answer the FCS assessment at any time as a personal learning exercise; re-answers update only their private view, not the locked team aggregate.
+
+- **Pros:**
+  - Preserves psychological safety — no surveillance, no comparison. Only you see your scores.
+  - Provides an actionable learning signal. A participant who scores 0.3 on design justification questions knows *where* their gap is and can self-direct their learning.
+  - Aligns with Naur's framework: theory building is individual. The feedback loop for building understanding should be individual too.
+  - Re-assessment turns the tool from a one-shot measurement into a learning instrument. The participant can study the artefacts and try again — reinforcing comprehension through practice.
+  - The team aggregate remains the organisational metric. The self-view is a private learning aid, not a reporting mechanism.
+
+- **Cons:**
+  - Slightly more complex data model — individual answer scores must be persisted (for the self-view and re-assessment), but access-controlled so only the participant can read them.
+  - Re-assessment requires storing multiple answer sets per participant per assessment.
+  - On very small teams (2 people), the aggregate is still nearly attributable even without individual views — but this is inherent to small teams, not caused by the self-view.
+
+- **PRCC excluded:** PRCC is a gate, not a learning tool. No individual view, no re-assessment. Participants see only the aggregate pass/fail outcome. Showing individual PRCC scores would incentivise gaming the gate rather than genuine comprehension.
+
 ## Decision
 
-**Option 1: Single aggregate score only.**
+**Option 4: Aggregate score + self-directed private view (FCS only).**
 
-The aggregate score is the unit of measurement. Individual scores exist transiently during calculation and are not persisted, displayed, or tracked.
+The **team aggregate** remains the organisational unit of measurement — what Org Admins see, what appears in reports, what drives trend lines. This preserves the core principle from Option 1: the tool measures team comprehension, not individual performance.
 
-This is not a limitation — it is the core design principle. The tool measures whether a *team* has sufficient shared understanding to maintain a feature. The moment individual scores become visible, the tool becomes a test, and the behaviours it needs to observe (honest, unguarded answers) disappear.
+The addition is a **private, self-directed learning channel** for FCS participants:
 
-Per-question aggregate (how the group did on each question, without individual attribution) is the finest drill-down the system offers.
+- After FCS scoring completes, each participant sees their own per-question scores, the Naur layer each question targets, their submitted answers, and the questions — but **not** the reference answers (showing reference answers would allow gaming on re-assessment).
+- Participants can re-answer the FCS assessment at any time. Re-answer scores update only their private view. The original team aggregate is locked at first completion and never changes.
+- This self-view is FCS only. PRCC participants see only the aggregate outcome.
+
+This resolves the key weakness of Option 1 ("what do we do with a bad score?") without introducing the surveillance dynamic of Options 2 or 3. The team retro uses the aggregate; individuals use the self-view to close their own gaps.
 
 ## Consequences
 
-- **Easier:** Simpler data model, UI, and access control. Higher team trust produces more honest answers and more useful data.
-- **Harder:** Org Admins cannot pinpoint individual comprehension gaps from the tool. The intended mechanism is the retrospective conversation, not the UI.
-- **Follow-up:** ADR-0008 (data model) must ensure individual answer scores are not persisted in a queryable form. The aggregate is stored; individual contributions to it are not.
+- **Easier:** Higher team trust (no surveillance). Participants have a concrete next step when the aggregate is low — check their own scores, identify gaps, study artefacts, re-answer.
+- **Harder:** Data model must persist individual answer scores (access-controlled to participant only). Re-assessment requires storing multiple answer sets per participant per assessment. API and UI must enforce strict access control — a participant's scores are never exposed to anyone else.
+- **Follow-up:** ADR-0008 (data model) must include per-participant score storage with RLS restricting reads to the owning participant. The `participant_answers` table needs a score column, but RLS ensures only the participant (and aggregate calculation logic) can read it. Org Admins query only the aggregate.
+- **PRCC unchanged:** PRCC follows Option 1 — aggregate only, no individual view, no re-assessment.
 
 ## References
 
-- FCS article: `local-docs/feature-comprehension-score-article.md` — "Individual scores should not be tracked or reported. The unit of measurement is the team."
-- Requirements: Stories 4.3 (Aggregate Score Calculation), 6.1–6.2 (Results Pages)
-- ADR-0006: Soft/Hard enforcement modes — references this ADR for the aggregate-only principle
+- FCS article: `local-docs/feature-comprehension-score-article.md` — "Individual scores should not be tracked or reported. The unit of measurement is the team." (Note: the self-directed view does not contradict this — individual scores are private to the participant, not tracked or reported by the organisation.)
+- Requirements: Stories 3.4 (FCS Results), 3.6 (FCS Self-Reassessment), 4.3 (Aggregate Score Calculation), 6.1–6.2 (Results Pages)
+- ADR-0006: Soft/Hard enforcement modes — references this ADR for the aggregate-only principle (unchanged — aggregate remains the organisational metric)

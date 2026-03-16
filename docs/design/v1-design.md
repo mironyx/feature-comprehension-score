@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.7 |
+| Version | 0.8 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-04 |
-| Last updated | 2026-03-09 |
+| Last updated | 2026-03-16 |
 
 ## Change Log
 
@@ -21,6 +21,7 @@
 | 0.5 | 2026-03-08 | L4 review: drop trigger (app-layer updated_at), drop github_repo_full_name (derived via join), drop is_admin (use github_role), add pgsodium key management docs, RESTful API (answers/PUT assessment/GET pr-participants), expand Naur layers in LLM system prompt |
 | 0.6 | 2026-03-09 | Drift report fixes: corrected Naur layer names in L1 C4 table (W2); added L4 section 4.8 PR Metadata Export contract (W1); added trivial commit heuristic contract to section 4.2 (I3) |
 | 0.7 | 2026-03-09 | Story 2.9 decision revised: PR metadata export uses Check Run only (not Commit Status API). Section 4.8 rewritten. L3 inline note updated. |
+| 0.8 | 2026-03-16 | ADR-0005 revision (Option 4): self-directed private view for FCS participants. L1: added self-view and re-assessment capabilities to C3, C7. L3: updated FCS Phase 3 differences table with self-view and re-assessment rows. L4: added `score`, `score_rationale`, `is_reassessment` columns to `participant_answers`; updated RLS with score visibility enforcement notes; added `my_scores` to `GET /api/assessments/[id]` response; added `POST /api/assessments/[id]/reassess` endpoint contract. |
 
 ---
 
@@ -73,6 +74,8 @@ What the system does, grouped by domain. Each capability maps to stories in the 
 | Send reminder after configurable timeout | 3.2 |
 | Close assessment with partial participation | 3.5 |
 | Trigger early scoring on partial data | 3.4, 3.5 |
+| Show participant their own per-question scores privately (self-directed view, FCS only) | 3.4 |
+| Allow participant to re-answer assessment at any time (re-assessment, FCS only; aggregate unchanged) | 3.6 |
 
 ### C4: Assessment Engine (shared by PRCC and FCS)
 
@@ -113,8 +116,9 @@ What the system does, grouped by domain. Each capability maps to stories in the 
 
 | Capability | Stories |
 |-----------|---------|
-| Show PRCC assessment results (aggregate score, per-question aggregate, no individual attribution, no reference answers) | 6.1 |
-| Show FCS assessment results (aggregate score, per-question aggregate, reference answers visible, artefact quality note) | 6.2 |
+| Show PRCC assessment results (aggregate score, per-question aggregate, no individual attribution, no reference answers, no self-view) | 6.1 |
+| Show FCS assessment results — Org Admin view (aggregate score, per-question aggregate, reference answers visible, artefact quality note) | 6.2 |
+| Show FCS assessment results — participant self-view (own per-question scores, Naur layer, submitted answers; no reference answers; ADR-0005) | 3.4 |
 | Organisation overview (all assessments, filterable/sortable, summary stats) | 6.3 |
 | Repository assessment history with trend chart | 6.4 |
 
@@ -512,12 +516,18 @@ Differences from PRCC:
 | Trigger | All participants submitted | All submitted, OR Org Admin triggers early |
 | Gate outcome | Check Run updated (success/failure) | No gate — score stored for display only |
 | Partial participation | Not applicable (all must submit) | Org Admin can close and score partial data |
-| Reference answers | Never shown to participants | Shown on results page after completion |
-| Results access | Participants + Org Admin | Participants + Org Admin |
+| Reference answers | Never shown to participants | Shown to Org Admin on results page after completion; **not** shown in participant self-view |
+| Results access | Participants + Org Admin (aggregate only) | Participants (self-view) + Org Admin (aggregate + reference answers) |
+| Self-directed view | Not available | Participant sees own per-question scores, Naur layer, submitted answers (ADR-0005) |
+| Re-assessment | Not available | Participant can re-answer at any time; aggregate unchanged (Story 3.6) |
 
 **Early scoring (Story 3.4):** Org Admin can trigger scoring before all participants answer. The result page shows "Score based on N of M participants".
 
 **Close without full participation (Story 3.5):** After the configured timeout, Org Admin can close the assessment. Non-responders are recorded as "did not participate" (not scored as zero). Scoring proceeds with available responses.
+
+**Self-directed view (Story 3.4, ADR-0005):** After scoring completes, each participant sees their own per-question scores privately. The self-view shows: scores (0.0–1.0), Naur layer per question, the questions, and the participant's submitted answers. Reference answers are **not** shown (prevents gaming on re-assessment). No other user can access a participant's self-view — this is enforced by RLS (section 4.2) and API logic.
+
+**Re-assessment (Story 3.6):** A participant can re-answer the FCS assessment at any time after seeing their self-directed scores. Re-assessment answers are scored against the same fixed rubric. The self-view updates with the latest scores. The **team aggregate is locked** at first completion and never recalculated from re-assessment answers. Original answers and scores are retained for audit. There is no limit on re-assessment attempts.
 
 #### Phase 4: Notification (Story 3.2)
 
@@ -981,7 +991,7 @@ CREATE INDEX idx_participants_org
 
 #### participant_answers
 
-Submitted answers. **No score column** — individual scores are calculated transiently during aggregate computation and discarded (ADR-0005).
+Submitted answers. Individual answer scores are persisted for the FCS self-directed view (ADR-0005 revised). Scores are access-controlled: only the owning participant can read their own scores via RLS (section 4.2). Org Admins can read answer text (for flagged assessment review, Story 2.5) but **not** individual scores.
 
 ```sql
 CREATE TABLE participant_answers (
@@ -997,19 +1007,33 @@ CREATE TABLE participant_answers (
                            REFERENCES assessment_questions(id)
                            ON DELETE CASCADE,
   answer_text           text NOT NULL,
+  score                 numeric(3,2)
+                           CHECK (score IS NULL OR score BETWEEN 0.0 AND 1.0),
+  score_rationale       text,
   is_relevant           boolean,
   relevance_explanation text,
+  is_reassessment       boolean NOT NULL DEFAULT false,
   attempt_number        integer NOT NULL DEFAULT 1
-                           CHECK (attempt_number BETWEEN 1 AND 3),
+                           CHECK (attempt_number >= 1
+                             AND (NOT is_reassessment AND attempt_number <= 3
+                               OR is_reassessment)),
   created_at            timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (participant_id, question_id, attempt_number)
+  UNIQUE (participant_id, question_id, is_reassessment, attempt_number)
 );
 
 CREATE INDEX idx_answers_assessment ON participant_answers (assessment_id);
 CREATE INDEX idx_answers_org ON participant_answers (org_id);
+CREATE INDEX idx_answers_participant ON participant_answers (participant_id);
 ```
 
-Multiple attempts per question are stored (re-answer flow, Story 2.5). Only the latest relevant attempt is used for scoring. Maximum 3 attempts per question.
+**Two answer categories:**
+
+- **Original answers** (`is_reassessment = false`): Submitted during the initial assessment. Maximum 3 attempts per question (re-answer flow for irrelevant answers, Story 2.5). The latest relevant attempt is used for aggregate scoring. `score` is populated during aggregate computation.
+- **Re-assessment answers** (`is_reassessment = true`): Submitted during FCS self-reassessment (Story 3.6). No attempt limit. `score` is populated immediately on submission (self-view updates). Do **not** contribute to the team aggregate — the aggregate is locked at first completion.
+
+The `score` column is nullable: `NULL` before scoring, populated after. `score_rationale` stores the brief LLM-generated rationale for the score (useful for the self-directed view — the participant can understand *why* they scored as they did).
+
+**PRCC note:** PRCC answers also receive scores (needed for aggregate calculation in Hard mode), but the PRCC API routes must **not** return `score` or `score_rationale` to the client — these fields are used only server-side for aggregate computation. The self-directed view is FCS only (ADR-0005).
 
 #### fcs_merged_prs
 
@@ -1337,6 +1361,7 @@ CREATE POLICY answers_insert_own ON participant_answers
     )
   );
 
+-- Participants see ALL columns of their own answers (including score, score_rationale)
 CREATE POLICY answers_select_own ON participant_answers
   FOR SELECT USING (
     participant_id IN (
@@ -1345,11 +1370,20 @@ CREATE POLICY answers_select_own ON participant_answers
     )
   );
 
+-- Org Admins see answers for flagged assessment review (Story 2.5)
+-- Score columns are filtered out at the API layer, not RLS
+-- (PostgreSQL RLS operates at row level, not column level)
 CREATE POLICY answers_select_admin ON participant_answers
   FOR SELECT USING (is_org_admin(org_id));
 ```
 
-Participants can only insert and view their own answers. Org Admins can view all answers (for flagged assessment review, Story 2.5).
+**Score visibility enforcement (ADR-0005):** RLS is row-level — it cannot hide individual columns. Both `answers_select_own` and `answers_select_admin` grant row access. The **API layer** enforces column-level filtering:
+
+- **Participant (own answers):** Full access — `score`, `score_rationale`, `answer_text` all returned. This powers the self-directed view (Story 3.4).
+- **Org Admin:** `answer_text`, `is_relevant`, `relevance_explanation` returned. `score` and `score_rationale` are **stripped** by the API route before returning. Org Admins see answer text (for reviewing flagged answers) but never individual scores.
+- **PRCC routes:** `score` and `score_rationale` are **never** returned to any client. Scores are used server-side for aggregate calculation only.
+
+This two-layer approach (RLS for row access, API for column filtering) is pragmatic. A future alternative is a PostgreSQL view that excludes score columns for the admin policy, but this adds schema complexity for a constraint already enforced at the API boundary.
 
 #### fcs_merged_prs
 
@@ -1469,7 +1503,10 @@ List assessments for the current user. Returns assessments where the user is a p
 
 ##### `GET /api/assessments/[id]`
 
-Get assessment details. Includes questions. Reference answers filtered by application logic: never returned for PRCC; returned for FCS only when status is `completed`.
+Get assessment details. Includes questions. Field visibility varies by assessment type, caller role, and assessment status:
+
+- **Reference answers:** Never returned for PRCC. For FCS: returned to Org Admins when status is `completed`; **never** returned in the participant self-view (ADR-0005 — prevents gaming on re-assessment).
+- **`my_scores`:** Returned only for FCS assessments when the caller is a participant and status is `completed` (or the caller has submitted). Never returned for PRCC.
 
 **Response `200 OK`:**
 
@@ -1500,7 +1537,8 @@ Get assessment details. Includes questions. Reference answers filtered by applic
     question_text: string
     weight: number
     aggregate_score: number | null
-    reference_answer: string | null
+    reference_answer: string | null     // null for PRCC; null in FCS self-view;
+                                        // populated for Org Admin FCS view when completed
   }[]
   participants: {
     total: number
@@ -1510,6 +1548,20 @@ Get assessment details. Includes questions. Reference answers filtered by applic
     participant_id: string
     status: 'pending' | 'submitted'
     submitted_at: string | null
+  } | null
+  // Self-directed view (FCS only, participant only, ADR-0005)
+  // null for PRCC, null if caller is not a participant, null if not yet scored
+  my_scores: {
+    questions: {
+      question_id: string
+      naur_layer: NaurLayer
+      question_text: string
+      my_answer: string
+      score: number               // 0.0–1.0
+      score_rationale: string     // brief LLM explanation of the score
+    }[]
+    reassessment_available: boolean   // true for FCS completed assessments
+    last_reassessment_at: string | null
   } | null
   skip_info: {
     reason: string
@@ -1555,6 +1607,52 @@ Submit answers for an assessment. Caller must be a participant. Handles both fir
 ```
 
 When `status` is `relevance_failed`, the client prompts re-answers for failed questions and calls this same endpoint again with only the failed questions.
+
+##### `POST /api/assessments/[id]/reassess`
+
+Submit re-assessment answers for an FCS assessment (Story 3.6). Caller must be a participant who has already completed the original assessment. FCS only — returns `403` for PRCC assessments.
+
+**Request:**
+
+```typescript
+{
+  answers: {
+    question_id: string
+    answer_text: string
+  }[]
+}
+```
+
+**Validation:**
+- Assessment must be type `fcs` and status `completed`.
+- Caller must be a participant with status `submitted` (original assessment completed).
+- Must include answers for **all** questions (no partial re-assessment).
+- No relevance check on re-assessment answers (the learning value is in the scoring, not the gate).
+
+**Processing:**
+1. Store answers as `participant_answers` rows with `is_reassessment = true` and incremented `attempt_number`.
+2. Score each answer against the rubric (same LLM scoring as original, one call per answer).
+3. Return scores immediately — no aggregate recalculation.
+
+**Response `200 OK`:**
+
+```typescript
+{
+  status: 'scored'
+  scores: {
+    question_id: string
+    naur_layer: NaurLayer
+    score: number              // 0.0–1.0
+    score_rationale: string
+  }[]
+  reassessed_at: string        // ISO timestamp
+}
+```
+
+**Error responses:**
+- `403 Forbidden` — PRCC assessment, or caller is not a participant, or original assessment not yet submitted.
+- `404 Not Found` — Assessment does not exist.
+- `422 Unprocessable Entity` — Missing answers for one or more questions.
 
 ##### `PUT /api/assessments/[id]`
 
