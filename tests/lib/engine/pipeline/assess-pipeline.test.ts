@@ -87,8 +87,8 @@ describe('Assessment pipeline', () => {
     });
   });
 
-  describe('Given one scoring call fails after retries', () => {
-    it('then it completes with scoring_incomplete flag and partial aggregate', async () => {
+  describe('Given one LLM call fails', () => {
+    it('then it records the failure and continues scoring remaining answers', async () => {
       const rubric: Rubric = {
         questions: questionGenerationFixture.valid.questions,
         artefact_quality: questionGenerationFixture.valid.artefact_quality,
@@ -100,23 +100,13 @@ describe('Assessment pipeline', () => {
         { questionIndex: 1, participantId: 'alice', answer: 'Distributed lock with Redis.' },
       ];
 
-      let callCount = 0;
+      // Flow: relevance → (if relevant) score, per answer sequentially.
+      // Fail the 1st call (relevance for first answer), succeed on the rest.
       const failingClient: LLMClient = {
-        generateStructured: vi.fn().mockImplementation(async () => {
-          callCount++;
-          // Fail the 1st and 2nd calls (scoring + relevance for first answer)
-          if (callCount <= 2) {
-            return {
-              success: false,
-              error: { code: 'server_error', message: 'LLM unavailable', retryable: true },
-            };
-          }
-          // Succeed for subsequent calls
-          if (callCount % 2 === 1) {
-            return { success: true, data: scoringFixture.valid };
-          }
-          return { success: true, data: relevanceFixture.valid };
-        }),
+        generateStructured: vi.fn()
+          .mockResolvedValueOnce({ success: false, error: { code: 'server_error', message: 'LLM unavailable', retryable: true } })
+          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
+          .mockResolvedValueOnce({ success: true, data: scoringFixture.valid }),
       };
 
       const result = await scoreAnswers({ rubric, answers, llmClient: failingClient });
@@ -132,7 +122,7 @@ describe('Assessment pipeline', () => {
     });
   });
 
-  describe('Given generation fails after retries', () => {
+  describe('Given generation fails', () => {
     it('then it returns generation_failed status', async () => {
       const llmClient = createMockLLMClient({
         error: { code: 'server_error', message: 'LLM unavailable' },

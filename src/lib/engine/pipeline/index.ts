@@ -9,5 +9,6 @@ export {
   type ScoreAnswersResult,
   type ParticipantAnswer,
   type ScoredAnswer,
+  type ScoringFailure,
   type AggregateResult,
 } from './assess-pipeline';

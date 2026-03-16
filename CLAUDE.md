@@ -169,6 +169,8 @@ tests/
 
 ## Custom Skills
 
+- `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/review`, `/diag`, commit, PR. Stops after PR creation for human review.
+- `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
 - `/diag` — Batch check VS Code extension diagnostics for changed files before committing
