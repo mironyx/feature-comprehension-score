@@ -118,6 +118,23 @@ Each integration test gets a clean database state. Two approaches evaluated:
 
 **Decision:** Use truncation. A `resetDatabase()` helper in `tests/helpers/db.ts` truncates all tables in dependency order. Called in `beforeEach` for integration test suites. Auth users are re-seeded after truncation.
 
+#### Declarative schema adoption
+
+**Context:** The project currently uses hand-written migration files. Supabase's declarative schema feature allows defining the full desired schema state in `.sql` files under `supabase/schemas/`, then generating migrations automatically via `supabase db diff`.
+
+**Rationale:** Schema files are the readable source of truth (full table definition visible in one place); migrations become generated artefacts rather than hand-authored ALTER statements. Reduces drift risk and manual error.
+
+**Tasks:**
+
+1. Create `supabase/schemas/` directory with three files consolidating current migrations:
+   - `tables.sql` — all `CREATE TABLE` statements (from migrations 1, 2, and `context_file_patterns`)
+   - `functions.sql` — all `CREATE FUNCTION` and `CREATE OR REPLACE FUNCTION` (from migrations 3 and `get_effective_config_context_patterns`)
+   - `policies.sql` — all `CREATE POLICY` statements (from migration 4)
+2. Verify local DB state matches the consolidated schema files (`supabase db diff` should produce empty output)
+3. Update CLAUDE.md migration workflow: "Edit the relevant `supabase/schemas/*.sql` file → run `supabase db diff -f <name>` → commit both the updated schema file and generated migration"
+
+**Convention going forward:** All schema changes start with editing the schema file; migrations are generated, never hand-authored. Add a comment header to each generated migration referencing the issue number and design doc section.
+
 ---
 
 ## 2.2 GitHub OAuth Authentication

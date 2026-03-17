@@ -6,8 +6,9 @@
 #   2. Claude Code pipes a JSON payload to stdin with the edited file path and cwd
 #   3. This script maps that file path to a .diagnostics/ JSON file
 #      (written by the companion VS Code extension "diagnostics-exporter")
-#   4. It polls for up to 5 seconds, giving the extension time to analyse and export
-#   5. If diagnostics are found, it writes a JSON response to stdout using
+#   4. It polls for up to 5 seconds, waiting for a diagnostics file whose
+#      analyzedAt timestamp is newer than when the hook started
+#   5. If fresh diagnostics are found, it writes a JSON response to stdout using
 #      Claude Code's hookSpecificOutput.additionalContext protocol
 #   6. Claude receives the diagnostics as inline context in the conversation
 #
@@ -24,6 +25,9 @@ set -euo pipefail
 node -e "
 const fs = require('fs');
 const path = require('path');
+
+// Record when the hook started — used to distinguish fresh vs stale diagnostics
+const hookStartTime = Date.now();
 
 // Debug log helper — append to .claude/hooks/hook.log
 // Remove this function and all log() calls once the pipeline is validated
@@ -69,13 +73,10 @@ process.stdin.on('end', () => {
   // e.g. src/lib/engine/scoring.ts -> .diagnostics/src/lib/engine/scoring.ts.json
   const diagFile = path.join(cwd, '.diagnostics', relPath + '.json');
 
-  // --- Delete stale diagnostics so we only pick up fresh results ---
-  // The extension will recreate the file once it re-analyses the source.
-  // If the edit fixed the issue, the file stays gone — no stale false positives.
-  try { fs.unlinkSync(diagFile); log(cwd, 'Deleted stale diagnostics: ' + relPath); } catch (_) {}
-
-  // --- Poll for diagnostics (500ms intervals, up to 5s) ---
-  // The VS Code extension needs time to analyse the file after it changes
+  // --- Poll for fresh diagnostics (500ms intervals, up to 5s) ---
+  // We check analyzedAt against hookStartTime — only a file written after
+  // this hook fired counts as fresh. This avoids both stale reads and the
+  // race condition where a fast provider writes the file before we start polling.
   let attempts = 0;
   const maxAttempts = 10;
   const intervalMs = 500;
@@ -86,27 +87,35 @@ process.stdin.on('end', () => {
     if (fs.existsSync(diagFile)) {
       try {
         const diag = JSON.parse(fs.readFileSync(diagFile, 'utf8'));
+        const analyzedAt = new Date(diag.analyzedAt).getTime();
 
-        if (diag.diagnostics && diag.diagnostics.length > 0) {
-          // Format diagnostics as human-readable lines
-          const lines = diag.diagnostics.map(d =>
-            '  ' + d.severity + ' at line ' + d.line + ':' + d.column
-            + ' [' + d.source + '/' + d.code + '] ' + d.message
-          );
-          const summary = 'VS Code diagnostics for ' + diag.file
-            + ' (' + diag.diagnostics.length + ' issues):\\n' + lines.join('\\n');
+        if (analyzedAt > hookStartTime) {
+          // Fresh diagnostics — report them if there are any issues
+          if (diag.diagnostics && diag.diagnostics.length > 0) {
+            const lines = diag.diagnostics.map(d =>
+              '  ' + d.severity + ' at line ' + d.line + ':' + d.column
+              + ' [' + d.source + '/' + d.code + '] ' + d.message
+            );
+            const summary = 'VS Code diagnostics for ' + diag.file
+              + ' (' + diag.diagnostics.length + ' issues):\\n' + lines.join('\\n');
 
-          log(cwd, 'Found ' + diag.diagnostics.length + ' diagnostics for ' + relPath + ' (attempt ' + attempts + ')');
+            log(cwd, 'Found ' + diag.diagnostics.length + ' diagnostics for ' + relPath + ' (attempt ' + attempts + ')');
 
-          // --- Write response using Claude Code's hook protocol ---
-          process.stdout.write(JSON.stringify({
-            hookSpecificOutput: {
-              hookEventName: 'PostToolUse',
-              additionalContext: summary
-            }
-          }));
-          process.exit(0);
+            // --- Write response using Claude Code's hook protocol ---
+            process.stdout.write(JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: 'PostToolUse',
+                additionalContext: summary
+              }
+            }));
+            process.exit(0);
+          } else {
+            // Fresh analysis, no issues — exit silently
+            log(cwd, 'Fresh analysis: no issues for ' + relPath + ' (attempt ' + attempts + ')');
+            process.exit(0);
+          }
         }
+        // else: file exists but analyzedAt <= hookStartTime — stale, keep polling
       } catch (e) {
         // File might be mid-write by the extension, retry on next tick
       }
@@ -115,12 +124,12 @@ process.stdin.on('end', () => {
     if (attempts < maxAttempts) {
       setTimeout(check, intervalMs);
     } else {
-      log(cwd, 'No diagnostics found after ' + maxAttempts + ' attempts for ' + relPath);
+      log(cwd, 'No fresh diagnostics after ' + maxAttempts + ' attempts for ' + relPath);
       process.exit(0);
     }
   }
 
-  // Initial delay before first poll — give the extension a moment to react
-  setTimeout(check, intervalMs);
+  // Start polling immediately — no initial delay needed since we use timestamps
+  check();
 });
 "
