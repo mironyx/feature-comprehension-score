@@ -115,6 +115,71 @@ describe('Supabase local environment', () => {
 
     await deleteTestOrg(svc, orgId);
   });
+
+  it('org_config has context_file_patterns column with empty array default', async () => {
+    const svc = serviceClient();
+    const orgId = await createTestOrg(svc);
+
+    const { data, error } = await svc
+      .from('org_config')
+      .select('context_file_patterns')
+      .eq('org_id', orgId)
+      .single();
+
+    expect(error).toBeNull();
+    expect(data).toBeDefined();
+    expect(data!.context_file_patterns).toEqual([]);
+
+    await deleteTestOrg(svc, orgId);
+  });
+
+  it('repository_config has context_file_patterns column (nullable override)', async () => {
+    const svc = serviceClient();
+    const orgId = await createTestOrg(svc);
+    const repoId = await createTestRepo(svc, orgId);
+
+    // Insert a repository_config row to verify the column exists and accepts values
+    const { error: insertError } = await svc.from('repository_config').insert({
+      org_id: orgId,
+      repository_id: repoId,
+      context_file_patterns: ['docs/design/*.md', 'docs/adr/*.md'],
+    });
+
+    expect(insertError).toBeNull();
+
+    const { data, error } = await svc
+      .from('repository_config')
+      .select('context_file_patterns')
+      .eq('repository_id', repoId)
+      .single();
+
+    expect(error).toBeNull();
+    expect(data!.context_file_patterns).toEqual(['docs/design/*.md', 'docs/adr/*.md']);
+
+    await deleteTestOrg(svc, orgId);
+  });
+
+  it('get_effective_config returns context_file_patterns with repo-level override applied', async () => {
+    const svc = serviceClient();
+    const orgId = await createTestOrg(svc);
+    const repoId = await createTestRepo(svc, orgId);
+
+    // Set repo-level override
+    await svc.from('repository_config').insert({
+      org_id: orgId,
+      repository_id: repoId,
+      context_file_patterns: ['docs/requirements/*.md'],
+    });
+
+    const { data, error } = await svc.rpc('get_effective_config', { repo_id: repoId });
+
+    expect(error).toBeNull();
+    const cfg = (data as { context_file_patterns: string[] }[])[0];
+    expect(cfg).toBeDefined();
+    expect(cfg!.context_file_patterns).toEqual(['docs/requirements/*.md']);
+
+    await deleteTestOrg(svc, orgId);
+  });
 });
 
 // ---------------------------------------------------------------------------
