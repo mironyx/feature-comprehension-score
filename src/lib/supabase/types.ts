@@ -53,6 +53,7 @@ export interface Database {
           min_pr_size: number;
           trivial_commit_threshold: number;
           exempt_file_patterns: string[];
+          context_file_patterns: string[];
           created_at: string;
           updated_at: string;
         };
@@ -68,6 +69,7 @@ export interface Database {
           min_pr_size?: number;
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
+          context_file_patterns?: string[];
           created_at?: string;
           updated_at?: string;
         };
@@ -83,6 +85,7 @@ export interface Database {
           min_pr_size?: number;
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
+          context_file_patterns?: string[];
           created_at?: string;
           updated_at?: string;
         };
@@ -132,6 +135,7 @@ export interface Database {
           min_pr_size: number | null;
           trivial_commit_threshold: number | null;
           exempt_file_patterns: string[] | null;
+          context_file_patterns: string[] | null;
           created_at: string;
           updated_at: string;
         };
@@ -148,6 +152,7 @@ export interface Database {
           min_pr_size?: number | null;
           trivial_commit_threshold?: number | null;
           exempt_file_patterns?: string[] | null;
+          context_file_patterns?: string[] | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -164,6 +169,7 @@ export interface Database {
           min_pr_size?: number | null;
           trivial_commit_threshold?: number | null;
           exempt_file_patterns?: string[] | null;
+          context_file_patterns?: string[] | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -548,6 +554,7 @@ export interface Database {
           min_pr_size: number;
           trivial_commit_threshold: number;
           exempt_file_patterns: string[];
+          context_file_patterns: string[];
         }[];
       };
     };
