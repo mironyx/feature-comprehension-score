@@ -136,18 +136,24 @@ export async function scoreAnswers(
   const scored: ScoredAnswer[] = [];
   const failures: ScoringFailure[] = [];
 
-  for (const answer of answers) {
-    const question = rubric.questions[answer.questionIndex];
-    if (!question) {
-      failures.push({
-        questionIndex: answer.questionIndex,
-        participantId: answer.participantId,
-        error: { code: 'validation_failed', message: `Question index ${answer.questionIndex} out of range`, retryable: false },
-      });
-      continue;
-    }
+  const outcomes = await Promise.all(
+    answers.map((answer) => {
+      const question = rubric.questions[answer.questionIndex];
+      if (!question) {
+        return Promise.resolve({
+          kind: 'failed' as const,
+          value: {
+            questionIndex: answer.questionIndex,
+            participantId: answer.participantId,
+            error: { code: 'validation_failed' as const, message: `Question index ${answer.questionIndex} out of range`, retryable: false },
+          },
+        });
+      }
+      return processAnswer(answer, question, config);
+    }),
+  );
 
-    const outcome = await processAnswer(answer, question, config);
+  for (const outcome of outcomes) {
     if (outcome.kind === 'scored') {
       scored.push(outcome.value);
     } else {

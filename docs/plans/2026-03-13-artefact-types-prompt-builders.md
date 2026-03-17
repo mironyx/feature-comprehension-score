@@ -101,7 +101,7 @@ BDD tests (from issue #25 + LLD):
 - `Given artefacts with test files` → returns `code_and_tests`
 - `Given artefacts with PR description` → returns `code_and_requirements`
 - `Given artefacts with linked issues` → returns `code_and_requirements`
-- `Given artefacts with context files` → returns `code_and_requirements`
+- `Given artefacts with context files` → returns `code_and_design`
 - `Given artefacts with tests + requirements` → returns `code_requirements_and_design`
 - `Given artefacts with tests + context files` → returns `code_requirements_and_design`
 

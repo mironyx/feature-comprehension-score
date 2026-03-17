@@ -5,7 +5,7 @@ import {
   calculateAssessmentAggregate,
   type Rubric,
   type ParticipantAnswer,
-} from '@/lib/engine/pipeline/assess-pipeline';
+} from '@/lib/engine/pipeline';
 import { createMockLLMClient } from '../../../fixtures/llm/mock-llm-client';
 import type { LLMClient } from '@/lib/engine/llm/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
@@ -119,6 +119,32 @@ describe('Assessment pipeline', () => {
       const aggregate = calculateAssessmentAggregate(result.scored, rubric);
       expect(aggregate.overallScore).toBeGreaterThanOrEqual(0);
       expect(aggregate.overallScore).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('Given an answer with questionIndex out of range', () => {
+    it('then it records a validation_failed failure and continues scoring remaining answers', async () => {
+      const rubric: Rubric = {
+        questions: questionGenerationFixture.valid.questions,
+        artefact_quality: questionGenerationFixture.valid.artefact_quality,
+        artefact_quality_note: questionGenerationFixture.valid.artefact_quality_note,
+      };
+
+      const answers: ParticipantAnswer[] = [
+        { questionIndex: 99, participantId: 'alice', answer: 'Out of range answer.' },
+        { questionIndex: 0, participantId: 'bob', answer: 'Valid answer about race conditions.' },
+      ];
+
+      const llmClient = createMockLLMClient();
+      const result = await scoreAnswers({ rubric, answers, llmClient });
+
+      expect(result.status).toBe('scoring_incomplete');
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]!.questionIndex).toBe(99);
+      expect(result.failures[0]!.participantId).toBe('alice');
+      expect(result.failures[0]!.error.code).toBe('validation_failed');
+      expect(result.scored).toHaveLength(1);
+      expect(result.scored[0]!.participantId).toBe('bob');
     });
   });
 

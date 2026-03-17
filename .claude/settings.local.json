@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(gh api:*)",
-      "WebFetch(domain:docs.github.com)"
+      "WebFetch(domain:docs.github.com)",
+      "Bash(npx vitest:*)"
     ]
   }
 }

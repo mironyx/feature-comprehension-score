@@ -1,7 +1,7 @@
 # 0004. Roles & Access Control Model
 
 **Date:** 2026-03-06
-**Status:** Proposed
+**Status:** Accepted
 **Deciders:** LS, Claude
 
 ## Context
@@ -86,7 +86,7 @@ The reasoning:
 
 2. **Single source of truth.** GitHub org admin status is the canonical answer to "who can configure this organisation?" Duplicating that into an app-managed table creates a second source of truth with no clear benefit.
 
-3. **Alignment with ADR-0003.** We already decided to cache org membership at login for the org switcher (Story 1.2). Adding an `is_admin` flag to the same cache is trivial — no new infrastructure.
+3. **Alignment with ADR-0003.** We already decided to cache org membership at login for the org switcher (Story 1.2). Adding a `github_role` column to the same cache is trivial — admin status derived via `is_org_admin()` function.
 
 4. **Contextual roles are data, not configuration.** Author and Reviewer are determined by assessment creation (from PR metadata or manual nomination), not by role assignment. They belong on the `assessment_participants` table as a `role` column, not in a roles system.
 
@@ -106,8 +106,7 @@ The reasoning:
 user_organisations
   - user_id       (FK → auth.users)
   - org_id        (FK → organisations)
-  - is_admin      (boolean)
-  - github_role   (text — raw GitHub role for debugging)
+  - github_role   (text — 'admin', 'owner', or 'member'; admin status derived via is_org_admin())
   - updated_at    (timestamp — when last refreshed)
   - UNIQUE(user_id, org_id)
 ```
@@ -127,7 +126,7 @@ The `participant` value covers FCS participants who are neither author nor revie
 **RLS policy approach:**
 
 - All tables have `org_id` column and base RLS policy: user must have a row in `user_organisations` for that `org_id`.
-- Admin-only operations (configuration, FCS creation, gate skip) add: `AND user_organisations.is_admin = true`.
+- Admin-only operations (configuration, FCS creation, gate skip) add: `AND is_org_admin(org_id)` (derives admin status from `github_role IN ('admin', 'owner')`).
 - Assessment access adds: user must be in `assessment_participants` for that assessment, OR be an Org Admin for that org.
 - A PostgreSQL function `get_user_org_role(org_id)` encapsulates the lookup, reusable across policies.
 
@@ -144,7 +143,7 @@ The `participant` value covers FCS participants who are neither author nor revie
 - **Easier:** Contextual roles require no special infrastructure — they are a column on participant records, populated when assessments are created.
 - **Harder:** Cannot grant Org Admin to non-GitHub-admins. If an organisation wants a non-admin to configure the tool, they must grant that person GitHub org admin. This is intentional — the tool should not create a shadow permission structure.
 - **Harder:** Role cache is stale between logins. Acceptable for V1 given the low-risk failure mode.
-- **Follow-up:** ADR-0008 (data model) must include `user_organisations` table with `is_admin` column and define RLS policies referencing it.
+- **Follow-up:** ADR-0008 (data model) must include `user_organisations` table with `github_role` column and define RLS policies referencing `is_org_admin()`.
 - **Follow-up:** The `get_user_org_role(org_id)` PostgreSQL function should be defined in ADR-0008 or L4 contracts.
 - **Explicitly not doing:** App-managed roles — the V1 role model is too simple to justify a roles system. If V2 introduces team-level roles or custom permissions, we can revisit with a new ADR that supersedes this one.
 - **Explicitly not doing:** Repo-level admin — requirements state Org Admins handle repo configuration. GitHub repo maintainers/admins have no special privileges in our app.

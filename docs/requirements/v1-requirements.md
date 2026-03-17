@@ -802,7 +802,7 @@ Research spikes that informed design decisions and ADRs:
 
 | Spike | Topic | Informed |
 |-------|-------|----------|
-| spike-003 | GitHub Check API — Check Runs vs Commit Statuses, permissions, webhook events, re-run behaviour | ADR-0001 (GitHub App integration), Story 2.9 L4 contract (PR metadata export via commit status) |
+| spike-003 | GitHub Check API — Check Runs vs Commit Statuses, permissions, webhook events, re-run behaviour | ADR-0001 (GitHub App integration), Story 2.9 L4 contract (PR metadata export via Check Run) |
 | spike-004 | Supabase Auth + GitHub OAuth — session management, JWT handling, RLS integration, org membership verification | ADR-0003 (Auth: Supabase Auth + GitHub OAuth) |
 
 ---

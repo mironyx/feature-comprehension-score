@@ -26,7 +26,7 @@ export const RawArtefactSetSchema = z.object({
   pr_description: z.string().optional(),
   pr_diff: z.string().min(1),
   file_listing: z.array(FileListingEntrySchema).min(1),
-  file_contents: z.array(ArtefactFileSchema).min(1),
+  file_contents: z.array(ArtefactFileSchema),
   test_files: z.array(ArtefactFileSchema).optional(),
   linked_issues: z.array(LinkedIssueSchema).optional(),
   context_files: z.array(ArtefactFileSchema).optional(),
