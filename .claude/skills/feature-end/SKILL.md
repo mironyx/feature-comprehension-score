@@ -63,14 +63,23 @@ Once approved:
 gh pr merge <number> --squash --delete-branch
 ```
 
-### Step 5: Switch to parent branch and sync
+### Step 5: Clean up worktree and sync
 
-1. Switch to the parent branch (the PR's base branch):
+1. Check whether a worktree exists for this branch:
+   ```bash
+   git worktree list
+   ```
+   Look for a row matching `feat/<branch-name>`. Note its path (e.g., `/c/projects/fcs-feat-<number>-<slug>`).
+2. Remove the worktree if present:
+   ```bash
+   git worktree remove <worktree-path>
+   ```
+3. Switch to the parent branch and sync:
    ```bash
    git checkout <base-branch>
    git pull
    ```
-2. Delete the local feature branch:
+4. Delete the local feature branch (remote was already deleted by the squash merge):
    ```bash
    git branch -d <feature-branch>
    ```

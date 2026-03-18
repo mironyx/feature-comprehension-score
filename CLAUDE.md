@@ -35,7 +35,12 @@ See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for f
 | In Progress  | `b4f43653`                       |
 | Done         | `38eaf939`                       |
 
-**Status helper:** `./scripts/gh-project-status.sh <issue-number> <status>` — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh).
+**Status helper** — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh):
+
+- **New issue** (add to board + set status in one step): `./scripts/gh-project-status.sh add <issue-number> [status]` (default status: `todo`)
+- **Existing board item** (update status only): `./scripts/gh-project-status.sh <issue-number> <status>`
+
+Status values: `todo` | `blocked` | `"in progress"` | `done`
 
 ## Key References
 
