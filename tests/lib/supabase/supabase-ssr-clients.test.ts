@@ -167,8 +167,8 @@ describe('Supabase service role client', () => {
 
       const [, keyArg] = mockCreateServerClient.mock.calls[0];
       // Service role key must differ from the anon key
-      expect(keyArg).toBe('mock-service-role-key');
-      expect(keyArg).not.toBe('mock-anon-key');
+      expect(keyArg).toBe('test-service-role-key');
+      expect(keyArg).not.toBe('test-anon-key');
     });
 
     it('then session persistence is disabled', async () => {
