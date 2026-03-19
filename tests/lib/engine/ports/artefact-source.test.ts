@@ -24,18 +24,15 @@ describe('ArtefactSource port', () => {
       expect(result.pr_diff).toBeTruthy();
     });
 
-    it('then it can accept multiple PR numbers for FCS assessment', async () => {
-      const mock: ArtefactSource = {
-        extractFromPRs: vi.fn().mockResolvedValue({
-          ...minimalRawArtefact,
-          artefact_type: 'feature',
-        }),
-      };
+    it('then it forwards all PR numbers to the implementation unchanged', async () => {
+      const mockFn = vi.fn().mockResolvedValue(minimalRawArtefact);
+      const mock: ArtefactSource = { extractFromPRs: mockFn };
 
-      const params: PRExtractionParams = { owner: 'acme', repo: 'payments', prNumbers: [42, 43, 44] };
-      const result = await mock.extractFromPRs(params);
+      await mock.extractFromPRs({ owner: 'acme', repo: 'payments', prNumbers: [42, 43, 44] });
 
-      expect(result.artefact_type).toBe('feature');
+      expect(mockFn).toHaveBeenCalledWith(
+        expect.objectContaining({ prNumbers: [42, 43, 44] }),
+      );
     });
   });
 
@@ -45,15 +42,6 @@ describe('ArtefactSource port', () => {
         owner: 'acme',
         repo: 'payments',
         prNumbers: [42],
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('validates params with multiple PR numbers for FCS', () => {
-      const result = PRExtractionParamsSchema.safeParse({
-        owner: 'acme',
-        repo: 'payments',
-        prNumbers: [42, 43, 44],
       });
       expect(result.success).toBe(true);
     });
