@@ -90,7 +90,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (claude_code_cost_usage_total)",
+          "expr": "sum by (feature_id) (increase(claude_code_cost_usage_total[5m]))",
           "legendFormat": "{{feature_id}}"
         }
       ]

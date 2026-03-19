@@ -52,3 +52,6 @@ supabase/.temp/
 
 #hook log
 /.claude/hooks/hook.log
+
+# monitoring runtime state
+/monitoring/textfile_collector/
