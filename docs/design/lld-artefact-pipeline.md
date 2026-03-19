@@ -159,22 +159,38 @@ Good comprehension questions — especially for design justification — require
 context beyond what's in the PR itself: requirements documents, design docs, ADRs.
 These are not part of the PR diff but live in the repo.
 
-**Configuration:** During repo setup, the Org Admin specifies supplementary context
-paths — glob patterns pointing to files that should be included alongside PR
-artefacts. Stored in `org_config`:
+**Configuration — two-level, repo overrides org** (see [ADR 0013](../adr/0013-context-file-resolution-strategy.md)):
+
+- `org_config.context_file_patterns` — org-level default, applies to all repos unless overridden
+- `repository_config.context_file_patterns` — repo-level override (`NULL` means use org default)
+
+Config resolution: `repo_patterns ?? org_patterns ?? []`
+
+Different repos within the same org often have different doc structures (monorepo vs. microservice).
+Org-level patterns are a convenience default; repo-level override is required for accuracy.
 
 ```typescript
-// Example configuration
-context_file_patterns: [
-  'docs/requirements/*.md',
-  'docs/design/*.md',
-  'docs/adr/*.md',
-]
+// Example org-level default
+org_config.context_file_patterns: ['docs/requirements/*.md', 'docs/design/*.md', 'docs/adr/*.md']
+
+// Example repo-level override (different structure)
+repository_config.context_file_patterns: ['architecture/decisions/*.md', 'specs/*.md']
 ```
 
-**Extraction:** The adapter fetches matching files from the repo (at HEAD of the
-target branch) and includes them in `RawArtefactSet` as a new field:
-`context_files: ArtefactFile[]`.
+**Extraction — two sources, PR version overrides baseline:**
+
+1. **Baseline:** fetch matching files from the **target branch HEAD** (`main`/default branch).
+   This is the canonical current state of project documentation — not a PR's feature branch HEAD.
+   `PRExtractionParams` must carry `defaultBranch` so the adapter uses the correct ref.
+
+2. **PR-specific override:** for each PR, intersect `changedFiles` with the resolved context patterns.
+   If a PR modifies a file matching a context pattern (e.g., an ADR updated as part of the feature),
+   use the PR version instead of the `main` version. This captures design doc changes that are part
+   of the feature's artefact set.
+
+3. **Multi-PR FCS:** all PRs are scanned for context file changes — not just the first. Where the
+   same file is modified in multiple PRs, the latest PR by merge date wins (consistent with
+   file content merge strategy in section 2.6).
 
 **V1 approach — no caching.** Context files are fetched fresh on every assessment
 creation. This is simple, always correct, and avoids cache invalidation complexity.
@@ -670,6 +686,10 @@ audience in mind.
 1. **Token estimation accuracy** — Is `chars / 4` sufficient, or should we use a
    lightweight tokeniser? The budget is generous (100k of 200k), so rough estimation
    should be safe for V1.
+
+5. ~~**`PRExtractionParams.defaultBranch`**~~ — **Resolved.** `defaultBranch` added to `PRExtractionParamsSchema`. Adapter now fetches context files at the correct ref. See [ADR 0013](../adr/0013-context-file-resolution-strategy.md).
+
+6. ~~**`repository_config.context_file_patterns` schema migration**~~ — **Resolved.** Column already exists on `repository_config` (migration `20260317000001`). `get_effective_config` applies `COALESCE(rc.context_file_patterns, oc.context_file_patterns)`. Note: LLD previously referenced `repositories` table — the correct table is `repository_config`.
 
 2. ~~**Design document artefacts**~~ — **Resolved.** Supplementary context files
    (section 2.5) address this. Org Admin configures paths to design/requirements
