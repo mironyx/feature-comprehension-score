@@ -34,7 +34,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (claude_code_cost_usage_total)",
+          "expr": "sum by (feature_id) (claude_code_cost_usage_USD_total * on(session_id) group_left(feature_id) claude_session_feature)",
           "legendFormat": "{{feature_id}}",
           "instant": true
         }
@@ -61,7 +61,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id, type) (claude_code_token_usage_total)",
+          "expr": "sum by (feature_id, type) (claude_code_token_usage_tokens_total * on(session_id) group_left(feature_id) claude_session_feature)",
           "legendFormat": "{{feature_id}} / {{type}}",
           "instant": true
         }
@@ -90,7 +90,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (increase(claude_code_cost_usage_total[5m]))",
+          "expr": "sum by (feature_id) (increase(claude_code_cost_usage_USD_total[5m]) * on(session_id) group_left(feature_id) claude_session_feature)",
           "legendFormat": "{{feature_id}}"
         }
       ]
@@ -117,7 +117,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id, type) (claude_code_token_usage_total)",
+          "expr": "sum by (feature_id, type) (claude_code_token_usage_tokens_total * on(session_id) group_left(feature_id) claude_session_feature)",
           "legendFormat": "{{feature_id}} / {{type}}"
         }
       ]

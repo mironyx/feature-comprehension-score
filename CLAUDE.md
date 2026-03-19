@@ -175,6 +175,7 @@ tests/
 ## Custom Skills
 
 - `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/review`, `/diag`, commit, PR. Stops after PR creation for human review.
+- `/feature-cont` — Continue an in-progress feature in a new session when context was exhausted. Reconstructs state from git + issue body, registers the new session in the prom file (append, not overwrite), resumes TDD. Usage: `/feature-cont` (auto-detects from prom file) or `/feature-cont 123`.
 - `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases

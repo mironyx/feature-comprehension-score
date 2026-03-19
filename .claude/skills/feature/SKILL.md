@@ -34,11 +34,17 @@ Once the issue number is known, tag the session so it is identifiable in the IDE
 
 ```bash
 py - <<'PYEOF'
-import os, json, glob, pathlib, datetime
+import os, json, subprocess, pathlib
 
 ISSUE = "<issue-number>"            # replace with actual issue number
 FEATURE_ID = f"FCS-{ISSUE}"
 PROJECT_KEY = "c--projects-feature-comprehension-score"
+
+# Anchor to main repo root — works whether CWD is main tree or a worktree
+git_root = pathlib.Path(subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, check=True
+).stdout.strip())
 
 # Find current session JSONL (newest file in the project's Claude dir)
 claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY
@@ -59,16 +65,30 @@ with open(jsonl_path, "a", encoding="utf-8") as f:
     }) + "\n")
 
 # 2. Write Prometheus textfile mapping session → feature
-textfile_dir = pathlib.Path("monitoring/textfile_collector")
+# Always writes to main repo's monitoring dir (where node-exporter mounts from)
+textfile_dir = git_root / "monitoring" / "textfile_collector"
 textfile_dir.mkdir(parents=True, exist_ok=True)
-metric = (
-    f'# HELP claude_session_feature Maps Claude Code session ID to feature ID\n'
-    f'# TYPE claude_session_feature gauge\n'
-    f'claude_session_feature{{session_id="{session_id}",feature_id="{FEATURE_ID}"}} 1\n'
-)
-(textfile_dir / "session_feature.prom").write_text(metric, encoding="utf-8", newline="\n")
+prom_file = textfile_dir / "session_feature.prom"
+
+# Append new session entry (preserve prior sessions — Prometheus keeps all labels)
+existing = prom_file.read_text(encoding="utf-8") if prom_file.exists() else ""
+new_line = f'claude_session_feature{{session_id="{session_id}",feature_id="{FEATURE_ID}"}} 1\n'
+if new_line not in existing:
+    header = (
+        "# HELP claude_session_feature Maps Claude Code session ID to feature ID\n"
+        "# TYPE claude_session_feature gauge\n"
+    )
+    if existing and not existing.startswith("# HELP"):
+        # File exists but has no header — prepend it
+        content = header + existing + new_line
+    elif not existing:
+        content = header + new_line
+    else:
+        content = existing.rstrip("\n") + "\n" + new_line
+    prom_file.write_text(content, encoding="utf-8", newline="\n")
 
 print(f"Session tagged: {FEATURE_ID} → {session_id}")
+print(f"Prom file: {prom_file}")
 PYEOF
 ```
 
@@ -161,9 +181,31 @@ Query Prometheus for session-total cost and tokens to include in the PR body.
 
 ```bash
 py - <<'PYEOF'
-import urllib.request, urllib.parse, json
+import urllib.request, urllib.parse, json, pathlib, subprocess
 
 PROM = "http://localhost:9090/api/v1/query"
+
+# Anchor to main repo root (safe from worktree CWD)
+git_root = pathlib.Path(subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, check=True
+).stdout.strip())
+
+# Read all session_ids mapped to this feature from the textfile written in Step 1
+prom_file = git_root / "monitoring" / "textfile_collector" / "session_feature.prom"
+session_ids = []
+if prom_file.exists():
+    for line in prom_file.read_text().splitlines():
+        if line.startswith("claude_session_feature{"):
+            sid = None
+            for part in line.split(","):
+                if "session_id=" in part:
+                    sid = part.split('"')[1]
+                    break
+            if sid:
+                session_ids.append(sid)
+# Build a regex union so multi-session features aggregate all sessions
+sid_regex = "|".join(session_ids) if session_ids else None
 
 def query(promql):
     try:
@@ -173,16 +215,21 @@ def query(promql):
     except Exception:
         return None
 
-cost = query("sum(claude_code_cost_usage_USD_total)")
-inp  = query('sum(claude_code_token_usage_tokens_total{type="input"})')
-out  = query('sum(claude_code_token_usage_tokens_total{type="output"})')
-cr   = query('sum(claude_code_token_usage_tokens_total{type="cacheRead"})')
-cc   = query('sum(claude_code_token_usage_tokens_total{type="cacheCreation"})')
+if sid_regex:
+    s = f'session_id=~"{sid_regex}"'
+    cost = query(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
+    inp  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})')
+    out  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})')
+    cr   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})')
+    cc   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})')
+else:
+    cost = inp = out = cr = cc = None
 
+sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
 if cost is None:
     print("## Usage\n- Prometheus unavailable — run `docker compose up -d` in `monitoring/`")
 else:
-    print(f"## Usage (session total)\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
+    print(f"## Usage (feature total{sessions_note})\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
 PYEOF
 ```
 
