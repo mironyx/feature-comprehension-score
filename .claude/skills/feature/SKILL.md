@@ -8,13 +8,18 @@ allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, Tod
 
 Implements a single feature end-to-end without user intervention unless blocked.
 
+**Usage:**
+
+- `/feature` — picks the top Todo item from the project board
+- `/feature 123` — works on issue #123 specifically
+
 **Pre-requisite:** The issue's design document (LLD, design doc section, or ADR) must be complete. If not, stop and tell the user.
 
 ## Process
 
 Execute these steps sequentially. Do not skip steps. Do not ask for confirmation between steps — only pause if a step fails after remediation attempts.
 
-### Step 1: Pick the work item
+### Step 1: Pick the work item and tag the session
 
 If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 
@@ -25,11 +30,69 @@ If `$ARGUMENTS` contains an issue number, use that. Otherwise:
    - BDD test specs or acceptance criteria
    - If missing, stop and report: "Issue #N lacks [missing item]. Cannot proceed autonomously."
 
-### Step 2: Set up the branch
+Once the issue number is known, tag the session so it is identifiable in the IDE and in Grafana:
 
-1. Ensure you are on `feat/assessment-engine` (or the correct integration branch) and it is up to date: `git checkout feat/assessment-engine && git pull`.
-2. Create a feature branch: `git checkout -b feat/<short-description-from-issue>`.
-3. Move the issue to In Progress: `./scripts/gh-project-status.sh <number> "in progress"`.
+```bash
+python3 - <<'PYEOF'
+import os, json, glob, pathlib, datetime
+
+ISSUE = "<issue-number>"            # replace with actual issue number
+FEATURE_ID = f"FCS-{ISSUE}"
+PROJECT_KEY = "c--projects-feature-comprehension-score"
+
+# Find current session JSONL (newest file in the project's Claude dir)
+claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY
+jsonl_files = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+if not jsonl_files:
+    print("No session JSONL found — skipping session tagging")
+    raise SystemExit(0)
+
+jsonl_path = jsonl_files[0]
+session_id = jsonl_path.stem          # UUID is the filename without extension
+
+# 1. Append custom-title so the IDE session list shows "FCS-<N>"
+with open(jsonl_path, "a", encoding="utf-8") as f:
+    f.write(json.dumps({
+        "type": "custom-title",
+        "sessionId": session_id,
+        "customTitle": FEATURE_ID,
+    }) + "\n")
+
+# 2. Write Prometheus textfile mapping session → feature
+textfile_dir = pathlib.Path("monitoring/textfile_collector")
+textfile_dir.mkdir(parents=True, exist_ok=True)
+metric = (
+    f'# HELP claude_session_feature Maps Claude Code session ID to feature ID\n'
+    f'# TYPE claude_session_feature gauge\n'
+    f'claude_session_feature{{session_id="{session_id}",feature_id="{FEATURE_ID}"}} 1\n'
+)
+(textfile_dir / "session_feature.prom").write_text(metric, encoding="utf-8")
+
+print(f"Session tagged: {FEATURE_ID} → {session_id}")
+PYEOF
+```
+
+### Step 2: Set up the worktree and branch
+
+Each feature runs in an isolated git worktree so multiple `/feature` sessions can run in parallel without filesystem conflicts.
+
+1. Derive a short slug from the issue title (e.g., issue #123 "Add scoring engine" → `scoring-engine`).
+2. Compute the worktree path and store it — you will use this throughout all remaining steps:
+   ```bash
+   WDIR="$(git rev-parse --show-toplevel)/../fcs-feat-<issue-number>-<slug>"
+   echo "WDIR=$WDIR"
+   ```
+3. Fetch the integration branch and create the worktree + branch from it:
+   ```bash
+   git fetch origin main
+   git worktree add "$WDIR" -b feat/<slug> origin/main
+   ```
+4. Move the issue to In Progress: `./scripts/gh-project-status.sh <number> "in progress"`.
+
+**From this point forward, all operations target the worktree:**
+
+- All Bash commands: `(cd "$WDIR" && <command>)`
+- All Read/Write/Edit/Glob/Grep file paths: use the absolute `$WDIR`-rooted path (e.g., `$WDIR/src/lib/engine/scoring.ts`)
 
 ### Step 3: Read design context
 
@@ -43,7 +106,7 @@ Follow strict Red-Green-Refactor. One test at a time.
 
 For each behaviour in the BDD spec from the issue:
 
-1. **RED** — Write a failing test. Run `npx vitest run <test-file>`. Confirm it fails for the right reason.
+1. **RED** — Write a failing test. Run `(cd "$WDIR" && npx vitest run <test-file>)`. Confirm it fails for the right reason.
 2. **GREEN** — Write the minimum code to make the test pass. Run tests again. Confirm green.
 3. **REFACTOR** — Clean up if needed. Tests must stay green.
 
@@ -54,9 +117,9 @@ Continue until all acceptance criteria are covered.
 Run all three checks. All must pass before proceeding.
 
 ```bash
-npx vitest run          # all tests green
-npx tsc --noEmit        # no type errors
-npm run lint            # no lint errors
+(cd "$WDIR" && npx vitest run)          # all tests green
+(cd "$WDIR" && npx tsc --noEmit)        # no type errors
+(cd "$WDIR" && npm run lint)            # no lint errors
 ```
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
@@ -82,8 +145,8 @@ Run `/diag` to check VS Code extension diagnostics.
 Stage and commit with a conventional commit message referencing the issue number:
 
 ```bash
-git add <specific-files>
-git commit -m "feat: <description> #<issue-number>"
+(cd "$WDIR" && git add <specific-files>)
+(cd "$WDIR" && git commit -m "feat: <description> #<issue-number>")
 ```
 
 One commit per issue. Do not batch multiple issues.
@@ -91,13 +154,42 @@ One commit per issue. Do not batch multiple issues.
 ### Step 9: Push and create PR
 
 ```bash
-git push -u origin feat/<branch-name>
+(cd "$WDIR" && git push -u origin feat/<branch-name>)
 ```
 
-Create the PR targeting the integration branch:
+Query Prometheus for session-total cost and tokens to include in the PR body.
 
 ```bash
-gh pr create --title "<short title>" --base feat/assessment-engine --body "$(cat <<'EOF'
+python3 - <<'PYEOF'
+import urllib.request, urllib.parse, json
+
+PROM = "http://localhost:9090/api/v1/query"
+
+def query(promql):
+    try:
+        url = PROM + "?" + urllib.parse.urlencode({"query": promql})
+        rows = json.loads(urllib.request.urlopen(url, timeout=3).read()).get("data", {}).get("result", [])
+        return sum(float(r["value"][1]) for r in rows) if rows else 0.0
+    except Exception:
+        return None
+
+cost = query("sum(claude_code_cost_usage_total)")
+inp  = query('sum(claude_code_token_usage_total{type="input"})')
+out  = query('sum(claude_code_token_usage_total{type="output"})')
+cr   = query('sum(claude_code_token_usage_total{type="cacheRead"})')
+cc   = query('sum(claude_code_token_usage_total{type="cacheCreation"})')
+
+if cost is None:
+    print("## Usage\n- Prometheus unavailable — run `docker compose up -d` in `monitoring/`")
+else:
+    print(f"## Usage (session total)\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
+PYEOF
+```
+
+Incorporate the output into the PR body:
+
+```bash
+(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points of what was implemented>
 
@@ -116,6 +208,10 @@ Closes #<number>
 ## Verification
 - **Tests added:** N
 - **Total tests:** N (M test files)
+
+## Usage
+- **Cost:** $0.0000
+- **Tokens:** N input / N output / N cache-read / N cache-write
 EOF
 )"
 ```
@@ -129,7 +225,7 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
-**Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update) is a separate process.
+**Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update, worktree removal) is handled by `/feature-end`.
 
 ## Blocker policy
 
