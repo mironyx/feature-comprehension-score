@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock @supabase/ssr
+// Mock @supabase/ssr (used by server, route-handler, middleware clients)
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(),
+}));
+
+// Mock @supabase/supabase-js (used by the service role client only)
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(),
 }));
 
 // Mock next/headers
@@ -11,9 +16,11 @@ vi.mock('next/headers', () => ({
 }));
 
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 const mockCreateServerClient = vi.mocked(createServerClient);
+const mockCreateClient = vi.mocked(createClient);
 const mockCookies = vi.mocked(cookies);
 
 describe('Supabase server client', () => {
@@ -155,18 +162,27 @@ describe('Supabase middleware client', () => {
 describe('Supabase service role client', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateServerClient.mockReturnValue({ from: vi.fn() } as never);
+    mockCreateClient.mockReturnValue({ from: vi.fn() } as never);
   });
 
   describe('Given a service role client', () => {
+    it('then createClient (not createServerClient) is used — bypasses cookie-based auth override', async () => {
+      const { createServiceRoleSupabaseClient } = await import(
+        '@/lib/supabase/service-role'
+      );
+      createServiceRoleSupabaseClient();
+
+      expect(mockCreateClient).toHaveBeenCalledOnce();
+      expect(mockCreateServerClient).not.toHaveBeenCalled();
+    });
+
     it('then it is created with the service role key, not the anon key', async () => {
       const { createServiceRoleSupabaseClient } = await import(
         '@/lib/supabase/service-role'
       );
       createServiceRoleSupabaseClient();
 
-      const [, keyArg] = mockCreateServerClient.mock.calls[0];
-      // Service role key must differ from the anon key
+      const [, keyArg] = mockCreateClient.mock.calls[0];
       expect(keyArg).toBe('test-service-role-key');
       expect(keyArg).not.toBe('test-anon-key');
     });
@@ -177,7 +193,7 @@ describe('Supabase service role client', () => {
       );
       createServiceRoleSupabaseClient();
 
-      const [, , options] = mockCreateServerClient.mock.calls[0] as [
+      const [, , options] = mockCreateClient.mock.calls[0] as [
         unknown,
         unknown,
         { auth: { persistSession: boolean; autoRefreshToken: boolean } },

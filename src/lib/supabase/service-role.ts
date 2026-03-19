@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { supabaseUrl } from './env';
 import type { Database } from './types';
 
@@ -9,15 +9,7 @@ const serviceRoleKey =
   })();
 
 export function createServiceRoleSupabaseClient() {
-  return createServerClient<Database>(supabaseUrl, serviceRoleKey, {
-    cookies: {
-      getAll() {
-        return [];
-      },
-      setAll() {
-        // Service role client does not manage cookies
-      },
-    },
+  return createClient<Database>(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
