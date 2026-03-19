@@ -7,6 +7,9 @@ receivers:
 exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Keep metrics for 24 h after last report so session-level cost data
+    # survives gaps between Claude Code activity and Grafana inspection.
+    metric_expiration: 24h
     # resource_to_telemetry_conversion promotes resource attributes (e.g. feature.id)
     # to metric labels so Prometheus queries can filter by feature_id.
     resource_to_telemetry_conversion:

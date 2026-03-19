@@ -31,10 +31,14 @@ interface GitHubFileEntry {
   deletions: number;
 }
 
-interface SinglePRResult {
-  artefactSet: RawArtefactSet;
-  headSha: string;
+/** Groups the owner and repo strings to avoid primitive obsession across API calls. */
+interface RepoCoords {
+  owner: string;
+  repo: string;
 }
+
+/** A compiled glob pattern matcher — avoids passing raw string[] as a domain concept. */
+type GlobMatcher = (path: string) => boolean;
 
 // ---------------------------------------------------------------------------
 // GitHubArtefactSource
@@ -44,29 +48,31 @@ export class GitHubArtefactSource implements ArtefactSource {
   constructor(private readonly octokit: Octokit) {}
 
   async extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet> {
+    const coords: RepoCoords = { owner: params.owner, repo: params.repo };
+    const contextPatterns = params.contextFilePatterns ?? [];
+    const contextMatchers: GlobMatcher[] = contextPatterns.map(compileGlobPattern);
+
     const perPR = await Promise.all(
       params.prNumbers.map(prNumber =>
-        this.extractSinglePR(params.owner, params.repo, prNumber),
+        this.extractSinglePR(coords, prNumber, contextMatchers),
       ),
     );
 
     const artefactType = params.prNumbers.length === 1 ? 'pull_request' : 'feature';
-    const merged = mergeRawArtefacts(
-      perPR.map(r => r.artefactSet),
-      artefactType,
-    );
+    const merged = mergeRawArtefacts(perPR, artefactType);
+    // merged.context_files holds PR-specific overrides from all PRs (last PR wins)
 
-    if (params.contextFilePatterns && params.contextFilePatterns.length > 0) {
-      const headSha = perPR[0]!.headSha;
-      const contextFiles = await this.fetchContextFiles(
-        params.owner,
-        params.repo,
-        headSha,
-        params.contextFilePatterns,
-      );
-      if (contextFiles.length > 0) {
-        return { ...merged, context_files: contextFiles };
-      }
+    if (contextPatterns.length > 0) {
+      const defaultBranch = params.defaultBranch ?? 'main';
+      const baselineFiles = await this.fetchContextFiles(coords, defaultBranch, contextPatterns);
+
+      // Baseline first, then PR-specific overrides win by path
+      const contextMap = new Map<string, ArtefactFile>();
+      for (const f of baselineFiles) contextMap.set(f.path, f);
+      for (const f of merged.context_files ?? []) contextMap.set(f.path, f);
+
+      const contextFiles = Array.from(contextMap.values());
+      return { ...merged, context_files: contextFiles.length > 0 ? contextFiles : undefined };
     }
 
     return merged;
@@ -77,14 +83,14 @@ export class GitHubArtefactSource implements ArtefactSource {
   // ---------------------------------------------------------------------------
 
   private async extractSinglePR(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     prNumber: number,
-  ): Promise<SinglePRResult> {
+    contextMatchers: GlobMatcher[],
+  ): Promise<RawArtefactSet> {
     const [diff, pr, changedFiles] = await Promise.all([
-      this.fetchDiff(owner, repo, prNumber),
-      this.fetchPR(owner, repo, prNumber),
-      this.fetchChangedFiles(owner, repo, prNumber),
+      this.fetchDiff(coords, prNumber),
+      this.fetchPR(coords, prNumber),
+      this.fetchChangedFiles(coords, prNumber),
     ]);
 
     const fileListing: FileListingEntry[] = changedFiles.map(f => ({
@@ -95,27 +101,29 @@ export class GitHubArtefactSource implements ArtefactSource {
     }));
 
     const topFiles = selectTopFiles(changedFiles, MAX_FILES_FOR_CONTENT);
+    const contextMatches = filterByGlobs(changedFiles, contextMatchers);
 
-    // Fetch linked issues and file contents concurrently — both depend only on `pr`
-    const [linkedIssues, fileContents] = await Promise.all([
-      this.fetchLinkedIssues(owner, repo, pr.body ?? ''),
-      this.fetchFileContents(owner, repo, pr.head.sha, topFiles),
+    // Fetch linked issues, file contents, and PR-specific context overrides concurrently
+    const [linkedIssues, fileContents, prContextFiles] = await Promise.all([
+      this.fetchLinkedIssues(coords, pr.body ?? ''),
+      this.fetchFileContents(coords, pr.head.sha, topFiles),
+      contextMatches.length > 0
+        ? this.fetchFileContents(coords, pr.head.sha, contextMatches)
+        : Promise.resolve([] as ArtefactFile[]),
     ]);
 
     const testFiles = filterTestFiles(fileContents);
     const sourceFiles = filterSourceFiles(fileContents);
 
     return {
-      headSha: pr.head.sha,
-      artefactSet: {
-        artefact_type: 'pull_request',
-        pr_description: pr.body ?? undefined,
-        pr_diff: diff,
-        file_listing: fileListing,
-        file_contents: sourceFiles,
-        test_files: testFiles.length > 0 ? testFiles : undefined,
-        linked_issues: linkedIssues.length > 0 ? linkedIssues : undefined,
-      },
+      artefact_type: 'pull_request',
+      pr_description: pr.body ?? undefined,
+      pr_diff: diff,
+      file_listing: fileListing,
+      file_contents: sourceFiles,
+      test_files: testFiles.length > 0 ? testFiles : undefined,
+      linked_issues: linkedIssues.length > 0 ? linkedIssues : undefined,
+      context_files: prContextFiles.length > 0 ? prContextFiles : undefined,
     };
   }
 
@@ -123,12 +131,12 @@ export class GitHubArtefactSource implements ArtefactSource {
   // GitHub API calls
   // ---------------------------------------------------------------------------
 
-  private async fetchDiff(owner: string, repo: string, prNumber: number): Promise<string> {
+  private async fetchDiff(coords: RepoCoords, prNumber: number): Promise<string> {
     const response = await this.octokit.request(
       'GET /repos/{owner}/{repo}/pulls/{pull_number}',
       {
-        owner,
-        repo,
+        owner: coords.owner,
+        repo: coords.repo,
         pull_number: prNumber,
         headers: { accept: 'application/vnd.github.diff' },
       },
@@ -137,13 +145,12 @@ export class GitHubArtefactSource implements ArtefactSource {
   }
 
   private async fetchPR(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     prNumber: number,
   ): Promise<{ body: string | null; head: { sha: string }; merged_at?: string | null }> {
     const response = await this.octokit.rest.pulls.get({
-      owner,
-      repo,
+      owner: coords.owner,
+      repo: coords.repo,
       pull_number: prNumber,
     });
     return {
@@ -154,13 +161,12 @@ export class GitHubArtefactSource implements ArtefactSource {
   }
 
   private async fetchChangedFiles(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     prNumber: number,
   ): Promise<GitHubFileEntry[]> {
     const response = await this.octokit.rest.pulls.listFiles({
-      owner,
-      repo,
+      owner: coords.owner,
+      repo: coords.repo,
       pull_number: prNumber,
       per_page: 100,
     });
@@ -173,8 +179,7 @@ export class GitHubArtefactSource implements ArtefactSource {
   }
 
   private async fetchLinkedIssues(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     body: string,
   ): Promise<LinkedIssue[]> {
     const issueNumbers = parseLinkedIssueNumbers(body);
@@ -184,8 +189,8 @@ export class GitHubArtefactSource implements ArtefactSource {
       issueNumbers.map(async issueNumber => {
         try {
           const response = await this.octokit.rest.issues.get({
-            owner,
-            repo,
+            owner: coords.owner,
+            repo: coords.repo,
             issue_number: issueNumber,
           });
           return { title: response.data.title, body: response.data.body ?? '' };
@@ -199,15 +204,14 @@ export class GitHubArtefactSource implements ArtefactSource {
   }
 
   private async fetchFileContents(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     ref: string,
     files: GitHubFileEntry[],
   ): Promise<ArtefactFile[]> {
     const results = await Promise.all(
       files.map(async file => {
         try {
-          const content = await this.fetchSingleFile(owner, repo, file.filename, ref);
+          const content = await this.fetchSingleFile(coords, file.filename, ref);
           return content !== null ? { path: file.filename, content } : null;
         } catch {
           return null;
@@ -219,15 +223,14 @@ export class GitHubArtefactSource implements ArtefactSource {
   }
 
   private async fetchContextFiles(
-    owner: string,
-    repo: string,
-    treeSha: string,
+    coords: RepoCoords,
+    ref: string,
     patterns: string[],
   ): Promise<ArtefactFile[]> {
     const treeResponse = await this.octokit.rest.git.getTree({
-      owner,
-      repo,
-      tree_sha: treeSha,
+      owner: coords.owner,
+      repo: coords.repo,
+      tree_sha: ref,
       recursive: '1',
     });
 
@@ -243,7 +246,7 @@ export class GitHubArtefactSource implements ArtefactSource {
     const files = await Promise.all(
       matchingPaths.map(async filePath => {
         try {
-          const content = await this.fetchSingleFile(owner, repo, filePath, treeSha);
+          const content = await this.fetchSingleFile(coords, filePath, ref);
           return content !== null ? { path: filePath, content } : null;
         } catch {
           return null;
@@ -261,8 +264,7 @@ export class GitHubArtefactSource implements ArtefactSource {
    * breaks routing both in tests (MSW) and in the real GitHub API.
    */
   private async fetchSingleFile(
-    owner: string,
-    repo: string,
+    coords: RepoCoords,
     filePath: string,
     ref: string,
   ): Promise<string | null> {
@@ -273,7 +275,7 @@ export class GitHubArtefactSource implements ArtefactSource {
 
     const response = await this.octokit.request(
       `GET /repos/{owner}/{repo}/contents/${encodedPath}`,
-      { owner, repo, ref },
+      { owner: coords.owner, repo: coords.repo, ref },
     );
 
     const data = response.data as Record<string, unknown>;
@@ -295,6 +297,12 @@ function selectTopFiles(
   return [...files]
     .sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions))
     .slice(0, maxFiles);
+}
+
+/** Returns files whose paths match any of the given compiled glob matchers. */
+function filterByGlobs(files: GitHubFileEntry[], matchers: GlobMatcher[]): GitHubFileEntry[] {
+  if (matchers.length === 0) return [];
+  return files.filter(f => matchers.some(m => m(f.filename)));
 }
 
 function filterTestFiles(files: ArtefactFile[]): ArtefactFile[] {
@@ -395,6 +403,13 @@ export function mergeRawArtefacts(
   }
   const linked_issues = issueMap.size > 0 ? Array.from(issueMap.values()) : undefined;
 
+  // Merge PR-specific context file overrides — deduplicate by path (last PR wins)
+  const contextMap = new Map<string, ArtefactFile>();
+  for (const a of artefacts) {
+    for (const f of a.context_files ?? []) contextMap.set(f.path, f);
+  }
+  const context_files = contextMap.size > 0 ? Array.from(contextMap.values()) : undefined;
+
   return {
     artefact_type: artefactType,
     pr_description,
@@ -403,5 +418,6 @@ export function mergeRawArtefacts(
     file_contents,
     test_files,
     linked_issues,
+    context_files,
   };
 }

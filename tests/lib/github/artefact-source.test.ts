@@ -258,12 +258,13 @@ describe('GitHubArtefactSource', () => {
   // ---------------------------------------------------------------------------
 
   describe('Given context_file_patterns are specified', () => {
-    it('then matching repo files are included in context_files', async () => {
+    it('then baseline context files are fetched from the default branch, not the PR branch', async () => {
       server.use(
         mockPullRequestFull(OWNER, REPO, PR_NUMBER, { sha: HEAD_SHA }, DIFF),
         mockPullRequestFiles(OWNER, REPO, PR_NUMBER, MINIMAL_FILES),
         mockRepoContents(OWNER, REPO, 'src/pay.ts', 'export function pay() {}'),
-        mockGitTree(OWNER, REPO, HEAD_SHA, [
+        // Tree must be fetched at 'main' (defaultBranch), not the PR HEAD SHA
+        mockGitTree(OWNER, REPO, 'main', [
           { path: 'docs/design/payments.md', type: 'blob', sha: 'sha1' },
           { path: 'docs/design/auth.md', type: 'blob', sha: 'sha2' },
           { path: 'src/pay.ts', type: 'blob', sha: 'sha3' },
@@ -278,12 +279,43 @@ describe('GitHubArtefactSource', () => {
         repo: REPO,
         prNumbers: [PR_NUMBER],
         contextFilePatterns: ['docs/design/*.md'],
+        defaultBranch: 'main',
       });
 
       expect(result.context_files).toBeDefined();
       expect(result.context_files).toHaveLength(2);
       expect(result.context_files?.map(f => f.path)).toContain('docs/design/payments.md');
       expect(result.context_files?.map(f => f.path)).toContain('docs/design/auth.md');
+    });
+
+    it('then a PR that modifies a context-matched file uses the PR version, not the baseline', async () => {
+      const filesIncludingDoc = [
+        ...MINIMAL_FILES,
+        { filename: 'docs/design/payments.md', status: 'modified' as const, additions: 5, deletions: 2 },
+      ];
+
+      server.use(
+        mockPullRequestFull(OWNER, REPO, PR_NUMBER, { sha: HEAD_SHA }, DIFF),
+        mockPullRequestFiles(OWNER, REPO, PR_NUMBER, filesIncludingDoc),
+        mockRepoContents(OWNER, REPO, 'src/pay.ts', 'export function pay() {}'),
+        mockRepoContents(OWNER, REPO, 'docs/design/payments.md', '# Design: Payments (updated in PR)'),
+        // Baseline tree — contains the same file
+        mockGitTree(OWNER, REPO, 'main', [
+          { path: 'docs/design/payments.md', type: 'blob', sha: 'sha1' },
+        ]),
+      );
+
+      const source = new GitHubArtefactSource(makeOctokit());
+      const result = await source.extractFromPRs({
+        owner: OWNER,
+        repo: REPO,
+        prNumbers: [PR_NUMBER],
+        contextFilePatterns: ['docs/design/*.md'],
+        defaultBranch: 'main',
+      });
+
+      expect(result.context_files).toHaveLength(1);
+      expect(result.context_files?.[0]?.content).toBe('# Design: Payments (updated in PR)');
     });
 
     it('then context_files is undefined when no patterns are specified', async () => {
@@ -301,6 +333,41 @@ describe('GitHubArtefactSource', () => {
       });
 
       expect(result.context_files).toBeUndefined();
+    });
+
+    it('then all PRs are scanned for context file changes in FCS flow', async () => {
+      const PR2 = 43;
+      const FILES_PR2 = [
+        { filename: 'src/refund.ts', status: 'added' as const, additions: 20, deletions: 0 },
+        { filename: 'docs/design/payments.md', status: 'modified' as const, additions: 3, deletions: 1 },
+      ];
+      const DIFF2 = 'diff --git a/src/refund.ts b/src/refund.ts\n+new';
+
+      server.use(
+        mockPullRequestFull(OWNER, REPO, PR_NUMBER, { sha: HEAD_SHA }, DIFF),
+        mockPullRequestFiles(OWNER, REPO, PR_NUMBER, MINIMAL_FILES),
+        mockRepoContents(OWNER, REPO, 'src/pay.ts', 'export function pay() {}'),
+        mockPullRequestFull(OWNER, REPO, PR2, { sha: 'sha2' }, DIFF2),
+        mockPullRequestFiles(OWNER, REPO, PR2, FILES_PR2),
+        mockRepoContents(OWNER, REPO, 'src/refund.ts', 'export function refund() {}'),
+        mockRepoContents(OWNER, REPO, 'docs/design/payments.md', '# Design: Payments (updated in PR2)'),
+        mockGitTree(OWNER, REPO, 'main', [
+          { path: 'docs/design/payments.md', type: 'blob', sha: 'sha1' },
+        ]),
+      );
+
+      const source = new GitHubArtefactSource(makeOctokit());
+      const result = await source.extractFromPRs({
+        owner: OWNER,
+        repo: REPO,
+        prNumbers: [PR_NUMBER, PR2],
+        contextFilePatterns: ['docs/design/*.md'],
+        defaultBranch: 'main',
+      });
+
+      // PR2 modified the doc — its version should win over the baseline
+      expect(result.context_files).toHaveLength(1);
+      expect(result.context_files?.[0]?.content).toBe('# Design: Payments (updated in PR2)');
     });
   });
 
