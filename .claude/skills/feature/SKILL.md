@@ -33,7 +33,7 @@ If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 Once the issue number is known, tag the session so it is identifiable in the IDE and in Grafana:
 
 ```bash
-python3 - <<'PYEOF'
+py - <<'PYEOF'
 import os, json, glob, pathlib, datetime
 
 ISSUE = "<issue-number>"            # replace with actual issue number
@@ -160,7 +160,7 @@ One commit per issue. Do not batch multiple issues.
 Query Prometheus for session-total cost and tokens to include in the PR body.
 
 ```bash
-python3 - <<'PYEOF'
+py - <<'PYEOF'
 import urllib.request, urllib.parse, json
 
 PROM = "http://localhost:9090/api/v1/query"

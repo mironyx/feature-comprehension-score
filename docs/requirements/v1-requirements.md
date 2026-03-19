@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9 |
+| Version | 1.0 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-16 |
+| Last updated | 2026-03-18 |
 
 ## Change Log
 
@@ -23,6 +23,7 @@
 | 0.7 | 2026-03-14 | LS / Claude | Added V2 section with PR Decorator feature (Epic 7) |
 | 0.8 | 2026-03-15 | LS / Claude | Story 4.1: added additional_context_suggestions to LLM response (passive metadata). V2: added OSS model consideration and agentic artefact retrieval sections. Out of Scope: added OSS models and agentic retrieval entries. |
 | 0.9 | 2026-03-16 | LS / Claude | Story 3.4: added self-directed private view for FCS participants (own scores, Naur layer, submitted answers — no reference answers). Added Story 3.6: FCS Self-Reassessment (re-answer flow, locked aggregate). Per ADR-0005 revision (Option 4). |
+| 1.0 | 2026-03-18 | LS / Claude | V2: added expanded assessment areas (test strategy, operational, security); added IP-rich feature concepts (comprehension decay, outcome correlation, AI vs human delta, bus factor map, artefact quality scoring, benchmark mode). |
 
 ---
 
@@ -736,6 +737,114 @@ V1 captures `additional_context_suggestions` from the LLM as passive metadata. F
 - The V1 `additional_context_suggestions` data provides evidence for whether this would add value (if the LLM consistently requests the same artefact types, the investment is justified).
 - Cost implications: additional LLM calls and GitHub API calls per assessment. Should be opt-in and configurable per organisation.
 - Aligns with the `ArtefactSource` port design — the agent would call back into the same extraction interface.
+
+---
+
+### Expanded Assessment Areas
+
+V1 generates questions across Naur's three layers (world-to-program mapping, design justification, modification capacity). These additional knowledge areas are candidates for V2 assessment prompts. Each is a distinct dimension of understanding that AI-augmented teams are likely to have invisible blind spots in.
+
+**Test strategy awareness**
+Not coverage percentage, but qualitative understanding of what the test suite actually guards. Example questions: "What failure modes does this test suite not catch? What would you add to it and why?" With AI writing tests, a team can have 85% coverage and no understanding of what the tests actually protect. This area is orthogonal to Naur — it tests confidence in quality, not just understanding of the feature.
+
+**Operational / production knowledge**
+Can the team explain how this feature behaves in production? Example questions: "How would you know this feature is broken? What would you look at first in an incident? What are the known performance characteristics?" Naur's modification capacity layer partially covers this, but operational knowledge is a distinct domain — a developer can reason about code changes without knowing anything about alerts, dashboards, or failure modes at runtime.
+
+**Security / threat model awareness**
+Does the team understand the trust boundaries and attack surface? Example questions: "What data flows through this feature? What trust assumptions were made? What is the most likely misuse vector?" Particularly relevant for AI-generated code, where the implementation may be syntactically safe but semantically naive about threats. Should be configurable — not all features have a meaningful security surface.
+
+**Notes:** These areas should be opt-in and configurable per assessment — a CRUD endpoint and a payment pipeline have very different threat surfaces. Universal application would dilute question quality. Exact prompt engineering for each area is a V2 research spike.
+
+---
+
+### Comprehension Decay Tracking
+
+Track how team understanding of a feature changes over time by enabling periodic re-assessment of the same feature (30 / 60 / 90 days after completion). Plot the "comprehension half-life" per feature.
+
+**Motivation:** Naur's original observation was that when the team disperses or moves on, the theory dies. This is the first tool to make that decay visible and measurable. The longitudinal data accumulated across customers becomes a moat — over time the product can show norms: "the average team loses 40% of design justification understanding within 8 weeks."
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- Decay assessments reuse the same question set as the original to allow direct comparison.
+- Score trend is shown per feature: original score → 30-day → 60-day → 90-day.
+- Org Admin can schedule decay assessments or trigger manually.
+- Decay curve is a product-level differentiator and should be surfaced prominently in the results dashboard.
+
+---
+
+### Comprehension-to-Outcome Correlation
+
+Cross-reference FCS scores with production incidents, bug rates, and change failure rates per feature. Over time, the system builds evidence of the relationship between comprehension and delivery quality.
+
+**Motivation:** This is a data flywheel. Each customer's data makes the signal stronger. Once the correlation is established (e.g., "features scoring below 60% have 3× the incident rate in the following 90 days"), the FCS score becomes a leading indicator for risk — not just a retrospective measurement. This is impossible to replicate without longitudinal data and is the strongest long-term moat in the product.
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- V1 incident integration: GitHub Issues labelled as bugs, or Jira integration.
+- Correlation is shown at org level, not feature level, to avoid surveillance perception.
+- Requires a minimum dataset threshold before surfacing — suppress until statistically meaningful.
+- Privacy: individual scores are never included in correlation analysis, only aggregate feature scores.
+
+---
+
+### AI vs Human Comprehension Delta
+
+Ask the same assessment questions to an LLM (with full access to the feature artefacts) and to the human participants. Surface the gap as a distinct metric.
+
+**Motivation:** A genuinely novel framing not found in any existing tool. If AI scores 85% and the team scores 40% on their own code — that is a strong signal. If the team scores higher than the AI — they have genuine depth that the artefacts alone do not surface, which is exactly what Naur's theory building describes. The delta itself is informative in both directions.
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- AI baseline is generated at question-creation time using the same artefacts, before any human answers.
+- AI baseline is not shown to participants during the assessment (prevents anchoring).
+- Delta is shown in the results view alongside the aggregate human score.
+- Framing matters: position as "what the code says about itself" vs. "what the team knows beyond the code" — not as a competition.
+
+---
+
+### Bus Factor Map
+
+Visualise which team members have a passing FCS score on which features. Flag features where fewer than N people have demonstrated sufficient understanding.
+
+**Motivation:** Bus factor (or truck factor) is a well-understood concept in engineering leadership. This makes it measurable per feature, not just per codebase. Particularly actionable when a team member announces they are leaving — the manager can immediately see which features are at risk. Multi-user data is required, so this is a natural fit for V2 after V1 accumulates team-level participation data.
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- Displayed as a feature × participant matrix on the org dashboard (accessible to Org Admin only).
+- "Passing" threshold is configurable (default: 70%).
+- Features with only one participant above threshold are flagged as single points of failure.
+- Integrates with GitHub membership: when a contributor leaves the org, affected features are automatically re-flagged.
+- Individual scores remain private — the map shows pass/fail status only, not scores.
+
+---
+
+### Artefact Quality Scoring
+
+Alongside the FCS score, score the quality of the artefacts that were available for the assessment. Thin artefacts generate thin questions — artefact quality is the upstream constraint on comprehension.
+
+**Motivation:** This shifts the tool's framing from "your team failed to understand the feature" to "your knowledge transfer process produced insufficient artefacts." Less threatening, more actionable. It also surfaces a second diagnostic signal: a team with high artefact quality and low FCS scores has a different problem from a team with low artefact quality and low FCS scores.
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- Artefact quality dimensions: PR description completeness, linked issues, design document presence, commit message quality, inline comments.
+- Scoring is LLM-based, using a separate evaluation prompt — not a heuristic count.
+- Shown alongside FCS score on the results page: "Artefact quality: 62% — questions may not fully cover design intent."
+- V1 already captures `additional_context_suggestions` which is a proxy signal for artefact gaps — use as training signal for the quality scorer.
+
+---
+
+### Benchmark Mode
+
+Aggregate anonymised FCS scores across participating organisations by feature type, team size, and industry vertical. Surface peer comparison as a contextual reference alongside each team's own score.
+
+**Motivation:** Network effect — every new customer makes the benchmark more valuable, creating retention and a compounding data advantage. Example insight: "Your team scores 78% on design justification — the median for similar-sized teams on similar features is 65%." Transforms the FCS from an absolute score into a relative one, which is far more meaningful for goal-setting.
+
+**High-level design notes (to be detailed in V2 requirements):**
+
+- Opt-in only. Organisations must explicitly consent to contribute anonymised data to the benchmark pool.
+- Minimum cohort size before surfacing a benchmark (e.g., 10 organisations) to prevent reverse-engineering of individual org data.
+- Segmentation dimensions: team size, feature complexity (proxy: PR size, commit count), industry (self-reported).
+- Shown on the results page as a contextual band ("teams like yours"), not a leaderboard.
 
 ---
 
