@@ -2,7 +2,18 @@ import { http, HttpResponse } from 'msw';
 
 const GITHUB_API = 'https://api.github.com';
 
-/** Factory: mock a single pull request */
+// ---------------------------------------------------------------------------
+// Pull request — handles both metadata (JSON) and diff (text/diff) requests
+// ---------------------------------------------------------------------------
+
+export interface MockPRMetadata {
+  body?: string | null;
+  sha?: string;
+  title?: string;
+  merged_at?: string | null;
+}
+
+/** Factory: mock a single pull request (metadata only — for legacy tests) */
 export function mockPullRequest(
   owner: string,
   repo: string,
@@ -22,6 +33,129 @@ export function mockPullRequest(
     }),
   );
 }
+
+/** Factory: mock a PR with both metadata (JSON) and diff (text) response */
+export function mockPullRequestFull(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  metadata: MockPRMetadata = {},
+  diff = `diff --git a/src/pay.ts b/src/pay.ts\n--- a/src/pay.ts\n+++ b/src/pay.ts\n@@ -1 +1 @@\n-old\n+new`,
+) {
+  return http.get(
+    `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`,
+    ({ request }) => {
+      const accept = request.headers.get('accept') ?? '';
+      if (accept.includes('application/vnd.github.diff')) {
+        return HttpResponse.text(diff);
+      }
+      return HttpResponse.json({
+        number: prNumber,
+        title: metadata.title ?? `PR #${prNumber}`,
+        body: metadata.body ?? null,
+        head: { sha: metadata.sha ?? 'abc123def456', ref: `feat/test-${prNumber}` },
+        base: { ref: 'main' },
+        merged_at: metadata.merged_at ?? null,
+        state: 'open',
+        user: { login: 'test-author' },
+      });
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PR file listing
+// ---------------------------------------------------------------------------
+
+export interface MockFileEntry {
+  filename: string;
+  status: 'added' | 'modified' | 'removed' | 'renamed';
+  additions: number;
+  deletions: number;
+}
+
+/** Factory: mock the PR files listing endpoint */
+export function mockPullRequestFiles(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  files: MockFileEntry[] = [],
+) {
+  return http.get(
+    `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/files`,
+    () => HttpResponse.json(files),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Repository file contents
+// ---------------------------------------------------------------------------
+
+/** Factory: mock a single file's contents endpoint (returns base64-encoded content) */
+export function mockRepoContents(
+  owner: string,
+  repo: string,
+  path: string,
+  content: string,
+  sha = 'abc123',
+) {
+  const encoded = Buffer.from(content).toString('base64');
+  return http.get(`${GITHUB_API}/repos/${owner}/${repo}/contents/${path}`, () =>
+    HttpResponse.json({
+      type: 'file',
+      name: path.split('/').pop(),
+      path,
+      sha,
+      size: content.length,
+      encoding: 'base64',
+      content: encoded + '\n',
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Issues (linked issue fetching)
+// ---------------------------------------------------------------------------
+
+/** Factory: mock a single issue */
+export function mockIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  title = `Issue #${issueNumber}`,
+  body = 'Issue body.',
+) {
+  return http.get(`${GITHUB_API}/repos/${owner}/${repo}/issues/${issueNumber}`, () =>
+    HttpResponse.json({ number: issueNumber, title, body }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Git trees (for context file pattern resolution)
+// ---------------------------------------------------------------------------
+
+export interface MockTreeEntry {
+  path: string;
+  type: 'blob' | 'tree';
+  sha: string;
+}
+
+/** Factory: mock the git trees endpoint (recursive) */
+export function mockGitTree(
+  owner: string,
+  repo: string,
+  treeSha: string,
+  entries: MockTreeEntry[] = [],
+) {
+  return http.get(
+    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${treeSha}`,
+    () => HttpResponse.json({ sha: treeSha, tree: entries, truncated: false }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Legacy helpers (unchanged)
+// ---------------------------------------------------------------------------
 
 /** Factory: mock check runs for a ref */
 export function mockCheckRuns(
