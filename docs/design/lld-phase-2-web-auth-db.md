@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
+| Revised | 2026-03-19 | Issue #52 |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -162,13 +163,36 @@ The existing `src/lib/supabase/client.ts` creates a browser client. Phase 2 need
 ```
 src/lib/supabase/
   client.ts            — existing browser client (keep)
+  env.ts               — shared env var validation (new)
   server.ts            — server component client (new)
   route-handler.ts     — route handler client (new)
   middleware.ts        — middleware client (new)
   service-role.ts      — service role client (new)
 ```
 
-All server-side clients use `@supabase/ssr` with `cookies()` from `next/headers`. The middleware client uses `NextResponse` cookie handling.
+> **Implementation note (issue #52):** `env.ts` was added as a shared module to eliminate
+> copy-pasted env var validation across all four client files. It exports `supabaseUrl` and
+> `supabaseAnonKey` using a `?? IIFE` pattern that narrows the type to `string` (TypeScript
+> does not narrow across conditional throws without the IIFE). The service role key is
+> intentionally **not** exported from `env.ts` — it is consumed only in `service-role.ts` to
+> prevent accidental use elsewhere.
+
+`server.ts`, `route-handler.ts`, and `middleware.ts` use `createServerClient` from `@supabase/ssr`.
+The middleware client writes cookies to **both** the incoming `NextRequest` (so downstream
+server code sees the refreshed token in the same request cycle) and the outgoing `NextResponse`
+(so the browser receives the new cookie).
+
+> **Implementation note (issue #52):** The Server Component client's `setAll` callback must be
+> wrapped in `try-catch`. `cookieStore.set()` throws inside React Server Components because RSCs
+> cannot set cookies directly; only middleware can. Silently swallowing the error is the correct
+> pattern — the middleware will handle the refresh on the next request.
+
+> **Implementation note (issue #52):** The Service Role client uses `createClient` from
+> `@supabase/supabase-js` — **not** `createServerClient` from `@supabase/ssr`. Using
+> `createServerClient` for service role is a correctness bug: the SSR client inspects the
+> request cookies and can override the `Authorization` header with the user's JWT, silently
+> downgrading admin access to a user-scoped session. `createClient` with
+> `{ auth: { persistSession: false, autoRefreshToken: false } }` is the correct pattern.
 
 #### Auth callback route
 
@@ -878,10 +902,13 @@ describe('Supabase service role client')
 ```
 
 **Files to create/modify:**
+- `src/lib/supabase/env.ts` — shared env var validation (not in original spec; added for DRY)
 - `src/lib/supabase/server.ts` — server component client
 - `src/lib/supabase/route-handler.ts` — route handler client
 - `src/lib/supabase/middleware.ts` — middleware client
-- `src/lib/supabase/service-role.ts` — service role client
+- `src/lib/supabase/service-role.ts` — service role client (uses `@supabase/supabase-js`, not `@supabase/ssr`)
+- `src/lib/supabase/client.ts` — updated to import from `env.ts`
+- `tests/setup.ts` — env var fallbacks required so module-level validation in `env.ts` does not throw during unit test import
 
 ---
 
