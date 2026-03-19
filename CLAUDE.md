@@ -181,6 +181,7 @@ tests/
 - `/create-plan` — Create detailed implementation plans for features or work phases
 - `/diag` — Batch check VS Code extension diagnostics for changed files before committing
 - `/lld` — Generate Low-Level Design documents for a phase or section. Usage: `/lld phase2` (all sections) or `/lld 2.3` (single section). Produces LLDs with implementation detail, file paths, types, and task breakdowns.
+- `/lld-sync` — Sync the LLD back to the implementation after a feature is complete. Compares spec vs what was built, updates the LLD in-place. Run after implementation, before `/feature-end`. Called automatically by `/feature-end` Step 1.5.
 
 ## Custom Commands
 

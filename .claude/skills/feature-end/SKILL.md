@@ -24,6 +24,15 @@ Execute these steps sequentially. Do not skip steps.
 3. Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
 4. Read the latest session log in `docs/sessions/` to understand what has been done this session.
 
+### Step 1.5: Sync the LLD
+
+Run `/lld-sync <issue-number>` to update the Low-Level Design document with implementation learnings
+before writing the session log. The sync report output feeds directly into the session log's
+"Decisions made" section.
+
+If no LLD covers this issue (e.g., it is a chore or infrastructure task), skip this step and note
+it in the session log.
+
 ### Step 2: Write session log
 
 1. Determine the session log filename: `docs/sessions/YYYY-MM-DD-session-N.md` (increment N from the latest log for today, or start at 1).
