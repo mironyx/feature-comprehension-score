@@ -19,18 +19,21 @@ const mockCookies = vi.mocked(cookies);
 describe('Supabase server client', () => {
   const fakeUser = { id: 'user-123', email: 'test@example.com' };
   const mockGetUser = vi.fn();
-  const mockSupabaseClient = { auth: { getUser: mockGetUser } };
+  const mockCookieSet = vi.fn();
+  let mockSupabaseClient: { auth: { getUser: typeof mockGetUser } };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateServerClient.mockReturnValue(mockSupabaseClient as never);
 
     const cookieStore = {
       get: vi.fn((name: string) => ({ name, value: 'mock-cookie-value' })),
       getAll: vi.fn(() => [{ name: 'sb-session', value: 'mock-session' }]),
-      set: vi.fn(),
+      set: mockCookieSet,
     };
     mockCookies.mockResolvedValue(cookieStore as never);
+
+    mockSupabaseClient = { auth: { getUser: mockGetUser } };
+    mockCreateServerClient.mockReturnValue(mockSupabaseClient as never);
   });
 
   describe('Given a valid session cookie', () => {
@@ -44,24 +47,43 @@ describe('Supabase server client', () => {
       expect(error).toBeNull();
       expect(data.user).toEqual(fakeUser);
       expect(mockCreateServerClient).toHaveBeenCalledWith(
-        expect.any(String), // SUPABASE_URL
-        expect.any(String), // SUPABASE_ANON_KEY
+        expect.any(String),
+        expect.any(String),
         expect.objectContaining({ cookies: expect.any(Object) }),
       );
+    });
+  });
+
+  describe('Given Supabase calls setAll in an RSC context', () => {
+    it('then cookie write errors are silently swallowed', async () => {
+      mockCookieSet.mockImplementation(() => {
+        throw new Error('Cookies can only be set in a Server Action or Route Handler');
+      });
+
+      const { createServerSupabaseClient } = await import('@/lib/supabase/server');
+      const client = await createServerSupabaseClient();
+
+      // Invoke the setAll adapter directly via the captured call arg
+      const cookiesArg = mockCreateServerClient.mock.calls[0][2].cookies as {
+        setAll: (c: { name: string; value: string; options?: object }[]) => void;
+      };
+      expect(() =>
+        cookiesArg.setAll([{ name: 'sb-token', value: 'new', options: {} }]),
+      ).not.toThrow();
+
+      expect(client).toBeDefined();
     });
   });
 });
 
 describe('Supabase route handler client', () => {
-  const mockSupabaseClient = { auth: { getUser: vi.fn() } };
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateServerClient.mockReturnValue(mockSupabaseClient as never);
+    mockCreateServerClient.mockReturnValue({} as never);
   });
 
   describe('Given a request with cookies', () => {
-    it('then the client is created with cookie read/write handlers', async () => {
+    it('then cookie reads are proxied from the request', async () => {
       const { NextRequest, NextResponse } = await import('next/server');
       const request = new NextRequest('http://localhost/api/test', {
         headers: { cookie: 'sb-session=mock-token' },
@@ -73,28 +95,44 @@ describe('Supabase route handler client', () => {
       );
       createRouteHandlerSupabaseClient(request, response);
 
-      expect(mockCreateServerClient).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.objectContaining({ cookies: expect.any(Object) }),
+      const cookiesArg = mockCreateServerClient.mock.calls[0][2].cookies as {
+        getAll: () => { name: string; value: string }[];
+        setAll: (c: { name: string; value: string; options?: object }[]) => void;
+      };
+
+      // getAll reads from the request
+      const all = cookiesArg.getAll();
+      expect(all.some((c) => c.name === 'sb-session' && c.value === 'mock-token')).toBe(true);
+    });
+
+    it('then cookie writes are applied to the response', async () => {
+      const { NextRequest, NextResponse } = await import('next/server');
+      const request = new NextRequest('http://localhost/api/test');
+      const response = NextResponse.next();
+
+      const { createRouteHandlerSupabaseClient } = await import(
+        '@/lib/supabase/route-handler'
       );
+      createRouteHandlerSupabaseClient(request, response);
+
+      const cookiesArg = mockCreateServerClient.mock.calls[0][2].cookies as {
+        setAll: (c: { name: string; value: string; options?: object }[]) => void;
+      };
+      cookiesArg.setAll([{ name: 'sb-refresh-token', value: 'new-token', options: {} }]);
+
+      expect(response.cookies.get('sb-refresh-token')?.value).toBe('new-token');
     });
   });
 });
 
 describe('Supabase middleware client', () => {
-  const mockGetUser = vi.fn();
-  const mockSupabaseClient = { auth: { getUser: mockGetUser } };
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateServerClient.mockReturnValue(mockSupabaseClient as never);
+    mockCreateServerClient.mockReturnValue({ auth: { getUser: vi.fn() } } as never);
   });
 
-  describe('Given an expired session cookie', () => {
-    it('then the middleware refreshes the JWT', async () => {
-      mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
-
+  describe('Given a cookie set by Supabase during JWT refresh', () => {
+    it('then the cookie is written to both request and response', async () => {
       const { NextRequest, NextResponse } = await import('next/server');
       const request = new NextRequest('http://localhost/assessments');
       const response = NextResponse.next({ request });
@@ -102,47 +140,50 @@ describe('Supabase middleware client', () => {
       const { createMiddlewareSupabaseClient } = await import(
         '@/lib/supabase/middleware'
       );
-      const { supabase } = createMiddlewareSupabaseClient(request, response);
+      createMiddlewareSupabaseClient(request, response);
 
-      // getUser triggers JWT refresh in @supabase/ssr
-      await supabase.auth.getUser();
+      const cookiesArg = mockCreateServerClient.mock.calls[0][2].cookies as {
+        setAll: (c: { name: string; value: string; options?: object }[]) => void;
+      };
+      cookiesArg.setAll([{ name: 'sb-access-token', value: 'refreshed', options: {} }]);
 
-      expect(mockGetUser).toHaveBeenCalledOnce();
-      expect(mockCreateServerClient).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.objectContaining({ cookies: expect.any(Object) }),
-      );
+      expect(response.cookies.get('sb-access-token')?.value).toBe('refreshed');
     });
   });
 });
 
 describe('Supabase service role client', () => {
-  const mockSupabaseClient = { from: vi.fn() };
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateServerClient.mockReturnValue(mockSupabaseClient as never);
+    mockCreateServerClient.mockReturnValue({ from: vi.fn() } as never);
   });
 
   describe('Given a service role client', () => {
-    it('then it can read data across all orgs (bypasses RLS)', async () => {
+    it('then it is created with the service role key, not the anon key', async () => {
       const { createServiceRoleSupabaseClient } = await import(
         '@/lib/supabase/service-role'
       );
-      const client = createServiceRoleSupabaseClient();
+      createServiceRoleSupabaseClient();
 
-      // Service role client is created — it has access to all data
-      expect(client).toBeDefined();
-      expect(mockCreateServerClient).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.stringMatching(/.+/), // service role key (non-empty)
-        expect.any(Object),
-      );
-
-      // Verify it was called with the service role key (second arg), not the anon key
       const [, keyArg] = mockCreateServerClient.mock.calls[0];
-      expect(keyArg).toBe(process.env['SUPABASE_SERVICE_ROLE_KEY'] ?? 'mock-service-role-key');
+      // Service role key must differ from the anon key
+      expect(keyArg).toBe('mock-service-role-key');
+      expect(keyArg).not.toBe('mock-anon-key');
+    });
+
+    it('then session persistence is disabled', async () => {
+      const { createServiceRoleSupabaseClient } = await import(
+        '@/lib/supabase/service-role'
+      );
+      createServiceRoleSupabaseClient();
+
+      const [, , options] = mockCreateServerClient.mock.calls[0] as [
+        unknown,
+        unknown,
+        { auth: { persistSession: boolean; autoRefreshToken: boolean } },
+      ];
+      expect(options.auth.persistSession).toBe(false);
+      expect(options.auth.autoRefreshToken).toBe(false);
     });
   });
 });

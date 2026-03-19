@@ -1,11 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
+import { supabaseUrl } from './env';
 import type { Database } from './types';
-
-const supabaseUrl =
-  process.env['NEXT_PUBLIC_SUPABASE_URL'] ??
-  (() => {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL');
-  })();
 
 const serviceRoleKey =
   process.env['SUPABASE_SERVICE_ROLE_KEY'] ??
