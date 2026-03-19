@@ -14,6 +14,19 @@ services:
     networks:
       - monitoring
 
+  node-exporter:
+    image: prom/node-exporter:latest
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile
+      - --collector.textfile.directory=/textfiles
+    volumes:
+      - ./textfile_collector:/textfiles:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring
+
   prometheus:
     image: prom/prometheus:latest
     volumes:
@@ -24,6 +37,7 @@ services:
       - monitoring
     depends_on:
       - otel-collector
+      - node-exporter
 
   grafana:
     image: grafana/grafana:latest

@@ -66,7 +66,7 @@ metric = (
     f'# TYPE claude_session_feature gauge\n'
     f'claude_session_feature{{session_id="{session_id}",feature_id="{FEATURE_ID}"}} 1\n'
 )
-(textfile_dir / "session_feature.prom").write_text(metric, encoding="utf-8")
+(textfile_dir / "session_feature.prom").write_text(metric, encoding="utf-8", newline="\n")
 
 print(f"Session tagged: {FEATURE_ID} → {session_id}")
 PYEOF
@@ -173,11 +173,11 @@ def query(promql):
     except Exception:
         return None
 
-cost = query("sum(claude_code_cost_usage_total)")
-inp  = query('sum(claude_code_token_usage_total{type="input"})')
-out  = query('sum(claude_code_token_usage_total{type="output"})')
-cr   = query('sum(claude_code_token_usage_total{type="cacheRead"})')
-cc   = query('sum(claude_code_token_usage_total{type="cacheCreation"})')
+cost = query("sum(claude_code_cost_usage_USD_total)")
+inp  = query('sum(claude_code_token_usage_tokens_total{type="input"})')
+out  = query('sum(claude_code_token_usage_tokens_total{type="output"})')
+cr   = query('sum(claude_code_token_usage_tokens_total{type="cacheRead"})')
+cc   = query('sum(claude_code_token_usage_tokens_total{type="cacheCreation"})')
 
 if cost is None:
     print("## Usage\n- Prometheus unavailable — run `docker compose up -d` in `monitoring/`")

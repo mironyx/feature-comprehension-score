@@ -48,7 +48,13 @@ Execute these steps sequentially. Do not skip steps.
 
 **This is the only step that requires user confirmation.**
 
-Present the user with:
+First check whether the PR is already merged (user may have merged via GitHub UI):
+```bash
+gh pr view <number> --json state --jq '.state'
+```
+If the state is `MERGED`, skip the merge command and proceed directly to Step 5.
+
+Otherwise, present the user with:
 - PR title and URL
 - Base branch the PR will merge into
 - Merge strategy: squash merge (default)
@@ -57,7 +63,7 @@ Ask: "Ready to merge PR #N into `<base-branch>`? (squash merge, delete remote br
 
 Wait for explicit approval. If denied, stop and report.
 
-Once approved:
+Once approved, **run from the primary worktree** (not from inside the feature worktree — `gh pr merge --delete-branch` attempts a local `git checkout <base>` which fails if `<base>` is already checked out in another worktree):
 
 ```bash
 gh pr merge <number> --squash --delete-branch
