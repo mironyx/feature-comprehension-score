@@ -434,6 +434,9 @@ export interface Database {
           answer_text: string;
           is_relevant: boolean | null;
           relevance_explanation: string | null;
+          score: number | null;
+          score_rationale: string | null;
+          is_reassessment: boolean;
           attempt_number: number;
           created_at: string;
         };
@@ -446,6 +449,9 @@ export interface Database {
           answer_text: string;
           is_relevant?: boolean | null;
           relevance_explanation?: string | null;
+          score?: number | null;
+          score_rationale?: string | null;
+          is_reassessment?: boolean;
           attempt_number?: number;
           created_at?: string;
         };
@@ -458,6 +464,9 @@ export interface Database {
           answer_text?: string;
           is_relevant?: boolean | null;
           relevance_explanation?: string | null;
+          score?: number | null;
+          score_rationale?: string | null;
+          is_reassessment?: boolean;
           attempt_number?: number;
           created_at?: string;
         };
