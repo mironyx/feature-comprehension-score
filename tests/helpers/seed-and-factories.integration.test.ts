@@ -1,0 +1,176 @@
+import { describe, it, expect } from 'vitest';
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/supabase/types';
+import { SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY } from './supabase-env';
+import {
+  createTestOrg,
+  createTestRepo,
+  createTestAssessment,
+  createTestQuestion,
+  createTestParticipant,
+  createTestAnswer,
+} from './factories';
+import { resetDatabase } from './db';
+
+// ---------------------------------------------------------------------------
+// Fixed seed UUIDs (set in supabase/seed.sql)
+// ---------------------------------------------------------------------------
+
+const SEED_ACME_ORG_ID = '00000000-0000-0000-0000-000000000001';
+const SEED_BETA_ORG_ID = '00000000-0000-0000-0000-000000000002';
+const SEED_ALICE_ID = '00000000-0000-0000-0000-000000000001';
+const SEED_BOB_ID = '00000000-0000-0000-0000-000000000002';
+const SEED_CAROL_ID = '00000000-0000-0000-0000-000000000003';
+const SEED_REPO_API_ID = '00000000-0000-0000-0001-000000000001';
+const SEED_REPO_WEB_ID = '00000000-0000-0000-0001-000000000002';
+const SEED_REPO_PLATFORM_ID = '00000000-0000-0000-0001-000000000003';
+
+function serviceClient() {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// describe('Seed data')
+// Verifies specific seed rows exist after `npx supabase db reset`.
+// Queries by fixed UUID so results are stable regardless of other test data.
+// ---------------------------------------------------------------------------
+
+describe('Seed data', () => {
+  describe('Given a fresh database after supabase db reset', () => {
+    it('then 2 organisations exist', async () => {
+      const svc = serviceClient();
+      const { data, error } = await svc
+        .from('organisations')
+        .select('id')
+        .in('id', [SEED_ACME_ORG_ID, SEED_BETA_ORG_ID]);
+      expect(error).toBeNull();
+      expect(data).toHaveLength(2);
+    });
+
+    it('then 3 repositories exist', async () => {
+      const svc = serviceClient();
+      const { data, error } = await svc
+        .from('repositories')
+        .select('id')
+        .in('id', [SEED_REPO_API_ID, SEED_REPO_WEB_ID, SEED_REPO_PLATFORM_ID]);
+      expect(error).toBeNull();
+      expect(data).toHaveLength(3);
+    });
+
+    it('then user_organisations link users to their orgs', async () => {
+      const svc = serviceClient();
+      const { data, error } = await svc
+        .from('user_organisations')
+        .select('user_id, org_id, github_role')
+        .in('user_id', [SEED_ALICE_ID, SEED_BOB_ID, SEED_CAROL_ID]);
+      expect(error).toBeNull();
+      // alice → acme (admin), bob → acme (member), carol → beta (admin)
+      expect(data).toHaveLength(3);
+      expect(data?.some((r) => r.org_id === SEED_ACME_ORG_ID && r.github_role === 'admin')).toBe(
+        true,
+      );
+      expect(data?.some((r) => r.org_id === SEED_ACME_ORG_ID && r.github_role === 'member')).toBe(
+        true,
+      );
+      expect(data?.some((r) => r.org_id === SEED_BETA_ORG_ID && r.github_role === 'admin')).toBe(
+        true,
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe('Test factories')
+// ---------------------------------------------------------------------------
+
+describe('Test factories', () => {
+  describe('Given createOrg with default options', () => {
+    it('then it creates an active organisation', async () => {
+      const svc = serviceClient();
+      const orgId = await createTestOrg(svc);
+
+      const { data, error } = await svc
+        .from('organisations')
+        .select('status')
+        .eq('id', orgId)
+        .single();
+
+      expect(error).toBeNull();
+      expect(data?.status).toBe('active');
+
+      await svc.from('organisations').delete().eq('id', orgId);
+    });
+  });
+
+  describe('Given createAssessment with required fields', () => {
+    it('then it creates an assessment with correct defaults', async () => {
+      const svc = serviceClient();
+      const orgId = await createTestOrg(svc);
+      const repoId = await createTestRepo(svc, orgId);
+      const assessmentId = await createTestAssessment(svc, orgId, repoId);
+
+      const { data, error } = await svc
+        .from('assessments')
+        .select('type, status')
+        .eq('id', assessmentId)
+        .single();
+
+      expect(error).toBeNull();
+      expect(data?.type).toBe('prcc');
+      expect(data?.status).toBe('awaiting_responses');
+
+      await svc.from('organisations').delete().eq('id', orgId);
+    });
+  });
+
+  describe('Given createAnswer with required fields', () => {
+    it('then it creates a participant answer with correct defaults', async () => {
+      const svc = serviceClient();
+      const orgId = await createTestOrg(svc);
+      const repoId = await createTestRepo(svc, orgId);
+      const assessmentId = await createTestAssessment(svc, orgId, repoId);
+      const questionId = await createTestQuestion(svc, orgId, assessmentId);
+      const participantId = await createTestParticipant(svc, orgId, assessmentId);
+
+      const answerId = await createTestAnswer(svc, {
+        orgId,
+        assessmentId,
+        participantId,
+        questionId,
+      });
+
+      const { data, error } = await svc
+        .from('participant_answers')
+        .select('answer_text, attempt_number, is_reassessment')
+        .eq('id', answerId)
+        .single();
+
+      expect(error).toBeNull();
+      expect(data?.answer_text).toBeTruthy();
+      expect(data?.attempt_number).toBe(1);
+      expect(data?.is_reassessment).toBe(false);
+
+      await svc.from('organisations').delete().eq('id', orgId);
+    });
+  });
+
+  describe('Given resetDatabase', () => {
+    it('then all tables are empty', async () => {
+      const svc = serviceClient();
+
+      // Create some data first
+      const orgId = await createTestOrg(svc);
+      await createTestRepo(svc, orgId);
+
+      // Reset
+      await resetDatabase(svc);
+
+      // Verify core tables are empty
+      const { data: orgs } = await svc.from('organisations').select('id');
+      const { data: repos } = await svc.from('repositories').select('id');
+
+      expect(orgs).toHaveLength(0);
+      expect(repos).toHaveLength(0);
+    });
+  });
+});
