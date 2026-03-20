@@ -4,12 +4,13 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.3 |
+| Version | 0.4 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
 | Revised | 2026-03-19 (Issue #52) |
 | Revised | 2026-03-20 (Issue #50) |
+| Revised | 2026-03-20 (Issue #51) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -60,7 +61,7 @@ Additionally:
 The TypeScript types file (`src/lib/supabase/types.ts`) also needs updating to include these new columns.
 
 > **Implementation note (issue #50):** The spec did not specify explicit constraint names for the updated CHECK and UNIQUE constraints, relying on PostgreSQL auto-generation. In practice the auto-generated UNIQUE constraint name truncated to `participant_answers_participant_id_question_id_attempt_numb_key` (old) and would have truncated `is_reassessment` to `is_reassessm` for the new one — making future migrations that reference the name by derivation unreliable. Both constraints were given short explicit names: `chk_answers_attempt_number` and `uq_answers_participant_question_reassessment`. Future migrations should follow this pattern: always provide explicit constraint names rather than relying on auto-generation when column name combinations exceed ~35 characters.
-
+>
 > **Implementation note (issue #50):** Story 3.6 (re-assessment endpoint and business logic) has been deferred post-MVP. The `is_reassessment` column is retained as scaffolding — it costs nothing and avoids a future migration — but the `POST /api/assessments/[id]/reassess` endpoint and the re-assessment flow are not in scope until requirements are revisited.
 
 #### Seed data strategy
@@ -82,14 +83,21 @@ Seed data lives in `supabase/seed.sql` and is loaded by `supabase db reset`. Pro
 | Participants | Alice + Bob on PRCC; Alice on FCS (submitted) |
 | Answers | Alice's FCS answers (with scores for self-view testing) |
 
-**Auth user seeding:** Supabase local dev supports seeding `auth.users` directly via SQL. Use fixed UUIDs for deterministic test data:
+**Auth user seeding:** Supabase local dev supports seeding `auth.users` directly via SQL. Use fixed UUIDs for deterministic test data.
+
+**UUID scheme for all seed entities** (each entity type gets its own UUID segment to avoid ambiguity in logs and error output):
 
 ```sql
--- Fixed UUIDs for test users (deterministic, referenced by seed + test factories)
--- alice: 00000000-0000-0000-0000-000000000001
--- bob:   00000000-0000-0000-0000-000000000002
--- carol: 00000000-0000-0000-0000-000000000003
+-- Auth users:   a0000000-0000-0000-0000-00000000000{1,2,3}
+-- Orgs:         00000000-0000-0000-0000-00000000000{1,2}
+-- Repos:        00000000-0000-0000-0001-00000000000{1,2,3}
+-- Assessments:  00000000-0000-0000-0002-00000000000{1,2}
+-- Questions:    00000000-0000-0000-0003-00000000000{1..6}
+-- Participants: 00000000-0000-0000-0004-00000000000{1..3}
+-- Answers:      00000000-0000-0000-0005-00000000000{1..3}
 ```
+
+> **Implementation note (issue #51):** The original spec assigned auth users UUIDs in the `00000000-0000-0000-0000-*` range (same as organisations). This caused ambiguity — the same UUID string could refer to either entity when reading test output or error messages. Auth user UUIDs were changed to use the `a0000000-0000-0000-0000-*` prefix. The pattern was also extended to all seed entities (repos, assessments, questions, participants, answers) to make any UUID instantly identifiable by its segment value.
 
 #### Test factory functions
 
@@ -98,20 +106,24 @@ TypeScript factory functions for creating test data programmatically in integrat
 ```typescript
 // tests/helpers/factories.ts
 
-interface CreateOrgOptions {
-  name?: string;
-  status?: 'active' | 'inactive';
-  githubOrgId?: number;
-  installationId?: number;
-}
+// Actual signatures as implemented:
+function createTestOrg(client: SupabaseClient<Database>, overrides?: Partial<OrgRow>): Promise<string>
+function createTestRepo(client: SupabaseClient<Database>, orgId: string, overrides?: Partial<RepoRow>): Promise<string>
+function createTestAssessment(client: SupabaseClient<Database>, orgId: string, repositoryId: string, overrides?: Partial<AssessmentRow>): Promise<string>
+function createTestParticipant(client: SupabaseClient<Database>, orgId: string, assessmentId: string, overrides?: Partial<ParticipantRow>): Promise<string>
+function createTestQuestion(client: SupabaseClient<Database>, orgId: string, assessmentId: string, overrides?: Partial<QuestionRow>): Promise<string>
+function createTestAnswer(client: SupabaseClient<Database>, options: CreateTestAnswerOptions): Promise<string>
 
-function createOrg(supabase: SupabaseClient, options?: CreateOrgOptions): Promise<Organisation>
-function createRepo(supabase: SupabaseClient, orgId: string, options?: CreateRepoOptions): Promise<Repository>
-function createAssessment(supabase: SupabaseClient, options: CreateAssessmentOptions): Promise<Assessment>
-function createParticipant(supabase: SupabaseClient, options: CreateParticipantOptions): Promise<AssessmentParticipant>
-function createQuestion(supabase: SupabaseClient, options: CreateQuestionOptions): Promise<AssessmentQuestion>
-function createAnswer(supabase: SupabaseClient, options: CreateAnswerOptions): Promise<ParticipantAnswer>
+interface CreateTestAnswerOptions {
+  orgId: string;
+  assessmentId: string;
+  participantId: string;
+  questionId: string;
+  overrides?: Partial<AnswerRow>;
+}
 ```
+
+> **Implementation note (issue #51):** The spec showed named option interfaces (`CreateOrgOptions`, etc.) with camelCase field names. The implementation uses `Partial<XRow>` (generated database types) directly as the overrides parameter — this was the pattern already established by existing factories in the codebase, and avoids maintaining a parallel interface layer. All factory functions return `string` (the created row's `id`) rather than the full typed row. `createTestAnswer` uses a structured `CreateTestAnswerOptions` because it has four required foreign-key fields that cannot be expressed cleanly as overrides.
 
 Factories use the Supabase **service role client** (bypasses RLS) so they can set up arbitrary test state. Each factory generates sensible defaults but allows overrides for any field.
 
@@ -122,7 +134,9 @@ Each integration test gets a clean database state. Two approaches evaluated:
 1. **Transaction rollback** — Wrap each test in a transaction that rolls back. Fast but doesn't test commit behaviour.
 2. **Truncation** — `TRUNCATE ... CASCADE` all tables between tests. Slightly slower but tests real commits.
 
-**Decision:** Use truncation. A `resetDatabase()` helper in `tests/helpers/db.ts` truncates all tables in dependency order. Called in `beforeEach` for integration test suites. Auth users are re-seeded after truncation.
+**Decision:** Use truncation. A `resetDatabase()` helper in `tests/helpers/db.ts` cleans all public tables. Called in `beforeEach` for integration test suites.
+
+> **Implementation note (issue #51):** The spec described `TRUNCATE ... CASCADE` and re-seeding auth users after truncation. The implementation uses cascade `DELETE` (not `TRUNCATE`) starting from root tables — `user_github_tokens` first (no org FK), then `organisations` (cascades to all other public tables). This is simpler than enumerating leaf tables for truncation order and has the same effect. Auth users are **not** cleared or re-seeded by `resetDatabase()` — the helper only cleans public schema tables. Use `createTestUser` / `deleteTestUser` from `tests/helpers/supabase.ts` to manage auth users in tests that require them. Additionally, `fileParallelism: false` was added to `vitest.config.ts` to prevent DB state races when multiple integration test files share the same local Supabase instance.
 
 #### Declarative schema adoption
 

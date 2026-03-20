@@ -9,6 +9,7 @@ type UserOrgRow = Database['public']['Tables']['user_organisations']['Insert'];
 type AssessmentRow = Database['public']['Tables']['assessments']['Insert'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Insert'];
 type ParticipantRow = Database['public']['Tables']['assessment_participants']['Insert'];
+type AnswerRow = Database['public']['Tables']['participant_answers']['Insert'];
 
 // ---------------------------------------------------------------------------
 // Organisation
@@ -207,6 +208,43 @@ export async function createTestParticipant(
     .single();
 
   if (error || !data) throw new Error(`createTestParticipant failed: ${error?.message}`);
+  return data.id;
+}
+
+// ---------------------------------------------------------------------------
+// Participant answer
+// ---------------------------------------------------------------------------
+
+export interface CreateTestAnswerOptions {
+  orgId: string;
+  assessmentId: string;
+  participantId: string;
+  questionId: string;
+  overrides?: Partial<AnswerRow>;
+}
+
+export async function createTestAnswer(
+  client: SupabaseClient<Database>,
+  options: CreateTestAnswerOptions,
+): Promise<string> {
+  const row: AnswerRow = {
+    org_id: options.orgId,
+    assessment_id: options.assessmentId,
+    participant_id: options.participantId,
+    question_id: options.questionId,
+    answer_text: 'This feature implements user authentication using JWT tokens.',
+    attempt_number: 1,
+    is_reassessment: false,
+    ...options.overrides,
+  };
+
+  const { data, error } = await client
+    .from('participant_answers')
+    .insert(row)
+    .select('id')
+    .single();
+
+  if (error || !data) throw new Error(`createTestAnswer failed: ${error?.message}`);
   return data.id;
 }
 
