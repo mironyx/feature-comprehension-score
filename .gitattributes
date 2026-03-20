@@ -1,4 +1,22 @@
-# Enforce LF line endings for SQL files.
-# Required because supabase db diff compares function bodies byte-for-byte;
-# CRLF vs LF in a schema file causes false positives in the diff output.
-*.sql text eol=lf
+# Enforce LF line endings for all text files.
+# * text=auto lets Git detect text vs binary; eol=lf forces LF on checkout.
+# Required because supabase db diff compares function bodies byte-for-byte,
+# and Claude Code has a known bug with CRLF files causing silent corruption.
+* text=auto eol=lf
+
+# Binary assets — never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
