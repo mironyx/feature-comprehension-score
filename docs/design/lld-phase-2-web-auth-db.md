@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
 | Revised | 2026-03-19 (Issue #52) |
+| Revised | 2026-03-20 (Issue #50) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -57,6 +58,10 @@ Additionally:
 **Approach:** Create a new migration (`20260316000001_participant_answers_v08.sql`) to add these columns, update constraints, and add the missing index. Do not modify existing migrations — they may already be applied in local environments.
 
 The TypeScript types file (`src/lib/supabase/types.ts`) also needs updating to include these new columns.
+
+> **Implementation note (issue #50):** The spec did not specify explicit constraint names for the updated CHECK and UNIQUE constraints, relying on PostgreSQL auto-generation. In practice the auto-generated UNIQUE constraint name truncated to `participant_answers_participant_id_question_id_attempt_numb_key` (old) and would have truncated `is_reassessment` to `is_reassessm` for the new one — making future migrations that reference the name by derivation unreliable. Both constraints were given short explicit names: `chk_answers_attempt_number` and `uq_answers_participant_question_reassessment`. Future migrations should follow this pattern: always provide explicit constraint names rather than relying on auto-generation when column name combinations exceed ~35 characters.
+
+> **Implementation note (issue #50):** Story 3.6 (re-assessment endpoint and business logic) has been deferred post-MVP. The `is_reassessment` column is retained as scaffolding — it costs nothing and avoids a future migration — but the `POST /api/assessments/[id]/reassess` endpoint and the re-assessment flow are not in scope until requirements are revisited.
 
 #### Seed data strategy
 
