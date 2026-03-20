@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, reviews, runs diagnostics, commits, and creates a PR. Only pauses for real blockers.
+description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, reviews, runs diagnostics, commits, creates a PR, then self-reviews the PR and fixes any findings before reporting. Only pauses for real blockers.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -263,16 +263,29 @@ EOF
 )"
 ```
 
-### Step 10: Report
+### Step 10: Self-review
+
+Run `/review` on the PR just created. Read the output and triage each finding:
+
+- **Blocker / correctness issue** — fix it: update the code, re-run Step 5 (verification), amend or add a commit, push.
+- **Non-blocking suggestion** — decide whether it is worth fixing now (quick win) or deferring. If deferring, note it in the Step 11 report.
+- **Style / minor** — fix if trivial; otherwise note and move on.
+
+After any fixes, re-run `/review` to confirm no new issues were introduced.
+
+### Step 11: Report
 
 Summarise what was done:
 - Issue number and title
 - Branch and PR link
 - Tests added / total
+- Self-review outcome: what was found, what was fixed, what was deferred
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
 **Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update, worktree removal) is handled by `/feature-end`.
+
+**DO NOT** move the board item to `done`. Leave it at `in progress` — `/feature-end` handles that after merge.
 
 ## Blocker policy
 
