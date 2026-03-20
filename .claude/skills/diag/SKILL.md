@@ -11,7 +11,9 @@ Reads diagnostics exported by the VS Code diagnostics-exporter extension from `.
 
 ## Instructions
 
-1. **Identify target files.** If arguments are provided (`$ARGUMENTS`), check only those files. Otherwise, run `git diff --name-only` and `git diff --cached --name-only` to find all modified source files (`.ts`, `.tsx`, `.js`, `.jsx`).
+1. **Identify target files.**
+   - If arguments are provided (`$ARGUMENTS`), check only those files.
+   - Otherwise, check **all** files that have a diagnostics export: list every `.json` file under `.diagnostics/` (these are the files the extension has analysed). Also run `git diff --name-only` and `git diff --cached --name-only` to find modified source files (`.ts`, `.tsx`, `.js`, `.jsx`) that may not have a diagnostics file yet. Union both sets.
 
 2. **Check diagnostics for each file.** For each source file:
    - Look for `.diagnostics/<relative-path>.json`
@@ -22,8 +24,9 @@ Reads diagnostics exported by the VS Code diagnostics-exporter extension from `.
    - Total files checked vs files with diagnostics available
    - Issues grouped by severity (Errors first, then Warnings, then Info)
    - For each issue: `file:line:column [source/code] — message`
-   - Files with no diagnostics file (extension may not have processed them)
+   - Files with no diagnostics file (extension may not have processed them yet)
    - Files with empty diagnostics (clean)
+   - **If there are any Errors, flag this clearly at the top of the report.**
 
 ## Diagnostics JSON Format
 

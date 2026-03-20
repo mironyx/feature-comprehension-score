@@ -8,7 +8,7 @@
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
-| Revised | 2026-03-19 | Issue #52 |
+| Revised | 2026-03-19 (Issue #52) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -186,7 +186,7 @@ server code sees the refreshed token in the same request cycle) and the outgoing
 > wrapped in `try-catch`. `cookieStore.set()` throws inside React Server Components because RSCs
 > cannot set cookies directly; only middleware can. Silently swallowing the error is the correct
 > pattern — the middleware will handle the refresh on the next request.
-
+>
 > **Implementation note (issue #52):** The Service Role client uses `createClient` from
 > `@supabase/supabase-js` — **not** `createServerClient` from `@supabase/ssr`. Using
 > `createServerClient` for service role is a correctness bug: the SSR client inspects the
