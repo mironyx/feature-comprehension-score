@@ -18,9 +18,10 @@ import { resetDatabase } from './db';
 
 const SEED_ACME_ORG_ID = '00000000-0000-0000-0000-000000000001';
 const SEED_BETA_ORG_ID = '00000000-0000-0000-0000-000000000002';
-const SEED_ALICE_ID = '00000000-0000-0000-0000-000000000001';
-const SEED_BOB_ID = '00000000-0000-0000-0000-000000000002';
-const SEED_CAROL_ID = '00000000-0000-0000-0000-000000000003';
+// Auth users use a distinct prefix (a0000000-*) to avoid confusion with org UUIDs
+const SEED_ALICE_ID = 'a0000000-0000-0000-0000-000000000001';
+const SEED_BOB_ID = 'a0000000-0000-0000-0000-000000000002';
+const SEED_CAROL_ID = 'a0000000-0000-0000-0000-000000000003';
 const SEED_REPO_API_ID = '00000000-0000-0000-0001-000000000001';
 const SEED_REPO_WEB_ID = '00000000-0000-0000-0001-000000000002';
 const SEED_REPO_PLATFORM_ID = '00000000-0000-0000-0001-000000000003';
@@ -154,6 +155,10 @@ describe('Test factories', () => {
     });
   });
 
+  // WARNING: this test MUST run last in this file — it clears all tables including
+  // seed data. The 'Seed data' describe above depends on seed rows being present.
+  // fileParallelism: false in vitest.config.ts ensures files run serially, and
+  // tests within a file always run in declaration order, so this ordering is stable.
   describe('Given resetDatabase', () => {
     it('then all tables are empty', async () => {
       const svc = serviceClient();
