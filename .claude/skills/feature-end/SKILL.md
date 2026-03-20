@@ -55,7 +55,7 @@ it in the session log.
 
 ### Step 4: Merge the PR — USER APPROVAL REQUIRED
 
-**This is the only step that requires user confirmation.**
+**This is the ONLY step in the entire skill that requires user confirmation. All steps before and after run automatically without pausing.**
 
 First check whether the PR is already merged (user may have merged via GitHub UI):
 ```bash
@@ -72,7 +72,7 @@ Ask: "Ready to merge PR #N into `<base-branch>`? (squash merge, delete remote br
 
 Wait for explicit approval. If denied, stop and report.
 
-Once approved, **run from the primary worktree** (not from inside the feature worktree — `gh pr merge --delete-branch` attempts a local `git checkout <base>` which fails if `<base>` is already checked out in another worktree):
+Once approved, proceed immediately through Steps 5–7 without further confirmation. **Run from the primary worktree** (not from inside the feature worktree — `gh pr merge --delete-branch` attempts a local `git checkout <base>` which fails if `<base>` is already checked out in another worktree):
 
 ```bash
 gh pr merge <number> --squash --delete-branch
@@ -101,14 +101,21 @@ gh pr merge <number> --squash --delete-branch
 
 ### Step 6: Update project board
 
-1. Move the issue to Done:
-   ```bash
-   ./scripts/gh-project-status.sh <issue-number> done
-   ```
-2. Close the issue if not auto-closed by the PR merge:
-   ```bash
-   gh issue close <issue-number>
-   ```
+GitHub automatically moves the issue to Done and closes it when a PR with `Closes #N` is squash-merged. Check the current state first to avoid redundant calls:
+
+```bash
+gh issue view <issue-number> --json state,projectItems
+```
+
+- If the issue is already **closed** — skip `gh issue close`.
+- If the board item is already **Done** — skip `gh-project-status.sh`.
+- Only call what is actually needed:
+  ```bash
+  # Only if board item is not already Done:
+  ./scripts/gh-project-status.sh <issue-number> done
+  # Only if issue is not already closed:
+  gh issue close <issue-number>
+  ```
 
 ### Step 7: Report
 
@@ -131,4 +138,6 @@ Summarise what was done:
 
 - Missing session log (create one)
 - Minor uncommitted changes (commit them)
-- Issue already closed (skip close step)
+- Issue already closed by GitHub on merge (skip close step)
+- Board item already moved to Done by GitHub on merge (skip board update)
+- Local feature branch already deleted (skip `git branch -d`)
