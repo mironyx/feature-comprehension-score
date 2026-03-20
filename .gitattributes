@@ -1,0 +1,4 @@
+# Enforce LF line endings for SQL files.
+# Required because supabase db diff compares function bodies byte-for-byte;
+# CRLF vs LF in a schema file causes false positives in the diff output.
+*.sql text eol=lf

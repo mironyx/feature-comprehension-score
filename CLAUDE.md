@@ -135,6 +135,7 @@ CodeScene (and other VS Code extensions) report code health issues via VS Code's
 - Lint: `npm run lint`
 - Build: `npm run build`
 - Supabase reset: `npx supabase db reset`
+- Supabase diff: `npx supabase db diff` (should produce "No schema changes found" if DB matches schema files)
 
 **Note:** Markdown linting runs automatically after Write/Edit operations via post-tool-use hooks (configured in [settings.json](settings.json)).
 
@@ -156,7 +157,11 @@ src/
     supabase/       # Supabase client, helpers, type-safe queries
   types/            # Shared TypeScript types and Zod schemas
 supabase/
-  migrations/       # SQL migration files (YYYYMMDDHHMMSS_name.sql)
+  migrations/       # SQL migration files (YYYYMMDDHHMMSS_name.sql) — generated, not hand-authored
+  schemas/          # Declarative schema files (source of truth for current DB state)
+    tables.sql      # All CREATE TABLE statements
+    functions.sql   # All CREATE OR REPLACE FUNCTION statements
+    policies.sql    # All CREATE POLICY + ENABLE ROW LEVEL SECURITY statements
   seed.sql          # Test seed data
 tests/
   e2e/              # Playwright E2E tests (*.e2e.ts)
@@ -164,6 +169,26 @@ tests/
   mocks/            # MSW handlers for external APIs
   helpers/          # Test utilities, factories, auth helpers
 ```
+
+## Database Migration Workflow
+
+Supabase uses a **declarative schema** approach. `supabase/schemas/` files are the source of truth; migrations are generated artefacts.
+
+**Making a schema change:**
+
+1. Edit the relevant `supabase/schemas/*.sql` file (tables, functions, or policies).
+2. Run `npx supabase db diff -f <migration-name>` to generate a migration.
+3. Review the generated migration in `supabase/migrations/`.
+4. Add a header comment referencing the issue number and design doc.
+5. Run `npx supabase db reset` to verify the migration applies cleanly.
+6. Run `npx supabase db diff` — should output "No schema changes found".
+7. Commit both the updated schema file and the generated migration together.
+
+**Rules:**
+
+- Never hand-author ALTER migrations. Always edit the schema file and generate the migration.
+- SQL files must use LF (Unix) line endings. CRLF causes false positives in `db diff`.
+- Always verify `db diff` is empty before committing.
 
 ## Conventions
 
