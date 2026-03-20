@@ -217,7 +217,7 @@ When extracting from multiple PRs for an FCS assessment:
 5. **Linked issues** — deduplicated by issue number. An issue linked from multiple
    PRs is included once.
 6. **Test files** — deduplicated by path (latest version wins, same as file contents)
-7. **Context files** — fetched once (they are repo-level, not PR-specific)
+7. **Context files** — deduplicated by path across all PRs (latest PR version wins); the `main` baseline version is used for any context file not modified in a PR. See §2.5 for extraction detail.
 
 **Token budget concern:** With N PRs, diffs and descriptions grow linearly. The
 truncation pipeline (section 3.4) applies globally after merge — it doesn't
@@ -703,3 +703,14 @@ audience in mind.
 4. **Top N file count** — Default `maxFiles: 10` for full content fetching. Is this
    the right number? Too few and the LLM lacks context; too many and we waste tokens
    on low-value files. Configurable per org, or fixed for V1?
+
+7. **Cross-section file deduplication** — A file that matches a context pattern (§2.5)
+   and is also one of the top-N changed files will appear in both `context_files`
+   (under `## Context Documents`) and `file_contents` (under `## Changed Files Selected`)
+   in the assembled prompt. No cross-section deduplication exists today. The duplication
+   wastes tokens and may confuse question generation. Options: (a) exclude from
+   `file_contents` any path already present in `context_files`; (b) exclude from
+   `context_files` any path already in `file_contents` (context version still wins
+   because it may carry the baseline version); (c) accept the duplication — the
+   file appears once as a design doc and once as changed source, which may add signal.
+   Decision needed before the FCS flow is built end-to-end.

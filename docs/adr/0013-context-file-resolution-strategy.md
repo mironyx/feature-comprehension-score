@@ -85,8 +85,9 @@ Reasoning:
 
 ## Consequences
 
-- **`repositories` table needs a `context_file_patterns` column** (`text[] DEFAULT NULL`). `NULL` means
-  "use org default". Schema migration required before the config service layer is built.
+- **`repository_config` table needs a `context_file_patterns` column** (`text[] DEFAULT NULL`). `NULL`
+  means "use org default". **Implemented:** migration `20260317000001_context_file_patterns.sql` adds
+  this column. `get_effective_config` applies `COALESCE(rc.context_file_patterns, oc.context_file_patterns)`.
 - **`org_config.context_file_patterns` becomes the org-level default** — no change to existing column,
   semantics clarified.
 - **Config resolution in the adapter/service:** `repo_patterns ?? org_patterns ?? []`

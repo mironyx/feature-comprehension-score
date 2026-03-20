@@ -60,7 +60,7 @@ export class GitHubArtefactSource implements ArtefactSource {
 
     const artefactType = params.prNumbers.length === 1 ? 'pull_request' : 'feature';
     const merged = mergeRawArtefacts(perPR, artefactType);
-    // merged.context_files holds PR-specific overrides from all PRs (last PR wins)
+    // merged.context_files: context-pattern files changed in one or more PRs (last PR version wins per path)
 
     if (contextPatterns.length > 0) {
       const defaultBranch = params.defaultBranch ?? 'main';

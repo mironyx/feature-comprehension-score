@@ -11,7 +11,7 @@ The FCS tool is multi-tenant from the start — each GitHub organisation is an i
 Constraints from prior decisions:
 
 - **ADR-0004 (Roles):** `user_organisations` junction table with `is_admin` boolean. Contextual roles (Author, Reviewer) on `assessment_participants` table.
-- **ADR-0005 (Aggregate score):** Individual answer scores must not be persisted in a queryable form. Only the aggregate is stored.
+- **ADR-0005 (Aggregate score, revised to Option 4):** Per-answer `score` and `score_rationale` are stored on `participant_answers`, visible to the answering participant only (RLS). The aggregate score is stored on `assessments`. `is_reassessment` flag also stored on `participant_answers`.
 - **ADR-0006 (Enforcement modes):** Repository config must include `mode` and `threshold`. Assessment records must store the score regardless of mode.
 - **ADR-0007 (PR size threshold):** Repository config must include `min_pr_size` and `trivial_commit_threshold`.
 
@@ -54,10 +54,10 @@ Every table carries its own `org_id` column — even where `org_id` could be der
 | `assessments` | One row per PRCC or FCS assessment. Stores type, state, aggregate score, config snapshot. |
 | `assessment_questions` | Rubric: question text, weight, reference answer, per-question aggregate score. |
 | `assessment_participants` | Participant list with contextual role (Author/Reviewer/Participant) and completion status. |
-| `participant_answers` | Submitted answers. **No score column** — individual scores are calculated transiently during aggregate computation and not persisted (ADR-0005). |
+| `participant_answers` | Submitted answers. Stores `score numeric(3,2)`, `score_rationale text`, and `is_reassessment boolean` per answer (ADR-0005 Option 4). RLS restricts `score` and `score_rationale` reads to the answering participant; the aggregate on `assessments` remains the authoritative team-level result. |
 | `user_organisations` | Junction table: user ↔ org membership with `is_admin` (ADR-0004). |
 
-**Aggregate score storage:** The `assessments` table stores the final aggregate score. Per-question aggregates are stored on `assessment_questions`. Individual answer scores are not stored — the scoring function computes them, aggregates, writes the result, and discards the per-answer scores.
+**Aggregate score storage:** The `assessments` table stores the final aggregate score. Per-question aggregates are stored on `assessment_questions`. Per-answer `score` and `score_rationale` are stored on `participant_answers` (ADR-0005 Option 4) and are readable only by the answering participant via RLS — not by authors, reviewers, or org admins.
 
 **Config cascade:** When creating an assessment, read `repository_config` first; fall back to `org_config` for any null fields. Snapshot the effective config on the `assessments` row so historical assessments reflect the config at creation time.
 
@@ -65,7 +65,7 @@ Every table carries its own `org_id` column — even where `org_id` could be der
 
 - **Easier:** RLS enforcement is automatic — every Supabase client query is scoped without application code. One schema, one set of migrations. Config cascade is a simple null-coalesce at read time.
 - **Harder:** RLS policies must be tested rigorously — a missing or incorrect policy is a tenant data leak. Every new table needs an RLS policy before it goes live.
-- **Harder:** Individual answer scores are not available for retrospective analysis. If we later decide we need them (e.g., for LLM scoring calibration), this is a schema change.
+- **Available (participant-only):** Per-answer scores are stored and accessible to the answering participant. They are not exposed to authors, reviewers, or org admins, preserving the self-directed nature of FCS self-assessment.
 - **Follow-up:** L4 Contracts must define the full schema (column types, constraints, indexes) and the RLS policies for each table.
 
 ## References
@@ -73,6 +73,6 @@ Every table carries its own `org_id` column — even where `org_id` could be der
 - Requirements: Story 1.5 (Multi-Tenancy Isolation), Stories 1.3–1.4 (Configuration)
 - ADR-0003: Auth — Supabase Auth (JWT claims used in RLS policies)
 - ADR-0004: Roles — `user_organisations` table, contextual roles on `assessment_participants`
-- ADR-0005: Single aggregate score — no individual score persistence
+- ADR-0005: Score storage — per-answer scores on `participant_answers` (participant-only RLS), aggregate on `assessments`
 - ADR-0006: Enforcement modes — `mode`, `threshold` in config; score stored on assessment
 - ADR-0007: PR size threshold — `min_pr_size`, `trivial_commit_threshold` in config
