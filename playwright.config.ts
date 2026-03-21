@@ -22,10 +22,14 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: process.env.CI ? 'npm run start' : 'npm run build && npm run start',
+    // In CI: just start (build happens in a prior step).
+    // Locally: skip build if standalone server already exists, otherwise build first.
+    command: process.env.CI
+      ? 'npm run start'
+      : 'test -f .next/standalone/server.js && npm run start || npm run build && npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
     // Placeholder values so env.ts validation passes without a real Supabase instance.
     // Real values are injected at runtime via Cloud Run — these are test-only placeholders.
     env: {
