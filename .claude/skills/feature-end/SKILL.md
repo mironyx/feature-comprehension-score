@@ -59,9 +59,9 @@ it in the session log.
 
 First check whether the PR is already merged (user may have merged via GitHub UI):
 ```bash
-gh pr view <number> --json state --jq '.state'
+gh pr view <number> --json state
 ```
-If the state is `MERGED`, skip the merge command and proceed directly to Step 5.
+Parse the `state` field from the JSON output (no `jq` — read the raw output). If `"state":"MERGED"`, skip the merge command and proceed directly to Step 5.
 
 Otherwise, present the user with:
 - PR title and URL
@@ -78,44 +78,35 @@ Once approved, proceed immediately through Steps 5–7 without further confirmat
 gh pr merge <number> --squash --delete-branch
 ```
 
-### Step 5: Clean up worktree and sync
+### Step 5: Clean up and sync
 
-1. Check whether a worktree exists for this branch:
-   ```bash
-   git worktree list
-   ```
-   Look for a row matching `feat/<branch-name>`. Note its path (e.g., `/c/projects/fcs-feat-<number>-<slug>`).
-2. Remove the worktree if present:
-   ```bash
-   git worktree remove <worktree-path>
-   ```
-3. Switch to the parent branch and sync:
-   ```bash
-   git checkout <base-branch>
-   git pull
-   ```
-4. Delete the local feature branch (remote was already deleted by the squash merge):
-   ```bash
-   git branch -d <feature-branch>
-   ```
+Chain all cleanup into a single Bash call to minimise approval prompts:
+
+```bash
+git checkout <base-branch> && git pull && git branch -d <feature-branch> 2>&1; true
+```
+
+(The `; true` prevents a non-zero exit if the local branch was already deleted by the merge.)
+
+Worktrees are not used in this project — skip worktree steps.
 
 ### Step 6: Update project board
 
-GitHub automatically moves the issue to Done and closes it when a PR with `Closes #N` is squash-merged. Check the current state first to avoid redundant calls:
+Check issue state and board status in one call, then act once — do not re-query to verify:
 
 ```bash
 gh issue view <issue-number> --json state,projectItems
 ```
 
-- If the issue is already **closed** — skip `gh issue close`.
-- If the board item is already **Done** — skip `gh-project-status.sh`.
-- Only call what is actually needed:
-  ```bash
-  # Only if board item is not already Done:
-  ./scripts/gh-project-status.sh <issue-number> done
-  # Only if issue is not already closed:
-  gh issue close <issue-number>
-  ```
+Read the output:
+- `"state":"CLOSED"` → skip `gh issue close`
+- Board `"name":"Done"` → skip `gh-project-status.sh`
+
+Only run what is actually needed (each is optional):
+```bash
+./scripts/gh-project-status.sh <issue-number> done   # only if board not already Done
+gh issue close <issue-number>                         # only if issue not already closed
+```
 
 ### Step 7: Report
 
@@ -123,7 +114,7 @@ Summarise what was done:
 - PR merged (link)
 - Issue closed
 - Now on branch `<base-branch>`, up to date with remote
-- Suggested next item from the board (check top Todo)
+- Suggested next item from the board (from the Step 6 `gh issue view` output — do not make an additional board query)
 
 ## Blocker policy
 
