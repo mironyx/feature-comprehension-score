@@ -566,6 +566,10 @@ export interface Database {
           context_file_patterns: string[];
         }[];
       };
+      store_github_token: {
+        Args: { p_user_id: string; p_token: string };
+        Returns: void;
+      };
     };
   };
 }
