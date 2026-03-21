@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Home page', () => {
-  test('Given a visitor, when they navigate to the home page, then they see the heading', async ({
+test.describe('Sign-in page', () => {
+  test('Given a visitor, when they navigate to the sign-in page, then they see the sign-in heading', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/auth/sign-in');
     await expect(
-      page.getByRole('heading', { name: 'Feature Comprehension Score' }),
+      page.getByRole('heading', { name: 'Sign in to Feature Comprehension Score' }),
     ).toBeVisible();
   });
 });

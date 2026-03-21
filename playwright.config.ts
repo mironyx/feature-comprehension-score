@@ -22,9 +22,11 @@ export default defineConfig({
   ],
 
   webServer: {
+    // CI: build happens in a prior workflow step; just start the pre-built server.
+    // Local: env vars come from .env.local; build then start.
     command: process.env.CI ? 'npm run start' : 'npm run build && npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
   },
 });

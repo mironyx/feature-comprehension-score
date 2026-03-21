@@ -138,3 +138,53 @@ AS $$
   LEFT JOIN repository_config rc ON rc.repository_id = r.id
   WHERE r.id = repo_id
 $$;
+
+-- store_github_token: encrypts a GitHub OAuth provider token using pgsodium
+-- and upserts it into user_github_tokens.
+-- Called by the auth callback route handler via the service role client.
+-- Guard: pgsodium schema may not be present in all local dev environments.
+CREATE OR REPLACE FUNCTION store_github_token(p_user_id uuid, p_token text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_key_id   uuid;
+  v_encrypted text;
+BEGIN
+  -- Look up the pgsodium key for GitHub token encryption
+  IF EXISTS (
+    SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgsodium'
+  ) THEN
+    SELECT id INTO v_key_id
+    FROM pgsodium.key
+    WHERE name = 'github_token_key'
+    LIMIT 1;
+
+    IF v_key_id IS NULL THEN
+      RAISE EXCEPTION 'pgsodium key github_token_key not found';
+    END IF;
+
+    -- Encrypt and base64-encode for text storage
+    v_encrypted := encode(
+      pgsodium.crypto_aead_det_encrypt(
+        convert_to(p_token, 'utf8'),
+        convert_to(p_user_id::text, 'utf8'),
+        v_key_id
+      ),
+      'base64'
+    );
+
+    INSERT INTO user_github_tokens (user_id, encrypted_token, key_id)
+    VALUES (p_user_id, v_encrypted, v_key_id)
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      encrypted_token = EXCLUDED.encrypted_token,
+      key_id          = EXCLUDED.key_id,
+      updated_at      = now();
+  ELSE
+    RAISE EXCEPTION 'pgsodium extension not available';
+  END IF;
+END;
+$$;

@@ -142,6 +142,19 @@ Run all three checks. All must pass before proceeding.
 (cd "$WDIR" && npm run lint)            # no lint errors
 ```
 
+If E2E tests exist (`tests/e2e/` is non-empty), also run:
+
+```bash
+(cd "$WDIR" && NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
+  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
+  npm run build && \
+  NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
+  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
+  npx playwright test)
+```
+
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
 ### Step 6: Review
@@ -263,6 +276,22 @@ EOF
 )"
 ```
 
+### Step 9b: CI probe (background)
+
+Immediately after the PR is created, launch the `ci-probe` agent in the background.
+It will block on `gh run watch` and report back when CI completes — no polling needed.
+
+```
+Launch Agent: ci-probe
+Input: pr=<pr-number>
+run_in_background: true
+```
+
+Continue with Step 10 immediately — do not wait for the CI probe.
+When the probe reports back, triage its findings the same way as self-review findings:
+- **CI failure** — fix the root cause, push, note in the Step 11 report.
+- **CI pass** — note in the Step 11 report.
+
 ### Step 10: Self-review
 
 Run `/review` on the PR just created. Read the output and triage each finding:
@@ -280,6 +309,7 @@ Summarise what was done:
 - Branch and PR link
 - Tests added / total
 - Self-review outcome: what was found, what was fixed, what was deferred
+- CI outcome: pass / fail / pending (if the ci-probe has not yet reported back)
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
