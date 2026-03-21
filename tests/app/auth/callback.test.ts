@@ -86,6 +86,28 @@ describe('Auth callback route', () => {
     });
   });
 
+  describe('Given a code exchange failure', () => {
+    it('then it redirects to /auth/sign-in with error', async () => {
+      mockExchangeCode.mockResolvedValue({
+        data: { session: null },
+        error: { message: 'invalid grant' },
+      });
+
+      const { NextRequest } = await import('next/server');
+      const request = new NextRequest(
+        'http://localhost/auth/callback?code=bad-code',
+      );
+
+      const { GET } = await import('@/app/auth/callback/route');
+      const response = await GET(request);
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toContain(
+        '/auth/sign-in?error=auth_failed',
+      );
+    });
+  });
+
   describe('Given a missing auth code', () => {
     it('then it redirects to /auth/sign-in with error', async () => {
       const { NextRequest } = await import('next/server');

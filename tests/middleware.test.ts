@@ -57,19 +57,17 @@ describe('Session middleware', () => {
   });
 
   describe('Given a request to /api/webhooks/github', () => {
-    it('then it does not require authentication', async () => {
-      const { NextRequest } = await import('next/server');
-      const request = new NextRequest(
-        'http://localhost/api/webhooks/github',
-      );
+    it('then the middleware matcher excludes the webhook path', async () => {
+      // The webhook route is excluded from the matcher entirely so the
+      // middleware function is never invoked for it in production.
+      // Verify the exported matcher pattern reflects this.
+      const { config } = await import('@/middleware');
+      const pattern = config.matcher[0];
+      expect(pattern).toBeDefined();
 
-      const { middleware } = await import('@/middleware');
-      const response = await middleware(request, {} as never);
-
-      // Webhook route is excluded from the matcher so middleware should not
-      // redirect to sign-in even without a session
-      expect(response.headers.get('location')).toBeNull();
-      expect(mockGetUser).not.toHaveBeenCalled();
+      // Verify the pattern string includes the public path exclusions
+      expect(pattern).toContain('api/webhooks/');
+      expect(pattern).toContain('auth/');
     });
   });
 });

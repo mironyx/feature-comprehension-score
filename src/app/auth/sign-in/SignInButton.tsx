@@ -5,21 +5,30 @@ import { supabase } from '@/lib/supabase/client';
 
 export function SignInButton() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSignIn() {
     setLoading(true);
-    await supabase.auth.signInWithOAuth({
+    setError(null);
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-    // Page navigates away; no need to reset loading state
+    if (oauthError) {
+      setError(oauthError.message);
+      setLoading(false);
+    }
+    // On success the browser navigates away; no need to reset loading state
   }
 
   return (
-    <button onClick={handleSignIn} disabled={loading} type="button">
-      {loading ? 'Signing in…' : 'Sign in with GitHub'}
-    </button>
+    <>
+      {error && <p role="alert">{error}</p>}
+      <button onClick={handleSignIn} disabled={loading} type="button">
+        {loading ? 'Signing in…' : 'Sign in with GitHub'}
+      </button>
+    </>
   );
 }
