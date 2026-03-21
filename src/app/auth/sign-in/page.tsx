@@ -1,7 +1,7 @@
 import { SignInButton } from './SignInButton';
 
 interface Props {
-  searchParams: Promise<{ error?: string }>;
+  readonly searchParams: Promise<{ readonly error?: string }>;
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
