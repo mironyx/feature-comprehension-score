@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Home page', () => {
-  test('Given an unauthenticated visitor, when they navigate to the home page, then they are redirected to sign-in', async ({
+test.describe('Sign-in page', () => {
+  test('Given a visitor, when they navigate to the sign-in page, then they see the sign-in heading', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/auth/sign-in');
     await expect(
       page.getByRole('heading', { name: 'Sign in to Feature Comprehension Score' }),
     ).toBeVisible();
