@@ -1,126 +1,259 @@
 {
-  "title": "FCS — Feature Cost & Token Usage",
-  "uid": "fcs-feature-cost",
-  "schemaVersion": 38,
-  "version": 2,
-  "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
   "panels": [
     {
-      "id": 1,
-      "title": "Total Cost by Feature (USD)",
-      "type": "bargauge",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
           "decimals": 4,
+          "mappings": [],
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
+              { "color": "green", "value": 0 },
               { "color": "yellow", "value": 0.5 },
-              { "color": "red", "value": 2.0 }
+              { "color": "red", "value": 2 }
             ]
-          }
-        }
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
       },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
       "options": {
-        "orientation": "horizontal",
-        "reduceOptions": { "calcs": ["lastNotNull"] },
         "displayMode": "gradient",
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
         "valueMode": "color"
       },
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (max_over_time(claude_code_cost_usage_USD_total[$__range]) * on(session_id) group_left(feature_id) claude_session_feature)",
+          "editorMode": "code",
+          "expr": "sum by (feature_id) (\n  sum by (session_id) (\n    increase(claude_code_cost_usage_USD_total[$__range])\n  )\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "instant": true,
           "legendFormat": "{{feature_id}}",
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Total Cost by Feature (USD)",
+      "type": "bargauge"
     },
     {
+      "datasource": { "type": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 80 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
-      "title": "Token Usage by Feature & Type",
-      "type": "barchart",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "fillOpacity": 80 }
-        }
-      },
       "options": {
-        "orientation": "horizontal",
-        "groupWidth": 0.7,
+        "barRadius": 0,
         "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "horizontal",
+        "showValue": "auto",
         "stacking": "none",
-        "tooltip": { "mode": "multi" }
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id, type) (max_over_time(claude_code_token_usage_tokens_total[$__range]) * on(session_id) group_left(feature_id) claude_session_feature)",
+          "editorMode": "code",
+          "expr": "sum by (feature_id, type) (\n  increase(claude_code_token_usage_tokens_total[$__range])\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "instant": true,
           "legendFormat": "{{feature_id}} / {{type}}",
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Token Usage by Feature & Type",
+      "type": "barchart"
     },
     {
-      "id": 3,
-      "title": "Cost Over Time",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
           "decimals": 4,
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "spanNulls": false
-          }
-        }
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 80 }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
       },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "id": 3,
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "none" }
       },
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (increase(claude_code_cost_usage_USD_total[5m]) * on(session_id) group_left(feature_id) claude_session_feature)",
-          "legendFormat": "{{feature_id}}"
+          "expr": "sum by (feature_id) (\n  increase(claude_code_cost_usage_USD_total[5m])\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "legendFormat": "{{feature_id}}",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Cost Over Time",
+      "type": "timeseries"
     },
     {
-      "id": 4,
-      "title": "Input vs Output Tokens Over Time",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "color": { "mode": "palette-classic" },
           "custom": {
-            "lineWidth": 2,
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
             "fillOpacity": 10,
-            "spanNulls": false
-          }
-        }
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 80 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
       },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 4,
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "none" }
       },
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id, type) (increase(claude_code_token_usage_tokens_total[5m]) * on(session_id) group_left(feature_id) claude_session_feature)",
-          "legendFormat": "{{feature_id}} / {{type}}"
+          "editorMode": "code",
+          "expr": "sum by (feature_id, type) (\n  sum by (session_id, type) (\n    increase(claude_code_token_usage_tokens_total[5m])\n  )\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "legendFormat": "{{feature_id}} / {{type}}",
+          "range": true,
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Token Usage Over Time",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FCS — Feature Cost & Token Usage",
+  "uid": "fcs-feature-cost",
+  "version": 1,
+  "weekStart": ""
 }
