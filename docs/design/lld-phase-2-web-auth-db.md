@@ -4,13 +4,14 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
+| Version | 0.5 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
 | Revised | 2026-03-19 (Issue #52) |
 | Revised | 2026-03-20 (Issue #50) |
 | Revised | 2026-03-20 (Issue #51) |
+| Revised | 2026-03-21 (Issue #53) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -230,27 +231,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // 2. Exchange code for session via supabase.auth.exchangeCodeForSession(code)
   // 3. Extract provider_token from session
   // 4. Encrypt and store in user_github_tokens (upsert)
-  // 5. Trigger org membership sync (§2.3)
+  // 5. Trigger org membership sync (§2.3)  ← deferred to issue #54
   // 6. Redirect to /assessments (or stored returnTo URL)
 }
 ```
 
-**Provider token capture:** The provider token is only available during the initial OAuth callback — Supabase does not store it. We capture it here and encrypt it using pgsodium via a service role RPC call:
+> **Implementation note (issue #53):** The spec showed `storeProviderToken` as a separate helper
+> function. The implementation inlines the service role RPC call directly in the GET handler — there
+> is only one call site and no reuse benefit justifies the indirection.
+>
+> **Implementation note (issue #53):** Org membership sync (step 5) was deferred to §2.3.
+> The callback redirects unconditionally to `/assessments` after storing the token.
+> `returnTo` URL support was also deferred — hardcoded redirect is sufficient for Phase 2.
+
+**Provider token capture:** The provider token is only available during the initial OAuth callback — Supabase does not store it. The RPC call is made directly from the GET handler:
 
 ```typescript
-async function storeProviderToken(
-  serviceClient: SupabaseClient,
-  userId: string,
-  providerToken: string,
-): Promise<void> {
-  // Calls a database function that encrypts and upserts
-  // Uses service role to bypass RLS on user_github_tokens
-}
+const serviceClient = createServiceRoleSupabaseClient();
+await serviceClient.rpc('store_github_token', {
+  p_user_id: user.id,
+  p_token: provider_token,
+});
 ```
 
 **Database function for token storage:**
 
-A new function `store_github_token(p_user_id uuid, p_token text)` handles encryption and upsert. This keeps the encryption logic in the database layer where pgsodium operates. Added to a new migration.
+A new function `store_github_token(p_user_id uuid, p_token text)` handles encryption and upsert. This keeps the encryption logic in the database layer where pgsodium operates. Added to migration `20260321102925_store_github_token_fn.sql`.
 
 #### Session middleware
 
@@ -272,7 +278,12 @@ export const config = {
 };
 ```
 
-**Public routes** (no auth required): `/`, `/auth/sign-in`, `/auth/callback`, `/api/webhooks/github`.
+**Public routes** (no auth required): `/auth/sign-in`, `/auth/callback`, `/api/webhooks/github`.
+
+> **Implementation note (issue #53):** The spec listed `/` as a public route. The implementation
+> protects `/` (unauthenticated requests redirect to `/auth/sign-in`). The matcher pattern excludes
+> only `auth/` and `api/webhooks/` prefixes — the root path is protected. This is the correct
+> behaviour: the home/assessments view requires authentication.
 
 #### Sign-in page
 
@@ -281,7 +292,24 @@ src/app/auth/
   sign-in/page.tsx     — sign-in page with GitHub OAuth button
 ```
 
-Minimal page with a "Sign in with GitHub" button that calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with PKCE flow enabled and the callback URL set to `/auth/callback`.
+Minimal page with a "Sign in with GitHub" button. The page is split into two files:
+
+```
+src/app/auth/sign-in/
+  page.tsx          — server component: reads ?error query param, renders SignInButton
+  SignInButton.tsx  — client component ('use client'): calls signInWithOAuth on click
+```
+
+> **Implementation note (issue #53):** The spec specified a single `page.tsx`. The implementation
+> splits into server page + `SignInButton.tsx` client component. Next.js App Router requires
+> `'use client'` for interactive elements; the server component handles the `?error` query param
+> (which is a `Promise` in Next.js 15 and must be `await`ed in a server component).
+>
+> The `SignInButton` also handles runtime OAuth initiation errors (e.g. popup blocked): on error it
+> resets the loading state and displays the error message. This is in addition to the `?error`
+> query param handling in the spec's error table.
+
+`SignInButton` calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with the callback URL set to `/auth/callback`. PKCE is enabled by default in `@supabase/ssr`.
 
 **OAuth scopes:** `user:email`, `read:org` — configured in the Supabase dashboard GitHub provider settings, not in client code.
 

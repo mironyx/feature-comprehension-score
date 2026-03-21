@@ -7,6 +7,7 @@ description: >
   or run ID.
 tools: Bash
 model: haiku
+permissionMode: bypassPermissions
 ---
 
 # CI Probe Agent
