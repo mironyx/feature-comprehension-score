@@ -81,7 +81,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Build Docker image
-        run: docker build -t fcs-app:ci .
+        run: |
+          docker build -t fcs-app:ci . \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
+            --build-arg SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key
 
   # ---------- Scaffolded stages — activate when ready ----------
 
@@ -141,6 +145,10 @@ jobs:
 
       - name: Run E2E tests
         run: npx playwright test
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
 
   # hadolint:
   #   name: Dockerfile lint (Hadolint)
