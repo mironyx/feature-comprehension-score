@@ -55,7 +55,6 @@ it in the session log.
 
 ### Step 4: Merge the PR — USER APPROVAL REQUIRED
 
-**This is the ONLY step in the entire skill that requires user confirmation. All steps before and after run automatically without pausing.**
 
 First check whether the PR is already merged (user may have merged via GitHub UI):
 ```bash
@@ -78,35 +77,24 @@ Once approved, proceed immediately through Steps 5–7 without further confirmat
 gh pr merge <number> --squash --delete-branch
 ```
 
-### Step 5: Clean up and sync
+**All steps below must be run automatically without user approval - unless there is a blocker.**
+### Step 5 + 6: Clean up, sync, and update project board
 
-Chain all cleanup into a single Bash call to minimise approval prompts:
-
-```bash
-git checkout <base-branch> && git pull && git branch -d <feature-branch> 2>&1; true
-```
-
-(The `; true` prevents a non-zero exit if the local branch was already deleted by the merge.)
-
-Worktrees are not used in this project — skip worktree steps.
-
-### Step 6: Update project board
-
-Check issue state and board status in one call, then act once — do not re-query to verify:
+Read the issue state from the earlier `gh pr view` output (merged PRs close the issue automatically).
+Chain **all** of cleanup + board update into a **single Bash call** to minimise approval prompts:
 
 ```bash
-gh issue view <issue-number> --json state,projectItems
+git checkout <base-branch> && git pull && git branch -d <feature-branch> 2>&1; true \
+  && ./scripts/gh-project-status.sh <issue-number> done 2>&1; true \
+  && gh issue close <issue-number> 2>&1; true
 ```
 
-Read the output:
-- `"state":"CLOSED"` → skip `gh issue close`
-- Board `"name":"Done"` → skip `gh-project-status.sh`
+The `2>&1; true` on each segment ensures:
+- A missing local branch does not abort the chain.
+- A board item already at Done (script exits 0 with no-op) continues cleanly.
+- An already-closed issue (`gh issue close` 422) is silently ignored.
 
-Only run what is actually needed (each is optional):
-```bash
-./scripts/gh-project-status.sh <issue-number> done   # only if board not already Done
-gh issue close <issue-number>                         # only if issue not already closed
-```
+**Do not run separate Bash calls** for branch delete, board update, and issue close — they must be one call.
 
 ### Step 7: Report
 
@@ -114,7 +102,7 @@ Summarise what was done:
 - PR merged (link)
 - Issue closed
 - Now on branch `<base-branch>`, up to date with remote
-- Suggested next item from the board (from the Step 6 `gh issue view` output — do not make an additional board query)
+- Suggested next item from the board: run `gh project item-list 1 --owner <owner> --format json` and print the first Todo item's title and number. This is the only additional query allowed here.
 
 ## Blocker policy
 

@@ -68,16 +68,31 @@ set_item_status() {
 }
 
 # Find the project item ID for an issue number already on the board.
+# Uses GraphQL so content.number is reliably available (gh project item-list
+# does not return content.number in its default JSON output).
 find_item_id() {
   local issue_number="$1"
-  gh project item-list 1 --owner "$OWNER" --format json \
-    | "$PYTHON" -c "
+  gh api graphql -f query="
+    query {
+      repository(owner: \"${OWNER}\", name: \"feature-comprehension-score\") {
+        issue(number: ${issue_number}) {
+          projectItems(first: 10) {
+            nodes {
+              id
+              project { id }
+            }
+          }
+        }
+      }
+    }
+  " | "$PYTHON" -c "
 import json, sys
 data = json.load(sys.stdin)
-for item in data['items']:
-    content = item.get('content', {})
-    if content.get('number') == $issue_number:
-        print(item['id'])
+nodes = data['data']['repository']['issue']['projectItems']['nodes']
+target = '${PROJECT_ID}'
+for node in nodes:
+    if node['project']['id'] == target:
+        print(node['id'])
         sys.exit(0)
 print('')
 "
