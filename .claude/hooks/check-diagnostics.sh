@@ -63,8 +63,9 @@ process.stdin.on('end', () => {
     relPath = normFile.slice(normCwd.length + 1);
   }
 
-  // Only check TypeScript/JavaScript source files
-  if (!/\\.(tsx?|jsx?)$/.test(relPath)) {
+  // Check TypeScript/JavaScript, YAML, and Dockerfile
+  const basename = relPath.split('/').pop() || '';
+  if (!/\\.(tsx?|jsx?|ya?ml)$/.test(relPath) && basename !== 'Dockerfile') {
     log(cwd, 'Skipped non-source file: ' + relPath);
     process.exit(0);
   }

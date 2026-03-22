@@ -80,7 +80,7 @@ describe('participant_answers schema migration', () => {
         participant_id: participantId,
         question_id: questionId,
         answer_text: 'Answer with score 0.00',
-        score: 0.0,
+        score: 0,
         is_reassessment: false,
         attempt_number: 2,
       });
@@ -92,7 +92,7 @@ describe('participant_answers schema migration', () => {
         participant_id: participantId,
         question_id: questionId,
         answer_text: 'Answer with score 1.00',
-        score: 1.0,
+        score: 1,
         is_reassessment: false,
         attempt_number: 3,
       });

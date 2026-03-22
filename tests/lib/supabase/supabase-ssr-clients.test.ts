@@ -23,6 +23,18 @@ const mockCreateServerClient = vi.mocked(createServerClient);
 const mockCreateClient = vi.mocked(createClient);
 const mockCookies = vi.mocked(cookies);
 
+type CookiesAdapter = {
+  getAll?: () => { name: string; value: string }[];
+  setAll: (c: { name: string; value: string; options?: object }[]) => void;
+};
+
+/** Retrieves the cookies adapter passed to the last createServerClient call. */
+function getLastCallCookiesArg(): CookiesAdapter {
+  const call = mockCreateServerClient.mock.lastCall;
+  if (!call) throw new Error('Expected createServerClient to have been called');
+  return call[2].cookies as CookiesAdapter;
+}
+
 describe('Supabase server client', () => {
   const fakeUser = { id: 'user-123', email: 'test@example.com' };
   const mockGetUser = vi.fn();
@@ -70,10 +82,7 @@ describe('Supabase server client', () => {
       const { createServerSupabaseClient } = await import('@/lib/supabase/server');
       const client = await createServerSupabaseClient();
 
-      // Invoke the setAll adapter directly via the captured call arg
-      const cookiesArg = mockCreateServerClient.mock.calls[0]![2]!.cookies as {
-        setAll: (c: { name: string; value: string; options?: object }[]) => void;
-      };
+      const cookiesArg = getLastCallCookiesArg();
       expect(() =>
         cookiesArg.setAll([{ name: 'sb-token', value: 'new', options: {} }]),
       ).not.toThrow();
@@ -102,13 +111,8 @@ describe('Supabase route handler client', () => {
       );
       createRouteHandlerSupabaseClient(request, response);
 
-      const cookiesArg = mockCreateServerClient.mock.calls[0]![2]!.cookies as {
-        getAll: () => { name: string; value: string }[];
-        setAll: (c: { name: string; value: string; options?: object }[]) => void;
-      };
-
-      // getAll reads from the request
-      const all = cookiesArg.getAll();
+      const cookiesArg = getLastCallCookiesArg();
+      const all = cookiesArg.getAll?.() ?? [];
       expect(all.some((c) => c.name === 'sb-session' && c.value === 'mock-token')).toBe(true);
     });
 
@@ -122,10 +126,7 @@ describe('Supabase route handler client', () => {
       );
       createRouteHandlerSupabaseClient(request, response);
 
-      const cookiesArg = mockCreateServerClient.mock.calls[0]![2]!.cookies as {
-        setAll: (c: { name: string; value: string; options?: object }[]) => void;
-      };
-      cookiesArg.setAll([{ name: 'sb-refresh-token', value: 'new-token', options: {} }]);
+      getLastCallCookiesArg().setAll([{ name: 'sb-refresh-token', value: 'new-token', options: {} }]);
 
       expect(response.cookies.get('sb-refresh-token')?.value).toBe('new-token');
     });
@@ -149,10 +150,7 @@ describe('Supabase middleware client', () => {
       );
       createMiddlewareSupabaseClient(request, response);
 
-      const cookiesArg = mockCreateServerClient.mock.calls[0]![2]!.cookies as {
-        setAll: (c: { name: string; value: string; options?: object }[]) => void;
-      };
-      cookiesArg.setAll([{ name: 'sb-access-token', value: 'refreshed', options: {} }]);
+      getLastCallCookiesArg().setAll([{ name: 'sb-access-token', value: 'refreshed', options: {} }]);
 
       expect(response.cookies.get('sb-access-token')?.value).toBe('refreshed');
     });
