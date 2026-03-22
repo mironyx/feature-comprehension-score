@@ -13,8 +13,8 @@ COPY . .
 # Build-time env vars required by env.ts validation.
 # Real values are injected at runtime via Cloud Run — these are build-time placeholders only.
 ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG SUPABASE_SERVICE_ROLE_KEY
+ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ARG SUPABASE_SECRET_KEY
 RUN npm run build
 
 # Stage 3: Production runner

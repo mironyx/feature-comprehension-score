@@ -146,12 +146,12 @@ If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
 ```bash
 (cd "$WDIR" && NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
-  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
+  SUPABASE_SECRET_KEY=placeholder-secret-key \
   npm run build && \
   NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
-  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
+  SUPABASE_SECRET_KEY=placeholder-secret-key \
   npx playwright test)
 ```
 

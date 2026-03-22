@@ -131,7 +131,7 @@ CodeScene (and other VS Code extensions) report code health issues via VS Code's
 - Spell check: `npx cspell "**/*.md"`
 - Type check: `npx tsc --noEmit`
 - Unit tests: `npx vitest run`
-- E2E tests: `npx playwright test` — requires a prior `npm run build` (app uses `output: standalone`; `npm run start` runs `node .next/standalone/server.js`). Set placeholder env vars if no real Supabase instance is available: `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key`
+- E2E tests: `npx playwright test` — requires a prior `npm run build` (app uses `output: standalone`; `npm run start` runs `node .next/standalone/server.js`). Set placeholder env vars if no real Supabase instance is available: `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key SUPABASE_SECRET_KEY=placeholder-secret-key`
 - Lint: `npm run lint`
 - Build: `npm run build`
 - Supabase reset: `npx supabase db reset`

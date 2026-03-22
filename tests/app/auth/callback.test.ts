@@ -5,15 +5,15 @@ vi.mock('@/lib/supabase/route-handler', () => ({
   createRouteHandlerSupabaseClient: vi.fn(),
 }));
 
-vi.mock('@/lib/supabase/service-role', () => ({
-  createServiceRoleSupabaseClient: vi.fn(),
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(),
 }));
 
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
-import { createServiceRoleSupabaseClient } from '@/lib/supabase/service-role';
+import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 
 const mockCreateRouteHandler = vi.mocked(createRouteHandlerSupabaseClient);
-const mockCreateServiceRole = vi.mocked(createServiceRoleSupabaseClient);
+const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
 
 describe('Auth callback route', () => {
   const mockExchangeCode = vi.fn();
@@ -26,7 +26,7 @@ describe('Auth callback route', () => {
       auth: { exchangeCodeForSession: mockExchangeCode },
     } as never);
 
-    mockCreateServiceRole.mockReturnValue({
+    mockCreateSecret.mockReturnValue({
       rpc: mockRpc,
     } as never);
   });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
-import { createServiceRoleSupabaseClient } from '@/lib/supabase/service-role';
+import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
@@ -22,8 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { user, provider_token } = data.session;
 
   if (provider_token) {
-    const serviceClient = createServiceRoleSupabaseClient();
-    const { error: rpcError } = await serviceClient.rpc('store_github_token', {
+    const { error: rpcError } = await createSecretSupabaseClient().rpc('store_github_token', {
       p_user_id: user.id,
       p_token: provider_token,
     });

@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import {
   SUPABASE_LOCAL_URL,
-  SUPABASE_LOCAL_SERVICE_ROLE_KEY,
+  SUPABASE_LOCAL_SECRET_KEY,
 } from './supabase-env';
 import {
   createTestOrg,
@@ -14,8 +14,8 @@ import {
   deleteTestOrg,
 } from './factories';
 
-function serviceClient() {
-  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY);
+function secretClient() {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY);
 }
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ function serviceClient() {
 describe('participant_answers schema migration', () => {
   describe('Given an existing database with v1 migrations', () => {
     it('then the v0.8 migration applies without errors', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       // Verify the new columns exist by selecting them — an error means the column is missing
       const { error } = await svc
@@ -44,7 +44,7 @@ describe('participant_answers schema migration', () => {
     let participantId: string;
 
     beforeAll(async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       orgId = await createTestOrg(svc);
       const repoId = await createTestRepo(svc, orgId);
       assessmentId = await createTestAssessment(svc, orgId, repoId);
@@ -53,12 +53,12 @@ describe('participant_answers schema migration', () => {
     });
 
     afterAll(async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       await deleteTestOrg(svc, orgId);
     });
 
     it('then score accepts null and values between 0.00 and 1.00', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       // NULL score
       const { error: errNull } = await svc.from('participant_answers').insert({
@@ -100,7 +100,7 @@ describe('participant_answers schema migration', () => {
     });
 
     it('then score rejects values outside 0.00–1.00', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       const { error: errHigh } = await svc.from('participant_answers').insert({
         org_id: orgId,
@@ -130,7 +130,7 @@ describe('participant_answers schema migration', () => {
     });
 
     it('then is_reassessment defaults to false', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       // Insert a second question so we have a fresh participant/question combination
       const questionId2 = await createTestQuestion(svc, orgId, assessmentId, {
@@ -157,7 +157,7 @@ describe('participant_answers schema migration', () => {
     });
 
     it('then the UNIQUE constraint allows same question with different is_reassessment', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       const questionId3 = await createTestQuestion(svc, orgId, assessmentId, {
         question_number: 3,
