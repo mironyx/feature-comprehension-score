@@ -294,13 +294,13 @@ When the probe reports back, triage its findings the same way as self-review fin
 
 ### Step 10: Self-review
 
-Run `/review` on the PR just created. Read the output and triage each finding:
+Run `/code-review <pr-number>` on the PR just created. Read the output and triage each finding:
 
 - **Blocker / correctness issue** — fix it: update the code, re-run Step 5 (verification), amend or add a commit, push.
 - **Non-blocking suggestion** — decide whether it is worth fixing now (quick win) or deferring. If deferring, note it in the Step 11 report.
 - **Style / minor** — fix if trivial; otherwise note and move on.
 
-After any fixes, re-run `/review` to confirm no new issues were introduced.
+After any fixes, re-run `/code-review <pr-number>` to confirm no new issues were introduced.
 
 ### Step 11: Report
 
