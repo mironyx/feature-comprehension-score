@@ -190,3 +190,38 @@ export function mockOrgMembership(org: string, username: string, role = 'member'
     }),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Org membership sync (issue #54)
+// ---------------------------------------------------------------------------
+
+export interface MockGitHubUser {
+  id: number;
+  login: string;
+}
+
+/** Factory: mock GET /user (authenticated user info) */
+export function mockGitHubUser(user: MockGitHubUser) {
+  return http.get(`${GITHUB_API}/user`, () => HttpResponse.json(user));
+}
+
+export interface MockGitHubOrgEntry {
+  id: number;
+  login: string;
+}
+
+/** Factory: mock GET /user/orgs (list of orgs the user belongs to) */
+export function mockUserOrgs(orgs: MockGitHubOrgEntry[]) {
+  return http.get(`${GITHUB_API}/user/orgs`, () => HttpResponse.json(orgs));
+}
+
+/** Factory: mock GET /orgs/{org}/memberships/{username} */
+export function mockOrgMembershipRole(
+  org: string,
+  username: string,
+  role: 'admin' | 'member',
+) {
+  return http.get(`${GITHUB_API}/orgs/${org}/memberships/${username}`, () =>
+    HttpResponse.json({ role, state: 'active' }),
+  );
+}
