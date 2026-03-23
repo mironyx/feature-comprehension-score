@@ -3,32 +3,9 @@
 -- Design reference: docs/design/lld-phase-2-web-auth-db.md §2.1 Declarative schema adoption
 -- Issue: #65
 
--- pgsodium extension (required for GitHub token encryption).
--- Must be enabled before key creation and store_github_token can execute.
--- On Supabase cloud: enabled via migration (runs as superuser).
--- On local supabase start: enabled by default.
-CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
-
--- NOTE: GRANT EXECUTE on pgsodium.crypto_aead_det_encrypt to postgres is NOT
--- possible via SQL on Supabase cloud. The function is owned by the system
--- superuser; postgres lacks grant option. store_github_token (SECURITY DEFINER,
--- runs as postgres) therefore cannot call crypto_aead_det_encrypt on cloud.
--- Known limitation tracked in issue #82. Options: Supabase Vault migration.
-
--- pgsodium key for GitHub OAuth token encryption (ADR-0003).
--- The key material is managed internally by pgsodium and never leaves the database.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pgsodium.key WHERE name = 'github_token_key'
-  ) THEN
-    PERFORM pgsodium.create_key(
-      name     := 'github_token_key',
-      key_type := 'aead-det'
-    );
-  END IF;
-END;
-$$;
+-- Supabase Vault is used for GitHub token encryption (issue #84).
+-- vault.create_secret / vault.decrypted_secrets are accessible to the postgres role
+-- on both cloud and local Supabase, unlike pgsodium crypto functions.
 
 -- get_user_org_ids: returns all org IDs the current user belongs to.
 -- SECURITY DEFINER avoids circular RLS dependency on user_organisations.
@@ -143,10 +120,10 @@ AS $$
   WHERE r.id = repo_id
 $$;
 
--- store_github_token: encrypts a GitHub OAuth provider token using pgsodium
--- and upserts it into user_github_tokens.
+-- store_github_token: stores a GitHub OAuth provider token in Supabase Vault
+-- and upserts the returned secret UUID into user_github_tokens.
 -- Called by the auth callback route handler via the service role client.
--- Guard: pgsodium schema may not be present in all local dev environments.
+-- Uses vault.create_secret / vault.update_secret — both accessible to postgres on cloud.
 CREATE OR REPLACE FUNCTION store_github_token(p_user_id uuid, p_token text)
 RETURNS void
 LANGUAGE plpgsql
@@ -154,41 +131,44 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_key_id   uuid;
-  v_encrypted text;
+  v_existing_secret_id uuid;
 BEGIN
-  -- Look up the pgsodium key for GitHub token encryption
-  IF EXISTS (
-    SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgsodium'
-  ) THEN
-    SELECT id INTO v_key_id
-    FROM pgsodium.key
-    WHERE name = 'github_token_key'
-    LIMIT 1;
+  SELECT token_secret_id INTO v_existing_secret_id
+  FROM user_github_tokens
+  WHERE user_id = p_user_id;
 
-    IF v_key_id IS NULL THEN
-      RAISE EXCEPTION 'pgsodium key github_token_key not found';
-    END IF;
-
-    -- Encrypt and base64-encode for text storage
-    v_encrypted := encode(
-      pgsodium.crypto_aead_det_encrypt(
-        convert_to(p_token, 'utf8'),
-        convert_to(p_user_id::text, 'utf8'),
-        v_key_id
-      ),
-      'base64'
-    );
-
-    INSERT INTO user_github_tokens (user_id, encrypted_token, key_id)
-    VALUES (p_user_id, v_encrypted, v_key_id)
-    ON CONFLICT (user_id)
-    DO UPDATE SET
-      encrypted_token = EXCLUDED.encrypted_token,
-      key_id          = EXCLUDED.key_id,
-      updated_at      = now();
+  IF v_existing_secret_id IS NOT NULL THEN
+    -- Rotate the secret in-place; the UUID in user_github_tokens stays stable.
+    PERFORM vault.update_secret(v_existing_secret_id, p_token);
+    UPDATE user_github_tokens
+    SET updated_at = now()
+    WHERE user_id = p_user_id;
   ELSE
-    RAISE EXCEPTION 'pgsodium extension not available';
+    INSERT INTO user_github_tokens (user_id, token_secret_id)
+    VALUES (
+      p_user_id,
+      vault.create_secret(
+        p_token,
+        'github_token_' || p_user_id::text,
+        'GitHub OAuth token for user ' || p_user_id::text
+      )
+    );
   END IF;
 END;
+$$;
+
+-- get_github_token: retrieves and decrypts the stored GitHub OAuth token for a user.
+-- Reads from vault.decrypted_secrets via the secret UUID stored in user_github_tokens.
+-- Returns NULL if no token has been stored for the user.
+CREATE OR REPLACE FUNCTION get_github_token(p_user_id uuid)
+RETURNS text
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT s.secret
+  FROM user_github_tokens t
+  JOIN vault.decrypted_secrets s ON s.id = t.token_secret_id
+  WHERE t.user_id = p_user_id
 $$;

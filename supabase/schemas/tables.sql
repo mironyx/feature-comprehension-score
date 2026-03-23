@@ -98,14 +98,15 @@ CREATE TABLE user_organisations (
 CREATE INDEX idx_user_orgs_user ON user_organisations (user_id);
 CREATE INDEX idx_user_orgs_org ON user_organisations (org_id);
 
--- user_github_tokens: encrypted GitHub OAuth provider tokens (ADR-0003).
--- Captured once at /auth/callback. Encrypted via pgsodium.
+-- user_github_tokens: GitHub OAuth provider tokens stored in Supabase Vault (ADR-0003).
+-- Captured once at /auth/callback. Encrypted via Vault (vault.create_secret).
+-- token_secret_id references the UUID returned by vault.create_secret.
+-- Migrated from pgsodium in issue #84 (permission denied on cloud).
 CREATE TABLE user_github_tokens (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         uuid NOT NULL UNIQUE
                      REFERENCES auth.users(id) ON DELETE CASCADE,
-  encrypted_token text NOT NULL,
-  key_id          uuid NOT NULL,
+  token_secret_id uuid NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
