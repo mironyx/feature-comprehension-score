@@ -3,25 +3,29 @@
 -- Design reference: docs/design/lld-phase-2-web-auth-db.md §2.1 Declarative schema adoption
 -- Issue: #65
 
+-- pgsodium extension (required for GitHub token encryption).
+-- Must be enabled before key creation and store_github_token can execute.
+-- On Supabase cloud: enabled via migration (runs as superuser).
+-- On local supabase start: enabled by default.
+CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
+
+-- NOTE: GRANT EXECUTE on pgsodium.crypto_aead_det_encrypt to postgres is NOT
+-- possible via SQL on Supabase cloud. The function is owned by the system
+-- superuser; postgres lacks grant option. store_github_token (SECURITY DEFINER,
+-- runs as postgres) therefore cannot call crypto_aead_det_encrypt on cloud.
+-- Known limitation tracked in issue #82. Options: Supabase Vault migration.
+
 -- pgsodium key for GitHub OAuth token encryption (ADR-0003).
 -- The key material is managed internally by pgsodium and never leaves the database.
--- Guard: pgsodium schema may not be present in all local dev environments.
 DO $$
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgsodium'
-  ) AND EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'pgsodium' AND table_name = 'key'
+  IF NOT EXISTS (
+    SELECT 1 FROM pgsodium.key WHERE name = 'github_token_key'
   ) THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM pgsodium.key WHERE name = 'github_token_key'
-    ) THEN
-      PERFORM pgsodium.create_key(
-        name     := 'github_token_key',
-        key_type := 'aead-det'
-      );
-    END IF;
+    PERFORM pgsodium.create_key(
+      name     := 'github_token_key',
+      key_type := 'aead-det'
+    );
   END IF;
 END;
 $$;
