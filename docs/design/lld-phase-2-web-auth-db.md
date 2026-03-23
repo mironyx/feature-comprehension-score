@@ -318,7 +318,7 @@ src/app/auth/sign-in/
 
 `SignInButton` calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with the callback URL set to `/auth/callback`. PKCE is enabled by default in `@supabase/ssr`.
 
-**OAuth scopes:** `user:email`, `read:org` — configured in the Supabase dashboard GitHub provider settings, not in client code.
+**OAuth scopes:** `user:email`, `read:user` — must be passed explicitly in `signInWithOAuth` client code (see correction below); dashboard configuration alone is insufficient.
 
 > **Post-implementation corrections (issue #82, smoke test):**
 >
