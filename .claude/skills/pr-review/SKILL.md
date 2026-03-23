@@ -34,11 +34,17 @@ Run ALL of the following in parallel:
 3. Read `CLAUDE.md` (root).
 4. Read `package.json` to capture exact versions of direct dependencies.
 
-After (2), extract the linked GitHub issue number from the PR body (look for `Closes #N`,
-`Fixes #N`, `Resolves #N`, or any `#N` reference). If found, fetch the issue:
-`gh issue view <N>` — this gives you acceptance criteria, design doc paths, and BDD specs
-that Agent A needs for design-contract checking. If the issue number was passed in via
-`$ARGUMENTS` alongside the PR number (e.g. from `/feature`), use that directly.
+After (2), in parallel:
+
+- **Issue body:** extract the linked GitHub issue number from the PR body (look for `Closes #N`,
+  `Fixes #N`, `Resolves #N`, or any `#N` reference). If found, fetch `gh issue view <N>` —
+  this gives acceptance criteria, design doc paths, and BDD specs for Agent A. If the issue
+  number was passed in via `$ARGUMENTS` alongside the PR number (e.g. from `/feature`), use
+  that directly.
+
+- **Commit messages:** **PR mode:** `gh pr view <number> --json commits` to get all commit
+  messages on the branch. **Local mode:** `git log main..HEAD --oneline`. Pass these to Agent A
+  to check that each commit message follows conventional commits and references an issue number.
 
 > **Important:** Always retrieve the complete, untruncated diff. A truncated diff will miss
 > changed files and produce an incomplete review. If the diff is very large (> 2000 lines),
@@ -77,14 +83,24 @@ violations — not nitpicks, not style issues, not things CI will catch.
    missing awaits, race conditions. Focus on the diff. Read surrounding context only if
    the diff is ambiguous.
 
-2. **CLAUDE.md compliance** — check the provided CLAUDE.md sections that are relevant to
-   implementation (TDD, Clean Architecture, types, no `any`, British English in docs,
-   no Co-Authored-By trailers, PR size < 200 lines). Ignore guidance that is only
-   relevant when writing code (e.g. "ask before assuming").
+2. **CLAUDE.md compliance** — check the following rules explicitly:
+   - Commit messages use conventional commits (`feat:`, `fix:`, `chore:`, etc.) AND reference
+     an issue number (e.g. `#42`). Check every commit in the provided commit list.
+   - No `Co-Authored-By` trailers in commit messages.
+   - No emojis in documentation files unless the user explicitly requested them.
+   - Bare URLs in Markdown must be wrapped in angle brackets (`<https://...>`).
+   - PR size < 200 lines (warn if exceeded, do not block).
+   - British English in documentation.
+   - No `any` type in TypeScript.
+   Ignore guidance only relevant when writing code (e.g. "ask before assuming").
 
-3. **Design contract** — if the PR/branch references a design doc or LLD, read it and
-   verify that field names, types, function signatures, and API shapes in the code match
-   the design exactly. Report any mismatch.
+3. **Design contract** — if the PR/branch references a design doc or LLD, you MUST:
+   a. Read the **full** design doc file (not just the diff hunk) using the Read tool.
+   b. Identify any entities (file names, function names, variable names, type names) that
+      were renamed or deleted in this PR.
+   c. Search the full design doc for all occurrences of the old names. Report any stale
+      references that were not updated in this PR.
+   d. Verify field names, types, function signatures, and API shapes match the design.
 
 ## What NOT to report
 
@@ -110,6 +126,11 @@ Diff:
 <diff>
 {{DIFF}}
 </diff>
+
+Commit messages on this branch (check each for conventional format + issue reference):
+<commits>
+{{COMMIT_MESSAGES}}
+</commits>
 
 Linked issue body (acceptance criteria, design doc paths, BDD specs — if available):
 <issue>
