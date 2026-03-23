@@ -196,6 +196,13 @@ src/lib/supabase/
 > does not narrow across conditional throws without the IIFE). The service role key is
 > intentionally **not** exported from `env.ts` — it is consumed only in `service-role.ts` to
 > prevent accidental use elsewhere.
+>
+> **Post-implementation correction (issue #82, smoke test):** The original `env.ts` used
+> `process.env[key]` with a dynamic variable key. Next.js inlines `NEXT_PUBLIC_` vars at
+> compile time via static property access only — `process.env[key]` returns `undefined` in the
+> browser bundle. Fixed to use `process.env.NEXT_PUBLIC_SUPABASE_URL` and
+> `process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` directly, with the key passed as a label
+> argument for the error message only.
 
 `server.ts`, `route-handler.ts`, and `middleware.ts` use `createServerClient` from `@supabase/ssr`.
 The middleware client writes cookies to **both** the incoming `NextRequest` (so downstream
@@ -312,6 +319,26 @@ src/app/auth/sign-in/
 `SignInButton` calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with the callback URL set to `/auth/callback`. PKCE is enabled by default in `@supabase/ssr`.
 
 **OAuth scopes:** `user:email`, `read:org` — configured in the Supabase dashboard GitHub provider settings, not in client code.
+
+> **Post-implementation corrections (issue #82, smoke test):**
+>
+> 1. **Browser client must use `createBrowserClient` from `@supabase/ssr`**, not `createClient`
+>    from `@supabase/supabase-js`. The vanilla `createClient` defaults to implicit flow, which
+>    returns the session as a URL fragment (`#access_token=...`). Fragments are not sent to the
+>    server, so the `/auth/callback` route never receives the `code` parameter. PKCE (which sends
+>    `?code=...` as a query parameter) requires `createBrowserClient` from `@supabase/ssr`.
+>
+> 2. **OAuth scopes must also be passed in `signInWithOAuth` client code**, not only in the
+>    Supabase dashboard. GitHub returns 403 on `/user/emails` without the `user:email` scope
+>    explicitly requested. Required scopes: `user:email read:user`. The dashboard configuration
+>    alone is insufficient.
+>
+> 3. **pgsodium deployment gap:** `store_github_token` requires `pgsodium` to be enabled and
+>    `postgres` to have execute permission on `crypto_aead_det_encrypt`. On Supabase cloud,
+>    the extension enable can be done via migration but the GRANT cannot — pgsodium crypto
+>    functions are owned by the system superuser and `postgres` lacks grant option. Token
+>    storage is currently non-functional on cloud. Under investigation: Supabase Vault as
+>    alternative. Tracked in issue #82.
 
 #### Sign-out
 

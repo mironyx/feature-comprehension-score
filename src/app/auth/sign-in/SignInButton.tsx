@@ -14,6 +14,7 @@ export function SignInButton() {
       provider: 'github',
       options: {
         redirectTo: `${globalThis.location.origin}/auth/callback`,
+        scopes: 'user:email read:user',
       },
     });
     if (oauthError) {
