@@ -64,17 +64,21 @@ git_root = pathlib.Path(subprocess.run(
 
 # Derive feature ID from branch name (feat/slug -> FCS-<N> via prom file)
 prom_file = git_root / "monitoring" / "textfile_collector" / "session_feature.prom"
+
+# Derive current feature ID from issue number in recent commits
+import re, subprocess as _sp
+log = _sp.run(["git", "log", "--oneline", "-10"], capture_output=True, text=True, check=True).stdout
+issue_matches = re.findall(r'#(\d+)', log)
+feature_id = f"FCS-{issue_matches[0]}" if issue_matches else None
+
 session_ids = []
-if prom_file.exists():
+if prom_file.exists() and feature_id:
     for line in prom_file.read_text().splitlines():
-        if line.startswith("claude_session_feature{"):
-            sid = None
+        if line.startswith("claude_session_feature{") and f'feature_id="{feature_id}"' in line:
             for part in line.split(","):
                 if "session_id=" in part:
-                    sid = part.split('"')[1]
+                    session_ids.append(part.split('"')[1])
                     break
-            if sid:
-                session_ids.append(sid)
 
 sid_regex = "|".join(session_ids) if session_ids else None
 

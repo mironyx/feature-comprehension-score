@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.5 |
+| Version | 0.6 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -12,6 +12,7 @@
 | Revised | 2026-03-20 (Issue #50) |
 | Revised | 2026-03-20 (Issue #51) |
 | Revised | 2026-03-21 (Issue #53) |
+| Revised | 2026-03-23 (Issue #84) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -156,6 +157,8 @@ Each integration test gets a clean database state. Two approaches evaluated:
 
 **Convention going forward:** All schema changes start with editing the schema file; migrations are generated, never hand-authored. Add a comment header to each generated migration referencing the issue number and design doc section.
 
+> **Implementation note (issue #84):** The vault token migration (`20260323163850_vault_token_migration.sql`) is an exception — it was hand-authored rather than generated. `supabase db diff` uses a shadow DB to compute the diff; the shadow DB cannot apply the earlier `pgsodium_extension_and_grants` migration (pgsodium is unavailable in the shadow instance), so the tooling fails before producing a diff. When a prior migration references an extension that is absent from the shadow DB, hand-authoring the migration and documenting the reason in its header comment is the correct fallback.
+
 ---
 
 ## 2.2 GitHub OAuth Authentication
@@ -264,9 +267,14 @@ await serviceClient.rpc('store_github_token', {
 **Database function for token storage:**
 
 `store_github_token(p_user_id uuid, p_token text)` stores the token via Supabase Vault and
-upserts the returned secret UUID into `user_github_tokens.token_secret_id`. Migrated from
+writes the returned secret UUID into `user_github_tokens.token_secret_id`. Migrated from
 pgsodium to Vault in issue #84 (`20260323163850_vault_token_migration.sql`) — pgsodium crypto
 functions are not executable by the `postgres` role on Supabase cloud.
+
+On first call for a user, `vault.create_secret(token, name, description)` is called and the
+returned UUID is inserted into `user_github_tokens`. On subsequent calls (token rotation),
+`vault.update_secret(existing_uuid, new_token)` rotates the secret in-place — the UUID in
+`user_github_tokens` remains stable across rotations.
 
 `get_github_token(p_user_id uuid)` decrypts and returns the stored token by selecting
 `decrypted_secret` from `vault.decrypted_secrets` (not `secret`, which holds the encrypted
