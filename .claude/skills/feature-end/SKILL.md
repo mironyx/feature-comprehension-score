@@ -41,7 +41,77 @@ it in the session log.
    - Decisions made during the session
    - Any review feedback addressed
    - Next steps or follow-up items
+   - Final feature cost (from Step 2.5) — include both the PR-creation cost (from PR body) and the final total, so the delta is visible
 3. Stage the session log.
+
+### Step 2.5: Query final feature cost
+
+Query Prometheus for the full feature total (all sessions since `/feature` started — same
+session IDs registered in the textfile). This is the **final** cost snapshot; comparing it
+to the cost recorded in the PR body at creation time shows how much effort was spent
+post-PR (review fixes, re-runs, etc.).
+
+```bash
+py - <<'PYEOF'
+import urllib.request, urllib.parse, json, pathlib, subprocess
+
+PROM = "http://localhost:9090/api/v1/query"
+
+git_root = pathlib.Path(subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, check=True
+).stdout.strip())
+
+# Derive feature ID from branch name (feat/slug -> FCS-<N> via prom file)
+prom_file = git_root / "monitoring" / "textfile_collector" / "session_feature.prom"
+session_ids = []
+if prom_file.exists():
+    for line in prom_file.read_text().splitlines():
+        if line.startswith("claude_session_feature{"):
+            sid = None
+            for part in line.split(","):
+                if "session_id=" in part:
+                    sid = part.split('"')[1]
+                    break
+            if sid:
+                session_ids.append(sid)
+
+sid_regex = "|".join(session_ids) if session_ids else None
+
+def query(promql):
+    try:
+        url = PROM + "?" + urllib.parse.urlencode({"query": promql})
+        rows = json.loads(urllib.request.urlopen(url, timeout=3).read()).get("data", {}).get("result", [])
+        return sum(float(r["value"][1]) for r in rows) if rows else 0.0
+    except Exception:
+        return None
+
+if sid_regex:
+    s = f'session_id=~"{sid_regex}"'
+    cost = query(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
+    inp  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})')
+    out  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})')
+    cr   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})')
+    cc   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})')
+else:
+    cost = inp = out = cr = cc = None
+
+sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
+if cost is None:
+    print("## Final Usage\n- Prometheus unavailable")
+else:
+    print(f"## Final Usage (feature total{sessions_note})\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
+    print(f"_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
+PYEOF
+```
+
+Capture the output. Post it as a PR comment:
+
+```bash
+gh pr comment <number> --body "<final usage output>"
+```
+
+Store the cost figures — you will include them in the session log in Step 2.
 
 ### Step 3: Commit remaining changes
 

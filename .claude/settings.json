@@ -7,7 +7,11 @@
       "Bash(gh run view*)",
       "Bash(gh pr checks*)",
       "WebSearch",
-      "WebFetch"
+      "WebFetch",
+      "Bash(git checkout*)",
+      "Bash(gh pr comment*)",
+      "Bash(gh issue close*)",
+      "Bash(./scripts/gh-project-status.sh*)"
     ]
   },
   "env": {
