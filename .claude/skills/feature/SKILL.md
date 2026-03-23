@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, reviews, runs diagnostics, commits, creates a PR, then self-reviews the PR and fixes any findings before reporting. Only pauses for real blockers.
+description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, runs diagnostics, commits, creates a PR, runs /pr-review and fixes any findings, then reports. Only pauses for real blockers.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -146,26 +146,14 @@ If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
 ```bash
 (cd "$WDIR" && NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
-  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
-  npm run build && \
-  NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
-  SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key \
-  npx playwright test)
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
+  SUPABASE_SECRET_KEY=placeholder-secret-key \
+  npm run build && npx playwright test)
 ```
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
-### Step 6: Review
-
-Run `/review` on the current changes. Fix any findings and re-run Step 5 after fixes.
-
-If `/review` raises design conformance issues (field names, types, schemas don't match the design doc), check whether the design or the implementation is wrong:
-- If the implementation is wrong, fix it.
-- If the design is outdated, update the design doc in the same branch.
-
-### Step 7: Diagnostics
+### Step 6: Diagnostics
 
 Run `/diag` to check VS Code extension diagnostics.
 
@@ -173,7 +161,7 @@ Run `/diag` to check VS Code extension diagnostics.
 - Info-level items: fix if straightforward, otherwise note for the PR description.
 - Re-run Step 5 after any fixes.
 
-### Step 8: Commit
+### Step 7: Commit
 
 Stage and commit with a conventional commit message referencing the issue number:
 
@@ -184,7 +172,7 @@ Stage and commit with a conventional commit message referencing the issue number
 
 One commit per issue. Do not batch multiple issues.
 
-### Step 9: Push and create PR
+### Step 8: Push and create PR
 
 ```bash
 (cd "$WDIR" && git push -u origin feat/<branch-name>)
@@ -276,7 +264,7 @@ EOF
 )"
 ```
 
-### Step 9b: CI probe (background)
+### Step 8b: CI probe (background)
 
 Immediately after the PR is created, launch the `ci-probe` agent in the background.
 It will block on `gh run watch` and report back when CI completes — no polling needed.
@@ -287,28 +275,31 @@ Input: pr=<pr-number>
 run_in_background: true
 ```
 
-Continue with Step 10 immediately — do not wait for the CI probe.
-When the probe reports back, triage its findings the same way as self-review findings:
-- **CI failure** — fix the root cause, push, note in the Step 11 report.
-- **CI pass** — note in the Step 11 report.
+Continue with Step 9 immediately — do not wait for the CI probe.
+When the probe reports back, triage its findings the same way as review findings:
+- **CI failure** — fix the root cause, push, note in the Step 10 report.
+- **CI pass** — note in the Step 10 report.
 
-### Step 10: Self-review
+### Step 9: Review
 
-Run `/review` on the PR just created. Read the output and triage each finding:
+Run `/pr-review <pr-number>` on the PR just created. This posts a comment on the PR and
+returns findings. Triage each finding:
 
-- **Blocker / correctness issue** — fix it: update the code, re-run Step 5 (verification), amend or add a commit, push.
-- **Non-blocking suggestion** — decide whether it is worth fixing now (quick win) or deferring. If deferring, note it in the Step 11 report.
+- **Blocker / correctness issue** — fix it: update the code, re-run Step 5 (verification), add a commit, push.
+- **Design contract mismatch** — check whether the design or the implementation is wrong:
+  if the implementation is wrong, fix it; if the design is outdated, update the design doc in the same branch.
+- **Non-blocking suggestion** — decide whether it is worth fixing now (quick win) or deferring. If deferring, note it in the Step 10 report.
 - **Style / minor** — fix if trivial; otherwise note and move on.
 
-After any fixes, re-run `/review` to confirm no new issues were introduced.
+After any fixes, re-run `/pr-review <pr-number>` to confirm no new issues were introduced.
 
-### Step 11: Report
+### Step 10: Report
 
 Summarise what was done:
 - Issue number and title
 - Branch and PR link
 - Tests added / total
-- Self-review outcome: what was found, what was fixed, what was deferred
+- Review outcome: what was found, what was fixed, what was deferred
 - CI outcome: pass / fail / pending (if the ci-probe has not yet reported back)
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board

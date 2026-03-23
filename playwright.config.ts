@@ -22,11 +22,19 @@ export default defineConfig({
   ],
 
   webServer: {
-    // CI: build happens in a prior workflow step; just start the pre-built server.
-    // Local: env vars come from .env.local; build then start.
-    command: process.env.CI ? 'npm run start' : 'npm run build && npm run start',
+    // Both CI and local: start the pre-built standalone server.
+    // Run `npm run build` before running E2E tests if the build is stale.
+    command: 'npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
+    env: {
+      HOSTNAME: 'localhost',
+      NEXT_PUBLIC_SUPABASE_URL:
+        process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? 'https://placeholder.supabase.co',
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+        process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'] ?? 'placeholder-publishable-key',
+      SUPABASE_SECRET_KEY: process.env['SUPABASE_SECRET_KEY'] ?? 'placeholder-secret-key',
+    },
   },
 });

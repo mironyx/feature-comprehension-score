@@ -23,8 +23,8 @@
 ### 🔑 Secrets Exposed in Workflows
 
 **Currently Commented (Safe)**:
-- `SUPABASE_SERVICE_ROLE_KEY` - Used in integration tests
-- `SUPABASE_ANON_KEY` - Used in integration tests
+- `SUPABASE_SECRET_KEY` - Used in integration tests
+- `SUPABASE_PUBLISHABLE_KEY` - Used in integration tests
 - `SONAR_TOKEN` - Used in SonarCloud analysis
 
 **Action Required Before Enabling**:

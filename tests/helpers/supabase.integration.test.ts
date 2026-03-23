@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import {
   SUPABASE_LOCAL_URL,
-  SUPABASE_LOCAL_SERVICE_ROLE_KEY,
-  SUPABASE_LOCAL_ANON_KEY,
+  SUPABASE_LOCAL_SECRET_KEY,
+  SUPABASE_LOCAL_PUBLISHABLE_KEY,
 } from './supabase-env';
 import {
   createTestOrg,
@@ -20,37 +20,37 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function serviceClient() {
-  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY);
+function secretClient() {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY);
 }
 
-function anonClient() {
-  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_ANON_KEY);
+function publishableClient() {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_PUBLISHABLE_KEY);
 }
 
 function authedClient(accessToken: string) {
-  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_ANON_KEY, {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_PUBLISHABLE_KEY, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
 async function createUser(email: string, password = 'Password123!') {
-  const svc = serviceClient();
+  const svc = secretClient();
   const { data, error } = await svc.auth.admin.createUser({ email, password, email_confirm: true });
   if (error || !data.user) throw new Error(`createUser failed: ${error?.message}`);
   return data.user.id;
 }
 
 async function signIn(email: string, password = 'Password123!') {
-  const client = anonClient();
+  const client = publishableClient();
   const { data, error } = await client.auth.signInWithPassword({ email, password });
   if (error || !data.session) throw new Error(`signIn failed: ${error?.message}`);
   return data.session.access_token;
 }
 
 async function deleteUser(userId: string) {
-  const svc = serviceClient();
+  const svc = secretClient();
   await svc.auth.admin.deleteUser(userId);
 }
 
@@ -60,7 +60,7 @@ async function deleteUser(userId: string) {
 
 describe('Supabase local environment', () => {
   it('migrations apply without errors — core tables exist', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
 
     // Verify each core table exists by selecting from it
     const tables = [
@@ -79,7 +79,7 @@ describe('Supabase local environment', () => {
   });
 
   it('migrations apply without errors — assessment tables exist', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
 
     const tables = [
       'assessments',
@@ -97,7 +97,7 @@ describe('Supabase local environment', () => {
   });
 
   it('get_effective_config function exists and returns config for a repository', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
 
@@ -117,7 +117,7 @@ describe('Supabase local environment', () => {
   });
 
   it('org_config has context_file_patterns column with empty array default', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
 
     const { data, error } = await svc
@@ -134,7 +134,7 @@ describe('Supabase local environment', () => {
   });
 
   it('repository_config has context_file_patterns column (nullable override)', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
 
@@ -160,7 +160,7 @@ describe('Supabase local environment', () => {
   });
 
   it('get_effective_config returns context_file_patterns with repo-level override applied', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
 
@@ -192,13 +192,12 @@ describe('RLS policies enforce org isolation', () => {
   let userId1: string;
   let userId2: string;
   let token1: string;
-  let _token2: string;
 
   const email1 = `rls-user1-${Date.now()}@example.com`;
   const email2 = `rls-user2-${Date.now()}@example.com`;
 
   beforeAll(async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
 
     orgId1 = await createTestOrg(svc);
     orgId2 = await createTestOrg(svc);
@@ -210,11 +209,11 @@ describe('RLS policies enforce org isolation', () => {
     await createTestUserOrg(svc, userId2, orgId2, { github_role: 'member' });
 
     token1 = await signIn(email1);
-    _token2 = await signIn(email2);
+    await signIn(email2);
   });
 
   afterAll(async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     await deleteTestOrg(svc, orgId1);
     await deleteTestOrg(svc, orgId2);
     await deleteUser(userId1);
@@ -242,7 +241,7 @@ describe('RLS policies enforce org isolation', () => {
   });
 
   it('Given user A is a member (not admin) of org 1, then user A cannot update org_config', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const client1 = authedClient(token1);
 
     // Confirm org_config row exists
@@ -253,13 +252,13 @@ describe('RLS policies enforce org isolation', () => {
       .single();
     expect(configData).not.toBeNull();
     // Member attempting to update — should be blocked by RLS
-    const { error } = await client1
+    const { error: _updateError } = await client1
       .from('org_config')
       .update({ score_threshold: 99 })
       .eq('org_id', orgId1);
 
     // RLS blocks the update — either returns an error or updates 0 rows (PostgREST returns no error but 0 rows)
-    // Verify the value was NOT changed
+    // _updateError may or may not be set depending on Supabase version; verify the value was NOT changed
     const { data: after } = await svc
       .from('org_config')
       .select('score_threshold')
@@ -267,11 +266,10 @@ describe('RLS policies enforce org isolation', () => {
       .single();
 
     expect(after?.score_threshold).not.toBe(99);
-    void error; // may or may not be set depending on Supabase version
   });
 
   it('Given user A is an org admin of org 1, then user A can update org_config', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
 
     // Elevate user1 to admin
     await svc
@@ -314,7 +312,7 @@ describe('RLS policies enforce org isolation', () => {
 
 describe('test helpers create and clean up data', () => {
   it('createTestOrg creates organisation with org_config', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
 
     const { data: org } = await svc.from('organisations').select('id').eq('id', orgId).single();
@@ -334,7 +332,7 @@ describe('test helpers create and clean up data', () => {
   });
 
   it('createTestRepo creates a repository linked to the org', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
 
@@ -350,7 +348,7 @@ describe('test helpers create and clean up data', () => {
   });
 
   it('createTestAssessment creates an assessment with correct defaults', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
     const assessmentId = await createTestAssessment(svc, orgId, repoId);
@@ -369,7 +367,7 @@ describe('test helpers create and clean up data', () => {
   });
 
   it('createTestQuestion and createTestParticipant create linked records', async () => {
-    const svc = serviceClient();
+    const svc = secretClient();
     const orgId = await createTestOrg(svc);
     const repoId = await createTestRepo(svc, orgId);
     const assessmentId = await createTestAssessment(svc, orgId, repoId);

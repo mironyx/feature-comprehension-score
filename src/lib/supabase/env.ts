@@ -8,5 +8,5 @@ function required(key: string): string {
 }
 
 export const supabaseUrl = required('NEXT_PUBLIC_SUPABASE_URL');
-export const supabaseAnonKey = required('NEXT_PUBLIC_SUPABASE_ANON_KEY');
-// serviceRoleKey intentionally not exported here — only used in service-role.ts
+export const supabasePublishableKey = required('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
+// secretKey intentionally not exported here — only used in secret.ts

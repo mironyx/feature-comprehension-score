@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Load .env.test.local first so integration tests get real local Supabase keys.
 // Must happen before the fallback assignments below.
@@ -22,5 +22,5 @@ try {
 
 // Fallback values for unit tests that import server-side clients without a real Supabase instance.
 process.env['NEXT_PUBLIC_SUPABASE_URL'] ??= 'http://localhost:54321';
-process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'] ??= 'test-anon-key';
-process.env['SUPABASE_SERVICE_ROLE_KEY'] ??= 'test-service-role-key';
+process.env['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'] ??= 'test-publishable-key';
+process.env['SUPABASE_SECRET_KEY'] ??= 'test-secret-key';
