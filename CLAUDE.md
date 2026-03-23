@@ -199,12 +199,13 @@ Supabase uses a **declarative schema** approach. `supabase/schemas/` files are t
 
 ## Custom Skills
 
-- `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/review`, `/diag`, commit, PR. Stops after PR creation for human review.
+- `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/diag`, commit, PR, `/pr-review`. Stops after review for human approval.
 - `/feature-cont` — Continue an in-progress feature in a new session when context was exhausted. Reconstructs state from git + issue body, registers the new session in the prom file (append, not overwrite), resumes TDD. Usage: `/feature-cont` (auto-detects from prom file) or `/feature-cont 123`.
 - `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
 - `/diag` — Batch check VS Code extension diagnostics for changed files before committing
+- `/pr-review` — Review a PR for bugs, CLAUDE.md compliance, design contract adherence, and framework deprecations. Usage: `/pr-review <pr-number>` (posts PR comment) or `/pr-review` (local diff). Two parallel agents: correctness + framework freshness.
 - `/lld` — Generate Low-Level Design documents for a phase or section. Usage: `/lld phase2` (all sections) or `/lld 2.3` (single section). Produces LLDs with implementation detail, file paths, types, and task breakdowns.
 - `/lld-sync` — Sync the LLD back to the implementation after a feature is complete. Compares spec vs what was built, updates the LLD in-place. Run after implementation, before `/feature-end`. Called automatically by `/feature-end` Step 1.5.
 
