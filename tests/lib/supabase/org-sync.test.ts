@@ -52,6 +52,7 @@ function buildMockClient(opts: {
   installedOrgs: OrgRow[];
   finalUserOrgs: UserOrgRow[];
   existingUserOrgs?: UserOrgRow[];
+  orgQueryError?: { message: string };
 }) {
   const upsertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
   const deleteSpy = vi.fn();
@@ -85,7 +86,10 @@ function buildMockClient(opts: {
   // organisations query: .select(...).in(...).eq(...)
   const orgsSelectChain = {
     in: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockResolvedValue({ data: opts.installedOrgs, error: null }),
+    eq: vi.fn().mockResolvedValue({
+      data: opts.orgQueryError ? null : opts.installedOrgs,
+      error: opts.orgQueryError ?? null,
+    }),
   };
 
   const fromSpy = vi.fn((table: string) => {
@@ -248,6 +252,32 @@ describe('syncOrgMembership', () => {
         installedOrgs: [org1],
         finalUserOrgs: [],
         existingUserOrgs: [existingUo],
+      });
+
+      const { syncOrgMembership } = await import('@/lib/supabase/org-sync');
+      const result = await syncOrgMembership(client, TEST_USER_ID, TEST_PROVIDER_TOKEN);
+
+      expect(upsertSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(result).toHaveLength(1);
+      expect(result[0]?.org_id).toBe('org-1');
+    });
+  });
+
+  describe('Given a Supabase DB error when querying installed orgs', () => {
+    it('then existing memberships are preserved (not deleted)', async () => {
+      const existingUo = makeUserOrg('org-1', { github_role: 'admin' });
+
+      server.use(
+        mockGitHubUser(GITHUB_USER),
+        mockUserOrgs([{ id: 1001, login: 'acme' }]),
+      );
+
+      const { client, upsertSpy, deleteSpy } = buildMockClient({
+        installedOrgs: [],
+        finalUserOrgs: [],
+        existingUserOrgs: [existingUo],
+        orgQueryError: { message: 'connection timeout' },
       });
 
       const { syncOrgMembership } = await import('@/lib/supabase/org-sync');

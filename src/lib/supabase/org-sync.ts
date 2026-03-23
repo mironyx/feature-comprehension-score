@@ -28,7 +28,7 @@ async function githubFetch<T>(url: string, headers: Record<string, string>): Pro
   if (!resp.ok) {
     throw new Error(`GitHub API ${resp.status} for ${url}`);
   }
-  return resp.json() as Promise<T>;
+  return (await resp.json()) as unknown as T;
 }
 
 /**
@@ -62,15 +62,27 @@ export async function syncOrgMembership(
 
   // 2. Find which of the user's orgs have our app installed.
   const githubOrgIds = githubOrgs.map((o) => o.id);
-  const { data: installedOrgs } = githubOrgIds.length > 0
+  const installedOrgsResult = githubOrgIds.length > 0
     ? await serviceClient
         .from('organisations')
         .select('id, github_org_id, github_org_name')
         .in('github_org_id', githubOrgIds)
         .eq('status', 'active')
-    : { data: [] };
+    : { data: [] as { id: string; github_org_id: number; github_org_name: string }[], error: null };
 
-  if (!installedOrgs || installedOrgs.length === 0) {
+  // A DB error here must not trigger deletion — preserve existing rows.
+  if (installedOrgsResult.error) {
+    console.error('syncOrgMembership: DB query failed — preserving existing memberships', installedOrgsResult.error);
+    const { data: existing } = await serviceClient
+      .from('user_organisations')
+      .select('*')
+      .eq('user_id', userId);
+    return existing ?? [];
+  }
+
+  const installedOrgs = installedOrgsResult.data;
+
+  if (installedOrgs.length === 0) {
     await serviceClient.from('user_organisations').delete().eq('user_id', userId);
     return [];
   }
@@ -92,7 +104,7 @@ export async function syncOrgMembership(
         );
         if (resp.status === 404) return { org, membership: null, error: false };
         if (!resp.ok) return { org, membership: null, error: true };
-        const membership = (await resp.json()) as GitHubMembership;
+        const membership = (await resp.json()) as unknown as GitHubMembership;
         return { org, membership, error: false };
       }),
   );
