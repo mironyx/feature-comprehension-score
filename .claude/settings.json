@@ -5,7 +5,9 @@
       "Bash(gh run list*)",
       "Bash(gh run watch*)",
       "Bash(gh run view*)",
-      "Bash(gh pr checks*)"
+      "Bash(gh pr checks*)",
+      "WebSearch",
+      "WebFetch"
     ]
   },
   "env": {
