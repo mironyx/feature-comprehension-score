@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
-import { SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY } from './supabase-env';
+import { SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY } from './supabase-env';
 import {
   createTestOrg,
   createTestRepo,
@@ -26,8 +26,8 @@ const SEED_REPO_API_ID = '00000000-0000-0000-0001-000000000001';
 const SEED_REPO_WEB_ID = '00000000-0000-0000-0001-000000000002';
 const SEED_REPO_PLATFORM_ID = '00000000-0000-0000-0001-000000000003';
 
-function serviceClient() {
-  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SERVICE_ROLE_KEY);
+function secretClient() {
+  return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY);
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ function serviceClient() {
 describe('Seed data', () => {
   describe('Given a fresh database after supabase db reset', () => {
     it('then 2 organisations exist', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const { data, error } = await svc
         .from('organisations')
         .select('id')
@@ -49,7 +49,7 @@ describe('Seed data', () => {
     });
 
     it('then 3 repositories exist', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const { data, error } = await svc
         .from('repositories')
         .select('id')
@@ -59,7 +59,7 @@ describe('Seed data', () => {
     });
 
     it('then user_organisations link users to their orgs', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const { data, error } = await svc
         .from('user_organisations')
         .select('user_id, org_id, github_role')
@@ -87,7 +87,7 @@ describe('Seed data', () => {
 describe('Test factories', () => {
   describe('Given createOrg with default options', () => {
     it('then it creates an active organisation', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const orgId = await createTestOrg(svc);
 
       const { data, error } = await svc
@@ -105,7 +105,7 @@ describe('Test factories', () => {
 
   describe('Given createAssessment with required fields', () => {
     it('then it creates an assessment with correct defaults', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const orgId = await createTestOrg(svc);
       const repoId = await createTestRepo(svc, orgId);
       const assessmentId = await createTestAssessment(svc, orgId, repoId);
@@ -126,7 +126,7 @@ describe('Test factories', () => {
 
   describe('Given createAnswer with required fields', () => {
     it('then it creates a participant answer with correct defaults', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
       const orgId = await createTestOrg(svc);
       const repoId = await createTestRepo(svc, orgId);
       const assessmentId = await createTestAssessment(svc, orgId, repoId);
@@ -161,7 +161,7 @@ describe('Test factories', () => {
   // tests within a file always run in declaration order, so this ordering is stable.
   describe('Given resetDatabase', () => {
     it('then all tables are empty', async () => {
-      const svc = serviceClient();
+      const svc = secretClient();
 
       // Create some data first
       const orgId = await createTestOrg(svc);

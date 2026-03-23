@@ -70,8 +70,8 @@ jobs:
           # Placeholder values so env.ts validation passes at build time.
           # Real values are injected at runtime via Cloud Run env vars — not needed here.
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder-publishable-key
+          SUPABASE_SECRET_KEY: placeholder-secret-key
 
   docker:
     name: Docker build
@@ -84,8 +84,8 @@ jobs:
         run: |
           docker build -t fcs-app:ci . \
             --build-arg NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
-            --build-arg SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key
+            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
+            --build-arg SUPABASE_SECRET_KEY=placeholder-secret-key
 
   # ---------- Scaffolded stages — activate when ready ----------
 
@@ -116,8 +116,8 @@ jobs:
   #       run: npx vitest run --testPathPattern '\.integration\.test\.ts$'
   #       env:
   #         SUPABASE_URL: http://127.0.0.1:54321
-  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-  #         SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+  #         SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+  #         SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
 
   e2e:
     name: E2E tests (Playwright)
@@ -140,15 +140,15 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder-publishable-key
+          SUPABASE_SECRET_KEY: placeholder-secret-key
 
       - name: Run E2E tests
         run: npx playwright test
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder-publishable-key
+          SUPABASE_SECRET_KEY: placeholder-secret-key
 
   # hadolint:
   #   name: Dockerfile lint (Hadolint)

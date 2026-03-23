@@ -192,7 +192,7 @@ src/lib/supabase/
 
 > **Implementation note (issue #52):** `env.ts` was added as a shared module to eliminate
 > copy-pasted env var validation across all four client files. It exports `supabaseUrl` and
-> `supabaseAnonKey` using a `?? IIFE` pattern that narrows the type to `string` (TypeScript
+> `supabasePublishableKey` using a `?? IIFE` pattern that narrows the type to `string` (TypeScript
 > does not narrow across conditional throws without the IIFE). The service role key is
 > intentionally **not** exported from `env.ts` — it is consumed only in `service-role.ts` to
 > prevent accidental use elsewhere.
