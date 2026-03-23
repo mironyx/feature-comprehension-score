@@ -57,15 +57,15 @@ function buildMockClient(opts: {
   const upsertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
   const deleteSpy = vi.fn();
 
-  // delete chain: .eq().not() or .eq() — always resolves
-  const deleteChain = {
-    eq: vi.fn().mockReturnThis(),
-    not: vi.fn().mockResolvedValue({ data: null, error: null }),
-    // allow bare .eq() to also resolve (zero-org case)
-    then: undefined as unknown,
-  };
-  deleteChain.then = (cb: (v: unknown) => unknown) =>
-    Promise.resolve({ data: null, error: null }).then(cb);
+  // delete chain: .eq() returns a real Promise extended with .not(), so both
+  //   `await deleteQuery` and `await deleteQuery.not(...)` resolve correctly
+  //   without adding `then` to a plain object (which triggers sonarqube S7739).
+  const notSpy = vi.fn().mockResolvedValue({ data: null, error: null });
+  const eqResult = Object.assign(
+    Promise.resolve({ data: null, error: null }),
+    { not: notSpy },
+  );
+  const deleteChain = { eq: vi.fn().mockReturnValue(eqResult) };
   deleteSpy.mockReturnValue(deleteChain);
 
   const existingRows = opts.existingUserOrgs ?? [];
@@ -229,8 +229,8 @@ describe('syncOrgMembership', () => {
       await syncOrgMembership(client, TEST_USER_ID, TEST_PROVIDER_TOKEN);
 
       expect(deleteSpy).toHaveBeenCalled();
-      const deleteChain = deleteSpy.mock.results[0]?.value;
-      expect(deleteChain.eq).toHaveBeenCalledWith('user_id', TEST_USER_ID);
+      const chain = deleteSpy.mock.results[0]?.value as { eq: ReturnType<typeof vi.fn> };
+      expect(chain.eq).toHaveBeenCalledWith('user_id', TEST_USER_ID);
     });
   });
 

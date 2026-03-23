@@ -121,13 +121,13 @@ export async function syncOrgMembership(
 
   const upsertRows: Database['public']['Tables']['user_organisations']['Insert'][] =
     membershipResults
-      .filter((r) => r.membership !== null)
+      .filter((r): r is typeof r & { membership: GitHubMembership } => r.membership !== null)
       .map(({ org, membership }) => ({
         user_id: userId,
         org_id: org.id,
         github_user_id: githubUser.id,
         github_username: githubUser.login,
-        github_role: membership!.role,
+        github_role: membership.role,
       }));
 
   // 4. Upsert confirmed memberships.
@@ -140,12 +140,14 @@ export async function syncOrgMembership(
   // 5. Remove stale rows — orgs the user is no longer a member of or whose
   //    app installation was removed.
   const currentOrgIds = upsertRows.map((r) => r.org_id);
-  const deleteQuery = serviceClient.from('user_organisations').delete().eq('user_id', userId);
-
   if (currentOrgIds.length > 0) {
-    await deleteQuery.not('org_id', 'in', `(${currentOrgIds.join(',')})`);
+    await serviceClient
+      .from('user_organisations')
+      .delete()
+      .eq('user_id', userId)
+      .not('org_id', 'in', `(${currentOrgIds.join(',')})`);
   } else {
-    await deleteQuery;
+    await serviceClient.from('user_organisations').delete().eq('user_id', userId);
   }
 
   // 6. Return the up-to-date membership list.
