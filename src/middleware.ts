@@ -9,7 +9,7 @@ export async function middleware(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  let i=;
+  
   if (!user) {
     const signInUrl = new URL('/auth/sign-in', request.url);
     return NextResponse.redirect(signInUrl);
