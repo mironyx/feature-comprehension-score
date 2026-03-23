@@ -268,8 +268,9 @@ upserts the returned secret UUID into `user_github_tokens.token_secret_id`. Migr
 pgsodium to Vault in issue #84 (`20260323163850_vault_token_migration.sql`) — pgsodium crypto
 functions are not executable by the `postgres` role on Supabase cloud.
 
-`get_github_token(p_user_id uuid)` decrypts and returns the stored token via
-`vault.decrypted_secrets`. Returns `NULL` if no token has been stored.
+`get_github_token(p_user_id uuid)` decrypts and returns the stored token by selecting
+`decrypted_secret` from `vault.decrypted_secrets` (not `secret`, which holds the encrypted
+ciphertext). Returns `NULL` if no token has been stored.
 
 #### Session middleware
 

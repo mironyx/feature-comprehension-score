@@ -70,7 +70,7 @@ SECURITY DEFINER
 STABLE
 SET search_path TO 'public'
 AS $$
-  SELECT s.secret
+  SELECT s.decrypted_secret
   FROM user_github_tokens t
   JOIN vault.decrypted_secrets s ON s.id = t.token_secret_id
   WHERE t.user_id = p_user_id
