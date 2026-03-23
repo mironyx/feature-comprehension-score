@@ -1,7 +1,7 @@
 ---
 name: pr-review
 description: Review code changes for bugs, CLAUDE.md compliance, design contract adherence, and framework currency. Use before committing (/pr-review) or on a PR (/pr-review 123). Spawns two parallel agents — correctness and framework freshness — then consolidates findings.
-allowed-tools: Read, Write, Bash, Glob, Grep, Agent, TodoWrite
+allowed-tools: Read, Write, Bash, Glob, Grep, Agent, TodoWrite, WebSearch
 ---
 
 # PR Review — Lightweight Code Review
@@ -22,27 +22,39 @@ frameworks used in the changed code have deprecated anything you relied on.
 
 Determine mode from `$ARGUMENTS`:
 
-- If a number is present → **PR mode**: `gh pr diff <number>` and `gh pr view <number>`
-- Otherwise → **local mode**: `git diff HEAD` (falls back to `git diff --cached` if empty)
+- If a number is present → **PR mode**
+- Otherwise → **local mode**
 
-Then, in parallel:
+Run ALL of the following in parallel:
 
-1. Read the diff.
-2. Read `CLAUDE.md` (root).
-3. If PR mode: read the PR body and extract any linked issue numbers or design doc paths.
-   If local mode: run `git log --oneline -1` to get the current branch context.
+1. **PR mode:** `gh pr diff <number>` to get the full diff. Do NOT truncate or pipe through `head`.
+   **Local mode:** `git diff HEAD` (falls back to `git diff --cached` if empty).
+2. **PR mode:** `gh pr view <number>` and `gh pr diff --name-only <number>` for the file list and PR body.
+   **Local mode:** `git diff --name-only HEAD` and `git log --oneline -1`.
+3. Read `CLAUDE.md` (root).
 4. Read `package.json` to capture exact versions of direct dependencies.
+
+After (2), extract the linked GitHub issue number from the PR body (look for `Closes #N`,
+`Fixes #N`, `Resolves #N`, or any `#N` reference). If found, fetch the issue:
+`gh issue view <N>` — this gives you acceptance criteria, design doc paths, and BDD specs
+that Agent A needs for design-contract checking. If the issue number was passed in via
+`$ARGUMENTS` alongside the PR number (e.g. from `/feature`), use that directly.
+
+> **Important:** Always retrieve the complete, untruncated diff. A truncated diff will miss
+> changed files and produce an incomplete review. If the diff is very large (> 2000 lines),
+> focus Agent A on the TypeScript/JavaScript source files; pass the full file list to Agent B.
 
 ### Step 2: Identify changed files and their imports
 
-From the diff, list every source file that was **added or modified** (ignore deletions and
-lock files). For each file, extract:
+From the diff (or `--name-only` output), list every source file that was **added or modified**
+(ignore deletions, `package-lock.json`, and other lock files). For each TypeScript/JavaScript
+source file, extract:
 
 - The package imports (lines beginning with `import … from` or `require(…)`)
 - The file's relative path
 
 Produce two lists:
-- `CHANGED_FILES` — relative paths of modified source files
+- `CHANGED_FILES` — relative paths of all modified source files (`.ts`, `.tsx`, `.js`, `.jsx`)
 - `FRAMEWORK_DEPS` — unique package names imported in those files that also appear in
   `package.json` dependencies (not devDependencies). Limit to the **top 5** by frequency of
   use across the changed files.
@@ -99,7 +111,12 @@ Diff:
 {{DIFF}}
 </diff>
 
-Design docs referenced (if any):
+Linked issue body (acceptance criteria, design doc paths, BDD specs — if available):
+<issue>
+{{ISSUE_BODY}}
+</issue>
+
+Design docs referenced in the issue (read and include relevant excerpts):
 <design_docs>
 {{DESIGN_DOCS}}
 </design_docs>
