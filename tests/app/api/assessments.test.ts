@@ -16,6 +16,10 @@ vi.mock('@/lib/supabase/route-handler-readonly', () => ({
   createReadonlyRouteHandlerClient: vi.fn(() => mockSupabaseClient),
 }));
 
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(() => mockSecretClient),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -41,6 +45,13 @@ const mockSupabaseClient = {
     if (table === 'assessments') {
       return { select: mockSelect };
     }
+    return {};
+  }),
+};
+
+// Secret client is used for participant counts (bypasses RLS).
+const mockSecretClient = {
+  from: vi.fn((table: string) => {
     if (table === 'assessment_participants') {
       return { select: mockParticipantsSelect };
     }
@@ -203,7 +214,7 @@ describe('GET /api/assessments', () => {
   });
 
   describe('Given type=prcc filter', () => {
-    it('then it returns only PRCC assessments', async () => {
+    it('then it queries with the type filter', async () => {
       const rows = [makeAssessmentRow({ type: 'prcc' })];
       setupAssessmentsQuery(rows, 1);
       setupParticipantsQuery([]);
@@ -212,8 +223,25 @@ describe('GET /api/assessments', () => {
       const response = await GET(makeRequest({ type: 'prcc' }));
 
       expect(response.status).toBe(200);
-      // Verify the query was called with type filter
       expect(mockEqType).toHaveBeenCalledWith('type', 'prcc');
+    });
+  });
+
+  describe('Given an invalid type filter', () => {
+    it('then it returns 400', async () => {
+      const { GET } = await import('@/app/api/assessments/route');
+      const response = await GET(makeRequest({ type: 'unknown' }));
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('Given an invalid status filter', () => {
+    it('then it returns 400', async () => {
+      const { GET } = await import('@/app/api/assessments/route');
+      const response = await GET(makeRequest({ status: 'bogus' }));
+
+      expect(response.status).toBe(400);
     });
   });
 

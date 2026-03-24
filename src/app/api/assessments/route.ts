@@ -6,9 +6,24 @@ import { requireOrgAdmin } from '@/lib/api/auth';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
 import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
+import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { Database } from '@/lib/supabase/types';
 
+type AssessmentType = Database['public']['Tables']['assessments']['Row']['type'];
+type AssessmentStatus = Database['public']['Tables']['assessments']['Row']['status'];
 type RepoRow = Database['public']['Tables']['repositories']['Row'];
+
+const VALID_TYPES = new Set<string>(['prcc', 'fcs']);
+const VALID_STATUSES = new Set<string>([
+  'created',
+  'rubric_generation',
+  'generation_failed',
+  'awaiting_responses',
+  'scoring',
+  'completed',
+  'invalidated',
+  'skipped',
+]);
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
@@ -23,8 +38,19 @@ export async function GET(request: NextRequest) {
       throw new ApiError(400, 'org_id is required');
     }
 
-    const typeFilter = searchParams.get('type');
-    const statusFilter = searchParams.get('status');
+    const typeRaw = searchParams.get('type');
+    const statusRaw = searchParams.get('status');
+
+    if (typeRaw && !VALID_TYPES.has(typeRaw)) {
+      throw new ApiError(400, `Invalid type filter. Allowed values: ${[...VALID_TYPES].join(', ')}`);
+    }
+    if (statusRaw && !VALID_STATUSES.has(statusRaw)) {
+      throw new ApiError(400, `Invalid status filter. Allowed values: ${[...VALID_STATUSES].join(', ')}`);
+    }
+
+    const typeFilter = typeRaw as AssessmentType | null;
+    const statusFilter = statusRaw as AssessmentStatus | null;
+
     const page = Math.max(1, parseInt(searchParams.get('page') ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
     const perPage = Math.min(
       MAX_PER_PAGE,
@@ -52,22 +78,11 @@ export async function GET(request: NextRequest) {
       .eq('org_id', orgId);
 
     if (typeFilter) {
-      query = query.eq('type', typeFilter as 'prcc' | 'fcs');
+      query = query.eq('type', typeFilter);
     }
 
     if (statusFilter) {
-      query = query.eq(
-        'status',
-        statusFilter as
-          | 'created'
-          | 'rubric_generation'
-          | 'generation_failed'
-          | 'awaiting_responses'
-          | 'scoring'
-          | 'completed'
-          | 'invalidated'
-          | 'skipped',
-      );
+      query = query.eq('status', statusFilter);
     }
 
     const from = (page - 1) * perPage;
@@ -84,11 +99,14 @@ export async function GET(request: NextRequest) {
 
     const assessmentIds = (rows ?? []).map(r => r.id as string);
 
-    // Fetch participant counts for the current page of assessments.
+    // Fetch participant counts using the service client to bypass RLS.
+    // assessment_participants RLS only exposes a non-admin's own row, so
+    // aggregate counts must be computed outside the user session.
     const participantCounts: Record<string, { total: number; submitted: number }> = {};
 
     if (assessmentIds.length > 0) {
-      const { data: participants, error: partError } = await supabase
+      const adminSupabase = createSecretSupabaseClient();
+      const { data: participants, error: partError } = await adminSupabase
         .from('assessment_participants')
         .select('assessment_id, status')
         .in('assessment_id', assessmentIds);
@@ -104,6 +122,7 @@ export async function GET(request: NextRequest) {
           participantCounts[id] = { total: 0, submitted: 0 };
         }
         participantCounts[id].total++;
+        // 'submitted' is the terminal status meaning the participant completed their assessment.
         if (p.status === 'submitted') {
           participantCounts[id].submitted++;
         }
