@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import { syncOrgMembership } from '@/lib/supabase/org-sync';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
@@ -22,13 +23,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { user, provider_token } = data.session;
 
   if (provider_token) {
-    const { error: rpcError } = await createSecretSupabaseClient().rpc('store_github_token', {
+    const secretClient = createSecretSupabaseClient();
+    const { error: rpcError } = await secretClient.rpc('store_github_token', {
       p_user_id: user.id,
       p_token: provider_token,
     });
     if (rpcError) {
       console.error('Failed to store provider token:', rpcError);
     }
+
+    // Sync org memberships — step 5 deferred from §2.2, now implemented in §2.3.
+    // syncOrgMembership is no-throw: all GitHub/DB errors are handled internally.
+    await syncOrgMembership(secretClient, user.id, provider_token);
   } else {
     console.warn('No provider_token in session for user:', user.id);
   }

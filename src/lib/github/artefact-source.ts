@@ -212,8 +212,9 @@ export class GitHubArtefactSource implements ArtefactSource {
       files.map(async file => {
         try {
           const content = await this.fetchSingleFile(coords, file.filename, ref);
-          return content !== null ? { path: file.filename, content } : null;
-        } catch {
+          return content === null ? null : { path: file.filename, content };
+        } catch (err) {
+          console.error(`fetchFileContents: failed to fetch ${file.filename}`, err);
           return null;
         }
       }),
@@ -237,8 +238,10 @@ export class GitHubArtefactSource implements ArtefactSource {
     // Compile each glob pattern once to avoid O(P×F) regex recompilation
     const matchers = patterns.map(compileGlobPattern);
     const matchingPaths = treeResponse.data.tree
-      .filter(entry => entry.type === 'blob' && entry.path)
-      .map(entry => entry.path as string)
+      .filter((entry): entry is typeof entry & { path: string } =>
+        entry.type === 'blob' && entry.path !== undefined,
+      )
+      .map(entry => entry.path)
       .filter(path => matchers.some(matches => matches(path)));
 
     if (matchingPaths.length === 0) return [];
@@ -247,8 +250,9 @@ export class GitHubArtefactSource implements ArtefactSource {
       matchingPaths.map(async filePath => {
         try {
           const content = await this.fetchSingleFile(coords, filePath, ref);
-          return content !== null ? { path: filePath, content } : null;
-        } catch {
+          return content === null ? null : { path: filePath, content };
+        } catch (err) {
+          console.error(`fetchContextFiles: failed to fetch ${filePath}`, err);
           return null;
         }
       }),
@@ -280,7 +284,7 @@ export class GitHubArtefactSource implements ArtefactSource {
 
     const data = response.data as Record<string, unknown>;
     if (typeof data.content === 'string') {
-      return Buffer.from((data.content as string).replace(/\n/g, ''), 'base64').toString('utf-8');
+      return Buffer.from(data.content.replaceAll('\n', ''), 'base64').toString('utf-8');
     }
     return null;
   }
@@ -320,7 +324,7 @@ function parseLinkedIssueNumbers(body: string): number[] {
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(body)) !== null) {
-    const n = parseInt(match[1]!, 10);
+    const n = Number.parseInt(match[1]!, 10);
     if (!seen.has(n)) {
       seen.add(n);
       numbers.push(n);
@@ -332,11 +336,11 @@ function parseLinkedIssueNumbers(body: string): number[] {
 
 /** Compiles a glob pattern to a reusable matcher function. */
 function compileGlobPattern(pattern: string): (path: string) => boolean {
+  // Escape regex metacharacters, then convert glob wildcards in a single pass:
+  // ** matches any path segment sequence (including slashes), * matches within one segment.
   const regexStr = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '\x00')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\x00/g, '.*');
+    .replaceAll(/[.+^${}()|[\]\\]/g, String.raw`\$&`)
+    .replaceAll(/\*+/g, (m) => m.length > 1 ? '.*' : '[^/]*');
   const regex = new RegExp(`^${regexStr}$`);
   return (path: string) => regex.test(path);
 }
