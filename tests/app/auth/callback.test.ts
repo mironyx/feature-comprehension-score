@@ -9,6 +9,11 @@ vi.mock('@/lib/supabase/secret', () => ({
   createSecretSupabaseClient: vi.fn(),
 }));
 
+// syncOrgMembership is tested separately in org-sync.test.ts; stub it here.
+vi.mock('@/lib/supabase/org-sync', () => ({
+  syncOrgMembership: vi.fn().mockResolvedValue([]),
+}));
+
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 
