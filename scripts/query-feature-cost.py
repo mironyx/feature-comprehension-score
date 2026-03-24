@@ -56,30 +56,37 @@ def query_prom(promql: str) -> float | None:
         return None
 
 
-def apply_cost_label(issue: int, cost: float) -> None:
-    label = f"ai-cost:{cost:.4f}"
-    # Create label if it doesn't exist (colour: blue)
-    subprocess.run(
-        ["gh", "label", "create", label, "--color", "0075ca", "--force"],
-        capture_output=True,
-    )
-    # Remove any existing ai-cost:* labels from the issue
+def apply_labels(issue: int, cost: float, inp: float, out: float) -> None:
+    labels = [
+        ("ai-cost", f"ai-cost:{cost:.4f}"),
+        ("input-tokens", f"input-tokens:{int(inp)}"),
+        ("output-tokens", f"output-tokens:{int(out)}"),
+    ]
+    # Fetch current issue labels once
     result = subprocess.run(
         ["gh", "issue", "view", str(issue), "--json", "labels"],
         capture_output=True, text=True,
     )
-    if result.returncode == 0:
-        for lbl in json.loads(result.stdout).get("labels", []):
-            if lbl["name"].startswith("ai-cost:") and lbl["name"] != label:
+    existing = json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
+
+    for prefix, label in labels:
+        # Create label if it doesn't exist (colour: blue)
+        subprocess.run(
+            ["gh", "label", "create", label, "--color", "0075ca", "--force"],
+            capture_output=True,
+        )
+        # Remove stale label with same prefix
+        for lbl in existing:
+            if lbl["name"].startswith(f"{prefix}:") and lbl["name"] != label:
                 subprocess.run(
                     ["gh", "issue", "edit", str(issue), "--remove-label", lbl["name"]],
                     capture_output=True,
                 )
-    subprocess.run(
-        ["gh", "issue", "edit", str(issue), "--add-label", label],
-        capture_output=True,
-    )
-    print(f"Label applied: {label} -> issue #{issue}")
+        subprocess.run(
+            ["gh", "issue", "edit", str(issue), "--add-label", label],
+            capture_output=True,
+        )
+        print(f"Label applied: {label} -> issue #{issue}")
 
 
 def main() -> None:
@@ -119,7 +126,7 @@ def main() -> None:
         print("_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
 
     if args.issue is not None:
-        apply_cost_label(args.issue, cost)
+        apply_labels(args.issue, cost, inp or 0.0, out or 0.0)
 
 
 if __name__ == "__main__":
