@@ -54,7 +54,7 @@ post-PR (review fixes, re-runs, etc.). Also updates the `ai-cost:*` label on the
 Derive the issue number from the git log and run the shared script:
 
 ```bash
-ISSUE=$(git log --oneline -10 | grep -oP '#\d+' | head -1 | tr -d '#')
+ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
 COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE --final)
 echo "$COST_OUTPUT"
 ```

@@ -79,7 +79,7 @@ def apply_cost_label(issue: int, cost: float) -> None:
         ["gh", "issue", "edit", str(issue), "--add-label", label],
         capture_output=True,
     )
-    print(f"Label applied: {label} → issue #{issue}")
+    print(f"Label applied: {label} -> issue #{issue}")
 
 
 def main() -> None:
