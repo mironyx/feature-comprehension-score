@@ -25,7 +25,7 @@ vi.mock('@/lib/supabase/secret', () => ({
 // ---------------------------------------------------------------------------
 
 import { requireAuth } from '@/lib/api/auth';
-import { filterQuestionFields } from '@/app/api/assessments/[id]/route';
+import { filterQuestionFields } from '@/app/api/assessments/[id]/helpers';
 
 // ---------------------------------------------------------------------------
 // Mock chain builder

@@ -8,6 +8,8 @@ import { json } from '@/lib/api/response';
 import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { Database } from '@/lib/supabase/types';
+import { filterQuestionFields } from './helpers';
+import type { FilteredQuestion } from './helpers';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type AssessmentStatus = AssessmentRow['status'];
@@ -32,16 +34,6 @@ type AssessmentWithRelations = AssessmentRow & {
  *
  * Returns 200 AssessmentDetailResponse | 401 unauthenticated | 404 not found
  */
-interface FilteredQuestion {
-  id: string;
-  question_number: number;
-  naur_layer: NaurLayer;
-  question_text: string;
-  weight: number;
-  aggregate_score: number | null;
-  reference_answer: string | null;
-}
-
 interface MyScoreQuestion {
   question_id: string;
   naur_layer: NaurLayer;
@@ -91,35 +83,6 @@ interface AssessmentDetailResponse {
   my_scores: MyScores | null;
   skip_info: { reason: string; skipped_at: string } | null;
   created_at: string;
-}
-
-// ---------------------------------------------------------------------------
-// Pure helpers (exported for unit testing)
-// ---------------------------------------------------------------------------
-
-/**
- * Filter reference_answer from questions based on assessment type, caller role, and status.
- * Reference answers are only shown to Org Admins viewing a completed FCS assessment.
- * ADR-0005: never shown in participant self-view to prevent gaming on re-assessment.
- */
-export function filterQuestionFields(
-  questions: QuestionRow[],
-  assessmentType: 'prcc' | 'fcs',
-  callerRole: 'admin' | 'participant',
-  assessmentStatus: AssessmentStatus,
-): FilteredQuestion[] {
-  const showReference =
-    assessmentType === 'fcs' && callerRole === 'admin' && assessmentStatus === 'completed';
-
-  return questions.map(q => ({
-    id: q.id,
-    question_number: q.question_number,
-    naur_layer: q.naur_layer,
-    question_text: q.question_text,
-    weight: q.weight,
-    aggregate_score: q.aggregate_score,
-    reference_answer: showReference ? q.reference_answer : null,
-  }));
 }
 
 // ---------------------------------------------------------------------------
