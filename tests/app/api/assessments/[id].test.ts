@@ -402,15 +402,50 @@ describe('GET /api/assessments/[id]', () => {
     });
   });
 
-  describe('Given an assessment DB error', () => {
+  describe('Given a non-PGRST116 assessment DB error', () => {
     it('then it returns 500', async () => {
       setupAuth();
-      assessmentResult = { data: null, error: { message: 'connection reset' } };
+      assessmentResult = { data: null, error: { code: 'PGRST000', message: 'connection reset' } };
 
       const { GET } = await import('@/app/api/assessments/[id]/route');
       const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
 
-      expect(response.status).toBe(404); // DB errors on single() treated as 404
+      expect(response.status).toBe(500);
+    });
+  });
+
+  describe('Given a PGRST116 assessment DB error', () => {
+    it('then it returns 404', async () => {
+      setupAuth();
+      assessmentResult = { data: null, error: { code: 'PGRST116', message: 'Not found' } };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('Given a completed FCS assessment viewed by an Org Admin who is also a participant', () => {
+    it('then my_scores is null (admin exclusion)', async () => {
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({ type: 'fcs', status: 'completed', pr_number: null }),
+        error: null,
+      };
+      questionsResult = { data: [makeQuestion()], error: null };
+      participantCountsResult = { data: [{ id: PARTICIPANT_ID, status: 'submitted' }], error: null };
+      // Admin is also listed as a participant
+      myParticipationResult = { data: makeParticipantRow(), error: null };
+      answersResult = { data: [makeAnswer()], error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as { my_scores: unknown };
+      expect(body.my_scores).toBeNull();
     });
   });
 });

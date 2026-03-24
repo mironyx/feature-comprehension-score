@@ -148,7 +148,15 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       .eq('id', assessmentId)
       .single();
 
-    if (assessmentError || !rawAssessment) {
+    if (assessmentError) {
+      // PGRST116 = "no rows returned" — the assessment doesn't exist or RLS denied access.
+      if ((assessmentError as unknown as Record<string, unknown>).code === 'PGRST116') {
+        throw new ApiError(404, 'Not found');
+      }
+      console.error('GET /api/assessments/[id]: assessment query failed:', assessmentError);
+      throw new ApiError(500, 'Internal server error');
+    }
+    if (!rawAssessment) {
       throw new ApiError(404, 'Not found');
     }
 
@@ -219,6 +227,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const myScores = await fetchMyScores(adminSupabase, {
       assessmentType: assessment.type,
       assessmentStatus: assessment.status,
+      callerRole,
       participantRow: myParticipantRow,
       questions: (questions as QuestionRow[]) ?? [],
     });
@@ -277,6 +286,7 @@ type SupabaseServiceClient = ReturnType<typeof createSecretSupabaseClient>;
 interface MyScoresContext {
   assessmentType: 'prcc' | 'fcs';
   assessmentStatus: AssessmentStatus;
+  callerRole: 'admin' | 'participant';
   participantRow: { id: string; status: string } | null;
   questions: QuestionRow[];
 }
@@ -285,10 +295,11 @@ async function fetchMyScores(
   adminSupabase: SupabaseServiceClient,
   ctx: MyScoresContext,
 ): Promise<MyScores | null> {
-  const { assessmentType, assessmentStatus, participantRow, questions } = ctx;
+  const { assessmentType, assessmentStatus, callerRole, participantRow, questions } = ctx;
 
   if (
     assessmentType !== 'fcs' ||
+    callerRole === 'admin' ||
     participantRow === null ||
     (assessmentStatus !== 'completed' && participantRow.status !== 'submitted')
   ) {
