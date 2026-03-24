@@ -85,19 +85,34 @@ type ParallelData = {
   myParticipation: MyParticipation | null;
 };
 
+interface FetchContext {
+  supabase: UserClient;
+  adminSupabase: ServiceClient;
+  assessmentId: string;
+  userId: string;
+  orgId: string;
+}
+
 function assertNoDbError(error: unknown, label: string): void {
   if (!error) return;
   console.error(`GET /api/assessments/[id]: ${label} query failed:`, error);
   throw new ApiError(500, 'Internal server error');
 }
 
-async function fetchParallelData(
-  supabase: UserClient,
-  adminSupabase: ServiceClient,
-  assessmentId: string,
-  userId: string,
-  orgId: string,
-): Promise<ParallelData> {
+/** Resolves the assessment row or throws 404/500. */
+function resolveAssessment(data: unknown, error: unknown): AssessmentWithRelations {
+  if (error) {
+    if ((error as unknown as Record<string, unknown>).code === 'PGRST116') throw new ApiError(404, 'Not found');
+    console.error('GET /api/assessments/[id]: assessment query failed:', error);
+    throw new ApiError(500, 'Internal server error');
+  }
+  if (!data) throw new ApiError(404, 'Not found');
+  // Double cast required: Supabase type generator lacks relationship metadata for this join.
+  return data as unknown as AssessmentWithRelations;
+}
+
+async function fetchParallelData(ctx: FetchContext): Promise<ParallelData> {
+  const { supabase, adminSupabase, assessmentId, userId, orgId } = ctx;
   const [
     { data: orgMembership, error: membershipError },
     { data: questions, error: questionsError },
@@ -131,6 +146,42 @@ async function fetchParallelData(
   };
 }
 
+function buildResponse(
+  assessment: AssessmentWithRelations,
+  { callerRole, questions, allParticipants, myParticipation }: ParallelData,
+): AssessmentDetailResponse {
+  return {
+    id: assessment.id,
+    type: assessment.type,
+    status: assessment.status,
+    repository_name: assessment.repositories.github_repo_name,
+    repository_full_name: `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`,
+    pr_number: assessment.pr_number,
+    pr_head_sha: assessment.pr_head_sha,
+    feature_name: assessment.feature_name,
+    feature_description: assessment.feature_description,
+    aggregate_score: assessment.aggregate_score,
+    scoring_incomplete: assessment.scoring_incomplete,
+    artefact_quality: assessment.artefact_quality,
+    conclusion: assessment.conclusion,
+    config: {
+      enforcement_mode: assessment.config_enforcement_mode,
+      score_threshold: assessment.config_score_threshold,
+      question_count: assessment.config_question_count,
+    },
+    questions: filterQuestionFields(questions, assessment.type, callerRole, assessment.status),
+    participants: {
+      total: allParticipants.length,
+      completed: allParticipants.filter(p => p.status === 'submitted').length,
+    },
+    my_participation: myParticipation,
+    skip_info: assessment.skip_reason && assessment.skipped_at
+      ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
+      : null,
+    created_at: assessment.created_at,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
@@ -142,58 +193,16 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const supabase = createReadonlyRouteHandlerClient(request);
     const adminSupabase = createSecretSupabaseClient();
 
-    // 1. Fetch assessment (RLS enforced — returns error if caller has no access).
     const { data: rawAssessment, error: assessmentError } = await supabase
       .from('assessments')
       .select('*, repositories!inner(github_repo_name), organisations!inner(github_org_name)')
       .eq('id', assessmentId)
       .single();
 
-    if (assessmentError) {
-      if ((assessmentError as unknown as Record<string, unknown>).code === 'PGRST116') throw new ApiError(404, 'Not found');
-      console.error('GET /api/assessments/[id]: assessment query failed:', assessmentError);
-      throw new ApiError(500, 'Internal server error');
-    }
-    if (!rawAssessment) throw new ApiError(404, 'Not found');
-    // Double cast required: Supabase type generator lacks relationship metadata for this join.
-    const assessment = rawAssessment as unknown as AssessmentWithRelations;
+    const assessment = resolveAssessment(rawAssessment, assessmentError);
+    const parallelData = await fetchParallelData({ supabase, adminSupabase, assessmentId, userId: user.id, orgId: assessment.org_id });
 
-    // 2–5. Parallel queries (all depend only on assessmentId + user.id, available after step 1).
-    const { callerRole, questions, allParticipants, myParticipation } =
-      await fetchParallelData(supabase, adminSupabase, assessmentId, user.id, assessment.org_id);
-
-    const body: AssessmentDetailResponse = {
-      id: assessment.id,
-      type: assessment.type,
-      status: assessment.status,
-      repository_name: assessment.repositories.github_repo_name,
-      repository_full_name: `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`,
-      pr_number: assessment.pr_number,
-      pr_head_sha: assessment.pr_head_sha,
-      feature_name: assessment.feature_name,
-      feature_description: assessment.feature_description,
-      aggregate_score: assessment.aggregate_score,
-      scoring_incomplete: assessment.scoring_incomplete,
-      artefact_quality: assessment.artefact_quality,
-      conclusion: assessment.conclusion,
-      config: {
-        enforcement_mode: assessment.config_enforcement_mode,
-        score_threshold: assessment.config_score_threshold,
-        question_count: assessment.config_question_count,
-      },
-      questions: filterQuestionFields(questions, assessment.type, callerRole, assessment.status),
-      participants: {
-        total: allParticipants.length,
-        completed: allParticipants.filter(p => p.status === 'submitted').length,
-      },
-      my_participation: myParticipation,
-      skip_info: assessment.skip_reason && assessment.skipped_at
-        ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
-        : null,
-      created_at: assessment.created_at,
-    };
-
-    return json(body);
+    return json(buildResponse(assessment, parallelData));
   } catch (error) {
     return handleApiError(error);
   }
