@@ -179,10 +179,11 @@ One commit per issue. Do not batch multiple issues.
 ```
 
 Query Prometheus for session-total cost and tokens to include in the PR body.
-Also applies an `ai-cost:<value>` label to the issue for external tooling.
+Also applies `ai-cost:*`, `input-tokens:*`, `output-tokens:*` labels to the issue and PR.
 
 ```bash
-py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number>
+PR_NUMBER=<pr-number>
+py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER
 ```
 
 Incorporate the output into the PR body:

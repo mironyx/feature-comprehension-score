@@ -55,7 +55,8 @@ Derive the issue number from the git log and run the shared script:
 
 ```bash
 ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
-COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE --final)
+PR=$(gh pr view --json number --jq .number 2>/dev/null || echo "")
+COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --final)
 echo "$COST_OUTPUT"
 ```
 

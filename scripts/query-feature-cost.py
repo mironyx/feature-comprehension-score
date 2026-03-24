@@ -56,7 +56,7 @@ def query_prom(promql: str) -> float | None:
         return None
 
 
-def apply_labels(issue: int, cost: float, inp: float, out: float) -> None:
+def apply_labels(issue: int, cost: float, inp: float, out: float, pr: int | None = None) -> None:
     labels = [
         ("ai-cost", f"ai-cost:{cost:.4f}"),
         ("input-tokens", f"input-tokens:{int(inp)}"),
@@ -86,13 +86,20 @@ def apply_labels(issue: int, cost: float, inp: float, out: float) -> None:
             ["gh", "issue", "edit", str(issue), "--add-label", label],
             capture_output=True,
         )
-        print(f"Label applied: {label} -> issue #{issue}")
+        if pr is not None:
+            subprocess.run(
+                ["gh", "pr", "edit", str(pr), "--add-label", label],
+                capture_output=True,
+            )
+        targets = f"issue #{issue}" + (f", PR #{pr}" if pr is not None else "")
+        print(f"Label applied: {label} -> {targets}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("feature_id", help="e.g. FCS-55")
     parser.add_argument("--issue", type=int, help="GitHub issue number for cost label")
+    parser.add_argument("--pr", type=int, help="GitHub PR number to also apply cost labels to")
     parser.add_argument("--final", action="store_true", help="Mark output as final snapshot")
     args = parser.parse_args()
 
@@ -126,7 +133,7 @@ def main() -> None:
         print("_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
 
     if args.issue is not None:
-        apply_labels(args.issue, cost, inp or 0.0, out or 0.0)
+        apply_labels(args.issue, cost, inp or 0.0, out or 0.0, pr=args.pr)
 
 
 if __name__ == "__main__":
