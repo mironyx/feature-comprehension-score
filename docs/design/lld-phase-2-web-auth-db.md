@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.6 |
+| Version | 0.7 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -13,6 +13,7 @@
 | Revised | 2026-03-20 (Issue #51) |
 | Revised | 2026-03-21 (Issue #53) |
 | Revised | 2026-03-24 (Issue #54) |
+| Revised | 2026-03-24 (Issue #55) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -453,9 +454,17 @@ The selected org is stored in a cookie (`fcs-org-id`). Set by the org selection 
 ```typescript
 // src/lib/supabase/org-context.ts
 
-function getSelectedOrgId(cookies: ReadonlyRequestCookies): string | null
-function setSelectedOrgId(response: NextResponse, orgId: string): void
+// Type derived from the public next/headers API — avoids importing from internal next/dist paths.
+type ReadonlyRequestCookies = Awaited<ReturnType<typeof nextCookies>>;
+
+export function getSelectedOrgId(cookies: ReadonlyRequestCookies): string | null
+export function setSelectedOrgId(response: NextResponse, orgId: string): void
 ```
+
+> **Implementation note (issue #55):** `ReadonlyRequestCookies` is derived via
+> `Awaited<ReturnType<typeof nextCookies>>` (importing `cookies as nextCookies` from
+> `next/headers`) rather than importing from `next/dist/server/web/spec-extension/adapters/request-cookies`,
+> which is an internal path and not a stable public contract.
 
 If no org is selected and the user has exactly one org, auto-select it. If no org is selected and the user has multiple orgs, redirect to `/org-select`.
 
@@ -465,39 +474,55 @@ If no org is selected and the user has exactly one org, auto-select it. If no or
 
 ```
 src/app/org-select/
-  page.tsx             — org selection page
+  page.tsx             — org selection page (server component)
+src/app/api/org-select/
+  route.ts             — GET /api/org-select — sets fcs-org-id cookie and redirects
 ```
 
 Displayed when a user with multiple orgs signs in and hasn't selected one yet, or when they click the org switcher.
+
+> **Implementation note (issue #55):** A dedicated API route (`GET /api/org-select?orgId=...`) was
+> added. Server components cannot set `httpOnly` cookies — only route handlers and middleware can.
+> Single-org auto-redirect and the "Select" links both route through this handler, which validates
+> auth (401) and org membership (403) before calling `setSelectedOrgId` and redirecting to
+> `/assessments`.
 
 #### Component tree
 
 ```
 OrgSelectPage
-  └── OrgList
-        └── OrgCard (one per org)
-              ├── Org name
-              ├── Repo count
-              └── "Select" button
+  └── flat JSX (no sub-components)
+        ├── Org name
+        └── "Select" link (→ /api/org-select?orgId=...)
 ```
+
+> **Implementation note (issue #55):** The spec prescribed `OrgList` and `OrgCard` sub-components
+> with a repo count field. The implementation uses flat JSX in `page.tsx` — no sub-components were
+> needed at this scale. `OrgCard` sub-component and repo count are deferred.
+> _(OrgList / OrgCard sub-components — deferred)_
+> _(Repo count in org card — deferred)_
 
 #### Org switcher (header component)
 
-A dropdown in the app header showing the current org name. Clicking opens a dropdown with other available orgs. Selecting a different org updates the cookie and refreshes the page.
-
 ```
 src/components/
-  org-switcher.tsx     — header org switcher dropdown
+  org-switcher.tsx     — header org switcher
 ```
+
+Renders the current org name. If multiple orgs are available, renders a list of links to switch org (each pointing to `/api/org-select?orgId=...`) plus an "All organisations" link to `/org-select`.
+
+> **Implementation note (issue #55):** The spec described an interactive dropdown. The actual
+> implementation is a static list of `<a>` links — no JavaScript interaction required. A full
+> dropdown with click-to-open behaviour is deferred.
 
 #### UI states
 
 | State | Trigger | Display |
 |-------|---------|---------|
-| Loading | Fetching orgs | Skeleton cards |
-| Single org | User has 1 org | Auto-redirect to `/assessments` (no selection needed) |
-| Multiple orgs | User has 2+ orgs | Org cards with select buttons |
-| No orgs | User has no orgs with app installed | "No organisations found" message with setup instructions |
+| Loading | Fetching orgs | _(loading skeleton — deferred)_ |
+| Single org | User has 1 org | Auto-redirect via `/api/org-select?orgId=...` → `/assessments` |
+| Multiple orgs | User has 2+ orgs | Org list with select links |
+| No orgs | User has no orgs with app installed | "No organisations found" message |
 
 ---
 
@@ -1134,10 +1159,12 @@ describe('E2E: Org selection')
   it('Given I select an org, then all data is scoped to that org')
 ```
 
-**Files to create/modify:**
+**Files created/modified (actual):**
 - `src/app/org-select/page.tsx` — org selection page
-- `src/components/org-switcher.tsx` — header org switcher
+- `src/app/api/org-select/route.ts` — cookie-setting route handler _(added; not in original spec)_
+- `src/components/org-switcher.tsx` — header org switcher (static link list, not dropdown)
 - `src/lib/supabase/org-context.ts` — org cookie helpers
+- `vitest.config.ts` — added `esbuild: { jsx: 'automatic' }` for TSX test support
 
 ---
 

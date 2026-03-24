@@ -41,7 +41,31 @@ it in the session log.
    - Decisions made during the session
    - Any review feedback addressed
    - Next steps or follow-up items
+   - Final feature cost (from Step 2.5) — include both the PR-creation cost (from PR body) and the final total, so the delta is visible
 3. Stage the session log.
+
+### Step 2.5: Query final feature cost
+
+Query Prometheus for the full feature total (all sessions since `/feature` started — same
+session IDs registered in the textfile). This is the **final** cost snapshot; comparing it
+to the cost recorded in the PR body at creation time shows how much effort was spent
+post-PR (review fixes, re-runs, etc.). Also updates the `ai-cost:*` label on the issue.
+
+Derive the issue number from the git log and run the shared script:
+
+```bash
+ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
+COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE --final)
+echo "$COST_OUTPUT"
+```
+
+Post the output as a PR comment:
+
+```bash
+gh pr comment <number> --body "$COST_OUTPUT"
+```
+
+Store the cost figures — you will include them in the session log in Step 2.
 
 ### Step 3: Commit remaining changes
 
