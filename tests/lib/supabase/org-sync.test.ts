@@ -264,6 +264,33 @@ describe('syncOrgMembership', () => {
     });
   });
 
+  describe('Given GitHub returns a server error on the initial user/orgs fetch', () => {
+    it('then existing memberships are preserved (not deleted)', async () => {
+      const existingUo = makeUserOrg('org-1', { github_role: 'member' });
+
+      server.use(
+        mockGitHubUser(GITHUB_USER),
+        http.get('https://api.github.com/user/orgs', () =>
+          HttpResponse.json({ message: 'Server Error' }, { status: 500 }),
+        ),
+      );
+
+      const { client, upsertSpy, deleteSpy } = buildMockClient({
+        installedOrgs: [],
+        finalUserOrgs: [],
+        existingUserOrgs: [existingUo],
+      });
+
+      const { syncOrgMembership } = await import('@/lib/supabase/org-sync');
+      const result = await syncOrgMembership(client, TEST_USER_ID, TEST_PROVIDER_TOKEN);
+
+      expect(upsertSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(result).toHaveLength(1);
+      expect(result[0]?.org_id).toBe('org-1');
+    });
+  });
+
   describe('Given a Supabase DB error when querying installed orgs', () => {
     it('then existing memberships are preserved (not deleted)', async () => {
       const existingUo = makeUserOrg('org-1', { github_role: 'admin' });

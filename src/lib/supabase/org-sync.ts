@@ -55,10 +55,23 @@ export async function syncOrgMembership(
   };
 
   // 1. Fetch user identity and org list in parallel — both are independent.
-  const [githubUser, githubOrgs] = await Promise.all([
-    githubFetch<GitHubUser>(`${GITHUB_API}/user`, headers),
-    githubFetch<GitHubOrg[]>(`${GITHUB_API}/user/orgs`, headers),
-  ]);
+  //    Network failures or GitHub server errors here must not delete existing
+  //    memberships — treat as transient and preserve the current state.
+  let githubUser: GitHubUser;
+  let githubOrgs: GitHubOrg[];
+  try {
+    [githubUser, githubOrgs] = await Promise.all([
+      githubFetch<GitHubUser>(`${GITHUB_API}/user`, headers),
+      githubFetch<GitHubOrg[]>(`${GITHUB_API}/user/orgs`, headers),
+    ]);
+  } catch {
+    console.error('syncOrgMembership: failed to fetch GitHub user/orgs — preserving existing memberships');
+    const { data: existing } = await serviceClient
+      .from('user_organisations')
+      .select('*')
+      .eq('user_id', userId);
+    return existing ?? [];
+  }
 
   // 2. Find which of the user's orgs have our app installed.
   const githubOrgIds = githubOrgs.map((o) => o.id);

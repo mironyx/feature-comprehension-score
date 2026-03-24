@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.5 |
+| Version | 0.6 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -12,6 +12,7 @@
 | Revised | 2026-03-20 (Issue #50) |
 | Revised | 2026-03-20 (Issue #51) |
 | Revised | 2026-03-21 (Issue #53) |
+| Revised | 2026-03-24 (Issue #54) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -394,24 +395,56 @@ src/lib/supabase/
 ```typescript
 // src/lib/supabase/org-sync.ts
 
-async function syncOrgMembership(
-  serviceClient: SupabaseClient,
+/** Fetches a GitHub API endpoint; throws on non-2xx. */
+async function githubFetch<T>(url: string, headers: Record<string, string>): Promise<T>
+
+export async function syncOrgMembership(
+  serviceClient: SupabaseClient<Database>,
   userId: string,
   providerToken: string,
-): Promise<UserOrganisation[]> {
-  // 1. Call GitHub API: GET /user/orgs (using provider token)
-  // 2. Query organisations table for matching github_org_ids (app installed)
-  // 3. For each match:
-  //    a. Call GitHub API: GET /orgs/{org}/memberships/{username} → role
-  //    b. Upsert into user_organisations (user_id, org_id, github_role)
-  // 4. Remove stale memberships (user no longer in org)
-  // 5. Return updated membership list
-}
+): Promise<UserOrganisation[]>
 ```
 
-**GitHub API calls:** Uses the user's provider token (decrypted from `user_github_tokens`), not the installation token. This ensures we see the user's actual membership, not the app's view.
+**GitHub API calls (actual):** Uses the **live session provider token** directly — not a decrypted stored token. Three GitHub endpoints are used:
+
+- `GET /user` — user identity (`id`, `login`); fetched in parallel with `/user/orgs`
+- `GET /user/orgs` — list of orgs the user belongs to
+- `GET /orgs/{org}/memberships/{username}` — role per org (one call per installed org, concurrent)
+
+> **Implementation note (issue #54):** The spec said "decrypted from `user_github_tokens`". The actual implementation uses the session's live `provider_token` passed directly from the auth callback. Decrypting a stored token is unnecessary — the live token is available at sign-in time and is the freshest credential.
+
+**Error handling (actual, not in original spec):**
+
+| Failure | Behaviour |
+|---------|-----------|
+| Initial `/user` or `/user/orgs` fetch fails (network / GitHub 5xx) | Catch, log, preserve existing rows, return |
+| `organisations` DB query fails | Check `.error`, log, preserve existing rows, return |
+| Per-org membership fetch returns 5xx/4xx (not 404) | Mark as transient error; after all fetches, if any error → preserve all rows |
+| Per-org membership fetch returns 404 | Confirmed non-member; treat as removed |
+
+`syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
+
+> **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 
 **Stale membership removal:** If a user is removed from a GitHub org between sign-ins, their `user_organisations` row is deleted on next sync. This cascades to their visibility of that org's data via RLS.
+
+**Tests (actual BDD specs — 7 total):**
+
+- Given 2 installed orgs → both appear in `user_organisations`
+- Given role changed since last login → `user_organisations` updated on sign-in
+- Given org without app installed → does not appear in `user_organisations`
+- Given removed from org → stale row deleted
+- Given transient GitHub error on membership fetch → existing rows preserved
+- Given GitHub server error on initial `/user/orgs` fetch → existing rows preserved _(added post-review, issue #54)_
+- Given Supabase DB error querying installed orgs → existing rows preserved
+
+**MSW mock factories** (in `tests/mocks/github.ts`):
+
+```typescript
+mockGitHubUser(user: {id: number; login: string})
+mockUserOrgs(orgs: {id: number; login: string}[])
+mockOrgMembershipRole(org: string, username: string, role: 'admin' | 'member')
+```
 
 #### Org selection storage
 

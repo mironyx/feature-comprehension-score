@@ -67,6 +67,7 @@ You are a senior engineer doing a code review. Your primary job is to answer two
 - Missing awaits on async calls
 - Race conditions or incorrect state transitions
 - Security issues (injection, credential exposure, missing auth checks)
+- Silent catch blocks: `catch` (or `catch (e)`) that discards the error without at least a `console.error` — always a bug; fallback behaviour does not excuse missing observability
 
 ### Code justification (block if severe)
 - Does this code solve the stated problem without over-engineering?

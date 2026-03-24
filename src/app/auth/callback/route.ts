@@ -33,11 +33,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Sync org memberships — step 5 deferred from §2.2, now implemented in §2.3.
-    try {
-      await syncOrgMembership(secretClient, user.id, provider_token);
-    } catch (syncError) {
-      console.error('Failed to sync org memberships:', syncError);
-    }
+    // syncOrgMembership is no-throw: all GitHub/DB errors are handled internally.
+    await syncOrgMembership(secretClient, user.id, provider_token);
   } else {
     console.warn('No provider_token in session for user:', user.id);
   }
