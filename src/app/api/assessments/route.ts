@@ -11,7 +11,48 @@ import type { Database } from '@/lib/supabase/types';
 
 type AssessmentType = Database['public']['Tables']['assessments']['Row']['type'];
 type AssessmentStatus = Database['public']['Tables']['assessments']['Row']['status'];
+type Conclusion = Database['public']['Tables']['assessments']['Row']['conclusion'];
 type RepoRow = Database['public']['Tables']['repositories']['Row'];
+
+// ---------------------------------------------------------------------------
+// Contract types — query params and response shape for this endpoint.
+// Reading this block is sufficient to understand what the API accepts and
+// returns without opening the design doc.
+// Convention: ADR-0014.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/assessments
+ *
+ * Query parameters:
+ *   org_id    (string, required) — scope to this organisation
+ *   type      ('prcc'|'fcs', optional) — filter by assessment type
+ *   status    (AssessmentStatus, optional) — filter by status
+ *   page      (integer ≥ 1, default 1)
+ *   per_page  (integer 1–100, default 20)
+ *
+ * Returns 200 AssessmentsResponse | 400 on invalid params | 401 unauthenticated
+ */
+interface AssessmentListItem {
+  id: string;
+  type: AssessmentType;
+  status: AssessmentStatus;
+  repository_name: string;
+  pr_number: number | null;
+  feature_name: string | null;
+  aggregate_score: number | null;
+  conclusion: Conclusion;
+  participant_count: number;
+  completed_count: number;
+  created_at: string;
+}
+
+interface AssessmentsResponse {
+  assessments: AssessmentListItem[];
+  total: number;
+  page: number;
+  per_page: number;
+}
 
 const VALID_TYPES = new Set<string>(['prcc', 'fcs']);
 const VALID_STATUSES = new Set<string>([
@@ -143,12 +184,13 @@ export async function GET(request: NextRequest) {
       created_at: a.created_at,
     }));
 
-    return json({
+    const body: AssessmentsResponse = {
       assessments,
       total: count ?? 0,
       page,
       per_page: perPage,
-    });
+    };
+    return json(body);
   } catch (error) {
     return handleApiError(error);
   }
