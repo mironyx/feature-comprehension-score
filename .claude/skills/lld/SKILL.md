@@ -154,6 +154,32 @@ src/lib/module/
 #### Function signatures
 [Key internal functions with their signatures and behaviour]
 
+#### Internal decomposition — [route or component]
+
+For every non-trivial API route or component, add an explicit internal decomposition section
+**before implementation begins**. Name every function that will exist — not just public interfaces —
+and state what is forbidden.
+
+```
+Route handler (stays in route.ts, ≤ 25 lines):
+- [what the handler calls and returns]
+
+Private helpers in route.ts (and nothing else):
+- `helperName(params): ReturnType` — [purpose and error behaviour]
+
+Extracted to helpers.ts (if applicable):
+- `pureFunction(...)` — [why extracted: testability, reuse]
+
+> **Constraint:** [hard limit written before implementation, e.g. "no parameter structs for single-use functions"]
+
+Do NOT:
+- [specific anti-pattern to avoid]
+```
+
+Use `> **Constraint:**` for notes written **before** implementation (hard limits for the implementing
+agent). Use `> **Implementation note (issue #N):**` only to document decisions made **after**
+implementation — these are historical records, not pre-implementation guidance.
+
 #### Error handling
 [Error cases, codes, and recovery strategies]
 
