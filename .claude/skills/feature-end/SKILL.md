@@ -129,6 +129,39 @@ Summarise what was done:
 - Now on branch `<base-branch>`, up to date with remote
 - Suggested next item from the board: run `gh project item-list 1 --owner <owner> --format json` and print the first Todo item's title and number. This is the only additional query allowed here.
 
+### Step 7.5: Check branch protection
+
+Run:
+```bash
+gh api repos/{owner}/{repo}/branches/main/protection --silent 2>&1 | head -1
+```
+
+- If it returns protection config → branch protection is active, nothing to do.
+- If it returns a 404 or "Branch not protected" → remind the user:
+
+  > **Branch protection is not enabled.** To require all CI checks before merging, either make
+  > the repository public or upgrade to GitHub Pro, then run:
+  > ```bash
+  > gh api repos/{owner}/{repo}/branches/main/protection --method PUT --input - <<'EOF'
+  > {
+  >   "required_status_checks": {
+  >     "strict": true,
+  >     "contexts": [
+  >       "Lint & Type-check",
+  >       "Unit tests",
+  >       "Integration tests (Supabase)",
+  >       "Build",
+  >       "Docker build",
+  >       "E2E tests (Playwright)"
+  >     ]
+  >   },
+  >   "enforce_admins": false,
+  >   "required_pull_request_reviews": null,
+  >   "restrictions": null
+  > }
+  > EOF
+  > ```
+
 ## Blocker policy
 
 **Pause and report** if:
