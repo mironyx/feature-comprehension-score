@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import { SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY } from './supabase-env';
@@ -37,7 +37,110 @@ function secretClient() {
 // ---------------------------------------------------------------------------
 
 describe('Seed data', () => {
-  describe('Given a fresh database after supabase db reset', () => {
+  // Re-insert seed rows before each run so these tests are idempotent.
+  // The resetDatabase test (below) clears all org data; without this beforeAll
+  // a second local run would find empty tables.
+  // Auth users (Alice/Bob/Carol) are not cleared by resetDatabase so they
+  // always exist after the initial `supabase db reset` or `supabase start`.
+  beforeAll(async () => {
+    const svc = secretClient();
+
+    await svc.from('organisations').upsert(
+      [
+        {
+          id: SEED_ACME_ORG_ID,
+          github_org_id: 1001,
+          github_org_name: 'acme-corp',
+          installation_id: 9001,
+          status: 'active',
+        },
+        {
+          id: SEED_BETA_ORG_ID,
+          github_org_id: 1002,
+          github_org_name: 'beta-inc',
+          installation_id: 9002,
+          status: 'active',
+        },
+      ],
+      { onConflict: 'id' },
+    );
+
+    await svc.from('org_config').upsert(
+      [
+        {
+          org_id: SEED_ACME_ORG_ID,
+          enforcement_mode: 'soft',
+          score_threshold: 70,
+          prcc_question_count: 3,
+          fcs_question_count: 5,
+        },
+        {
+          org_id: SEED_BETA_ORG_ID,
+          enforcement_mode: 'hard',
+          score_threshold: 80,
+          prcc_question_count: 4,
+          fcs_question_count: 5,
+        },
+      ],
+      { onConflict: 'org_id' },
+    );
+
+    await svc.from('repositories').upsert(
+      [
+        {
+          id: SEED_REPO_API_ID,
+          org_id: SEED_ACME_ORG_ID,
+          github_repo_id: 2001,
+          github_repo_name: 'api',
+          status: 'active',
+        },
+        {
+          id: SEED_REPO_WEB_ID,
+          org_id: SEED_ACME_ORG_ID,
+          github_repo_id: 2002,
+          github_repo_name: 'web',
+          status: 'active',
+        },
+        {
+          id: SEED_REPO_PLATFORM_ID,
+          org_id: SEED_BETA_ORG_ID,
+          github_repo_id: 2003,
+          github_repo_name: 'platform',
+          status: 'active',
+        },
+      ],
+      { onConflict: 'id' },
+    );
+
+    await svc.from('user_organisations').upsert(
+      [
+        {
+          user_id: SEED_ALICE_ID,
+          org_id: SEED_ACME_ORG_ID,
+          github_user_id: 10001,
+          github_username: 'alice',
+          github_role: 'admin',
+        },
+        {
+          user_id: SEED_BOB_ID,
+          org_id: SEED_ACME_ORG_ID,
+          github_user_id: 10002,
+          github_username: 'bob',
+          github_role: 'member',
+        },
+        {
+          user_id: SEED_CAROL_ID,
+          org_id: SEED_BETA_ORG_ID,
+          github_user_id: 10003,
+          github_username: 'carol',
+          github_role: 'admin',
+        },
+      ],
+      { onConflict: 'user_id,org_id' },
+    );
+  });
+
+  describe('Given seed data exists', () => {
     it('then 2 organisations exist', async () => {
       const svc = secretClient();
       const { data, error } = await svc
