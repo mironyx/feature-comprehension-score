@@ -102,8 +102,13 @@ const MAX_PER_PAGE = 100;
 type ParticipantCounts = Record<string, { total: number; submitted: number }>;
 
 /**
- * Fetches participant counts for a set of assessments using the service client
- * (bypasses RLS — assessment_participants only exposes a non-admin's own row).
+ * Fetches participant counts for a set of assessments.
+ *
+ * Uses the service client (bypasses RLS) because the RLS policy on
+ * assessment_participants only lets a non-admin user read their own row.
+ * Querying through a user session would return a count of 1 (themselves),
+ * not the real total. Participant counts are non-sensitive aggregate metadata,
+ * so the service client is appropriate here.
  */
 async function fetchParticipantCounts(assessmentIds: string[]): Promise<ParticipantCounts> {
   if (assessmentIds.length === 0) return {};

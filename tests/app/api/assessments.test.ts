@@ -211,6 +211,34 @@ describe('GET /api/assessments', () => {
       // RLS handles the scoping — route still returns 200 with scoped results
       expect(body.assessments).toHaveLength(1);
     });
+
+    it('then participant_count reflects all participants, not just the requesting user', async () => {
+      // Regression guard: participant counts must come from the service client (bypasses RLS),
+      // not the user-session client. A non-admin querying assessment_participants through their
+      // own session would only see their own row (RLS: participants_select_own), giving a count
+      // of 1 regardless of how many participants exist.
+      vi.mocked(requireOrgAdmin).mockRejectedValue(
+        new (await import('@/lib/api/errors')).ApiError(403, 'Forbidden'),
+      );
+      const rows = [makeAssessmentRow({ id: 'assess-mine' })];
+      setupAssessmentsQuery(rows, 1);
+      // Service client returns all 4 participants, not just the requesting user's row.
+      setupParticipantsQuery([
+        { assessment_id: 'assess-mine', status: 'submitted' },
+        { assessment_id: 'assess-mine', status: 'submitted' },
+        { assessment_id: 'assess-mine', status: 'pending' },
+        { assessment_id: 'assess-mine', status: 'pending' },
+      ]);
+
+      const { GET } = await import('@/app/api/assessments/route');
+      const response = await GET(makeRequest());
+
+      const body = await response.json() as {
+        assessments: Array<{ participant_count: number; completed_count: number }>;
+      };
+      expect(body.assessments[0]?.participant_count).toBe(4);
+      expect(body.assessments[0]?.completed_count).toBe(2);
+    });
   });
 
   describe('Given type=prcc filter', () => {
