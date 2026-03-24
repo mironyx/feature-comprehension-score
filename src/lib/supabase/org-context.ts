@@ -1,8 +1,12 @@
 // Org selection cookie helpers.
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.3
 
-import type { ReadonlyRequestCookies } from 'next/dist/server/web/spec-extension/adapters/request-cookies';
+import type { cookies as nextCookies } from 'next/headers';
 import type { NextResponse } from 'next/server';
+
+// Derive the cookie-store type from the public next/headers API rather than
+// importing from an internal next/dist path, which is not a stable contract.
+type ReadonlyRequestCookies = Awaited<ReturnType<typeof nextCookies>>;
 
 const COOKIE_NAME = 'fcs-org-id';
 
