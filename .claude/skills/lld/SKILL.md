@@ -164,7 +164,7 @@ and state what is forbidden.
 Route handler (stays in route.ts, ≤ 25 lines):
 - [what the handler calls and returns]
 
-Private helpers in route.ts (and nothing else):
+Private helpers in route.ts (≤ 20 lines each, and nothing else):
 - `helperName(params): ReturnType` — [purpose and error behaviour]
 
 Extracted to helpers.ts (if applicable):

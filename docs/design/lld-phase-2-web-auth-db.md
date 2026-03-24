@@ -746,7 +746,7 @@ Route handler (stays in `scores/route.ts`, ≤ 25 lines):
 - Calls `buildScoredQuestions()` and `findLastReassessmentAt()`
 - Returns `json(response)`
 
-Private helpers in `scores/route.ts` (and nothing else):
+Private helpers in `scores/route.ts` (≤ 20 lines each, and nothing else):
 - `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other DB error → 500
 - `resolveParticipant(supabase, assessmentId: string, userId: string): ParticipantRow` — returns participant row; throws ApiError(404) if not enrolled or status !== 'submitted'
 - `buildScoredQuestions(answers: AnswerRow[], questions: QuestionRow[]): ScoredQuestion[]` — pure; for each question picks the latest non-reassessment answer with non-null `score` and `score_rationale`; throws ApiError(404) if any question has no scored answer (scoring not yet complete)
@@ -795,7 +795,7 @@ Route handler (stays in `answers/route.ts`, ≤ 25 lines):
 - If all relevant: calls `finaliseSubmission()` and returns `json({ status: 'accepted', ... })`
 - If any irrelevant: returns `json({ status: 'relevance_failed', ... })`
 
-Private helpers in `answers/route.ts` (and nothing else):
+Private helpers in `answers/route.ts` (≤ 20 lines each, and nothing else):
 - `resolveParticipant(supabase, assessmentId: string, userId: string): Promise<ParticipantRow>` — fetches caller's participant row; throws ApiError(403) if not enrolled; throws ApiError(422) if already submitted; throws ApiError(500) on DB error
 - `fetchQuestionsForValidation(adminSupabase, assessmentId: string): Promise<QuestionRow[]>` — fetches all questions via service client; throws ApiError(500) on DB error
 - `validateSubmission(body: SubmitBody, questions: QuestionRow[], participant: ParticipantRow): void` — pure; on first submission throws ApiError(422) if any question is missing an answer; on re-attempt throws ApiError(422) if any supplied question_id is not in the flagged set or has no remaining attempts
@@ -855,6 +855,8 @@ See [v1-design.md §4.4 POST /api/fcs](v1-design.md#post-apifcs) for request/res
 
 Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repository's organisation. PR numbers are validated against the GitHub API (not the DB). Rubric generation is kicked off after the response is sent.
 
+> **Note:** Issue #96 refers to this as "POST /api/assessments (FCS creation)" — the canonical path from [v1-design.md §4.4](v1-design.md#post-apifcs) is `POST /api/fcs`. The `fcs/` namespace keeps FCS creation separate from the assessment management routes under `assessments/`.
+
 **Sequence:**
 
 ```
@@ -876,7 +878,7 @@ Route handler (stays in `fcs/route.ts`, ≤ 25 lines):
 - Returns `json(result, { status: 201 })`
 - Schedules `triggerRubricGeneration()` after response via a detached `.catch(console.error)` promise
 
-Private helpers in `fcs/route.ts` (and nothing else):
+Private helpers in `fcs/route.ts` (≤ 20 lines each, and nothing else):
 - `validateMergedPRs(githubClient, repositoryId: string, prNumbers: number[]): Promise<void>` — verifies each PR number against the GitHub API; throws ApiError(422, `PR ${n} is not merged in this repository`) for any unmerged or not-found PR
 - `resolveParticipants(adminSupabase, githubClient, orgId: string, usernames: string[]): Promise<ResolvedParticipant[]>` — resolves GitHub user IDs for each username; throws ApiError(422, `Unknown participant: ${username}`) for any that cannot be resolved
 - `createAssessmentRecord(adminSupabase, input: FcsCreateInput): Promise<string>` — inserts the assessment row with status `rubric_generation`; returns the new `assessment_id`; throws ApiError(500) on DB error
@@ -920,7 +922,7 @@ Route handler (stays in `webhooks/github/route.ts`, ≤ 25 lines):
 - Dispatches to the appropriate handler; unknown event types are silently ignored
 - Returns `json({ received: true })`
 
-Private helpers in `webhooks/github/route.ts` (and nothing else):
+Private helpers in `webhooks/github/route.ts` (≤ 20 lines each, and nothing else):
 - `verifySignature(body: string, signature: string | null): boolean` — pure; HMAC-SHA256 of body using `process.env.GITHUB_WEBHOOK_SECRET`; returns false if signature is missing or does not match
 - `handleInstallation(adminSupabase, payload: InstallationPayload): Promise<void>` — `created`: inserts org + org_config + repositories rows; `deleted`: sets org status to `inactive`; other actions: no-op
 - `handleInstallationRepositories(adminSupabase, payload: InstallationRepositoriesPayload): Promise<void>` — `added`: inserts repository rows; `removed`: sets repository status to `inactive`; other actions: no-op
