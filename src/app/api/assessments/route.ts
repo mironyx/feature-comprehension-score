@@ -66,9 +66,69 @@ const VALID_STATUSES = new Set<string>([
   'skipped',
 ]);
 
+/** Maps a raw Supabase assessments row + participant counts to the list response shape. */
+function toListItem(
+  row: { id: string; type: AssessmentType; status: AssessmentStatus; repositories: unknown;
+         pr_number: number | null; feature_name: string | null; aggregate_score: number | null;
+         conclusion: Conclusion; created_at: string },
+  counts: ParticipantCounts,
+): AssessmentListItem {
+  return {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    repository_name: (row.repositories as Pick<RepoRow, 'github_repo_name'>).github_repo_name,
+    pr_number: row.pr_number,
+    feature_name: row.feature_name,
+    aggregate_score: row.aggregate_score,
+    conclusion: row.conclusion,
+    participant_count: counts[row.id]?.total ?? 0,
+    completed_count: counts[row.id]?.submitted ?? 0,
+    created_at: row.created_at,
+  };
+}
+
+/** Throws ApiError(400) if value is present but not in the allowed set. No-op when null. */
+function validateEnumParam(value: string | null, allowed: Set<string>, paramName: string): void {
+  if (value !== null && !allowed.has(value)) {
+    throw new ApiError(400, `Invalid ${paramName}. Allowed values: ${[...allowed].join(', ')}`);
+  }
+}
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
+
+type ParticipantCounts = Record<string, { total: number; submitted: number }>;
+
+/**
+ * Fetches participant counts for a set of assessments using the service client
+ * (bypasses RLS — assessment_participants only exposes a non-admin's own row).
+ */
+async function fetchParticipantCounts(assessmentIds: string[]): Promise<ParticipantCounts> {
+  if (assessmentIds.length === 0) return {};
+
+  const adminSupabase = createSecretSupabaseClient();
+  const { data: participants, error } = await adminSupabase
+    .from('assessment_participants')
+    .select('assessment_id, status')
+    .in('assessment_id', assessmentIds);
+
+  if (error) {
+    console.error('GET /api/assessments: participant counts query failed:', error);
+    throw new ApiError(500, 'Internal server error');
+  }
+
+  const counts: ParticipantCounts = {};
+  for (const p of participants ?? []) {
+    const id = p.assessment_id as string;
+    if (!counts[id]) counts[id] = { total: 0, submitted: 0 };
+    counts[id].total++;
+    // 'submitted' is the terminal status meaning the participant completed their assessment.
+    if (p.status === 'submitted') counts[id].submitted++;
+  }
+  return counts;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,20 +142,16 @@ export async function GET(request: NextRequest) {
     const typeRaw = searchParams.get('type');
     const statusRaw = searchParams.get('status');
 
-    if (typeRaw && !VALID_TYPES.has(typeRaw)) {
-      throw new ApiError(400, `Invalid type filter. Allowed values: ${[...VALID_TYPES].join(', ')}`);
-    }
-    if (statusRaw && !VALID_STATUSES.has(statusRaw)) {
-      throw new ApiError(400, `Invalid status filter. Allowed values: ${[...VALID_STATUSES].join(', ')}`);
-    }
+    validateEnumParam(typeRaw, VALID_TYPES, 'type filter');
+    validateEnumParam(statusRaw, VALID_STATUSES, 'status filter');
 
     const typeFilter = typeRaw as AssessmentType | null;
     const statusFilter = statusRaw as AssessmentStatus | null;
 
-    const page = Math.max(1, parseInt(searchParams.get('page') ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
     const perPage = Math.min(
       MAX_PER_PAGE,
-      Math.max(1, parseInt(searchParams.get('per_page') ?? String(DEFAULT_PER_PAGE), 10) || DEFAULT_PER_PAGE),
+      Math.max(1, Number.parseInt(searchParams.get('per_page') ?? String(DEFAULT_PER_PAGE), 10) || DEFAULT_PER_PAGE),
     );
 
     // requireOrgAdmin calls requireAuth internally — no separate call needed.
@@ -139,50 +195,8 @@ export async function GET(request: NextRequest) {
     }
 
     const assessmentIds = (rows ?? []).map(r => r.id as string);
-
-    // Fetch participant counts using the service client to bypass RLS.
-    // assessment_participants RLS only exposes a non-admin's own row, so
-    // aggregate counts must be computed outside the user session.
-    const participantCounts: Record<string, { total: number; submitted: number }> = {};
-
-    if (assessmentIds.length > 0) {
-      const adminSupabase = createSecretSupabaseClient();
-      const { data: participants, error: partError } = await adminSupabase
-        .from('assessment_participants')
-        .select('assessment_id, status')
-        .in('assessment_id', assessmentIds);
-
-      if (partError) {
-        console.error('GET /api/assessments: participant counts query failed:', partError);
-        throw new ApiError(500, 'Internal server error');
-      }
-
-      for (const p of participants ?? []) {
-        const id = p.assessment_id as string;
-        if (!participantCounts[id]) {
-          participantCounts[id] = { total: 0, submitted: 0 };
-        }
-        participantCounts[id].total++;
-        // 'submitted' is the terminal status meaning the participant completed their assessment.
-        if (p.status === 'submitted') {
-          participantCounts[id].submitted++;
-        }
-      }
-    }
-
-    const assessments = (rows ?? []).map(a => ({
-      id: a.id,
-      type: a.type,
-      status: a.status,
-      repository_name: (a.repositories as unknown as Pick<RepoRow, 'github_repo_name'>).github_repo_name,
-      pr_number: a.pr_number,
-      feature_name: a.feature_name,
-      aggregate_score: a.aggregate_score,
-      conclusion: a.conclusion,
-      participant_count: participantCounts[a.id]?.total ?? 0,
-      completed_count: participantCounts[a.id]?.submitted ?? 0,
-      created_at: a.created_at,
-    }));
+    const participantCounts = await fetchParticipantCounts(assessmentIds);
+    const assessments = (rows ?? []).map(r => toListItem(r, participantCounts));
 
     const body: AssessmentsResponse = {
       assessments,
