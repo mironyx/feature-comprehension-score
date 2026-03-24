@@ -651,6 +651,22 @@ See [v1-design.md §4.4 GET /api/assessments](v1-design.md#get-apiassessments) f
 
 See [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid) for response shape.
 
+**Design decision (2026-03-24):** Self-view scores moved to `GET /api/assessments/[id]/scores`. The detail endpoint covers metadata, filtered questions, and participant counts. Score retrieval is FCS-only, post-submission, with multi-attempt processing — a distinct use case that does not belong in the detail fetch. `my_scores` removed from response shape.
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS gates org access — PGRST116 → 404)
+3. Parallel:
+   a. user_organisations → callerRole ('admin' | 'participant')
+   b. assessment_questions (service client — RLS blocks non-admins from all rows)
+   c. assessment_participants (service client — all rows for count)
+   d. assessment_participants for caller (session client — own row)
+4. filterQuestionFields() — null reference_answer unless FCS + admin + completed
+5. Return response (no my_scores field)
+```
+
 **Column filtering logic (application layer):**
 
 ```typescript
@@ -672,7 +688,40 @@ function filterQuestionFields(
 }
 ```
 
-**Self-view (`my_scores`):** Populated only for FCS assessments when the caller is a participant. Queries `participant_answers` for the caller's answers with their scores. Null for PRCC.
+#### GET /api/assessments/[id]/scores
+
+FCS participants only. Returns the caller's self-view scores after submission. Returns 404 for non-FCS assessments, unenrolled callers, or callers who have not yet submitted.
+
+**Response shape:**
+
+```typescript
+{
+  questions: {
+    question_id: string;
+    naur_layer: NaurLayer;
+    question_text: string;
+    my_answer: string;
+    score: number;
+    score_rationale: string;
+  }[];
+  reassessment_available: boolean;   // true when assessment status === 'completed'
+  last_reassessment_at: string | null;
+}
+```
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS + type check — non-FCS → 404)
+3. Fetch caller's participant row (session client — returns null if not enrolled)
+4. If null or status !== 'submitted' → 404
+5. Fetch participant_answers (service client, ordered by attempt_number desc)
+6. Fetch assessment_questions (service client, for question metadata)
+7. Per question: pick latest non-reassessment answer with non-null score + rationale
+8. Sort by question_number; find latest reassessment timestamp
+9. Return response
+```
 
 #### POST /api/assessments/[id]/answers
 

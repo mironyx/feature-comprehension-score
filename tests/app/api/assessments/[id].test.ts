@@ -61,7 +61,6 @@ let orgMembershipResult: { data: unknown; error: unknown } = { data: null, error
 let myParticipationResult: { data: unknown; error: unknown } = { data: null, error: null };
 let questionsResult: { data: unknown; error: unknown } = { data: [], error: null };
 let participantCountsResult: { data: unknown; error: unknown } = { data: [], error: null };
-let answersResult: { data: unknown; error: unknown } = { data: [], error: null };
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
@@ -76,7 +75,6 @@ const mockServiceClient = {
   from: vi.fn((table: string) => {
     if (table === 'assessment_questions') return makeChain(() => questionsResult);
     if (table === 'assessment_participants') return makeChain(() => participantCountsResult);
-    if (table === 'participant_answers') return makeChain(() => answersResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -148,19 +146,6 @@ function makeParticipantRow(overrides: Record<string, unknown> = {}) {
     id: PARTICIPANT_ID,
     status: 'submitted',
     submitted_at: '2026-01-02T00:00:00Z',
-    ...overrides,
-  };
-}
-
-function makeAnswer(overrides: Record<string, unknown> = {}) {
-  return {
-    question_id: 'question-001',
-    answer_text: 'My answer.',
-    score: 0.9,
-    score_rationale: 'Good answer.',
-    is_reassessment: false,
-    attempt_number: 1,
-    created_at: '2026-01-02T00:00:00Z',
     ...overrides,
   };
 }
@@ -241,7 +226,6 @@ beforeEach(() => {
   myParticipationResult = { data: null, error: null };
   questionsResult = { data: [], error: null };
   participantCountsResult = { data: [], error: null };
-  answersResult = { data: [], error: null };
 });
 
 describe('GET /api/assessments/[id]', () => {
@@ -323,7 +307,6 @@ describe('GET /api/assessments/[id]', () => {
         error: null,
       };
       myParticipationResult = { data: makeParticipantRow(), error: null };
-      answersResult = { data: [makeAnswer()], error: null };
     });
 
     it('then reference answers are null', async () => {
@@ -333,32 +316,6 @@ describe('GET /api/assessments/[id]', () => {
       expect(response.status).toBe(200);
       const body = await response.json() as { questions: Array<{ reference_answer: unknown }> };
       expect(body.questions[0]?.reference_answer).toBeNull();
-    });
-
-    it('then my_scores is populated with their scores', async () => {
-      const { GET } = await import('@/app/api/assessments/[id]/route');
-      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
-
-      expect(response.status).toBe(200);
-      const body = await response.json() as {
-        my_scores: {
-          questions: Array<{
-            question_id: string;
-            my_answer: string;
-            score: number;
-            score_rationale: string;
-          }>;
-          reassessment_available: boolean;
-          last_reassessment_at: string | null;
-        } | null;
-      };
-      expect(body.my_scores).not.toBeNull();
-      expect(body.my_scores?.questions).toHaveLength(1);
-      expect(body.my_scores?.questions[0]?.question_id).toBe('question-001');
-      expect(body.my_scores?.questions[0]?.score).toBe(0.9);
-      expect(body.my_scores?.questions[0]?.my_answer).toBe('My answer.');
-      expect(body.my_scores?.reassessment_available).toBe(true);
-      expect(body.my_scores?.last_reassessment_at).toBeNull();
     });
   });
 
@@ -397,7 +354,6 @@ describe('GET /api/assessments/[id]', () => {
       expect(body.feature_name).toBe('My Feature');
       expect(body.participants).toEqual({ total: 2, completed: 1 });
       expect(body.my_participation).toBeNull();
-      expect(body.my_scores).toBeNull();
       expect(body.skip_info).toBeNull();
     });
   });
@@ -423,29 +379,6 @@ describe('GET /api/assessments/[id]', () => {
       const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
 
       expect(response.status).toBe(404);
-    });
-  });
-
-  describe('Given a completed FCS assessment viewed by an Org Admin who is also a participant', () => {
-    it('then my_scores is null (admin exclusion)', async () => {
-      setupAuth();
-      setupAdminRole();
-      assessmentResult = {
-        data: makeAssessmentRow({ type: 'fcs', status: 'completed', pr_number: null }),
-        error: null,
-      };
-      questionsResult = { data: [makeQuestion()], error: null };
-      participantCountsResult = { data: [{ id: PARTICIPANT_ID, status: 'submitted' }], error: null };
-      // Admin is also listed as a participant
-      myParticipationResult = { data: makeParticipantRow(), error: null };
-      answersResult = { data: [makeAnswer()], error: null };
-
-      const { GET } = await import('@/app/api/assessments/[id]/route');
-      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
-
-      expect(response.status).toBe(200);
-      const body = await response.json() as { my_scores: unknown };
-      expect(body.my_scores).toBeNull();
     });
   });
 });
