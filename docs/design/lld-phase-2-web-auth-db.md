@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9 |
+| Version | 1.0 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -16,6 +16,7 @@
 | Revised | 2026-03-24 (Issue #55) |
 | Revised | 2026-03-24 (Issue #56) |
 | Revised | 2026-03-24 (Issue #57) |
+| Revised | 2026-03-24 (Issue #58) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -549,6 +550,9 @@ src/app/api/
     [id]/
       route.ts                     — GET /api/assessments/[id] (detail)
                                      PUT /api/assessments/[id] (skip/close)
+      helpers.ts                   — filterQuestionFields() — pure, extracted for testability
+      scores/
+        route.ts                   — GET /api/assessments/[id]/scores (FCS self-view scores)
       answers/
         route.ts                   — POST /api/assessments/[id]/answers
       reassess/
@@ -671,22 +675,26 @@ See [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessm
 
 ```typescript
 function filterQuestionFields(
-  questions: AssessmentQuestion[],
+  questions: QuestionRow[],
   assessmentType: 'prcc' | 'fcs',
   callerRole: 'admin' | 'participant',
   assessmentStatus: AssessmentStatus,
 ): FilteredQuestion[] {
+  const showReference =
+    assessmentType === 'fcs' && callerRole === 'admin' && assessmentStatus === 'completed';
   return questions.map(q => ({
-    ...q,
-    reference_answer:
-      assessmentType === 'fcs'
-      && callerRole === 'admin'
-      && assessmentStatus === 'completed'
-        ? q.reference_answer
-        : null,
+    id: q.id,
+    question_number: q.question_number,
+    naur_layer: q.naur_layer,
+    question_text: q.question_text,
+    weight: q.weight,
+    aggregate_score: q.aggregate_score,
+    reference_answer: showReference ? q.reference_answer : null,
   }));
 }
 ```
+
+> **Implementation note (issue #58):** The spec used `...q` spread. The implementation uses explicit field projection to avoid inadvertently exposing new DB columns added in future migrations (ADR-0005 intent). `filterQuestionFields` lives in `[id]/helpers.ts`, not `route.ts`, because Next.js App Router only permits HTTP method exports from route files — any other export causes a build error.
 
 #### GET /api/assessments/[id]/scores
 
@@ -1359,33 +1367,49 @@ describe('GET /api/assessments')
 **Stories:** 2.4, 3.3, 3.4, 5.3
 **HLD reference:** [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid)
 
-**What:** Return assessment details with questions. Filter reference answers and self-view scores based on assessment type, caller role, and status.
+**What:** Return assessment details with questions. Filter reference answers based on assessment type, caller role, and status. Self-view scores are served by a separate endpoint (issue #95).
 
 **Acceptance criteria:**
-- [ ] Returns full assessment details with questions
-- [ ] PRCC: reference answers always null
-- [ ] FCS + Org Admin + completed: reference answers included
-- [ ] FCS + participant + submitted: `my_scores` populated
-- [ ] Non-participant/non-admin gets 404 (via RLS)
-- [ ] Includes `my_participation` for the caller
+- [x] Returns full assessment details with questions
+- [x] PRCC: reference answers always null
+- [x] FCS + Org Admin + completed: reference answers included
+- [x] Non-participant/non-admin gets 404 (via RLS)
+- [x] Includes `my_participation` for the caller
+- _(descoped)_ FCS + participant + submitted: `my_scores` populated → moved to `GET /api/assessments/[id]/scores` (issue #95)
 
 **BDD specs:**
 
 ```
 describe('GET /api/assessments/[id]')
+  describe('Given an unauthenticated request')
+    it('then it returns 401')
+  describe('Given a user who is not a participant or admin')
+    it('then it returns 404')
   describe('Given a PRCC assessment')
     it('then reference answers are null')
   describe('Given a completed FCS assessment viewed by Org Admin')
     it('then reference answers are included')
   describe('Given a completed FCS assessment viewed by participant')
-    it('then my_scores is populated with their scores')
     it('then reference answers are null')
-  describe('Given a user who is not a participant or admin')
+  describe('Given a valid request')
+    it('then it returns the full response shape')
+  describe('Given a non-PGRST116 assessment DB error')
+    it('then it returns 500')
+  describe('Given a PGRST116 assessment DB error')
     it('then it returns 404')
 ```
 
+> **Implementation note (issue #58):** `my_scores` was initially implemented in this endpoint (including `fetchMyScores`, `shouldSkipMyScores`, `pickLatestAnswers`, `buildScoredQuestions`, `findLastReassessmentAt`) but drove the handler to ~350 lines and CodeScene cc > 20. Root cause: mixing metadata retrieval with multi-attempt answer processing (FCS-only, post-submission) is a design smell. Both concerns are needed but for different use cases. Solution: split to a dedicated endpoint (`GET /api/assessments/[id]/scores`, issue #95). Detail endpoint is now ~170 lines.
+>
+> Four private helpers in `route.ts` to manage CodeScene thresholds (cc < 10, LoC < 50):
+> - `assertNoDbError(error, label)` — logs and throws 500
+> - `resolveAssessment(data, error)` — maps PGRST116 → 404, other errors → 500
+> - `fetchParallelData(ctx: FetchContext)` — runs the four parallel queries, maps types
+> - `buildResponse(assessment, parallelData: ParallelData)` — builds the response object
+
 **Files to create/modify:**
-- `src/app/api/assessments/[id]/route.ts` — GET handler
+- `src/app/api/assessments/[id]/route.ts` — GET handler with private helpers
+- `src/app/api/assessments/[id]/helpers.ts` — `filterQuestionFields()` (extracted for testability)
 
 ---
 
