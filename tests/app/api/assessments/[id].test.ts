@@ -171,7 +171,8 @@ function setupParticipantRole() {
 // ---------------------------------------------------------------------------
 
 describe('filterQuestionFields', () => {
-  const question = makeQuestion();
+  // Cast required: makeQuestion spreads Record<string,unknown> overrides which widens naur_layer to string.
+  const question = makeQuestion() as Parameters<typeof filterQuestionFields>[0][number];
 
   describe('Given a PRCC assessment', () => {
     it('then reference_answer is always null', () => {
