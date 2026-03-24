@@ -197,6 +197,7 @@ Supabase uses a **declarative schema** approach. `supabase/schemas/` files are t
 - Commit messages: conventional commits (`feat:`, `docs:`, `fix:`, `chore:`)
 - **No Co-Authored-By trailers** in commit messages.
 - Branch naming: `feat/short-description`, `docs/short-description`
+- **API route contract types** — every `route.ts` must declare its query/path params and response shapes as inline TypeScript interfaces, with a JSDoc comment on the handler. See [ADR-0014](docs/adr/0014-api-route-contract-types.md) for templates (GET list, GET detail, POST, PUT).
 
 ## Custom Skills
 

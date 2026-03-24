@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.8 |
+| Version | 0.9 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -15,6 +15,7 @@
 | Revised | 2026-03-24 (Issue #54) |
 | Revised | 2026-03-24 (Issue #55) |
 | Revised | 2026-03-24 (Issue #56) |
+| Revised | 2026-03-24 (Issue #57) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -628,6 +629,23 @@ See [v1-design.md §4.4 GET /api/assessments](v1-design.md#get-apiassessments) f
 - Org Admin sees all assessments for the selected org; regular user sees only theirs
 - Pagination via `range()` on the Supabase query
 - `participant_count` and `completed_count` are derived from a subquery on `assessment_participants`
+- Supports `status` filter in addition to the spec'd `type` filter
+
+> **Implementation note (issue #57):** The spec said participant counts come from "a subquery on
+> `assessment_participants`" using the user's Supabase client. This is wrong: the
+> `participants_select_own` RLS policy limits non-admin users to their own row, so a user-session
+> query would always return a count of 1. Participant counts are fetched via the **service client**
+> (bypasses RLS) in a separate batch query after the main assessments query. Counts are
+> non-sensitive aggregate metadata, so the service client is appropriate.
+>
+> Three module-level helpers were extracted to keep `GET` cognitive complexity within the
+> SonarQube threshold (≤15):
+> - `fetchParticipantCounts(assessmentIds)` — service-client batch query
+> - `toListItem(row, counts)` — maps DB row + counts to `AssessmentListItem`
+> - `validateEnumParam(value, allowed, paramName)` — throws `ApiError(400)` if value not in set
+>
+> Inline contract types (`AssessmentListItem`, `AssessmentsResponse`) with a JSDoc handler
+> comment are now required on every route file — see ADR-0014.
 
 #### GET /api/assessments/[id]
 
@@ -1249,11 +1267,11 @@ describe('handleApiError')
 **What:** List assessments for the current user with pagination and filtering. Org Admins see all org assessments; regular users see only their participations.
 
 **Acceptance criteria:**
-- [ ] Returns assessments scoped by RLS (org membership + participation)
-- [ ] Supports `type`, `status`, `page`, `per_page` query parameters
-- [ ] Response shape matches L4 contract
-- [ ] Includes `participant_count` and `completed_count` per assessment
-- [ ] Pagination returns correct `total`, `page`, `per_page`
+- [x] Returns assessments scoped by RLS (org membership + participation)
+- [x] Supports `type`, `status`, `page`, `per_page` query parameters
+- [x] Response shape matches L4 contract
+- [x] Includes `participant_count` and `completed_count` per assessment
+- [x] Pagination returns correct `total`, `page`, `per_page`
 
 **BDD specs:**
 
@@ -1261,16 +1279,26 @@ describe('handleApiError')
 describe('GET /api/assessments')
   describe('Given an org admin requesting assessments')
     it('then it returns all assessments for the org')
-  describe('Given a regular user')
+    it('then each assessment includes participant_count and completed_count')
+  describe('Given a regular user (non-admin)')
     it('then it returns only assessments where they are a participant')
+    it('then participant_count reflects all participants, not just the requesting user')
   describe('Given type=prcc filter')
-    it('then it returns only PRCC assessments')
+    it('then it queries with the type filter')
+  describe('Given an invalid type filter')
+    it('then it returns 400')
+  describe('Given an invalid status filter')
+    it('then it returns 400')
   describe('Given pagination parameters page=2 per_page=10')
     it('then it returns the correct page with correct total')
+  describe('Given a DB error')
+    it('then it returns 500')
 ```
 
-**Files to create/modify:**
+**Files created/modified:**
 - `src/app/api/assessments/route.ts` — GET handler
+- `tests/app/api/assessments.test.ts` — 11 BDD tests
+- `docs/adr/0014-api-route-contract-types.md` — convention for inline contract types
 
 ---
 

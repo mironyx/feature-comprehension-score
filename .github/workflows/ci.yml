@@ -50,9 +50,36 @@ jobs:
       - name: Run unit tests
         run: npx vitest run --exclude '**/*.integration.test.ts' --passWithNoTests
 
+  integration-tests:
+    name: Integration tests (Supabase)
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Start Supabase
+        run: npx supabase start
+
+      - name: Export Supabase credentials
+        run: |
+          eval "$(npx supabase status -o env)"
+          echo "SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "SUPABASE_SECRET_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_PUBLISHABLE_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+
+      - name: Run integration tests
+        run: npm run test:integration
+
   build:
     name: Build
-    needs: unit-tests
+    needs: [unit-tests, integration-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -86,38 +113,6 @@ jobs:
             --build-arg NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
             --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
             --build-arg SUPABASE_SECRET_KEY=placeholder-secret-key
-
-  # ---------- Scaffolded stages — activate when ready ----------
-
-  # integration-tests:
-  #   name: Integration tests (Supabase)
-  #   needs: quality
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 20
-  #         cache: npm
-  #
-  #     - run: npm ci
-  #
-  #     - name: Install Supabase CLI
-  #       run: npx supabase --version
-  #
-  #     - name: Start Supabase
-  #       run: npx supabase start --ignore-health-check
-  #
-  #     - name: Reset database (apply migrations + seed)
-  #       run: npx supabase db reset
-  #
-  #     - name: Run integration tests
-  #       run: npx vitest run --testPathPattern '\.integration\.test\.ts$'
-  #       env:
-  #         SUPABASE_URL: http://127.0.0.1:54321
-  #         SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-  #         SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
 
   e2e:
     name: E2E tests (Playwright)
