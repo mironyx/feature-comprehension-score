@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.7 |
+| Version | 0.8 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -14,6 +14,7 @@
 | Revised | 2026-03-21 (Issue #53) |
 | Revised | 2026-03-24 (Issue #54) |
 | Revised | 2026-03-24 (Issue #55) |
+| Revised | 2026-03-24 (Issue #56) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -558,21 +559,27 @@ src/app/api/
 ```
 src/lib/api/
   auth.ts              — extractUser(), requireAuth(), requireOrgAdmin()
-  validation.ts        — validateBody(), validateParams()
+  validation.ts        — validateBody()
   errors.ts            — ApiError class, error response helpers
   response.ts          — json(), paginated() response helpers
+src/lib/supabase/
+  route-handler-readonly.ts  — createReadonlyRouteHandlerClient()
 ```
+
+> **Implementation note (issue #56):** `validateParams()` was listed in the spec but not implemented — deferred. A `route-handler-readonly.ts` helper was added to `src/lib/supabase/` because the auth functions only receive `request` (not `response`), so a client that performs a no-op `setAll` is needed to avoid middleware interference. This pattern is distinct from the existing `route-handler.ts` which requires both request and response.
 
 ```typescript
 // src/lib/api/auth.ts
 
-/** Extract authenticated user from Supabase session. Returns null if unauthenticated. */
+/** Extract authenticated user from Supabase session. Returns null if unauthenticated.
+ *  Throws ApiError(500) if Supabase returns an error (infrastructure failure). */
 async function extractUser(request: NextRequest): Promise<AuthUser | null>
 
 /** Require authentication. Throws ApiError(401) if not authenticated. */
 async function requireAuth(request: NextRequest): Promise<AuthUser>
 
-/** Require Org Admin role. Throws ApiError(403) if not admin. */
+/** Require Org Admin role.
+ *  Throws ApiError(403) if not admin; ApiError(500) on DB query failure. */
 async function requireOrgAdmin(request: NextRequest, orgId: string): Promise<AuthUser>
 
 interface AuthUser {
@@ -583,19 +590,34 @@ interface AuthUser {
 }
 ```
 
+> **Implementation note (issue #56):** Both `extractUser` and `requireOrgAdmin` check the Supabase `error` field and throw `ApiError(500)` with `console.error` logging on infrastructure failures. The spec was silent on this; the omission was a review finding.
+
 ```typescript
 // src/lib/api/errors.ts
 
 class ApiError extends Error {
   constructor(
-    public statusCode: number,
+    public readonly statusCode: number,
     message: string,
-    public details?: Record<string, unknown>,
-  ) { super(message); }
+    public readonly details?: Record<string, unknown>,
+  ) { super(message); this.name = 'ApiError'; }
 }
 
+/** Maps ApiError instances to their status codes; logs and returns 500 for unknown errors. */
 function handleApiError(error: unknown): NextResponse
 ```
+
+> **Implementation note (issue #56):** `statusCode` and `details` are `readonly` in the implementation (spec omitted this). `handleApiError` calls `console.error` before returning 500 — the spec was silent on observability for the unknown-error branch.
+
+```typescript
+// src/lib/api/validation.ts
+
+/** Throws ApiError(422, 'Invalid JSON body') if body is not valid JSON.
+ *  Throws ApiError(422, 'Validation failed', { issues }) on schema failure. */
+async function validateBody<T>(request: NextRequest, schema: ZodType<T>): Promise<T>
+```
+
+> **Implementation note (issue #56):** Parameter type is `ZodType<T>` (not `ZodSchema<T>`), as `ZodSchema` is deprecated in Zod v4. `validateParams()` is deferred.
 
 #### GET /api/assessments
 
