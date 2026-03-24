@@ -134,13 +134,17 @@ Continue until all acceptance criteria are covered.
 
 ### Step 5: Full verification
 
-Run all three checks. All must pass before proceeding.
+Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
 
 ```bash
-(cd "$WDIR" && npx vitest run)          # all tests green
+(cd "$WDIR" && npx vitest run)          # all tests green (unit + integration)
 (cd "$WDIR" && npx tsc --noEmit)        # no type errors
 (cd "$WDIR" && npm run lint)            # no lint errors
 ```
+
+**Integration test failures are not pre-existing — fix them.** If `npx vitest run` reports
+failures in `*.integration.test.ts` files, diagnose and resolve before continuing. Do not
+dismiss integration failures as "unrelated to this PR" and proceed to create the PR.
 
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
@@ -178,18 +182,11 @@ One commit per issue. Do not batch multiple issues.
 (cd "$WDIR" && git push -u origin feat/<branch-name>)
 ```
 
-Query Prometheus for session-total cost and tokens to include in the PR body.
-Also applies `ai-cost:*`, `input-tokens:*`, `output-tokens:*` labels to the issue and PR.
+Create the PR first with a placeholder Usage section, then run the cost script once after the PR
+exists so labels are applied to both issue and PR in a single call, and patch the body.
 
 ```bash
-PR_NUMBER=<pr-number>
-py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER
-```
-
-Incorporate the output into the PR body:
-
-```bash
-(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
+PR_URL=$(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points of what was implemented>
 
@@ -210,10 +207,22 @@ Closes #<number>
 - **Total tests:** N (M test files)
 
 ## Usage
-- **Cost:** $0.0000
-- **Tokens:** N input / N output / N cache-read / N cache-write
+- **Cost:** TBD
+- **Tokens:** TBD
 EOF
-)"
+)")
+
+PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+
+# Single cost script call — applies labels to issue + PR and outputs cost summary
+COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER)
+
+# Patch the PR body with the actual cost figures (replace TBD placeholders)
+COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
+TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
+CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
+UPDATED_BODY=$(echo "$CURRENT_BODY" | sed "s|- \*\*Cost:\*\* TBD|$COST_LINE|" | sed "s|- \*\*Tokens:\*\* TBD|$TOKEN_LINE|")
+gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
 ```
 
 ### Step 8b: CI probe (background)
