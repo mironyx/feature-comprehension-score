@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9 |
+| Version | 1.0 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -16,6 +16,7 @@
 | Revised | 2026-03-24 (Issue #55) |
 | Revised | 2026-03-24 (Issue #56) |
 | Revised | 2026-03-24 (Issue #57) |
+| Revised | 2026-03-24 (Issue #58) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -549,6 +550,9 @@ src/app/api/
     [id]/
       route.ts                     — GET /api/assessments/[id] (detail)
                                      PUT /api/assessments/[id] (skip/close)
+      helpers.ts                   — filterQuestionFields() — pure, extracted for testability
+      scores/
+        route.ts                   — GET /api/assessments/[id]/scores (FCS self-view scores)
       answers/
         route.ts                   — POST /api/assessments/[id]/answers
       reassess/
@@ -651,28 +655,81 @@ See [v1-design.md §4.4 GET /api/assessments](v1-design.md#get-apiassessments) f
 
 See [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid) for response shape.
 
+**Design decision (2026-03-24):** Self-view scores moved to `GET /api/assessments/[id]/scores`. The detail endpoint covers metadata, filtered questions, and participant counts. Score retrieval is FCS-only, post-submission, with multi-attempt processing — a distinct use case that does not belong in the detail fetch. `my_scores` removed from response shape.
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS gates org access — PGRST116 → 404)
+3. Parallel:
+   a. user_organisations → callerRole ('admin' | 'participant')
+   b. assessment_questions (service client — RLS blocks non-admins from all rows)
+   c. assessment_participants (service client — all rows for count)
+   d. assessment_participants for caller (session client — own row)
+4. filterQuestionFields() — null reference_answer unless FCS + admin + completed
+5. Return response (no my_scores field)
+```
+
 **Column filtering logic (application layer):**
 
 ```typescript
 function filterQuestionFields(
-  questions: AssessmentQuestion[],
+  questions: QuestionRow[],
   assessmentType: 'prcc' | 'fcs',
   callerRole: 'admin' | 'participant',
   assessmentStatus: AssessmentStatus,
 ): FilteredQuestion[] {
+  const showReference =
+    assessmentType === 'fcs' && callerRole === 'admin' && assessmentStatus === 'completed';
   return questions.map(q => ({
-    ...q,
-    reference_answer:
-      assessmentType === 'fcs'
-      && callerRole === 'admin'
-      && assessmentStatus === 'completed'
-        ? q.reference_answer
-        : null,
+    id: q.id,
+    question_number: q.question_number,
+    naur_layer: q.naur_layer,
+    question_text: q.question_text,
+    weight: q.weight,
+    aggregate_score: q.aggregate_score,
+    reference_answer: showReference ? q.reference_answer : null,
   }));
 }
 ```
 
-**Self-view (`my_scores`):** Populated only for FCS assessments when the caller is a participant. Queries `participant_answers` for the caller's answers with their scores. Null for PRCC.
+> **Implementation note (issue #58):** The spec used `...q` spread. The implementation uses explicit field projection to avoid inadvertently exposing new DB columns added in future migrations (ADR-0005 intent). `filterQuestionFields` lives in `[id]/helpers.ts`, not `route.ts`, because Next.js App Router only permits HTTP method exports from route files — any other export causes a build error.
+
+#### GET /api/assessments/[id]/scores
+
+FCS participants only. Returns the caller's self-view scores after submission. Returns 404 for non-FCS assessments, unenrolled callers, or callers who have not yet submitted.
+
+**Response shape:**
+
+```typescript
+{
+  questions: {
+    question_id: string;
+    naur_layer: NaurLayer;
+    question_text: string;
+    my_answer: string;
+    score: number;
+    score_rationale: string;
+  }[];
+  reassessment_available: boolean;   // true when assessment status === 'completed'
+  last_reassessment_at: string | null;
+}
+```
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS + type check — non-FCS → 404)
+3. Fetch caller's participant row (session client — returns null if not enrolled)
+4. If null or status !== 'submitted' → 404
+5. Fetch participant_answers (service client, ordered by attempt_number desc)
+6. Fetch assessment_questions (service client, for question metadata)
+7. Per question: pick latest non-reassessment answer with non-null score + rationale
+8. Sort by question_number; find latest reassessment timestamp
+9. Return response
+```
 
 #### POST /api/assessments/[id]/answers
 
@@ -1310,33 +1367,49 @@ describe('GET /api/assessments')
 **Stories:** 2.4, 3.3, 3.4, 5.3
 **HLD reference:** [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid)
 
-**What:** Return assessment details with questions. Filter reference answers and self-view scores based on assessment type, caller role, and status.
+**What:** Return assessment details with questions. Filter reference answers based on assessment type, caller role, and status. Self-view scores are served by a separate endpoint (issue #95).
 
 **Acceptance criteria:**
-- [ ] Returns full assessment details with questions
-- [ ] PRCC: reference answers always null
-- [ ] FCS + Org Admin + completed: reference answers included
-- [ ] FCS + participant + submitted: `my_scores` populated
-- [ ] Non-participant/non-admin gets 404 (via RLS)
-- [ ] Includes `my_participation` for the caller
+- [x] Returns full assessment details with questions
+- [x] PRCC: reference answers always null
+- [x] FCS + Org Admin + completed: reference answers included
+- [x] Non-participant/non-admin gets 404 (via RLS)
+- [x] Includes `my_participation` for the caller
+- _(descoped)_ FCS + participant + submitted: `my_scores` populated → moved to `GET /api/assessments/[id]/scores` (issue #95)
 
 **BDD specs:**
 
 ```
 describe('GET /api/assessments/[id]')
+  describe('Given an unauthenticated request')
+    it('then it returns 401')
+  describe('Given a user who is not a participant or admin')
+    it('then it returns 404')
   describe('Given a PRCC assessment')
     it('then reference answers are null')
   describe('Given a completed FCS assessment viewed by Org Admin')
     it('then reference answers are included')
   describe('Given a completed FCS assessment viewed by participant')
-    it('then my_scores is populated with their scores')
     it('then reference answers are null')
-  describe('Given a user who is not a participant or admin')
+  describe('Given a valid request')
+    it('then it returns the full response shape')
+  describe('Given a non-PGRST116 assessment DB error')
+    it('then it returns 500')
+  describe('Given a PGRST116 assessment DB error')
     it('then it returns 404')
 ```
 
+> **Implementation note (issue #58):** `my_scores` was initially implemented in this endpoint (including `fetchMyScores`, `shouldSkipMyScores`, `pickLatestAnswers`, `buildScoredQuestions`, `findLastReassessmentAt`) but drove the handler to ~350 lines and CodeScene cc > 20. Root cause: mixing metadata retrieval with multi-attempt answer processing (FCS-only, post-submission) is a design smell. Both concerns are needed but for different use cases. Solution: split to a dedicated endpoint (`GET /api/assessments/[id]/scores`, issue #95). Detail endpoint is now ~170 lines.
+>
+> Four private helpers in `route.ts` to manage CodeScene thresholds (cc < 10, LoC < 50):
+> - `assertNoDbError(error, label)` — logs and throws 500
+> - `resolveAssessment(data, error)` — maps PGRST116 → 404, other errors → 500
+> - `fetchParallelData(ctx: FetchContext)` — runs the four parallel queries, maps types
+> - `buildResponse(assessment, parallelData: ParallelData)` — builds the response object
+
 **Files to create/modify:**
-- `src/app/api/assessments/[id]/route.ts` — GET handler
+- `src/app/api/assessments/[id]/route.ts` — GET handler with private helpers
+- `src/app/api/assessments/[id]/helpers.ts` — `filterQuestionFields()` (extracted for testability)
 
 ---
 
