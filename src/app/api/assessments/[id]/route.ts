@@ -94,8 +94,117 @@ interface RouteContext {
 }
 
 // ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/** Throws 500 if a Supabase query returned an error. */
+function assertNoQueryError(error: unknown, label: string): void {
+  if (error) {
+    console.error(`GET /api/assessments/[id]: ${label} query failed:`, error);
+    throw new ApiError(500, 'Internal server error');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
+
+type SupabaseUserClient = ReturnType<typeof createReadonlyRouteHandlerClient>;
+
+type ParallelQueryResults = {
+  orgMembership: { github_role: string } | null;
+  questions: QuestionRow[] | null;
+  allParticipants: { id: string; status: string }[] | null;
+  myParticipantRow: { id: string; status: string; submitted_at: string | null } | null;
+};
+
+interface ParallelQueryContext {
+  supabase: SupabaseUserClient;
+  adminSupabase: SupabaseServiceClient;
+  assessmentId: string;
+  userId: string;
+  orgId: string;
+}
+
+async function fetchParallelData(ctx: ParallelQueryContext): Promise<ParallelQueryResults> {
+  const { supabase, adminSupabase, assessmentId, userId, orgId } = ctx;
+  const [
+    { data: orgMembership, error: membershipError },
+    { data: questions, error: questionsError },
+    { data: allParticipants, error: participantsError },
+    { data: myParticipantRow, error: myParticipationError },
+  ] = await Promise.all([
+    supabase.from('user_organisations').select('github_role').eq('user_id', userId).eq('org_id', orgId).maybeSingle(),
+    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, aggregate_score').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
+    adminSupabase.from('assessment_participants').select('id, status').eq('assessment_id', assessmentId),
+    supabase.from('assessment_participants').select('id, status, submitted_at').eq('assessment_id', assessmentId).eq('user_id', userId).maybeSingle(),
+  ]);
+
+  assertNoQueryError(membershipError, 'org membership');
+  assertNoQueryError(questionsError, 'questions');
+  assertNoQueryError(participantsError, 'participants');
+  assertNoQueryError(myParticipationError, 'my participation');
+
+  return {
+    orgMembership: orgMembership as { github_role: string } | null,
+    questions: questions as QuestionRow[] | null,
+    allParticipants: allParticipants as { id: string; status: string }[] | null,
+    myParticipantRow: myParticipantRow as { id: string; status: string; submitted_at: string | null } | null,
+  };
+}
+
+/** Resolves the assessment or throws 404/500. Extracts nested PGRST116 check. */
+function resolveAssessment(data: unknown, error: unknown): AssessmentWithRelations {
+  if (error) {
+    if ((error as Record<string, unknown>).code === 'PGRST116') throw new ApiError(404, 'Not found');
+    console.error('GET /api/assessments/[id]: assessment query failed:', error);
+    throw new ApiError(500, 'Internal server error');
+  }
+  if (!data) throw new ApiError(404, 'Not found');
+  // Double cast required: Supabase type generator lacks relationship metadata for this join.
+  return data as unknown as AssessmentWithRelations;
+}
+
+function buildDetailResponse(
+  assessment: AssessmentWithRelations,
+  callerRole: 'admin' | 'participant',
+  questions: QuestionRow[],
+  allParticipants: { id: string; status: string }[],
+  myParticipation: MyParticipation | null,
+  myScores: MyScores | null,
+): AssessmentDetailResponse {
+  return {
+    id: assessment.id,
+    type: assessment.type,
+    status: assessment.status,
+    repository_name: assessment.repositories.github_repo_name,
+    repository_full_name: `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`,
+    pr_number: assessment.pr_number,
+    pr_head_sha: assessment.pr_head_sha,
+    feature_name: assessment.feature_name,
+    feature_description: assessment.feature_description,
+    aggregate_score: assessment.aggregate_score,
+    scoring_incomplete: assessment.scoring_incomplete,
+    artefact_quality: assessment.artefact_quality,
+    conclusion: assessment.conclusion,
+    config: {
+      enforcement_mode: assessment.config_enforcement_mode,
+      score_threshold: assessment.config_score_threshold,
+      question_count: assessment.config_question_count,
+    },
+    questions: filterQuestionFields(questions, assessment.type, callerRole, assessment.status),
+    participants: {
+      total: allParticipants.length,
+      completed: allParticipants.filter(p => p.status === 'submitted').length,
+    },
+    my_participation: myParticipation,
+    my_scores: myScores,
+    skip_info: assessment.skip_reason && assessment.skipped_at
+      ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
+      : null,
+    created_at: assessment.created_at,
+  };
+}
 
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
@@ -104,86 +213,24 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const supabase = createReadonlyRouteHandlerClient(request);
     const adminSupabase = createSecretSupabaseClient();
 
-    // 1. Fetch assessment (RLS enforced — returns null if caller has no access).
+    // 1. Fetch assessment (RLS enforced — returns null/error if caller has no access).
     const { data: rawAssessment, error: assessmentError } = await supabase
       .from('assessments')
       .select('*, repositories!inner(github_repo_name), organisations!inner(github_org_name)')
       .eq('id', assessmentId)
       .single();
 
-    if (assessmentError) {
-      // PGRST116 = "no rows returned" — the assessment doesn't exist or RLS denied access.
-      if ((assessmentError as unknown as Record<string, unknown>).code === 'PGRST116') {
-        throw new ApiError(404, 'Not found');
-      }
-      console.error('GET /api/assessments/[id]: assessment query failed:', assessmentError);
-      throw new ApiError(500, 'Internal server error');
-    }
-    if (!rawAssessment) {
-      throw new ApiError(404, 'Not found');
-    }
+    const assessment = resolveAssessment(rawAssessment, assessmentError);
 
-    // Double cast required: Supabase type generator lacks relationship metadata for this join,
-    // producing SelectQueryError<> on the joined columns. Runtime shape is correct.
-    const assessment = rawAssessment as unknown as AssessmentWithRelations;
-
-    // 2–5. Run admin check, questions, participant counts, and caller participation in parallel.
-    // All four queries depend only on assessmentId and user.id (available after step 1).
-    const [
-      { data: orgMembership, error: membershipError },
-      { data: questions, error: questionsError },
-      { data: allParticipants, error: participantsError },
-      { data: myParticipantRow, error: myParticipationError },
-    ] = await Promise.all([
-      supabase
-        .from('user_organisations')
-        .select('github_role')
-        .eq('user_id', user.id)
-        .eq('org_id', assessment.org_id)
-        .maybeSingle(),
-      adminSupabase
-        .from('assessment_questions')
-        .select('id, question_number, naur_layer, question_text, weight, reference_answer, aggregate_score')
-        .eq('assessment_id', assessmentId)
-        .order('question_number', { ascending: true }),
-      adminSupabase
-        .from('assessment_participants')
-        .select('id, status')
-        .eq('assessment_id', assessmentId),
-      supabase
-        .from('assessment_participants')
-        .select('id, status, submitted_at')
-        .eq('assessment_id', assessmentId)
-        .eq('user_id', user.id)
-        .maybeSingle(),
-    ]);
-
-    if (membershipError) {
-      console.error('GET /api/assessments/[id]: org membership query failed:', membershipError);
-      throw new ApiError(500, 'Internal server error');
-    }
-    if (questionsError) {
-      console.error('GET /api/assessments/[id]: questions query failed:', questionsError);
-      throw new ApiError(500, 'Internal server error');
-    }
-    if (participantsError) {
-      console.error('GET /api/assessments/[id]: participants query failed:', participantsError);
-      throw new ApiError(500, 'Internal server error');
-    }
-    if (myParticipationError) {
-      console.error('GET /api/assessments/[id]: my participation query failed:', myParticipationError);
-      throw new ApiError(500, 'Internal server error');
-    }
+    // 2–5. Parallel queries (all depend only on assessmentId + user.id, available after step 1).
+    const { orgMembership, questions, allParticipants, myParticipantRow } =
+      await fetchParallelData({ supabase, adminSupabase, assessmentId, userId: user.id, orgId: assessment.org_id });
 
     const callerRole: 'admin' | 'participant' =
       orgMembership?.github_role === 'admin' ? 'admin' : 'participant';
 
     const myParticipation: MyParticipation | null = myParticipantRow
-      ? {
-          participant_id: myParticipantRow.id,
-          status: myParticipantRow.status as 'pending' | 'submitted',
-          submitted_at: myParticipantRow.submitted_at,
-        }
+      ? { participant_id: myParticipantRow.id, status: myParticipantRow.status as 'pending' | 'submitted', submitted_at: myParticipantRow.submitted_at }
       : null;
 
     // 6. Fetch self-view scores for FCS participants who have submitted.
@@ -192,49 +239,10 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       assessmentStatus: assessment.status,
       callerRole,
       participantRow: myParticipantRow,
-      questions: (questions as QuestionRow[]) ?? [],
+      questions: questions ?? [],
     });
 
-    // 7. Build and return response.
-    const body: AssessmentDetailResponse = {
-      id: assessment.id,
-      type: assessment.type,
-      status: assessment.status,
-      repository_name: assessment.repositories.github_repo_name,
-      repository_full_name: `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`,
-      pr_number: assessment.pr_number,
-      pr_head_sha: assessment.pr_head_sha,
-      feature_name: assessment.feature_name,
-      feature_description: assessment.feature_description,
-      aggregate_score: assessment.aggregate_score,
-      scoring_incomplete: assessment.scoring_incomplete,
-      artefact_quality: assessment.artefact_quality,
-      conclusion: assessment.conclusion,
-      config: {
-        enforcement_mode: assessment.config_enforcement_mode,
-        score_threshold: assessment.config_score_threshold,
-        question_count: assessment.config_question_count,
-      },
-      questions: filterQuestionFields(
-        (questions as QuestionRow[]) ?? [],
-        assessment.type,
-        callerRole,
-        assessment.status,
-      ),
-      participants: {
-        total: (allParticipants ?? []).length,
-        completed: (allParticipants ?? []).filter(p => p.status === 'submitted').length,
-      },
-      my_participation: myParticipation,
-      my_scores: myScores,
-      skip_info:
-        assessment.skip_reason && assessment.skipped_at
-          ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
-          : null,
-      created_at: assessment.created_at,
-    };
-
-    return json(body);
+    return json(buildDetailResponse(assessment, callerRole, questions ?? [], allParticipants ?? [], myParticipation, myScores));
   } catch (error) {
     return handleApiError(error);
   }
@@ -254,56 +262,50 @@ interface MyScoresContext {
   questions: QuestionRow[];
 }
 
-async function fetchMyScores(
-  adminSupabase: SupabaseServiceClient,
-  ctx: MyScoresContext,
-): Promise<MyScores | null> {
-  const { assessmentType, assessmentStatus, callerRole, participantRow, questions } = ctx;
+type AnswerRow = {
+  question_id: string;
+  answer_text: string;
+  score: number | null;
+  score_rationale: string | null;
+  is_reassessment: boolean;
+  created_at: string;
+};
 
-  if (
-    assessmentType !== 'fcs' ||
-    callerRole === 'admin' ||
-    participantRow === null ||
-    (assessmentStatus !== 'completed' && participantRow.status !== 'submitted')
-  ) {
-    return null;
-  }
+/** Returns true when `fetchMyScores` should short-circuit and return null. */
+function shouldSkipMyScores(ctx: MyScoresContext): boolean {
+  if (ctx.assessmentType !== 'fcs') return true;
+  if (ctx.callerRole === 'admin') return true;
+  if (ctx.participantRow === null) return true;
+  const scored = ctx.assessmentStatus === 'completed' || ctx.participantRow.status === 'submitted';
+  return !scored;
+}
 
-  const { data: answers, error: answersError } = await adminSupabase
-    .from('participant_answers')
-    .select('question_id, answer_text, score, score_rationale, is_reassessment, created_at')
-    .eq('participant_id', participantRow.id)
-    .order('attempt_number', { ascending: false });
-
-  if (answersError) {
-    console.error('GET /api/assessments/[id]: answers query failed:', answersError);
-    throw new ApiError(500, 'Internal server error');
-  }
-
-  const allAnswers = (answers ?? []) as Array<{
-    question_id: string;
-    answer_text: string;
-    score: number | null;
-    score_rationale: string | null;
-    is_reassessment: boolean;
-    created_at: string;
-  }>;
-
-  const questionMap = new Map<string, QuestionRow>(questions.map(q => [q.id, q]));
-
-  // Pick the latest non-reassessment answer per question (ordered descending by attempt_number).
-  const latestByQuestion = new Map<string, typeof allAnswers[0]>();
+/** Returns the latest non-reassessment answer per question (answers must be pre-sorted descending). */
+function pickLatestAnswers(allAnswers: AnswerRow[]): Map<string, AnswerRow> {
+  const latest = new Map<string, AnswerRow>();
   for (const a of allAnswers) {
-    if (!a.is_reassessment && !latestByQuestion.has(a.question_id)) {
-      latestByQuestion.set(a.question_id, a);
-    }
+    if (!a.is_reassessment && !latest.has(a.question_id)) latest.set(a.question_id, a);
   }
+  return latest;
+}
 
-  const scoredQuestions: MyScoreQuestion[] = [];
-  for (const [qid, answer] of latestByQuestion) {
+type ScoredAnswerRow = AnswerRow & { score: number; score_rationale: string };
+
+/** Narrows an answer to one with a complete (non-null) score and rationale. */
+function isFullyScored(answer: AnswerRow): answer is ScoredAnswerRow {
+  return answer.score !== null && answer.score_rationale !== null;
+}
+
+/** Builds the scored-questions array from the latest non-reassessment answers. */
+function buildScoredQuestions(
+  allAnswers: AnswerRow[],
+  questionMap: Map<string, QuestionRow>,
+): MyScoreQuestion[] {
+  const scored: MyScoreQuestion[] = [];
+  for (const [qid, answer] of pickLatestAnswers(allAnswers)) {
     const question = questionMap.get(qid);
-    if (!question || answer.score === null || answer.score_rationale === null) continue;
-    scoredQuestions.push({
+    if (!question || !isFullyScored(answer)) continue;
+    scored.push({
       question_id: qid,
       naur_layer: question.naur_layer,
       question_text: question.question_text,
@@ -312,24 +314,47 @@ async function fetchMyScores(
       score_rationale: answer.score_rationale,
     });
   }
-
-  // Sort by question_number for consistent ordering.
-  scoredQuestions.sort((a, b) => {
+  scored.sort((a, b) => {
     const numA = questionMap.get(a.question_id)?.question_number ?? 0;
     const numB = questionMap.get(b.question_id)?.question_number ?? 0;
     return numA - numB;
   });
+  return scored;
+}
 
-  let lastReassessmentAt: string | null = null;
+/** Returns the ISO timestamp of the most recent reassessment answer, or null. */
+function findLastReassessmentAt(allAnswers: AnswerRow[]): string | null {
+  let latest: string | null = null;
   for (const a of allAnswers) {
-    if (a.is_reassessment && (lastReassessmentAt === null || a.created_at > lastReassessmentAt)) {
-      lastReassessmentAt = a.created_at;
-    }
+    if (!a.is_reassessment) continue;
+    if (latest === null || a.created_at > latest) latest = a.created_at;
   }
+  return latest;
+}
+
+async function fetchMyScores(
+  adminSupabase: SupabaseServiceClient,
+  ctx: MyScoresContext,
+): Promise<MyScores | null> {
+  if (shouldSkipMyScores(ctx)) return null;
+
+  // participantRow is guaranteed non-null here (shouldSkipMyScores guards it).
+  const participantRow = ctx.participantRow!;
+
+  const { data: answers, error: answersError } = await adminSupabase
+    .from('participant_answers')
+    .select('question_id, answer_text, score, score_rationale, is_reassessment, created_at')
+    .eq('participant_id', participantRow.id)
+    .order('attempt_number', { ascending: false });
+
+  assertNoQueryError(answersError, 'answers');
+
+  const allAnswers = (answers ?? []) as AnswerRow[];
+  const questionMap = new Map<string, QuestionRow>(ctx.questions.map(q => [q.id, q]));
 
   return {
-    questions: scoredQuestions,
-    reassessment_available: assessmentStatus === 'completed',
-    last_reassessment_at: lastReassessmentAt,
+    questions: buildScoredQuestions(allAnswers, questionMap),
+    reassessment_available: ctx.assessmentStatus === 'completed',
+    last_reassessment_at: findLastReassessmentAt(allAnswers),
   };
 }
