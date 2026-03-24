@@ -136,6 +136,7 @@ CodeScene (and other VS Code extensions) report code health issues via VS Code's
 - Build: `npm run build`
 - Supabase reset: `npx supabase db reset`
 - Supabase diff: `npx supabase db diff` (should produce "No schema changes found" if DB matches schema files)
+- Integration tests after db reset: `npx supabase db reset` cycles the DB container but not Kong, breaking port 54321. If integration tests fail with `fetch failed`, run `docker restart supabase_kong_feature-comprehension-score` then re-run.
 
 **Note:** Markdown linting runs automatically after Write/Edit operations via post-tool-use hooks (configured in [settings.json](settings.json)).
 
