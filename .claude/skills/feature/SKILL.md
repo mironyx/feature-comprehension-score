@@ -23,7 +23,7 @@ Execute these steps sequentially. Do not skip steps. Do not ask for confirmation
 
 If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 
-1. Run `gh project item-list 1 --owner leonids2005 --format json` and find the **top Todo item** (first item with `status: "Todo"`).
+1. Run `gh issue list --label L5-implementation --state open --limit 1` and use the first result.
 2. Read the issue body: `gh issue view <number>`.
 3. **Validate the issue has enough context:**
    - Design doc or LLD section reference
