@@ -5,6 +5,8 @@
 -- Note: db diff does not capture CREATE EXTENSION or GRANT — authored manually.
 
 -- Enable pgsodium extension (idempotent).
+-- Schema must exist before CREATE EXTENSION on local Docker images that do not pre-create it.
+CREATE SCHEMA IF NOT EXISTS pgsodium;
 CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
 
 -- NOTE: GRANT EXECUTE on pgsodium.crypto_aead_det_encrypt to postgres is NOT
