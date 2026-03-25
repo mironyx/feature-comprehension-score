@@ -3,14 +3,14 @@
 
 import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
+import type { ApiContext } from '@/lib/api/context';
 import { detectRelevance } from '@/lib/engine/relevance';
 import { scoreAnswers, calculateAssessmentAggregate, type ScoredAnswer } from '@/lib/engine/pipeline';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import { AnthropicClient } from '@/lib/engine/llm/client';
 
-type UserClient = SupabaseClient<Database>;
-type ServiceClient = SupabaseClient<Database>;
+type UserClient = ApiContext['supabase'];
+type ServiceClient = ApiContext['adminSupabase'];
 
 type ParticipantRow = Database['public']['Tables']['assessment_participants']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -108,6 +108,29 @@ function resolveAttemptNumber(
   return max + 1;
 }
 
+/** Throws 422 if any submitted answer references an unknown question. */
+function validateQuestionIds(answers: SubmitBody['answers'], questionIds: Set<string>): void {
+  for (const answer of answers) {
+    if (!questionIds.has(answer.question_id)) {
+      throw new ApiError(422, 'Invalid question ID', { question_id: answer.question_id });
+    }
+  }
+}
+
+function validateFirstAttemptCoverage(submittedIds: Set<string>, questions: QuestionRow[]): void {
+  const missing = questions.filter(q => !submittedIds.has(q.id));
+  if (missing.length > 0) {
+    throw new ApiError(422, 'Missing answers for all questions', { missing: missing.map(q => q.id) });
+  }
+}
+
+function validateReAttemptCoverage(submittedIds: Set<string>, previouslyIrrelevantIds: Set<string>): void {
+  const invalid = [...submittedIds].find(id => !previouslyIrrelevantIds.has(id));
+  if (invalid) {
+    throw new ApiError(422, 'Re-attempt must only include previously flagged questions', { question_id: invalid });
+  }
+}
+
 /**
  * Validate submission against known questions.
  * First attempt: all questions must be answered.
@@ -122,29 +145,11 @@ function validateSubmission(
 ): void {
   const questionIds = new Set(questions.map(q => q.id));
   const submittedIds = new Set(body.answers.map(a => a.question_id));
-
-  for (const answer of body.answers) {
-    if (!questionIds.has(answer.question_id)) {
-      throw new ApiError(422, 'Invalid question ID', { question_id: answer.question_id });
-    }
-  }
-
+  validateQuestionIds(body.answers, questionIds);
   if (isFirstAttempt) {
-    const missing = questions.filter(q => !submittedIds.has(q.id));
-    if (missing.length > 0) {
-      throw new ApiError(422, 'Missing answers for all questions', {
-        missing: missing.map(q => q.id),
-      });
-    }
+    validateFirstAttemptCoverage(submittedIds, questions);
   } else {
-    // Re-attempt: must only answer previously flagged questions
-    for (const id of submittedIds) {
-      if (!previouslyIrrelevantIds.has(id)) {
-        throw new ApiError(422, 'Re-attempt must only include previously flagged questions', {
-          question_id: id,
-        });
-      }
-    }
+    validateReAttemptCoverage(submittedIds, previouslyIrrelevantIds);
   }
 }
 
@@ -294,14 +299,19 @@ async function fetchScoringData(
   };
 }
 
+interface ScoringResultsParams {
+  assessmentId: string;
+  overallScore: number;
+  scoringIncomplete: boolean;
+  scored: ScoredAnswer[];
+  questions: ScoringQuestionRow[];
+}
+
 async function persistScoringResults(
   adminSupabase: ServiceClient,
-  assessmentId: string,
-  overallScore: number,
-  scoringIncomplete: boolean,
-  scored: ScoredAnswer[],
-  questions: ScoringQuestionRow[],
+  params: ScoringResultsParams,
 ): Promise<void> {
+  const { assessmentId, overallScore, scoringIncomplete, scored, questions } = params;
   const { error } = await adminSupabase
     .from('assessments')
     .update({ aggregate_score: overallScore, scoring_incomplete: scoringIncomplete, status: 'completed' })
@@ -348,7 +358,13 @@ async function triggerScoring(
       .filter(a => a.questionIndex >= 0);
     const result = await scoreAnswers({ rubric, answers: participantAnswers, llmClient });
     const aggregate = calculateAssessmentAggregate(result.scored, rubric);
-    await persistScoringResults(adminSupabase, assessmentId, aggregate.overallScore, result.status === 'scoring_incomplete', result.scored, questions);
+    await persistScoringResults(adminSupabase, {
+      assessmentId,
+      overallScore: aggregate.overallScore,
+      scoringIncomplete: result.status === 'scoring_incomplete',
+      scored: result.scored,
+      questions,
+    });
   } catch (err) {
     console.error('triggerScoring: scoring failed:', err);
     throw new ApiError(500, 'Scoring failed');
@@ -360,14 +376,13 @@ async function triggerScoring(
 // ---------------------------------------------------------------------------
 
 export async function submitAnswers(
-  supabase: UserClient,
-  adminSupabase: ServiceClient,
-  assessmentId: string,
-  userId: string,
-  body: SubmitBody,
+  ctx: ApiContext,
+  params: { assessmentId: string; body: SubmitBody },
 ): Promise<SubmitResponse> {
+  const { supabase, adminSupabase, user } = ctx;
+  const { assessmentId, body } = params;
   // 1. Verify participant
-  const participant = await resolveParticipant(supabase, assessmentId, userId);
+  const participant = await resolveParticipant(supabase, assessmentId, user.id);
 
   // 2. Fetch questions
   const questions = await fetchQuestionsForValidation(adminSupabase, assessmentId);

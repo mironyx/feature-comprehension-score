@@ -2,12 +2,10 @@
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4
 
 import type { NextRequest } from 'next/server';
-import { requireAuth } from '@/lib/api/auth';
+import { createApiContext } from '@/lib/api/context';
 import { handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
 import { validateBody } from '@/lib/api/validation';
-import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
-import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { submitAnswers, SubmitBodySchema } from './service';
 export type { SubmitResponse } from './service';
 
@@ -34,13 +32,9 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { id: assessmentId } = await params;
-    const user = await requireAuth(request);
+    const ctx = await createApiContext(request);
     const body = await validateBody(request, SubmitBodySchema);
-    const supabase = createReadonlyRouteHandlerClient(request);
-    const adminSupabase = createSecretSupabaseClient();
-
-    const result = await submitAnswers(supabase, adminSupabase, assessmentId, user.id, body);
-    return json(result);
+    return json(await submitAnswers(ctx, { assessmentId, body }));
   } catch (error) {
     return handleApiError(error);
   }
