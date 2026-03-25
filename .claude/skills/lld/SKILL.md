@@ -157,15 +157,19 @@ src/lib/module/
 #### Internal decomposition — [route or component]
 
 For every non-trivial API route or component, add an explicit internal decomposition section
-**before implementation begins**. Name every function that will exist — not just public interfaces —
-and state what is forbidden.
+**before implementation begins**. Name every function, class, or interface that will exist
+internally and state what is forbidden.
 
 ```
-Route handler (stays in route.ts, ≤ 25 lines):
-- [what the handler calls and returns]
+Controller (stays in route.ts, ≤ 5 lines):
+- Calls auth helper, then calls service
+- Returns json(result) (or json(result, { status: 201 }) for creation)
 
-Private helpers in route.ts (≤ 20 lines each, and nothing else):
-- `helperName(params): ReturnType` — [purpose and error behaviour]
+Service ([endpoint]/service.ts):
+- Exported: `serviceFn(supabase, adminSupabase, params): Promise<ResponseType>` — [one-line purpose]
+
+  Private helpers (≤ 20 lines each):
+  - `helperName(params): ReturnType` — [purpose and error behaviour]
 
 Extracted to helpers.ts (if applicable):
 - `pureFunction(...)` — [why extracted: testability, reuse]

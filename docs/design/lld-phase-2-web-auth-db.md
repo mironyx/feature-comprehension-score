@@ -552,17 +552,22 @@ src/app/api/
       route.ts                     — GET /api/assessments/[id] (detail)
                                      PUT /api/assessments/[id] (skip/close)
       helpers.ts                   — filterQuestionFields() — pure, extracted for testability
+      update.service.ts            — updateAssessment() — skip/close business logic
       scores/
         route.ts                   — GET /api/assessments/[id]/scores (FCS self-view scores)
+        service.ts                 — getScores() — fetch and build scored-question response
       answers/
         route.ts                   — POST /api/assessments/[id]/answers
+        service.ts                 — submitAnswers() — validate, store, relevance, finalise
       reassess/
         route.ts                   — POST /api/assessments/[id]/reassess
   fcs/
     route.ts                       — POST /api/fcs (FCS creation)
+    service.ts                     — createFcs() — PR validation, participants, record creation
   webhooks/
     github/
       route.ts                     — POST /api/webhooks/github
+      service.ts                   — handleGithubWebhook() — event dispatch
 ```
 
 #### Shared route utilities
@@ -739,25 +744,22 @@ FCS participants only. Returns the caller's self-view scores after submission. R
 
 #### Internal decomposition — GET /api/assessments/[id]/scores
 
-Route handler (stays in `scores/route.ts`, ≤ 25 lines):
-- Calls `requireAuth()`, creates session client and service client
-- Calls `resolveAssessmentForScores()` then `resolveParticipant()`
-- Fetches `participant_answers` and `assessment_questions` via service client
-- Calls `buildScoredQuestions()` and `findLastReassessmentAt()`
-- Returns `json(response)`
+Controller (stays in `scores/route.ts`, ≤ 5 lines):
+- Calls `requireAuth()`, then calls `scoresService.getScores(supabase, adminSupabase, { assessmentId, userId })`
+- Returns `json(result)`
 
-Private helpers in `scores/route.ts` (≤ 20 lines each, and nothing else):
-- `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other DB error → 500
-- `resolveParticipant(supabase, assessmentId: string, userId: string): ParticipantRow` — returns participant row; throws ApiError(404) if not enrolled or status !== 'submitted'
-- `buildScoredQuestions(answers: AnswerRow[], questions: QuestionRow[]): ScoredQuestion[]` — pure; for each question picks the latest non-reassessment answer with non-null `score` and `score_rationale`; throws ApiError(404) if any question has no scored answer (scoring not yet complete)
-- `findLastReassessmentAt(answers: AnswerRow[]): string | null` — pure; returns the latest `created_at` from rows where `is_reassessment = true`, or null
+Service (`scores/service.ts`):
+- Exported: `getScores(supabase, adminSupabase, params): Promise<ScoresResponse>` — fetch assessment, verify participant, fetch answers and questions, build scored-question response
 
-> **Constraint:** No `helpers.ts` for this route — all private helpers stay in `scores/route.ts`. The `scores/` directory contains no sibling modules.
->
-> **Constraint:** `buildScoredQuestions` must throw ApiError(404) when any question has no scored answer — do not return partial results. The endpoint is only meaningful when scoring is complete for all questions.
+  Private helpers (≤ 20 lines each):
+  - `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other → 500
+  - `resolveParticipant(supabase, assessmentId, userId): ParticipantRow` — 404 if not enrolled or not submitted
+  - `buildScoredQuestions(answers, questions): ScoredQuestion[]` — pure; picks latest non-reassessment scored answer per question; 404 if any question has no scored answer
+  - `findLastReassessmentAt(answers): string | null` — pure; latest `created_at` where `is_reassessment = true`, or null
+
+> **Constraint:** `buildScoredQuestions` must throw ApiError(404) when any question has no scored answer — do not return partial results.
 
 Do NOT:
-- Add a `buildResponse` wrapper over the final mapping — it is ≤ 5 lines and belongs in the handler
 - Silently skip questions with null scores
 - Create a parameter struct for the service-client fetch calls
 
@@ -787,30 +789,28 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
 
 #### Internal decomposition — POST /api/assessments/[id]/answers
 
-Route handler (stays in `answers/route.ts`, ≤ 25 lines):
-- Calls `requireAuth()` and `validateBody()`
-- Creates session client and service client
-- Calls `resolveParticipant()`, `fetchQuestionsForValidation()`, `validateSubmission()`
-- Calls `storeAnswers()`, `runRelevanceChecks()`
-- If all relevant: calls `finaliseSubmission()` and returns `json({ status: 'accepted', ... })`
-- If any irrelevant: returns `json({ status: 'relevance_failed', ... })`
+Controller (stays in `answers/route.ts`, ≤ 5 lines):
+- Calls `requireAuth()` and `validateBody()`, then calls `answersService.submitAnswers(supabase, adminSupabase, { assessmentId, userId, body })`
+- Returns `json(result)`
 
-Private helpers in `answers/route.ts` (≤ 20 lines each, and nothing else):
-- `resolveParticipant(supabase, assessmentId: string, userId: string): Promise<ParticipantRow>` — fetches caller's participant row; throws ApiError(403) if not enrolled; throws ApiError(422) if already submitted; throws ApiError(500) on DB error
-- `fetchQuestionsForValidation(adminSupabase, assessmentId: string): Promise<QuestionRow[]>` — fetches all questions via service client; throws ApiError(500) on DB error
-- `validateSubmission(body: SubmitBody, questions: QuestionRow[], participant: ParticipantRow): void` — pure; on first submission throws ApiError(422) if any question is missing an answer; on re-attempt throws ApiError(422) if any supplied question_id is not in the flagged set or has no remaining attempts
-- `storeAnswers(adminSupabase, participantId: string, answers: AnswerInput[], attemptNumber: number): Promise<void>` — inserts rows into `participant_answers`; throws ApiError(500) on DB error
-- `runRelevanceChecks(answers: AnswerInput[], questions: QuestionRow[]): Promise<RelevanceResult[]>` — calls engine relevance detection per answer; never throws — wraps engine errors as `{ is_relevant: false, explanation: null }`; logs failures with `console.error`
-- `finaliseSubmission(adminSupabase, participantId: string, assessmentId: string): Promise<ParticipationCounts>` — updates participant status to `submitted`; fetches participant counts; if all participants submitted, calls `scoreAssessment()` synchronously; returns `{ completed, total }`
+Service (`answers/service.ts`):
+- Exported: `submitAnswers(supabase, adminSupabase, params): Promise<SubmitResponse>` — resolve participant, validate submission, store answers, run relevance checks, finalise if all relevant; returns `{ status: 'accepted' | 'relevance_failed', ... }`
 
-> **Constraint:** `runRelevanceChecks` must never throw. A failed relevance call must not crash the submission — log and treat as irrelevant with a null explanation.
+  Private helpers (≤ 20 lines each):
+  - `resolveParticipant(supabase, assessmentId, userId)` — 403 if not enrolled, 422 if already submitted
+  - `fetchQuestionsForValidation(adminSupabase, assessmentId)` — all question rows; 500 on DB error
+  - `validateSubmission(body, questions, participant)` — pure; 422 on missing answers (first attempt) or invalid question IDs (re-attempt)
+  - `storeAnswers(adminSupabase, participantId, answers, attemptNumber)` — inserts `participant_answers` rows
+  - `runRelevanceChecks(answers, questions)` — calls engine per answer; never throws; logs failures and treats as irrelevant
+  - `finaliseSubmission(adminSupabase, participantId, assessmentId)` — sets participant to `submitted`; calls `scoreAssessment()` synchronously if all participants done; returns `{ completed, total }`
+
+> **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
 >
-> **Constraint:** The `scoreAssessment()` call in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500) — do not fire-and-forget.
+> **Constraint:** `scoreAssessment()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
 >
-> **Constraint:** Determine attempt number from existing `participant_answers` rows, not from the request body. The client never sends an attempt number.
+> **Constraint:** Determine attempt number from existing `participant_answers` rows — the client never sends one.
 
 Do NOT:
-- Inline the relevance check loop into the route handler
 - Create parameter structs for single-use helper calls
 - Silently swallow errors from DB operations
 
@@ -828,24 +828,24 @@ Two actions: `skip` (PRCC) and `close` (FCS). Both require Org Admin. Skip recor
 
 #### Internal decomposition — PUT /api/assessments/[id]
 
-Route handler (stays in `[id]/route.ts`, alongside the GET handler, ≤ 25 lines):
-- Calls `requireAuth()` then `requireOrgAdmin()` using the org ID from the fetched assessment
-- Calls `validateBody()` to extract and type-check `action`
-- Dispatches to `handleSkip()` or `handleClose()` based on `action`
-- Returns `json(response)`
+Controller (stays in `[id]/route.ts`, alongside the GET handler, ≤ 5 lines):
+- Calls `requireAuth()` and `validateBody()`, then calls `updateService.updateAssessment(adminSupabase, { assessmentId, action, body })`
+- Returns `json(result)`
 
-Private helpers in `[id]/route.ts` (shared file with GET handler, each helper ≤ 20 lines):
-- `handleSkip(adminSupabase, assessmentId: string, reason: string): Promise<SkipResponse>` — fetches assessment; validates type === 'prcc' and status is active (not completed, skipped, or invalidated); updates status to `skipped`; records reason, user ID, and timestamp; calls `engine.updateCheckRun(assessmentId, 'neutral')`; returns `{ status: 'skipped', check_run_conclusion: 'neutral' }`; throws ApiError(422) if validation fails
-- `handleClose(adminSupabase, assessmentId: string, triggerScoring: boolean): Promise<CloseResponse>` — fetches assessment; validates type === 'fcs' and status === 'awaiting_responses'; updates status to `scoring`; if `triggerScoring`, calls `scoreAssessment()`; updates status to `completed` after scoring; fetches participant counts; returns `{ status, participants_scored, participants_total }`; throws ApiError(422) if validation fails
+Service (`[id]/update.service.ts`):
+- Exported: `updateAssessment(adminSupabase, params): Promise<SkipResponse | CloseResponse>` — validates org admin, dispatches to `handleSkip` or `handleClose` based on `action`
 
-> **Constraint:** Both `handleSkip` and `handleClose` must re-fetch the assessment independently — do not pass the assessment row between the GET and PUT handlers. The PUT requires a fresh read for mutation validation.
+  Private helpers (≤ 20 lines each):
+  - `handleSkip(adminSupabase, assessmentId, reason)` — validates type === 'prcc' and active status; updates to `skipped`; calls `engine.updateCheckRun(assessmentId, 'neutral')`; 422 if invalid
+  - `handleClose(adminSupabase, assessmentId, triggerScoring)` — validates type === 'fcs' and status === 'awaiting_responses'; calls `scoreAssessment()` synchronously; 422 if invalid
+
+> **Constraint:** Both handlers must re-fetch the assessment independently — do not reuse the row from the GET handler. The PUT requires a fresh read for mutation validation.
 >
-> **Constraint:** The GitHub Check Run update (`conclusion = 'neutral'`) in `handleSkip` goes through `engine.updateCheckRun()`. The `PUT` handler must not import or call the GitHub client directly.
+> **Constraint:** `handleSkip` calls `engine.updateCheckRun()`. The service must not import the GitHub client directly — use the engine abstraction.
 >
-> **Constraint:** `handleClose` calls `scoreAssessment()` synchronously. If it throws, set assessment status back to `awaiting_responses` and re-throw as ApiError(500).
+> **Constraint:** If `scoreAssessment()` throws in `handleClose`, set status back to `awaiting_responses` and re-throw as ApiError(500).
 
 Do NOT:
-- Inline action dispatch — always delegate to named handlers
 - Combine skip and close validation in a shared helper
 - Add a third action type without a corresponding named handler
 
@@ -872,22 +872,23 @@ Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repo
 
 #### Internal decomposition — POST /api/fcs
 
-Route handler (stays in `fcs/route.ts`, ≤ 25 lines):
-- Calls `requireOrgAdmin()` and `validateBody()`
-- Calls `validateMergedPRs()`, `resolveParticipants()`, `createAssessmentRecord()`, `enrollParticipants()`
+Controller (stays in `fcs/route.ts`, ≤ 5 lines):
+- Calls `requireOrgAdmin()` and `validateBody()`, then calls `fcsService.createFcs(adminSupabase, githubClient, body)`
 - Returns `json(result, { status: 201 })`
-- Schedules `triggerRubricGeneration()` after response via a detached `.catch(console.error)` promise
 
-Private helpers in `fcs/route.ts` (≤ 20 lines each, and nothing else):
-- `validateMergedPRs(githubClient, repositoryId: string, prNumbers: number[]): Promise<void>` — verifies each PR number against the GitHub API; throws ApiError(422, `PR ${n} is not merged in this repository`) for any unmerged or not-found PR
-- `resolveParticipants(adminSupabase, githubClient, orgId: string, usernames: string[]): Promise<ResolvedParticipant[]>` — resolves GitHub user IDs for each username; throws ApiError(422, `Unknown participant: ${username}`) for any that cannot be resolved
-- `createAssessmentRecord(adminSupabase, input: FcsCreateInput): Promise<string>` — inserts the assessment row with status `rubric_generation`; returns the new `assessment_id`; throws ApiError(500) on DB error
-- `enrollParticipants(adminSupabase, assessmentId: string, participants: ResolvedParticipant[]): Promise<void>` — inserts `assessment_participants` rows; throws ApiError(500) on DB error
-- `triggerRubricGeneration(assessmentId: string): Promise<void>` — calls engine to generate the rubric; if it throws, logs with `console.error` and swallows — the assessment exists with status `rubric_generation` pending retry
+Service (`fcs/service.ts`):
+- Exported: `createFcs(adminSupabase, githubClient, input): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
 
-> **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record. The DB may be stale.
+  Private helpers (≤ 20 lines each):
+  - `validateMergedPRs(githubClient, repositoryId, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
+  - `resolveParticipants(adminSupabase, githubClient, orgId, usernames)` — resolves GitHub user IDs; 422 for unknown username
+  - `createAssessmentRecord(adminSupabase, input)` — inserts assessment row with status `rubric_generation`; returns new `assessment_id`
+  - `enrollParticipants(adminSupabase, assessmentId, participants)` — inserts `assessment_participants` rows
+  - `triggerRubricGeneration(assessmentId)` — fire-and-forget; logs and swallows on failure
+
+> **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
 >
-> **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment. Log the failure; do not re-throw.
+> **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment.
 >
 > **Constraint:** Map the validated request body to `FcsCreateInput` before passing to `createAssessmentRecord` — do not pass `body` directly.
 
@@ -914,34 +915,33 @@ Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges
 
 #### Internal decomposition — POST /api/webhooks/github
 
-Route handler (stays in `webhooks/github/route.ts`, ≤ 25 lines):
-- Reads raw body as text (required before JSON.parse — stream cannot be read twice)
-- Calls `verifySignature()` — returns `401` on failure
-- Reads `X-GitHub-Event` header
-- Parses body to JSON
-- Dispatches to the appropriate handler; unknown event types are silently ignored
+Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
+- Reads raw body as text (HTTP layer — stream cannot be read twice after this)
+- Calls `verifySignature(body, sig)` — returns 401 on failure
+- Calls `webhookService.handleGithubWebhook(adminSupabase, githubClient, event, JSON.parse(body))`
 - Returns `json({ received: true })`
 
-Private helpers in `webhooks/github/route.ts` (≤ 20 lines each, and nothing else):
-- `verifySignature(body: string, signature: string | null): boolean` — pure; HMAC-SHA256 of body using `process.env.GITHUB_WEBHOOK_SECRET`; returns false if signature is missing or does not match
-- `handleInstallation(adminSupabase, payload: InstallationPayload): Promise<void>` — `created`: inserts org + org_config + repositories rows; `deleted`: sets org status to `inactive`; other actions: no-op
-- `handleInstallationRepositories(adminSupabase, payload: InstallationRepositoriesPayload): Promise<void>` — `added`: inserts repository rows; `removed`: sets repository status to `inactive`; other actions: no-op
-- `handlePullRequest(adminSupabase, githubClient, payload: PullRequestPayload): Promise<void>` — delegates to one of four sub-helpers based on `payload.action`; other actions: no-op
-- `initiatePrcc(adminSupabase, githubClient, payload): Promise<void>` — skip check → fetch PR context → generate rubric → create assessment + participants + Check Run; delegates heavy work to engine
-- `handleSync(adminSupabase, payload): Promise<void>` — upserts `sync_debounce` row with the new SHA and timestamp; does not initiate PRCC inline
-- `addParticipant(adminSupabase, payload): Promise<void>` — inserts participant row for the newly requested reviewer; no-op if already enrolled
-- `removeParticipant(adminSupabase, payload): Promise<void>` — soft-deletes participant row; re-evaluates whether remaining participants have all submitted
+> **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
 
-> **Constraint:** The route handler must read the raw body as text before calling `verifySignature`. Do not call `request.json()` before signature verification — it consumes the body stream and makes HMAC verification impossible.
+Service (`webhooks/github/service.ts`):
+- Exported: `handleGithubWebhook(adminSupabase, githubClient, event, payload): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
+
+  Private helpers (≤ 20 lines each):
+  - `handleInstallation(adminSupabase, payload)` — `created`: inserts org + org_config + repositories; `deleted`: sets org inactive; other actions: no-op
+  - `handleInstallationRepositories(adminSupabase, payload)` — `added`: inserts repositories; `removed`: sets inactive; other actions: no-op
+  - `handlePullRequest(adminSupabase, githubClient, payload)` — delegates to sub-helpers by `payload.action`; other actions: no-op
+  - `initiatePrcc(adminSupabase, githubClient, payload)` — skip check → fetch PR context → generate rubric → create assessment + participants + Check Run
+  - `handleSync(adminSupabase, payload)` — upserts `sync_debounce` row with new SHA and timestamp only
+  - `addParticipant(adminSupabase, payload)` — inserts participant row; no-op if already enrolled
+  - `removeParticipant(adminSupabase, payload)` — soft-deletes participant; re-evaluates submission completeness
+
+> **Constraint:** Always return `200 { received: true }` after signature verification passes — GitHub retries on non-200. Catch and log all errors inside `handleGithubWebhook`; never surface them to the controller.
 >
-> **Constraint:** The webhook must always return `200 { received: true }`, even when processing fails. Never return a non-200 status after signature verification passes — GitHub retries on non-200. Catch all errors inside each handler, log with `console.error`, and return.
->
-> **Constraint:** `handleSync` records the debounce entry only. It must NOT call `initiatePrcc`. Processing after the 60-second window is handled by a scheduled job (future phase).
+> **Constraint:** `handleSync` records the debounce entry only — must NOT call `initiatePrcc`. PRCC after the 60-second window is a future scheduled job.
 
 Do NOT:
-- Inline event dispatching in the route handler — always delegate to named handlers
-- Use a `switch` statement for event routing — use `if/else if` with explicit handler calls
-- Return anything other than `{ received: true }` from the route handler
+- Use a `switch` for event routing — use `if/else if` with explicit handler calls
+- Return anything other than `{ received: true }` from the controller
 
 #### Error handling
 
