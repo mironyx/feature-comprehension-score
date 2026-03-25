@@ -162,11 +162,13 @@ internally and state what is forbidden.
 
 ```
 Controller (stays in route.ts, ≤ 5 lines):
-- Calls auth helper, then calls service
+- Calls auth helper — creates and owns all infrastructure clients (supabase, adminSupabase, githubClient)
+- Calls service, passing clients as parameters
 - Returns json(result) (or json(result, { status: 201 }) for creation)
 
 Service ([endpoint]/service.ts):
 - Exported: `serviceFn(supabase, adminSupabase, params): Promise<ResponseType>` — [one-line purpose]
+- Receives all clients as parameters — never creates them internally (dependency injection)
 
   Private helpers (≤ 20 lines each):
   - `helperName(params): ReturnType` — [purpose and error behaviour]
@@ -174,7 +176,9 @@ Service ([endpoint]/service.ts):
 Extracted to helpers.ts (if applicable):
 - `pureFunction(...)` — [why extracted: testability, reuse]
 
-> **Constraint:** [hard limit written before implementation, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
+> **Constraint:** The service must never call createClient(), createServiceClient(), or any infrastructure factory. Clients are created once at the controller boundary and injected downward. A service that creates its own client cannot be unit-tested without a live database.
+
+> **Constraint:** [other hard limits, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
 
 Do NOT:
 - [specific anti-pattern to avoid]

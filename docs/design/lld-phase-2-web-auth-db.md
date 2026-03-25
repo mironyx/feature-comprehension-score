@@ -635,6 +635,39 @@ async function validateBody<T>(request: NextRequest, schema: ZodType<T>): Promis
 
 > **Implementation note (issue #56):** Parameter type is `ZodType<T>` (not `ZodSchema<T>`), as `ZodSchema` is deprecated in Zod v4. `validateParams()` is deferred.
 
+#### Dependency injection
+
+Infrastructure clients (Supabase, GitHub) are created at the controller boundary and injected into services as parameters. Services are pure functions of their inputs — they never create clients internally.
+
+**Controller responsibility** — create all clients, then call the service:
+
+```typescript
+// route.ts (controller)
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  const user = await requireAuth(request)
+  const supabase = createRouteHandlerClient(request)
+  const adminSupabase = createServiceClient()
+  return json(await myService.doWork(supabase, adminSupabase, { ...params, userId: user.id }))
+}
+```
+
+**Service responsibility** — receive clients as parameters, never create them:
+
+```typescript
+// service.ts
+export async function doWork(
+  supabase: SupabaseClient,
+  adminSupabase: SupabaseClient,
+  params: { assessmentId: string; userId: string },
+): Promise<WorkResult> {
+  // uses supabase / adminSupabase directly — no createClient() calls here
+}
+```
+
+> **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory has taken on a controller responsibility. This makes the service impossible to unit-test without a live Supabase instance and breaks Clean Architecture's dependency direction.
+
+> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) create clients inside the route handler rather than injecting them into a separate service. These pre-date this pattern and should be refactored in a follow-up issue.
+
 #### GET /api/assessments
 
 See [v1-design.md §4.4 GET /api/assessments](v1-design.md#get-apiassessments) for response shape.
@@ -745,7 +778,8 @@ FCS participants only. Returns the caller's self-view scores after submission. R
 #### Internal decomposition — GET /api/assessments/[id]/scores
 
 Controller (stays in `scores/route.ts`, ≤ 5 lines):
-- Calls `requireAuth()`, then calls `scoresService.getScores(supabase, adminSupabase, { assessmentId, userId })`
+- Calls `requireAuth(request)` — creates and owns `supabase` (session client) and `adminSupabase` (service-role client)
+- Calls `scoresService.getScores(supabase, adminSupabase, { assessmentId, userId })`
 - Returns `json(result)`
 
 Service (`scores/service.ts`):
@@ -790,7 +824,8 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
 #### Internal decomposition — POST /api/assessments/[id]/answers
 
 Controller (stays in `answers/route.ts`, ≤ 5 lines):
-- Calls `requireAuth()` and `validateBody()`, then calls `answersService.submitAnswers(supabase, adminSupabase, { assessmentId, userId, body })`
+- Calls `requireAuth(request)` and `validateBody()` — creates and owns `supabase` and `adminSupabase`
+- Calls `answersService.submitAnswers(supabase, adminSupabase, { assessmentId, userId, body })`
 - Returns `json(result)`
 
 Service (`answers/service.ts`):
@@ -829,7 +864,8 @@ Two actions: `skip` (PRCC) and `close` (FCS). Both require Org Admin. Skip recor
 #### Internal decomposition — PUT /api/assessments/[id]
 
 Controller (stays in `[id]/route.ts`, alongside the GET handler, ≤ 5 lines):
-- Calls `requireAuth()` and `validateBody()`, then calls `updateService.updateAssessment(adminSupabase, { assessmentId, action, body })`
+- Calls `requireAuth(request)` and `validateBody()` — creates and owns `adminSupabase`
+- Calls `updateService.updateAssessment(adminSupabase, { assessmentId, action, body })`
 - Returns `json(result)`
 
 Service (`[id]/update.service.ts`):
@@ -860,20 +896,25 @@ Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repo
 **Sequence:**
 
 ```
-1. requireOrgAdmin()
-2. validateBody() — schema-validates request body
-3. validateMergedPRs() — verify each PR is merged (GitHub API)
-4. resolveParticipants() — look up GitHub user IDs
-5. createAssessmentRecord() — insert assessment row, status = 'rubric_generation'
-6. enrollParticipants() — insert assessment_participants rows
-7. Return 201 Created
-8. (After response) triggerRubricGeneration() — fire-and-forget
+Controller (route.ts):
+1. requireOrgAdmin() — auth + role check; creates/injects supabase, adminSupabase, githubClient
+2. validateBody() — parse and validate request body
+3. → fcsService.createFcs(adminSupabase, githubClient, input)
+4. Return 201 Created
+
+Service (fcsService.createFcs):
+5. validateMergedPRs() — verify each PR is merged (GitHub API)
+6. resolveParticipants() — look up GitHub user IDs
+7. createAssessmentRecord() — insert assessment row, status = 'rubric_generation'
+8. enrollParticipants() — insert assessment_participants rows
+9. (After returning) triggerRubricGeneration() — fire-and-forget
 ```
 
 #### Internal decomposition — POST /api/fcs
 
 Controller (stays in `fcs/route.ts`, ≤ 5 lines):
-- Calls `requireOrgAdmin()` and `validateBody()`, then calls `fcsService.createFcs(adminSupabase, githubClient, body)`
+- Calls `requireOrgAdmin(request)` and `validateBody()` — creates and owns `adminSupabase` and `githubClient`
+- Calls `fcsService.createFcs(adminSupabase, githubClient, body)`
 - Returns `json(result, { status: 201 })`
 
 Service (`fcs/service.ts`):
@@ -918,7 +959,7 @@ Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges
 Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
 - Reads raw body as text (HTTP layer — stream cannot be read twice after this)
 - Calls `verifySignature(body, sig)` — returns 401 on failure
-- Calls `webhookService.handleGithubWebhook(adminSupabase, githubClient, event, JSON.parse(body))`
+- Creates `adminSupabase` and `githubClient`; calls `webhookService.handleGithubWebhook(adminSupabase, githubClient, event, JSON.parse(body))`
 - Returns `json({ received: true })`
 
 > **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
