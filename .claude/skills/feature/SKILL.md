@@ -157,13 +157,17 @@ If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
-### Step 6: Diagnostics
+### Step 6: Diagnostics (blocking gate)
 
-Run `/diag` to check VS Code extension diagnostics.
+Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
 
-- Fix any Errors or Warnings.
-- Info-level items: fix if straightforward, otherwise note for the PR description.
-- Re-run Step 5 after any fixes.
+1. Run `/diag` on all changed files.
+2. If any findings exist, fix them all.
+3. Re-run `/diag`.
+4. Repeat until `/diag` reports zero findings.
+5. Re-run Step 5 (full verification) after any fixes.
+
+Only proceed to Step 7 when `/diag` reports zero findings.
 
 ### Step 7: Commit
 

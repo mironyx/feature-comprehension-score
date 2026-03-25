@@ -103,6 +103,15 @@ Rules:
 - **Types as documentation** — Use discriminated unions, branded types, and Zod schemas. Avoid `any` and type assertions.
 - **FIRST tests** — Fast, Independent, Repeatable, Self-validating, Timely.
 
+## Complexity Budget (hard limits)
+
+- Route handler body: ≤ 25 lines
+- Any function: ≤ 20 lines. If longer, split.
+- Nesting depth: ≤ 3 levels. Flatten with early returns.
+- No parameter structs for single-use internal functions.
+- No silent catch/swallow without an inline comment explaining why.
+- CodeScene warnings on changed files: **blocking** — fix before commit.
+
 ## Session Guidance
 
 Not enforced ceremony — use judgement. Session boundaries are informal.
