@@ -231,14 +231,33 @@ Build a list: IMPLEMENTED_FUNCTIONS.
 
 ## Step 4: Flag unspecified functions
 
-For each function in IMPLEMENTED_FUNCTIONS that is NOT in DESIGNED_FUNCTIONS:
+First, determine whether the LLD section has an "Internal decomposition" section (a table or
+bullet list explicitly naming every private helper). This changes how you classify findings:
 
-- Determine whether the function has an inline justification comment immediately above or
-  within it (e.g., `// Justification: ...` or `// Not in LLD because ...`).
-- If no justification comment exists → **block** finding.
+**If the LLD has an internal decomposition section:**
+
+For each function in IMPLEMENTED_FUNCTIONS that is NOT in DESIGNED_FUNCTIONS:
+- If no justification comment exists → **block** finding. Include both resolution paths in the
+  evidence: (a) add a `// Justification:` comment if the function is genuinely necessary, OR
+  (b) update the LLD's internal decomposition section if the LLD was wrong and this function
+  represents the correct design. The reviewer decides which applies.
 - If a justification comment exists → **warn** finding (invented but explained).
 
-Exported/public functions are higher risk than private helpers — note this in the finding.
+Note: do NOT treat the LLD as infallible. If the implementation and the LLD disagree, both
+could be wrong. The finding surfaces the gap; the resolution is a human decision.
+
+**If the LLD has NO internal decomposition section:**
+
+The LLD is incomplete — it specified the *what* but not the *how*. Do not block the PR for
+unspecified private helpers in this case. Instead:
+- For each unspecified function that looks like a reasonable decomposition of a designed step
+  → **warn** finding: "LLD gap — update the LLD's internal decomposition section to specify
+  this helper or explicitly forbid it."
+- For each unspecified exported/public function (visible outside the file) → **block**
+  finding regardless, as public API surface should always be designed.
+
+In both cases: exported/public functions are higher risk than private helpers — note this in
+the finding.
 
 ## Step 5: Silent catch/swallow check
 
