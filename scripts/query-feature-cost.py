@@ -21,12 +21,15 @@ PROM = "http://localhost:9090/api/v1/query"
 
 
 def git_root() -> pathlib.Path:
-    return pathlib.Path(
-        subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-    )
+    # --git-common-dir always points to the main worktree's .git, even from a linked worktree
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    p = pathlib.Path(common)
+    if not p.is_absolute():
+        p = pathlib.Path.cwd() / p
+    return p.parent
 
 
 def read_session_ids(feature_id: str) -> list[str]:
@@ -119,8 +122,12 @@ def main() -> None:
     sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
     prefix = "Final " if args.final else ""
 
+    if not session_ids:
+        print(f"## {prefix}Usage\n- No session data found for {args.feature_id} — session tagging may not have run")
+        sys.exit(0)
+
     if cost is None:
-        print(f"## {prefix}Usage\n- Prometheus unavailable — run `docker compose up -d` in `monitoring/`")
+        print(f"## {prefix}Usage\n- Prometheus unreachable at {PROM} — is the monitoring stack running?")
         sys.exit(0)
 
     print(
