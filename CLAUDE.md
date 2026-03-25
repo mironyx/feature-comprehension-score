@@ -103,7 +103,7 @@ Rules:
 - **Types as documentation** — Use discriminated unions, branded types, and Zod schemas. Avoid `any` and type assertions.
 - **FIRST tests** — Fast, Independent, Repeatable, Self-validating, Timely.
 
-## Complexity Budget (hard limits)
+### Complexity Budget (hard limits)
 
 - Route handler body: ≤ 25 lines
 - Any function: ≤ 20 lines. If longer, split.
