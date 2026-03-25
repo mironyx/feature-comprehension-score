@@ -35,7 +35,10 @@ vi.mock('@/lib/engine/pipeline', () => ({
 
 import { requireAuth } from '@/lib/api/auth';
 import { detectRelevance } from '@/lib/engine/relevance';
-import { POST } from '@/app/api/assessments/[id]/answers/route';
+import type { NextResponse } from 'next/server';
+
+type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<NextResponse>;
+let POST: RouteHandler;
 
 // ---------------------------------------------------------------------------
 // Mock chain builder — same pattern as [id].test.ts
@@ -190,6 +193,12 @@ function setupTwoParticipantsOneStillPending() {
   };
 }
 
+function setupSubmittedParticipant() {
+  setupAuth();
+  setupParticipant({ status: 'submitted' });
+  setupQuestions();
+}
+
 async function postAnswers(body: unknown) {
   return POST(
     makeRequest(body),
@@ -201,9 +210,10 @@ async function postAnswers(body: unknown) {
 // Tests: POST /api/assessments/[id]/answers
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  ({ POST } = await import('@/app/api/assessments/' + '[id]/answers/route'));
   participantResult = { data: null, error: null };
   questionsResult = { data: [], error: null };
   insertAnswersResult = { data: null, error: null };
@@ -212,46 +222,48 @@ beforeEach(() => {
 });
 
 describe('POST /api/assessments/[id]/answers', () => {
-  describe('Given an unauthenticated request', () => {
-    it('then it returns 401', async () => {
-      const { ApiError } = await import('@/lib/api/errors');
-      vi.mocked(requireAuth).mockRejectedValue(new ApiError(401, 'Unauthenticated'));
+  describe('status-only responses', () => {
+    it.each([
+      {
+        name: 'Given an unauthenticated request then it returns 401',
+        setup: async () => {
+          const { ApiError } = await import('@/lib/api/errors');
+          vi.mocked(requireAuth).mockRejectedValue(new ApiError(401, 'Unauthenticated'));
+        },
+        body: { answers: [] },
+        expectedStatus: 401,
+      },
+      {
+        name: 'Given a user who is not a participant then it returns 403',
+        setup: async () => {
+          setupAuth();
+          participantResult = { data: null, error: null };
+        },
+        body: { answers: [{ question_id: 'question-001', answer_text: 'foo' }] },
+        expectedStatus: 403,
+      },
+      {
+        name: 'Given a participant who already submitted then it returns 422',
+        setup: async () => {
+          setupSubmittedParticipant();
+        },
+        body: { answers: [{ question_id: 'question-001', answer_text: 'foo' }] },
+        expectedStatus: 422,
+      },
+      {
+        name: 'Given an invalid request body then it returns 422 for missing answers array',
+        setup: async () => {
+          setupAuth();
+        },
+        body: {},
+        expectedStatus: 422,
+      },
+    ])('$name', async ({ setup, body, expectedStatus }) => {
+      await setup();
 
-      const response = await POST(
-        makeRequest({ answers: [] }),
-        { params: Promise.resolve({ id: ASSESSMENT_ID }) },
-      );
+      const response = await postAnswers(body);
 
-      expect(response.status).toBe(401);
-    });
-  });
-
-  describe('Given a user who is not a participant', () => {
-    it('then it returns 403', async () => {
-      setupAuth();
-      participantResult = { data: null, error: null }; // not found
-
-      const response = await POST(
-        makeRequest({ answers: [{ question_id: 'question-001', answer_text: 'foo' }] }),
-        { params: Promise.resolve({ id: ASSESSMENT_ID }) },
-      );
-
-      expect(response.status).toBe(403);
-    });
-  });
-
-  describe('Given a participant who already submitted', () => {
-    it('then it returns 422', async () => {
-      setupAuth();
-      setupParticipant({ status: 'submitted' });
-      setupQuestions();
-
-      const response = await POST(
-        makeRequest({ answers: [{ question_id: 'question-001', answer_text: 'foo' }] }),
-        { params: Promise.resolve({ id: ASSESSMENT_ID }) },
-      );
-
-      expect(response.status).toBe(422);
+      expect(response.status).toBe(expectedStatus);
     });
   });
 
@@ -397,16 +409,6 @@ describe('POST /api/assessments/[id]/answers', () => {
           { question_id: 'question-002', answer_text: 'Still irrelevant' },
         ],
       });
-
-      expect(response.status).toBe(422);
-    });
-  });
-
-  describe('Given an invalid request body', () => {
-    it('then it returns 422 for missing answers array', async () => {
-      setupAuth();
-
-      const response = await postAnswers({});
 
       expect(response.status).toBe(422);
     });
