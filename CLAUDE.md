@@ -103,6 +103,15 @@ Rules:
 - **Types as documentation** — Use discriminated unions, branded types, and Zod schemas. Avoid `any` and type assertions.
 - **FIRST tests** — Fast, Independent, Repeatable, Self-validating, Timely.
 
+### Complexity Budget (hard limits)
+
+- Route handler body: ≤ 25 lines
+- Any function: ≤ 20 lines. If longer, split.
+- Nesting depth: ≤ 3 levels. Flatten with early returns.
+- No parameter structs for single-use internal functions.
+- No silent catch/swallow without an inline comment explaining why.
+- CodeScene warnings on changed files: **blocking** — fix before commit.
+
 ## Session Guidance
 
 Not enforced ceremony — use judgement. Session boundaries are informal.
@@ -122,6 +131,7 @@ CodeScene (and other VS Code extensions) report code health issues via VS Code's
 
 - Review and fix diagnostics before considering a task complete.
 - Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
+- **Ignore smells on generated files** (e.g. `supabase/migrations/`) — these are not hand-authored and cannot be refactored. CodeScene exclusions are configured but may not always catch every generated file.
 - If a diagnostic conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
 - Do not suppress or disable diagnostic rules without discussing with the user first.
 
