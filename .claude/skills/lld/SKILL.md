@@ -174,7 +174,7 @@ Service ([endpoint]/service.ts):
 Extracted to helpers.ts (if applicable):
 - `pureFunction(...)` — [why extracted: testability, reuse]
 
-> **Constraint:** [hard limit written before implementation, e.g. "no parameter structs for single-use functions"]
+> **Constraint:** [hard limit written before implementation, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
 
 Do NOT:
 - [specific anti-pattern to avoid]

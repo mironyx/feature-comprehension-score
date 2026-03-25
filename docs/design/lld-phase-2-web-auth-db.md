@@ -761,7 +761,7 @@ Service (`scores/service.ts`):
 
 Do NOT:
 - Silently skip questions with null scores
-- Create a parameter struct for the service-client fetch calls
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
 
 #### POST /api/assessments/[id]/answers
 
@@ -811,7 +811,7 @@ Service (`answers/service.ts`):
 > **Constraint:** Determine attempt number from existing `participant_answers` rows — the client never sends one.
 
 Do NOT:
-- Create parameter structs for single-use helper calls
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
 - Silently swallow errors from DB operations
 
 #### POST /api/assessments/[id]/reassess
