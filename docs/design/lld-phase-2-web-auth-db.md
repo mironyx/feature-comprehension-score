@@ -683,7 +683,7 @@ await scoresService.getScores(ctx, { assessmentId: 'abc' })
 ```
 
 > **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory breaks dependency inversion — the service now depends on a concrete infrastructure concern rather than the injected abstraction. It also becomes impossible to unit-test without a live database.
-
+>
 > **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and create clients inline. These should be refactored in a follow-up issue.
 
 #### GET /api/assessments
