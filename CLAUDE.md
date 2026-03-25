@@ -131,6 +131,7 @@ CodeScene (and other VS Code extensions) report code health issues via VS Code's
 
 - Review and fix diagnostics before considering a task complete.
 - Pay particular attention to: code health decline, complex conditionals, brain methods, bumpy road patterns, and deeply nested logic.
+- **Ignore smells on generated files** (e.g. `supabase/migrations/`) — these are not hand-authored and cannot be refactored. CodeScene exclusions are configured but may not always catch every generated file.
 - If a diagnostic conflicts with a design decision, document the trade-off as a comment rather than silently ignoring it.
 - Do not suppress or disable diagnostic rules without discussing with the user first.
 
