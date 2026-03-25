@@ -154,6 +154,39 @@ src/lib/module/
 #### Function signatures
 [Key internal functions with their signatures and behaviour]
 
+#### Internal decomposition — [route or component]
+
+For every non-trivial API route or component, add an explicit internal decomposition section
+**before implementation begins**. Name every function, class, or interface that will exist
+internally and state what is forbidden.
+
+```
+Controller (stays in route.ts, ≤ 5 lines):
+- const ctx = await createApiContext(request)   // per-request composition root: assembles all clients
+- return json(await service.fn(ctx, params))    // injects context into service
+
+Service ([endpoint]/service.ts):
+- Exported: `serviceFn(ctx: ApiContext, params: ParamType): Promise<ResponseType>` — [one-line purpose]
+- Receives ApiContext (DI) — never calls createClient() or any infrastructure factory
+
+  Private helpers (≤ 20 lines each):
+  - `helperName(params): ReturnType` — [purpose and error behaviour]
+
+Extracted to helpers.ts (if applicable):
+- `pureFunction(...)` — [why extracted: testability, reuse]
+
+> **Constraint:** The service must never call createClient(), createServiceClient(), or any infrastructure factory. ApiContext is injected by the controller; tests inject a mock ApiContext. A service that creates its own clients cannot be unit-tested without a live database.
+
+> **Constraint:** [other hard limits, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
+
+Do NOT:
+- [specific anti-pattern to avoid]
+```
+
+Use `> **Constraint:**` for notes written **before** implementation (hard limits for the implementing
+agent). Use `> **Implementation note (issue #N):**` only to document decisions made **after**
+implementation — these are historical records, not pre-implementation guidance.
+
 #### Error handling
 [Error cases, codes, and recovery strategies]
 

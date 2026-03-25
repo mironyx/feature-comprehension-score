@@ -17,6 +17,7 @@
 | Revised | 2026-03-24 (Issue #56) |
 | Revised | 2026-03-24 (Issue #57) |
 | Revised | 2026-03-24 (Issue #58) |
+| Revised | 2026-03-24 (Issue #96) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -551,12 +552,22 @@ src/app/api/
       route.ts                     — GET /api/assessments/[id] (detail)
                                      PUT /api/assessments/[id] (skip/close)
       helpers.ts                   — filterQuestionFields() — pure, extracted for testability
+      update.service.ts            — updateAssessment() — skip/close business logic
       scores/
         route.ts                   — GET /api/assessments/[id]/scores (FCS self-view scores)
+        service.ts                 — getScores() — fetch and build scored-question response
       answers/
         route.ts                   — POST /api/assessments/[id]/answers
+        service.ts                 — submitAnswers() — validate, store, relevance, finalise
       reassess/
         route.ts                   — POST /api/assessments/[id]/reassess
+  fcs/
+    route.ts                       — POST /api/fcs (FCS creation)
+    service.ts                     — createFcs() — PR validation, participants, record creation
+  webhooks/
+    github/
+      route.ts                     — POST /api/webhooks/github
+      service.ts                   — handleGithubWebhook() — event dispatch
 ```
 
 #### Shared route utilities
@@ -564,6 +575,7 @@ src/app/api/
 ```
 src/lib/api/
   auth.ts              — extractUser(), requireAuth(), requireOrgAdmin()
+  context.ts           — ApiContext interface, createApiContext() factory
   validation.ts        — validateBody()
   errors.ts            — ApiError class, error response helpers
   response.ts          — json(), paginated() response helpers
@@ -623,6 +635,56 @@ async function validateBody<T>(request: NextRequest, schema: ZodType<T>): Promis
 ```
 
 > **Implementation note (issue #56):** Parameter type is `ZodType<T>` (not `ZodSchema<T>`), as `ZodSchema` is deprecated in Zod v4. `validateParams()` is deferred.
+
+#### Dependency injection
+
+Next.js App Router has no DI container. The pragmatic equivalent is a **per-request context factory** (`createApiContext`) that assembles all infrastructure clients from the incoming request. This factory is the composition root for each request. Controllers call it once; services receive the context as a parameter and never create clients themselves. This preserves the Dependency Inversion Principle: services depend on the `ApiContext` abstraction, not on concrete factories.
+
+```typescript
+// src/lib/api/context.ts
+
+export interface ApiContext {
+  supabase: SupabaseClient<Database>      // session client — RLS enforced
+  adminSupabase: SupabaseClient<Database> // service-role client — bypasses RLS
+  githubClient: Octokit
+  user: AuthUser
+}
+
+/** Per-request composition root. Creates all infrastructure clients from the request.
+ *  Throws ApiError(401) if the request is unauthenticated. */
+export async function createApiContext(request: NextRequest): Promise<ApiContext>
+```
+
+**Controller** — calls the factory, injects context into the service:
+
+```typescript
+// route.ts (≤ 5 lines)
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  const ctx = await createApiContext(request)
+  return json(await scoresService.getScores(ctx, params))
+}
+```
+
+**Service** — receives `ctx`, never creates clients:
+
+```typescript
+// service.ts
+export async function getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse> {
+  const { supabase, adminSupabase, user } = ctx
+  // uses clients directly — no createClient() calls
+}
+```
+
+**Testing** — inject a mock context:
+
+```typescript
+const ctx: ApiContext = { supabase: mockSupabase, adminSupabase: mockAdmin, githubClient: mockGithub, user: testUser }
+await scoresService.getScores(ctx, { assessmentId: 'abc' })
+```
+
+> **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory breaks dependency inversion — the service now depends on a concrete infrastructure concern rather than the injected abstraction. It also becomes impossible to unit-test without a live database.
+
+> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and create clients inline. These should be refactored in a follow-up issue.
 
 #### GET /api/assessments
 
@@ -731,6 +793,28 @@ FCS participants only. Returns the caller's self-view scores after submission. R
 9. Return response
 ```
 
+#### Internal decomposition — GET /api/assessments/[id]/scores
+
+Controller (stays in `scores/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` — assembles and injects all infrastructure clients
+- Calls `scoresService.getScores(ctx, { assessmentId })`
+- Returns `json(result)`
+
+Service (`scores/service.ts`):
+- Exported: `getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse>` — fetch assessment, verify participant, fetch answers and questions, build scored-question response
+
+  Private helpers (≤ 20 lines each):
+  - `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other → 500
+  - `resolveParticipant(supabase, assessmentId, userId): ParticipantRow` — 404 if not enrolled or not submitted
+  - `buildScoredQuestions(answers, questions): ScoredQuestion[]` — pure; picks latest non-reassessment scored answer per question; 404 if any question has no scored answer
+  - `findLastReassessmentAt(answers): string | null` — pure; latest `created_at` where `is_reassessment = true`, or null
+
+> **Constraint:** `buildScoredQuestions` must throw ApiError(404) when any question has no scored answer — do not return partial results.
+
+Do NOT:
+- Silently skip questions with null scores
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
+
 #### POST /api/assessments/[id]/answers
 
 See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-apiassessmentsidanswers) for request/response shape.
@@ -755,6 +839,34 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
 
 **Scoring trigger:** When the last participant submits, the route calls the assessment pipeline's `scoreAssessment()` function. This runs synchronously within the request (scoring is fast — one LLM call per answer). The response includes the updated participation count.
 
+#### Internal decomposition — POST /api/assessments/[id]/answers
+
+Controller (stays in `answers/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `answersService.submitAnswers(ctx, { assessmentId, body })`
+- Returns `json(result)`
+
+Service (`answers/service.ts`):
+- Exported: `submitAnswers(ctx: ApiContext, params: { assessmentId: string; body: SubmitBody }): Promise<SubmitResponse>` — resolve participant, validate submission, store answers, run relevance checks, finalise if all relevant; returns `{ status: 'accepted' | 'relevance_failed', ... }`
+
+  Private helpers (≤ 20 lines each):
+  - `resolveParticipant(supabase, assessmentId, userId)` — 403 if not enrolled, 422 if already submitted
+  - `fetchQuestionsForValidation(adminSupabase, assessmentId)` — all question rows; 500 on DB error
+  - `validateSubmission(body, questions, participant)` — pure; 422 on missing answers (first attempt) or invalid question IDs (re-attempt)
+  - `storeAnswers(adminSupabase, participantId, answers, attemptNumber)` — inserts `participant_answers` rows
+  - `runRelevanceChecks(answers, questions)` — calls engine per answer; never throws; logs failures and treats as irrelevant
+  - `finaliseSubmission(adminSupabase, participantId, assessmentId)` — sets participant to `submitted`; calls `scoreAssessment()` synchronously if all participants done; returns `{ completed, total }`
+
+> **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
+>
+> **Constraint:** `scoreAssessment()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
+>
+> **Constraint:** Determine attempt number from existing `participant_answers` rows — the client never sends one.
+
+Do NOT:
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
+- Silently swallow errors from DB operations
+
 #### POST /api/assessments/[id]/reassess
 
 See [v1-design.md §4.4 POST /api/assessments/\[id\]/reassess](v1-design.md#post-apiassessmentsidreassess) for request/response shape.
@@ -766,6 +878,129 @@ FCS only. Scores each re-assessment answer individually and returns scores immed
 See [v1-design.md §4.4 PUT /api/assessments/\[id\]](v1-design.md#put-apiassessmentsid) for request/response shape.
 
 Two actions: `skip` (PRCC) and `close` (FCS). Both require Org Admin. Skip records the reason and updates the Check Run to `neutral`. Close triggers scoring of submitted answers.
+
+#### Internal decomposition — PUT /api/assessments/[id]
+
+Controller (stays in `[id]/route.ts`, alongside the GET handler, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `updateService.updateAssessment(ctx, { assessmentId, action, body })`
+- Returns `json(result)`
+
+Service (`[id]/update.service.ts`):
+- Exported: `updateAssessment(ctx: ApiContext, params: { assessmentId: string; action: string; body: UpdateBody }): Promise<SkipResponse | CloseResponse>` — validates org admin, dispatches to `handleSkip` or `handleClose` based on `action`
+
+  Private helpers (≤ 20 lines each):
+  - `handleSkip(adminSupabase, assessmentId, reason)` — validates type === 'prcc' and active status; updates to `skipped`; calls `engine.updateCheckRun(assessmentId, 'neutral')`; 422 if invalid
+  - `handleClose(adminSupabase, assessmentId, triggerScoring)` — validates type === 'fcs' and status === 'awaiting_responses'; calls `scoreAssessment()` synchronously; 422 if invalid
+
+> **Constraint:** Both handlers must re-fetch the assessment independently — do not reuse the row from the GET handler. The PUT requires a fresh read for mutation validation.
+>
+> **Constraint:** `handleSkip` calls `engine.updateCheckRun()`. The service must not import the GitHub client directly — use the engine abstraction.
+>
+> **Constraint:** If `scoreAssessment()` throws in `handleClose`, set status back to `awaiting_responses` and re-throw as ApiError(500).
+
+Do NOT:
+- Combine skip and close validation in a shared helper
+- Add a third action type without a corresponding named handler
+
+#### POST /api/fcs
+
+See [v1-design.md §4.4 POST /api/fcs](v1-design.md#post-apifcs) for request/response shape.
+
+Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repository's organisation. PR numbers are validated against the GitHub API (not the DB). Rubric generation is kicked off after the response is sent.
+
+> **Note:** Issue #96 refers to this as "POST /api/assessments (FCS creation)" — the canonical path from [v1-design.md §4.4](v1-design.md#post-apifcs) is `POST /api/fcs`. The `fcs/` namespace keeps FCS creation separate from the assessment management routes under `assessments/`.
+
+**Sequence:**
+
+```
+Controller (route.ts):
+1. requireOrgAdmin() — auth + role check; creates/injects supabase, adminSupabase, githubClient
+2. validateBody() — parse and validate request body
+3. → fcsService.createFcs(adminSupabase, githubClient, input)
+4. Return 201 Created
+
+Service (fcsService.createFcs):
+5. validateMergedPRs() — verify each PR is merged (GitHub API)
+6. resolveParticipants() — look up GitHub user IDs
+7. createAssessmentRecord() — insert assessment row, status = 'rubric_generation'
+8. enrollParticipants() — insert assessment_participants rows
+9. (After returning) triggerRubricGeneration() — fire-and-forget
+```
+
+#### Internal decomposition — POST /api/fcs
+
+Controller (stays in `fcs/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `fcsService.createFcs(ctx, body)`
+- Returns `json(result, { status: 201 })`
+
+Service (`fcs/service.ts`):
+- Exported: `createFcs(ctx: ApiContext, input: FcsCreateInput): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
+
+  Private helpers (≤ 20 lines each):
+  - `validateMergedPRs(githubClient, repositoryId, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
+  - `resolveParticipants(adminSupabase, githubClient, orgId, usernames)` — resolves GitHub user IDs; 422 for unknown username
+  - `createAssessmentRecord(adminSupabase, input)` — inserts assessment row with status `rubric_generation`; returns new `assessment_id`
+  - `enrollParticipants(adminSupabase, assessmentId, participants)` — inserts `assessment_participants` rows
+  - `triggerRubricGeneration(assessmentId)` — fire-and-forget; logs and swallows on failure
+
+> **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
+>
+> **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment.
+>
+> **Constraint:** Map the validated request body to `FcsCreateInput` before passing to `createAssessmentRecord` — do not pass `body` directly.
+
+Do NOT:
+- Validate PR existence via a DB lookup
+- Combine participant resolution and enrolment into one function
+- Block the 201 response on rubric generation completing
+
+#### POST /api/webhooks/github
+
+See [v1-design.md §4.4 POST /api/webhooks/github](v1-design.md#post-apiwebhooksgithub) for event contracts.
+
+Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges receipt immediately with `{ received: true }` and processes events after the response.
+
+**Sequence:**
+
+```
+1. verifySignature() — 401 on failure
+2. Read X-GitHub-Event header
+3. Dispatch to handleInstallation(), handleInstallationRepositories(), or handlePullRequest()
+4. Unknown event types: no-op (GitHub sends many events we do not handle)
+5. Return 200 { received: true }
+```
+
+#### Internal decomposition — POST /api/webhooks/github
+
+Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
+- Reads raw body as text (HTTP layer — stream cannot be read twice after this)
+- Calls `verifySignature(body, sig)` — returns 401 on failure
+- Calls `createApiContext(request)`, then `webhookService.handleGithubWebhook(ctx, event, JSON.parse(body))`
+- Returns `json({ received: true })`
+
+> **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
+
+Service (`webhooks/github/service.ts`):
+- Exported: `handleGithubWebhook(ctx: ApiContext, event: string, payload: unknown): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
+
+  Private helpers (≤ 20 lines each):
+  - `handleInstallation(adminSupabase, payload)` — `created`: inserts org + org_config + repositories; `deleted`: sets org inactive; other actions: no-op
+  - `handleInstallationRepositories(adminSupabase, payload)` — `added`: inserts repositories; `removed`: sets inactive; other actions: no-op
+  - `handlePullRequest(adminSupabase, githubClient, payload)` — delegates to sub-helpers by `payload.action`; other actions: no-op
+  - `initiatePrcc(adminSupabase, githubClient, payload)` — skip check → fetch PR context → generate rubric → create assessment + participants + Check Run
+  - `handleSync(adminSupabase, payload)` — upserts `sync_debounce` row with new SHA and timestamp only
+  - `addParticipant(adminSupabase, payload)` — inserts participant row; no-op if already enrolled
+  - `removeParticipant(adminSupabase, payload)` — soft-deletes participant; re-evaluates submission completeness
+
+> **Constraint:** Always return `200 { received: true }` after signature verification passes — GitHub retries on non-200. Catch and log all errors inside `handleGithubWebhook`; never surface them to the controller.
+>
+> **Constraint:** `handleSync` records the debounce entry only — must NOT call `initiatePrcc`. PRCC after the 60-second window is a future scheduled job.
+
+Do NOT:
+- Use a `switch` for event routing — use `if/else if` with explicit handler calls
+- Return anything other than `{ received: true }` from the controller
 
 #### Error handling
 
