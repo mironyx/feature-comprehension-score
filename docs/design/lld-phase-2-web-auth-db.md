@@ -575,6 +575,7 @@ src/app/api/
 ```
 src/lib/api/
   auth.ts              — extractUser(), requireAuth(), requireOrgAdmin()
+  context.ts           — ApiContext interface, createApiContext() factory
   validation.ts        — validateBody()
   errors.ts            — ApiError class, error response helpers
   response.ts          — json(), paginated() response helpers
@@ -637,36 +638,53 @@ async function validateBody<T>(request: NextRequest, schema: ZodType<T>): Promis
 
 #### Dependency injection
 
-Infrastructure clients (Supabase, GitHub) are created at the controller boundary and injected into services as parameters. Services are pure functions of their inputs — they never create clients internally.
-
-**Controller responsibility** — create all clients, then call the service:
+Next.js App Router has no DI container. The pragmatic equivalent is a **per-request context factory** (`createApiContext`) that assembles all infrastructure clients from the incoming request. This factory is the composition root for each request. Controllers call it once; services receive the context as a parameter and never create clients themselves. This preserves the Dependency Inversion Principle: services depend on the `ApiContext` abstraction, not on concrete factories.
 
 ```typescript
-// route.ts (controller)
+// src/lib/api/context.ts
+
+export interface ApiContext {
+  supabase: SupabaseClient<Database>      // session client — RLS enforced
+  adminSupabase: SupabaseClient<Database> // service-role client — bypasses RLS
+  githubClient: Octokit
+  user: AuthUser
+}
+
+/** Per-request composition root. Creates all infrastructure clients from the request.
+ *  Throws ApiError(401) if the request is unauthenticated. */
+export async function createApiContext(request: NextRequest): Promise<ApiContext>
+```
+
+**Controller** — calls the factory, injects context into the service:
+
+```typescript
+// route.ts (≤ 5 lines)
 export async function GET(request: NextRequest, { params }: RouteContext) {
-  const user = await requireAuth(request)
-  const supabase = createRouteHandlerClient(request)
-  const adminSupabase = createServiceClient()
-  return json(await myService.doWork(supabase, adminSupabase, { ...params, userId: user.id }))
+  const ctx = await createApiContext(request)
+  return json(await scoresService.getScores(ctx, params))
 }
 ```
 
-**Service responsibility** — receive clients as parameters, never create them:
+**Service** — receives `ctx`, never creates clients:
 
 ```typescript
 // service.ts
-export async function doWork(
-  supabase: SupabaseClient,
-  adminSupabase: SupabaseClient,
-  params: { assessmentId: string; userId: string },
-): Promise<WorkResult> {
-  // uses supabase / adminSupabase directly — no createClient() calls here
+export async function getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse> {
+  const { supabase, adminSupabase, user } = ctx
+  // uses clients directly — no createClient() calls
 }
 ```
 
-> **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory has taken on a controller responsibility. This makes the service impossible to unit-test without a live Supabase instance and breaks Clean Architecture's dependency direction.
+**Testing** — inject a mock context:
 
-> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) create clients inside the route handler rather than injecting them into a separate service. These pre-date this pattern and should be refactored in a follow-up issue.
+```typescript
+const ctx: ApiContext = { supabase: mockSupabase, adminSupabase: mockAdmin, githubClient: mockGithub, user: testUser }
+await scoresService.getScores(ctx, { assessmentId: 'abc' })
+```
+
+> **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory breaks dependency inversion — the service now depends on a concrete infrastructure concern rather than the injected abstraction. It also becomes impossible to unit-test without a live database.
+
+> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and create clients inline. These should be refactored in a follow-up issue.
 
 #### GET /api/assessments
 
@@ -778,12 +796,12 @@ FCS participants only. Returns the caller's self-view scores after submission. R
 #### Internal decomposition — GET /api/assessments/[id]/scores
 
 Controller (stays in `scores/route.ts`, ≤ 5 lines):
-- Calls `requireAuth(request)` — creates and owns `supabase` (session client) and `adminSupabase` (service-role client)
-- Calls `scoresService.getScores(supabase, adminSupabase, { assessmentId, userId })`
+- Calls `createApiContext(request)` — assembles and injects all infrastructure clients
+- Calls `scoresService.getScores(ctx, { assessmentId })`
 - Returns `json(result)`
 
 Service (`scores/service.ts`):
-- Exported: `getScores(supabase, adminSupabase, params): Promise<ScoresResponse>` — fetch assessment, verify participant, fetch answers and questions, build scored-question response
+- Exported: `getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse>` — fetch assessment, verify participant, fetch answers and questions, build scored-question response
 
   Private helpers (≤ 20 lines each):
   - `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other → 500
@@ -824,12 +842,12 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
 #### Internal decomposition — POST /api/assessments/[id]/answers
 
 Controller (stays in `answers/route.ts`, ≤ 5 lines):
-- Calls `requireAuth(request)` and `validateBody()` — creates and owns `supabase` and `adminSupabase`
-- Calls `answersService.submitAnswers(supabase, adminSupabase, { assessmentId, userId, body })`
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `answersService.submitAnswers(ctx, { assessmentId, body })`
 - Returns `json(result)`
 
 Service (`answers/service.ts`):
-- Exported: `submitAnswers(supabase, adminSupabase, params): Promise<SubmitResponse>` — resolve participant, validate submission, store answers, run relevance checks, finalise if all relevant; returns `{ status: 'accepted' | 'relevance_failed', ... }`
+- Exported: `submitAnswers(ctx: ApiContext, params: { assessmentId: string; body: SubmitBody }): Promise<SubmitResponse>` — resolve participant, validate submission, store answers, run relevance checks, finalise if all relevant; returns `{ status: 'accepted' | 'relevance_failed', ... }`
 
   Private helpers (≤ 20 lines each):
   - `resolveParticipant(supabase, assessmentId, userId)` — 403 if not enrolled, 422 if already submitted
@@ -864,12 +882,12 @@ Two actions: `skip` (PRCC) and `close` (FCS). Both require Org Admin. Skip recor
 #### Internal decomposition — PUT /api/assessments/[id]
 
 Controller (stays in `[id]/route.ts`, alongside the GET handler, ≤ 5 lines):
-- Calls `requireAuth(request)` and `validateBody()` — creates and owns `adminSupabase`
-- Calls `updateService.updateAssessment(adminSupabase, { assessmentId, action, body })`
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `updateService.updateAssessment(ctx, { assessmentId, action, body })`
 - Returns `json(result)`
 
 Service (`[id]/update.service.ts`):
-- Exported: `updateAssessment(adminSupabase, params): Promise<SkipResponse | CloseResponse>` — validates org admin, dispatches to `handleSkip` or `handleClose` based on `action`
+- Exported: `updateAssessment(ctx: ApiContext, params: { assessmentId: string; action: string; body: UpdateBody }): Promise<SkipResponse | CloseResponse>` — validates org admin, dispatches to `handleSkip` or `handleClose` based on `action`
 
   Private helpers (≤ 20 lines each):
   - `handleSkip(adminSupabase, assessmentId, reason)` — validates type === 'prcc' and active status; updates to `skipped`; calls `engine.updateCheckRun(assessmentId, 'neutral')`; 422 if invalid
@@ -913,12 +931,12 @@ Service (fcsService.createFcs):
 #### Internal decomposition — POST /api/fcs
 
 Controller (stays in `fcs/route.ts`, ≤ 5 lines):
-- Calls `requireOrgAdmin(request)` and `validateBody()` — creates and owns `adminSupabase` and `githubClient`
-- Calls `fcsService.createFcs(adminSupabase, githubClient, body)`
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `fcsService.createFcs(ctx, body)`
 - Returns `json(result, { status: 201 })`
 
 Service (`fcs/service.ts`):
-- Exported: `createFcs(adminSupabase, githubClient, input): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
+- Exported: `createFcs(ctx: ApiContext, input: FcsCreateInput): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
 
   Private helpers (≤ 20 lines each):
   - `validateMergedPRs(githubClient, repositoryId, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
@@ -959,13 +977,13 @@ Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges
 Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
 - Reads raw body as text (HTTP layer — stream cannot be read twice after this)
 - Calls `verifySignature(body, sig)` — returns 401 on failure
-- Creates `adminSupabase` and `githubClient`; calls `webhookService.handleGithubWebhook(adminSupabase, githubClient, event, JSON.parse(body))`
+- Calls `createApiContext(request)`, then `webhookService.handleGithubWebhook(ctx, event, JSON.parse(body))`
 - Returns `json({ received: true })`
 
 > **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
 
 Service (`webhooks/github/service.ts`):
-- Exported: `handleGithubWebhook(adminSupabase, githubClient, event, payload): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
+- Exported: `handleGithubWebhook(ctx: ApiContext, event: string, payload: unknown): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
 
   Private helpers (≤ 20 lines each):
   - `handleInstallation(adminSupabase, payload)` — `created`: inserts org + org_config + repositories; `deleted`: sets org inactive; other actions: no-op

@@ -162,13 +162,12 @@ internally and state what is forbidden.
 
 ```
 Controller (stays in route.ts, ≤ 5 lines):
-- Calls auth helper — creates and owns all infrastructure clients (supabase, adminSupabase, githubClient)
-- Calls service, passing clients as parameters
-- Returns json(result) (or json(result, { status: 201 }) for creation)
+- const ctx = await createApiContext(request)   // per-request composition root: assembles all clients
+- return json(await service.fn(ctx, params))    // injects context into service
 
 Service ([endpoint]/service.ts):
-- Exported: `serviceFn(supabase, adminSupabase, params): Promise<ResponseType>` — [one-line purpose]
-- Receives all clients as parameters — never creates them internally (dependency injection)
+- Exported: `serviceFn(ctx: ApiContext, params: ParamType): Promise<ResponseType>` — [one-line purpose]
+- Receives ApiContext (DI) — never calls createClient() or any infrastructure factory
 
   Private helpers (≤ 20 lines each):
   - `helperName(params): ReturnType` — [purpose and error behaviour]
@@ -176,7 +175,7 @@ Service ([endpoint]/service.ts):
 Extracted to helpers.ts (if applicable):
 - `pureFunction(...)` — [why extracted: testability, reuse]
 
-> **Constraint:** The service must never call createClient(), createServiceClient(), or any infrastructure factory. Clients are created once at the controller boundary and injected downward. A service that creates its own client cannot be unit-tested without a live database.
+> **Constraint:** The service must never call createClient(), createServiceClient(), or any infrastructure factory. ApiContext is injected by the controller; tests inject a mock ApiContext. A service that creates its own clients cannot be unit-tested without a live database.
 
 > **Constraint:** [other hard limits, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
 
