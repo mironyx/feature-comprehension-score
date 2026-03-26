@@ -10,8 +10,10 @@
 -- is available in the local Postgres instance.
 
 -- Enable pgsodium extension if available (no-op if not installed).
+-- Schema must exist before CREATE EXTENSION on local Docker images that do not pre-create it.
 DO $$
 BEGIN
+  CREATE SCHEMA IF NOT EXISTS pgsodium;
   CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
 EXCEPTION WHEN OTHERS THEN
   -- pgsodium not available in this Postgres installation — skip.

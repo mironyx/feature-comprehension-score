@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.6 |
+| Version | 1.0 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -13,6 +13,13 @@
 | Revised | 2026-03-20 (Issue #51) |
 | Revised | 2026-03-21 (Issue #53) |
 | Revised | 2026-03-23 (Issue #84) |
+| Revised | 2026-03-24 (Issue #54) |
+| Revised | 2026-03-24 (Issue #55) |
+| Revised | 2026-03-24 (Issue #56) |
+| Revised | 2026-03-24 (Issue #57) |
+| Revised | 2026-03-24 (Issue #58) |
+| Revised | 2026-03-24 (Issue #96) |
+| Revised | 2026-03-26 (Issue #59) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -410,24 +417,56 @@ src/lib/supabase/
 ```typescript
 // src/lib/supabase/org-sync.ts
 
-async function syncOrgMembership(
-  serviceClient: SupabaseClient,
+/** Fetches a GitHub API endpoint; throws on non-2xx. */
+async function githubFetch<T>(url: string, headers: Record<string, string>): Promise<T>
+
+export async function syncOrgMembership(
+  serviceClient: SupabaseClient<Database>,
   userId: string,
   providerToken: string,
-): Promise<UserOrganisation[]> {
-  // 1. Call GitHub API: GET /user/orgs (using provider token)
-  // 2. Query organisations table for matching github_org_ids (app installed)
-  // 3. For each match:
-  //    a. Call GitHub API: GET /orgs/{org}/memberships/{username} → role
-  //    b. Upsert into user_organisations (user_id, org_id, github_role)
-  // 4. Remove stale memberships (user no longer in org)
-  // 5. Return updated membership list
-}
+): Promise<UserOrganisation[]>
 ```
 
-**GitHub API calls:** Uses the user's provider token (decrypted from `user_github_tokens`), not the installation token. This ensures we see the user's actual membership, not the app's view.
+**GitHub API calls (actual):** Uses the **live session provider token** directly — not a decrypted stored token. Three GitHub endpoints are used:
+
+- `GET /user` — user identity (`id`, `login`); fetched in parallel with `/user/orgs`
+- `GET /user/orgs` — list of orgs the user belongs to
+- `GET /orgs/{org}/memberships/{username}` — role per org (one call per installed org, concurrent)
+
+> **Implementation note (issue #54):** The spec said "decrypted from `user_github_tokens`". The actual implementation uses the session's live `provider_token` passed directly from the auth callback. Decrypting a stored token is unnecessary — the live token is available at sign-in time and is the freshest credential.
+
+**Error handling (actual, not in original spec):**
+
+| Failure | Behaviour |
+|---------|-----------|
+| Initial `/user` or `/user/orgs` fetch fails (network / GitHub 5xx) | Catch, log, preserve existing rows, return |
+| `organisations` DB query fails | Check `.error`, log, preserve existing rows, return |
+| Per-org membership fetch returns 5xx/4xx (not 404) | Mark as transient error; after all fetches, if any error → preserve all rows |
+| Per-org membership fetch returns 404 | Confirmed non-member; treat as removed |
+
+`syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
+
+> **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 
 **Stale membership removal:** If a user is removed from a GitHub org between sign-ins, their `user_organisations` row is deleted on next sync. This cascades to their visibility of that org's data via RLS.
+
+**Tests (actual BDD specs — 7 total):**
+
+- Given 2 installed orgs → both appear in `user_organisations`
+- Given role changed since last login → `user_organisations` updated on sign-in
+- Given org without app installed → does not appear in `user_organisations`
+- Given removed from org → stale row deleted
+- Given transient GitHub error on membership fetch → existing rows preserved
+- Given GitHub server error on initial `/user/orgs` fetch → existing rows preserved _(added post-review, issue #54)_
+- Given Supabase DB error querying installed orgs → existing rows preserved
+
+**MSW mock factories** (in `tests/mocks/github.ts`):
+
+```typescript
+mockGitHubUser(user: {id: number; login: string})
+mockUserOrgs(orgs: {id: number; login: string}[])
+mockOrgMembershipRole(org: string, username: string, role: 'admin' | 'member')
+```
 
 #### Org selection storage
 
@@ -436,9 +475,17 @@ The selected org is stored in a cookie (`fcs-org-id`). Set by the org selection 
 ```typescript
 // src/lib/supabase/org-context.ts
 
-function getSelectedOrgId(cookies: ReadonlyRequestCookies): string | null
-function setSelectedOrgId(response: NextResponse, orgId: string): void
+// Type derived from the public next/headers API — avoids importing from internal next/dist paths.
+type ReadonlyRequestCookies = Awaited<ReturnType<typeof nextCookies>>;
+
+export function getSelectedOrgId(cookies: ReadonlyRequestCookies): string | null
+export function setSelectedOrgId(response: NextResponse, orgId: string): void
 ```
+
+> **Implementation note (issue #55):** `ReadonlyRequestCookies` is derived via
+> `Awaited<ReturnType<typeof nextCookies>>` (importing `cookies as nextCookies` from
+> `next/headers`) rather than importing from `next/dist/server/web/spec-extension/adapters/request-cookies`,
+> which is an internal path and not a stable public contract.
 
 If no org is selected and the user has exactly one org, auto-select it. If no org is selected and the user has multiple orgs, redirect to `/org-select`.
 
@@ -448,39 +495,55 @@ If no org is selected and the user has exactly one org, auto-select it. If no or
 
 ```
 src/app/org-select/
-  page.tsx             — org selection page
+  page.tsx             — org selection page (server component)
+src/app/api/org-select/
+  route.ts             — GET /api/org-select — sets fcs-org-id cookie and redirects
 ```
 
 Displayed when a user with multiple orgs signs in and hasn't selected one yet, or when they click the org switcher.
+
+> **Implementation note (issue #55):** A dedicated API route (`GET /api/org-select?orgId=...`) was
+> added. Server components cannot set `httpOnly` cookies — only route handlers and middleware can.
+> Single-org auto-redirect and the "Select" links both route through this handler, which validates
+> auth (401) and org membership (403) before calling `setSelectedOrgId` and redirecting to
+> `/assessments`.
 
 #### Component tree
 
 ```
 OrgSelectPage
-  └── OrgList
-        └── OrgCard (one per org)
-              ├── Org name
-              ├── Repo count
-              └── "Select" button
+  └── flat JSX (no sub-components)
+        ├── Org name
+        └── "Select" link (→ /api/org-select?orgId=...)
 ```
+
+> **Implementation note (issue #55):** The spec prescribed `OrgList` and `OrgCard` sub-components
+> with a repo count field. The implementation uses flat JSX in `page.tsx` — no sub-components were
+> needed at this scale. `OrgCard` sub-component and repo count are deferred.
+> _(OrgList / OrgCard sub-components — deferred)_
+> _(Repo count in org card — deferred)_
 
 #### Org switcher (header component)
 
-A dropdown in the app header showing the current org name. Clicking opens a dropdown with other available orgs. Selecting a different org updates the cookie and refreshes the page.
-
 ```
 src/components/
-  org-switcher.tsx     — header org switcher dropdown
+  org-switcher.tsx     — header org switcher
 ```
+
+Renders the current org name. If multiple orgs are available, renders a list of links to switch org (each pointing to `/api/org-select?orgId=...`) plus an "All organisations" link to `/org-select`.
+
+> **Implementation note (issue #55):** The spec described an interactive dropdown. The actual
+> implementation is a static list of `<a>` links — no JavaScript interaction required. A full
+> dropdown with click-to-open behaviour is deferred.
 
 #### UI states
 
 | State | Trigger | Display |
 |-------|---------|---------|
-| Loading | Fetching orgs | Skeleton cards |
-| Single org | User has 1 org | Auto-redirect to `/assessments` (no selection needed) |
-| Multiple orgs | User has 2+ orgs | Org cards with select buttons |
-| No orgs | User has no orgs with app installed | "No organisations found" message with setup instructions |
+| Loading | Fetching orgs | _(loading skeleton — deferred)_ |
+| Single org | User has 1 org | Auto-redirect via `/api/org-select?orgId=...` → `/assessments` |
+| Multiple orgs | User has 2+ orgs | Org list with select links |
+| No orgs | User has no orgs with app installed | "No organisations found" message |
 
 ---
 
@@ -505,10 +568,23 @@ src/app/api/
     [id]/
       route.ts                     — GET /api/assessments/[id] (detail)
                                      PUT /api/assessments/[id] (skip/close)
+      helpers.ts                   — filterQuestionFields() — pure, extracted for testability
+      update.service.ts            — updateAssessment() — skip/close business logic
+      scores/
+        route.ts                   — GET /api/assessments/[id]/scores (FCS self-view scores)
+        service.ts                 — getScores() — fetch and build scored-question response
       answers/
         route.ts                   — POST /api/assessments/[id]/answers
+        service.ts                 — submitAnswers() — validate, store, relevance, finalise
       reassess/
         route.ts                   — POST /api/assessments/[id]/reassess
+  fcs/
+    route.ts                       — POST /api/fcs (FCS creation)
+    service.ts                     — createFcs() — PR validation, participants, record creation
+  webhooks/
+    github/
+      route.ts                     — POST /api/webhooks/github
+      service.ts                   — handleGithubWebhook() — event dispatch
 ```
 
 #### Shared route utilities
@@ -516,21 +592,28 @@ src/app/api/
 ```
 src/lib/api/
   auth.ts              — extractUser(), requireAuth(), requireOrgAdmin()
-  validation.ts        — validateBody(), validateParams()
+  context.ts           — ApiContext interface, createApiContext() factory
+  validation.ts        — validateBody()
   errors.ts            — ApiError class, error response helpers
   response.ts          — json(), paginated() response helpers
+src/lib/supabase/
+  route-handler-readonly.ts  — createReadonlyRouteHandlerClient()
 ```
+
+> **Implementation note (issue #56):** `validateParams()` was listed in the spec but not implemented — deferred. A `route-handler-readonly.ts` helper was added to `src/lib/supabase/` because the auth functions only receive `request` (not `response`), so a client that performs a no-op `setAll` is needed to avoid middleware interference. This pattern is distinct from the existing `route-handler.ts` which requires both request and response.
 
 ```typescript
 // src/lib/api/auth.ts
 
-/** Extract authenticated user from Supabase session. Returns null if unauthenticated. */
+/** Extract authenticated user from Supabase session. Returns null if unauthenticated.
+ *  Throws ApiError(500) if Supabase returns an error (infrastructure failure). */
 async function extractUser(request: NextRequest): Promise<AuthUser | null>
 
 /** Require authentication. Throws ApiError(401) if not authenticated. */
 async function requireAuth(request: NextRequest): Promise<AuthUser>
 
-/** Require Org Admin role. Throws ApiError(403) if not admin. */
+/** Require Org Admin role.
+ *  Throws ApiError(403) if not admin; ApiError(500) on DB query failure. */
 async function requireOrgAdmin(request: NextRequest, orgId: string): Promise<AuthUser>
 
 interface AuthUser {
@@ -541,19 +624,85 @@ interface AuthUser {
 }
 ```
 
+> **Implementation note (issue #56):** Both `extractUser` and `requireOrgAdmin` check the Supabase `error` field and throw `ApiError(500)` with `console.error` logging on infrastructure failures. The spec was silent on this; the omission was a review finding.
+
 ```typescript
 // src/lib/api/errors.ts
 
 class ApiError extends Error {
   constructor(
-    public statusCode: number,
+    public readonly statusCode: number,
     message: string,
-    public details?: Record<string, unknown>,
-  ) { super(message); }
+    public readonly details?: Record<string, unknown>,
+  ) { super(message); this.name = 'ApiError'; }
 }
 
+/** Maps ApiError instances to their status codes; logs and returns 500 for unknown errors. */
 function handleApiError(error: unknown): NextResponse
 ```
+
+> **Implementation note (issue #56):** `statusCode` and `details` are `readonly` in the implementation (spec omitted this). `handleApiError` calls `console.error` before returning 500 — the spec was silent on observability for the unknown-error branch.
+
+```typescript
+// src/lib/api/validation.ts
+
+/** Throws ApiError(422, 'Invalid JSON body') if body is not valid JSON.
+ *  Throws ApiError(422, 'Validation failed', { issues }) on schema failure. */
+async function validateBody<T>(request: NextRequest, schema: ZodType<T>): Promise<T>
+```
+
+> **Implementation note (issue #56):** Parameter type is `ZodType<T>` (not `ZodSchema<T>`), as `ZodSchema` is deprecated in Zod v4. `validateParams()` is deferred.
+
+#### Dependency injection
+
+Next.js App Router has no DI container. The pragmatic equivalent is a **per-request context factory** (`createApiContext`) that assembles all infrastructure clients from the incoming request. This factory is the composition root for each request. Controllers call it once; services receive the context as a parameter and never create clients themselves. This preserves the Dependency Inversion Principle: services depend on the `ApiContext` abstraction, not on concrete factories.
+
+```typescript
+// src/lib/api/context.ts
+
+export interface ApiContext {
+  supabase: ReturnType<typeof createReadonlyRouteHandlerClient>  // session client — RLS enforced
+  adminSupabase: ReturnType<typeof createSecretSupabaseClient>   // service-role client — bypasses RLS
+  user: AuthUser
+}
+
+/** Per-request composition root. Creates all infrastructure clients from the request.
+ *  Throws ApiError(401) if the request is unauthenticated. */
+export async function createApiContext(request: NextRequest): Promise<ApiContext>
+```
+
+> **Implementation note (issue #59):** The spec included `githubClient: Octokit` in `ApiContext`. The implementation omits it — the assessment API routes do not need GitHub access, and including it upfront would require wiring a GitHub client on every request unnecessarily. `githubClient` will be added to the interface when a route that requires it is implemented _(deferred)_.
+
+**Controller** — calls the factory, injects context into the service:
+
+```typescript
+// route.ts (≤ 5 lines)
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  const ctx = await createApiContext(request)
+  return json(await scoresService.getScores(ctx, params))
+}
+```
+
+**Service** — receives `ctx`, never creates clients:
+
+```typescript
+// service.ts
+export async function getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse> {
+  const { supabase, adminSupabase, user } = ctx
+  // uses clients directly — no createClient() calls
+}
+```
+
+**Testing** — inject a mock context:
+
+```typescript
+const ctx: ApiContext = { supabase: mockSupabase, adminSupabase: mockAdmin, user: testUser }
+await scoresService.getScores(ctx, { assessmentId: 'abc' })
+```
+
+> **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory breaks dependency inversion — the service now depends on a concrete infrastructure concern rather than the injected abstraction. It also becomes impossible to unit-test without a live database.
+>
+> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and created clients inline. `GET /api/assessments/[id]` was refactored to use `createApiContext` in issue #59. `GET /api/assessments` (the list endpoint) still creates clients inline and should be refactored in a follow-up issue.
 
 #### GET /api/assessments
 
@@ -564,33 +713,125 @@ See [v1-design.md §4.4 GET /api/assessments](v1-design.md#get-apiassessments) f
 - Org Admin sees all assessments for the selected org; regular user sees only theirs
 - Pagination via `range()` on the Supabase query
 - `participant_count` and `completed_count` are derived from a subquery on `assessment_participants`
+- Supports `status` filter in addition to the spec'd `type` filter
+
+> **Implementation note (issue #57):** The spec said participant counts come from "a subquery on
+> `assessment_participants`" using the user's Supabase client. This is wrong: the
+> `participants_select_own` RLS policy limits non-admin users to their own row, so a user-session
+> query would always return a count of 1. Participant counts are fetched via the **service client**
+> (bypasses RLS) in a separate batch query after the main assessments query. Counts are
+> non-sensitive aggregate metadata, so the service client is appropriate.
+>
+> Three module-level helpers were extracted to keep `GET` cognitive complexity within the
+> SonarQube threshold (≤15):
+> - `fetchParticipantCounts(assessmentIds)` — service-client batch query
+> - `toListItem(row, counts)` — maps DB row + counts to `AssessmentListItem`
+> - `validateEnumParam(value, allowed, paramName)` — throws `ApiError(400)` if value not in set
+>
+> Inline contract types (`AssessmentListItem`, `AssessmentsResponse`) with a JSDoc handler
+> comment are now required on every route file — see ADR-0014.
 
 #### GET /api/assessments/[id]
 
 See [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid) for response shape.
 
+**Design decision (2026-03-24):** Self-view scores moved to `GET /api/assessments/[id]/scores`. The detail endpoint covers metadata, filtered questions, and participant counts. Score retrieval is FCS-only, post-submission, with multi-attempt processing — a distinct use case that does not belong in the detail fetch. `my_scores` removed from response shape.
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS gates org access — PGRST116 → 404)
+3. Parallel:
+   a. user_organisations → callerRole ('admin' | 'participant')
+   b. assessment_questions (service client — RLS blocks non-admins from all rows)
+   c. assessment_participants (service client — all rows for count)
+   d. assessment_participants for caller (session client — own row)
+4. filterQuestionFields() — null reference_answer unless FCS + admin + completed
+5. Return response (no my_scores field)
+```
+
 **Column filtering logic (application layer):**
 
 ```typescript
 function filterQuestionFields(
-  questions: AssessmentQuestion[],
+  questions: QuestionRow[],
   assessmentType: 'prcc' | 'fcs',
   callerRole: 'admin' | 'participant',
   assessmentStatus: AssessmentStatus,
 ): FilteredQuestion[] {
+  const showReference =
+    assessmentType === 'fcs' && callerRole === 'admin' && assessmentStatus === 'completed';
   return questions.map(q => ({
-    ...q,
-    reference_answer:
-      assessmentType === 'fcs'
-      && callerRole === 'admin'
-      && assessmentStatus === 'completed'
-        ? q.reference_answer
-        : null,
+    id: q.id,
+    question_number: q.question_number,
+    naur_layer: q.naur_layer,
+    question_text: q.question_text,
+    weight: q.weight,
+    aggregate_score: q.aggregate_score,
+    reference_answer: showReference ? q.reference_answer : null,
   }));
 }
 ```
 
-**Self-view (`my_scores`):** Populated only for FCS assessments when the caller is a participant. Queries `participant_answers` for the caller's answers with their scores. Null for PRCC.
+> **Implementation note (issue #58):** The spec used `...q` spread. The implementation uses explicit field projection to avoid inadvertently exposing new DB columns added in future migrations (ADR-0005 intent). `filterQuestionFields` lives in `[id]/helpers.ts`, not `route.ts`, because Next.js App Router only permits HTTP method exports from route files — any other export causes a build error.
+
+#### GET /api/assessments/[id]/scores
+
+FCS participants only. Returns the caller's self-view scores after submission. Returns 404 for non-FCS assessments, unenrolled callers, or callers who have not yet submitted.
+
+**Response shape:**
+
+```typescript
+{
+  questions: {
+    question_id: string;
+    naur_layer: NaurLayer;
+    question_text: string;
+    my_answer: string;
+    score: number;
+    score_rationale: string;
+  }[];
+  reassessment_available: boolean;   // true when assessment status === 'completed'
+  last_reassessment_at: string | null;
+}
+```
+
+**Sequence:**
+
+```
+1. requireAuth()
+2. Fetch assessment (RLS + type check — non-FCS → 404)
+3. Fetch caller's participant row (session client — returns null if not enrolled)
+4. If null or status !== 'submitted' → 404
+5. Fetch participant_answers (service client, ordered by attempt_number desc)
+6. Fetch assessment_questions (service client, for question metadata)
+7. Per question: pick latest non-reassessment answer with non-null score + rationale
+8. Sort by question_number; find latest reassessment timestamp
+9. Return response
+```
+
+#### Internal decomposition — GET /api/assessments/[id]/scores
+
+Controller (stays in `scores/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` — assembles and injects all infrastructure clients
+- Calls `scoresService.getScores(ctx, { assessmentId })`
+- Returns `json(result)`
+
+Service (`scores/service.ts`):
+- Exported: `getScores(ctx: ApiContext, params: { assessmentId: string }): Promise<ScoresResponse>` — fetch assessment, verify participant, fetch answers and questions, build scored-question response
+
+  Private helpers (≤ 20 lines each):
+  - `resolveAssessmentForScores(data, error): AssessmentRow` — PGRST116 → 404, type !== 'fcs' → 404, other → 500
+  - `resolveParticipant(supabase, assessmentId, userId): ParticipantRow` — 404 if not enrolled or not submitted
+  - `buildScoredQuestions(answers, questions): ScoredQuestion[]` — pure; picks latest non-reassessment scored answer per question; 404 if any question has no scored answer
+  - `findLastReassessmentAt(answers): string | null` — pure; latest `created_at` where `is_reassessment = true`, or null
+
+> **Constraint:** `buildScoredQuestions` must throw ApiError(404) when any question has no scored answer — do not return partial results.
+
+Do NOT:
+- Silently skip questions with null scores
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
 
 #### POST /api/assessments/[id]/answers
 
@@ -616,6 +857,52 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
 
 **Scoring trigger:** When the last participant submits, the route calls the assessment pipeline's `scoreAssessment()` function. This runs synchronously within the request (scoring is fast — one LLM call per answer). The response includes the updated participation count.
 
+#### Internal decomposition — POST /api/assessments/[id]/answers
+
+Controller (stays in `answers/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `answersService.submitAnswers(ctx, { assessmentId, body })`
+- Returns `json(result)`
+
+Service (`answers/service.ts`):
+- Exported: `submitAnswers(ctx: ApiContext, params: { assessmentId: string; body: SubmitBody }): Promise<SubmitResponse>` — resolve participant, validate submission, store answers, run relevance checks, finalise if all relevant; returns `{ status: 'accepted' | 'relevance_failed', ... }`
+
+  Private helpers (≤ 20 lines each):
+  - `resolveParticipant(supabase, assessmentId, userId)` — 403 if not enrolled, 422 if already submitted
+  - `fetchQuestionsForValidation(adminSupabase, assessmentId)` — all question rows; 500 on DB error
+  - `resolveAttemptNumber(existingAnswers)` — pure; derives next attempt number from existing rows; returns 1 for first attempt
+  - `validateSubmission(body, questions, isFirstAttempt, previouslyIrrelevantIds)` — pure; dispatches to `validateFirstAttemptCoverage` or `validateReAttemptCoverage`
+  - `validateQuestionIds(answers, questionIds)` — 422 if any submitted ID is unknown
+  - `validateFirstAttemptCoverage(submittedIds, questions)` — 422 if any question lacks an answer
+  - `validateReAttemptCoverage(submittedIds, previouslyIrrelevantIds)` — 422 if any submitted ID was not previously flagged
+  - `storeAnswers(adminSupabase, participantId, orgId, assessmentId, answers, attemptNumber)` — inserts `participant_answers` rows
+  - `buildLlmClient()` — constructs `AnthropicClient` from env; throws ApiError(500) if key absent
+  - `runRelevanceChecks(answers, questions, llmClient)` — calls engine per answer; never throws; logs failures and treats as irrelevant
+  - `finaliseSubmission(adminSupabase, participantId, assessmentId, llmClient)` — sets participant to `submitted`; calls `triggerScoring()` synchronously if all participants done; returns `{ completed, total }`
+  - `triggerScoring(adminSupabase, assessmentId, llmClient)` — fetches scoring data, calls `scoreAnswers()` + `calculateAssessmentAggregate()`, persists results; wraps errors as ApiError(500)
+  - `fetchScoringData(adminSupabase, assessmentId)` — fetches questions and answers for scoring in parallel
+  - `persistScoringResults(adminSupabase, params)` — updates assessment aggregate and per-answer scores
+
+> **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
+>
+> **Constraint:** `triggerScoring()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
+>
+> **Constraint:** Determine attempt number from existing `participant_answers` rows — the client never sends one.
+>
+> **Implementation note (issue #59):** Several corrections and additions to the decomposition spec:
+>
+> 1. `validateSubmission` — spec signature was `(body, questions, participant)`. Changed to `(body, questions, isFirstAttempt, previouslyIrrelevantIds)`: the derived booleans/Set are passed rather than the raw `ParticipantRow`, keeping the function pure and the participant row out of validation logic.
+> 2. `finaliseSubmission` — spec had 3 args. A fourth, `llmClient`, was added because scoring requires the LLM client and constructing it inside `finaliseSubmission` would violate the single-client-per-request constraint.
+> 3. `scoreAssessment()` — the spec referenced this as a single engine function. No such function exists; the implementation calls `scoreAnswers()` + `calculateAssessmentAggregate()` from the pipeline directly via a `triggerScoring()` wrapper in the service.
+> 4. `storeAnswers` — spec had 4 args; implementation adds `orgId` and `assessmentId` (required for the DB insert row).
+> 5. Max-attempts enforcement — the acceptance criterion (`attemptNumber > MAX_ATTEMPTS` → 422) was not in the LLD decomposition; added to `submitAnswers` before validation.
+> 6. Relevance write-back step — not in the LLD flow: after storing answers and running relevance checks, a separate `UPDATE` writes `is_relevant` and `relevance_explanation` back to the stored rows. Non-fatal failures are logged.
+> 7. `AnswerResult.attempts_remaining` — added to the response shape (not in the LLD spec); communicates remaining attempts to the client on `relevance_failed`.
+
+Do NOT:
+- Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
+- Silently swallow errors from DB operations
+
 #### POST /api/assessments/[id]/reassess
 
 See [v1-design.md §4.4 POST /api/assessments/\[id\]/reassess](v1-design.md#post-apiassessmentsidreassess) for request/response shape.
@@ -627,6 +914,129 @@ FCS only. Scores each re-assessment answer individually and returns scores immed
 See [v1-design.md §4.4 PUT /api/assessments/\[id\]](v1-design.md#put-apiassessmentsid) for request/response shape.
 
 Two actions: `skip` (PRCC) and `close` (FCS). Both require Org Admin. Skip records the reason and updates the Check Run to `neutral`. Close triggers scoring of submitted answers.
+
+#### Internal decomposition — PUT /api/assessments/[id]
+
+Controller (stays in `[id]/route.ts`, alongside the GET handler, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `updateService.updateAssessment(ctx, { assessmentId, action, body })`
+- Returns `json(result)`
+
+Service (`[id]/update.service.ts`):
+- Exported: `updateAssessment(ctx: ApiContext, params: { assessmentId: string; action: string; body: UpdateBody }): Promise<SkipResponse | CloseResponse>` — validates org admin, dispatches to `handleSkip` or `handleClose` based on `action`
+
+  Private helpers (≤ 20 lines each):
+  - `handleSkip(adminSupabase, assessmentId, reason)` — validates type === 'prcc' and active status; updates to `skipped`; calls `engine.updateCheckRun(assessmentId, 'neutral')`; 422 if invalid
+  - `handleClose(adminSupabase, assessmentId, triggerScoring)` — validates type === 'fcs' and status === 'awaiting_responses'; calls `scoreAssessment()` synchronously; 422 if invalid
+
+> **Constraint:** Both handlers must re-fetch the assessment independently — do not reuse the row from the GET handler. The PUT requires a fresh read for mutation validation.
+>
+> **Constraint:** `handleSkip` calls `engine.updateCheckRun()`. The service must not import the GitHub client directly — use the engine abstraction.
+>
+> **Constraint:** If `scoreAssessment()` throws in `handleClose`, set status back to `awaiting_responses` and re-throw as ApiError(500).
+
+Do NOT:
+- Combine skip and close validation in a shared helper
+- Add a third action type without a corresponding named handler
+
+#### POST /api/fcs
+
+See [v1-design.md §4.4 POST /api/fcs](v1-design.md#post-apifcs) for request/response shape.
+
+Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repository's organisation. PR numbers are validated against the GitHub API (not the DB). Rubric generation is kicked off after the response is sent.
+
+> **Note:** Issue #96 refers to this as "POST /api/assessments (FCS creation)" — the canonical path from [v1-design.md §4.4](v1-design.md#post-apifcs) is `POST /api/fcs`. The `fcs/` namespace keeps FCS creation separate from the assessment management routes under `assessments/`.
+
+**Sequence:**
+
+```
+Controller (route.ts):
+1. requireOrgAdmin() — auth + role check; creates/injects supabase, adminSupabase, githubClient
+2. validateBody() — parse and validate request body
+3. → fcsService.createFcs(adminSupabase, githubClient, input)
+4. Return 201 Created
+
+Service (fcsService.createFcs):
+5. validateMergedPRs() — verify each PR is merged (GitHub API)
+6. resolveParticipants() — look up GitHub user IDs
+7. createAssessmentRecord() — insert assessment row, status = 'rubric_generation'
+8. enrollParticipants() — insert assessment_participants rows
+9. (After returning) triggerRubricGeneration() — fire-and-forget
+```
+
+#### Internal decomposition — POST /api/fcs
+
+Controller (stays in `fcs/route.ts`, ≤ 5 lines):
+- Calls `createApiContext(request)` and `validateBody()`
+- Calls `fcsService.createFcs(ctx, body)`
+- Returns `json(result, { status: 201 })`
+
+Service (`fcs/service.ts`):
+- Exported: `createFcs(ctx: ApiContext, input: FcsCreateInput): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
+
+  Private helpers (≤ 20 lines each):
+  - `validateMergedPRs(githubClient, repositoryId, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
+  - `resolveParticipants(adminSupabase, githubClient, orgId, usernames)` — resolves GitHub user IDs; 422 for unknown username
+  - `createAssessmentRecord(adminSupabase, input)` — inserts assessment row with status `rubric_generation`; returns new `assessment_id`
+  - `enrollParticipants(adminSupabase, assessmentId, participants)` — inserts `assessment_participants` rows
+  - `triggerRubricGeneration(assessmentId)` — fire-and-forget; logs and swallows on failure
+
+> **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
+>
+> **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment.
+>
+> **Constraint:** Map the validated request body to `FcsCreateInput` before passing to `createAssessmentRecord` — do not pass `body` directly.
+
+Do NOT:
+- Validate PR existence via a DB lookup
+- Combine participant resolution and enrolment into one function
+- Block the 201 response on rubric generation completing
+
+#### POST /api/webhooks/github
+
+See [v1-design.md §4.4 POST /api/webhooks/github](v1-design.md#post-apiwebhooksgithub) for event contracts.
+
+Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges receipt immediately with `{ received: true }` and processes events after the response.
+
+**Sequence:**
+
+```
+1. verifySignature() — 401 on failure
+2. Read X-GitHub-Event header
+3. Dispatch to handleInstallation(), handleInstallationRepositories(), or handlePullRequest()
+4. Unknown event types: no-op (GitHub sends many events we do not handle)
+5. Return 200 { received: true }
+```
+
+#### Internal decomposition — POST /api/webhooks/github
+
+Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
+- Reads raw body as text (HTTP layer — stream cannot be read twice after this)
+- Calls `verifySignature(body, sig)` — returns 401 on failure
+- Calls `createApiContext(request)`, then `webhookService.handleGithubWebhook(ctx, event, JSON.parse(body))`
+- Returns `json({ received: true })`
+
+> **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
+
+Service (`webhooks/github/service.ts`):
+- Exported: `handleGithubWebhook(ctx: ApiContext, event: string, payload: unknown): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
+
+  Private helpers (≤ 20 lines each):
+  - `handleInstallation(adminSupabase, payload)` — `created`: inserts org + org_config + repositories; `deleted`: sets org inactive; other actions: no-op
+  - `handleInstallationRepositories(adminSupabase, payload)` — `added`: inserts repositories; `removed`: sets inactive; other actions: no-op
+  - `handlePullRequest(adminSupabase, githubClient, payload)` — delegates to sub-helpers by `payload.action`; other actions: no-op
+  - `initiatePrcc(adminSupabase, githubClient, payload)` — skip check → fetch PR context → generate rubric → create assessment + participants + Check Run
+  - `handleSync(adminSupabase, payload)` — upserts `sync_debounce` row with new SHA and timestamp only
+  - `addParticipant(adminSupabase, payload)` — inserts participant row; no-op if already enrolled
+  - `removeParticipant(adminSupabase, payload)` — soft-deletes participant; re-evaluates submission completeness
+
+> **Constraint:** Always return `200 { received: true }` after signature verification passes — GitHub retries on non-200. Catch and log all errors inside `handleGithubWebhook`; never surface them to the controller.
+>
+> **Constraint:** `handleSync` records the debounce entry only — must NOT call `initiatePrcc`. PRCC after the 60-second window is a future scheduled job.
+
+Do NOT:
+- Use a `switch` for event routing — use `if/else if` with explicit handler calls
+- Return anything other than `{ received: true }` from the controller
 
 #### Error handling
 
@@ -1117,10 +1527,12 @@ describe('E2E: Org selection')
   it('Given I select an org, then all data is scoped to that org')
 ```
 
-**Files to create/modify:**
+**Files created/modified (actual):**
 - `src/app/org-select/page.tsx` — org selection page
-- `src/components/org-switcher.tsx` — header org switcher
+- `src/app/api/org-select/route.ts` — cookie-setting route handler _(added; not in original spec)_
+- `src/components/org-switcher.tsx` — header org switcher (static link list, not dropdown)
 - `src/lib/supabase/org-context.ts` — org cookie helpers
+- `vitest.config.ts` — added `esbuild: { jsx: 'automatic' }` for TSX test support
 
 ---
 
@@ -1183,11 +1595,11 @@ describe('handleApiError')
 **What:** List assessments for the current user with pagination and filtering. Org Admins see all org assessments; regular users see only their participations.
 
 **Acceptance criteria:**
-- [ ] Returns assessments scoped by RLS (org membership + participation)
-- [ ] Supports `type`, `status`, `page`, `per_page` query parameters
-- [ ] Response shape matches L4 contract
-- [ ] Includes `participant_count` and `completed_count` per assessment
-- [ ] Pagination returns correct `total`, `page`, `per_page`
+- [x] Returns assessments scoped by RLS (org membership + participation)
+- [x] Supports `type`, `status`, `page`, `per_page` query parameters
+- [x] Response shape matches L4 contract
+- [x] Includes `participant_count` and `completed_count` per assessment
+- [x] Pagination returns correct `total`, `page`, `per_page`
 
 **BDD specs:**
 
@@ -1195,16 +1607,26 @@ describe('handleApiError')
 describe('GET /api/assessments')
   describe('Given an org admin requesting assessments')
     it('then it returns all assessments for the org')
-  describe('Given a regular user')
+    it('then each assessment includes participant_count and completed_count')
+  describe('Given a regular user (non-admin)')
     it('then it returns only assessments where they are a participant')
+    it('then participant_count reflects all participants, not just the requesting user')
   describe('Given type=prcc filter')
-    it('then it returns only PRCC assessments')
+    it('then it queries with the type filter')
+  describe('Given an invalid type filter')
+    it('then it returns 400')
+  describe('Given an invalid status filter')
+    it('then it returns 400')
   describe('Given pagination parameters page=2 per_page=10')
     it('then it returns the correct page with correct total')
+  describe('Given a DB error')
+    it('then it returns 500')
 ```
 
-**Files to create/modify:**
+**Files created/modified:**
 - `src/app/api/assessments/route.ts` — GET handler
+- `tests/app/api/assessments.test.ts` — 11 BDD tests
+- `docs/adr/0014-api-route-contract-types.md` — convention for inline contract types
 
 ---
 
@@ -1216,33 +1638,49 @@ describe('GET /api/assessments')
 **Stories:** 2.4, 3.3, 3.4, 5.3
 **HLD reference:** [v1-design.md §4.4 GET /api/assessments/\[id\]](v1-design.md#get-apiassessmentsid)
 
-**What:** Return assessment details with questions. Filter reference answers and self-view scores based on assessment type, caller role, and status.
+**What:** Return assessment details with questions. Filter reference answers based on assessment type, caller role, and status. Self-view scores are served by a separate endpoint (issue #95).
 
 **Acceptance criteria:**
-- [ ] Returns full assessment details with questions
-- [ ] PRCC: reference answers always null
-- [ ] FCS + Org Admin + completed: reference answers included
-- [ ] FCS + participant + submitted: `my_scores` populated
-- [ ] Non-participant/non-admin gets 404 (via RLS)
-- [ ] Includes `my_participation` for the caller
+- [x] Returns full assessment details with questions
+- [x] PRCC: reference answers always null
+- [x] FCS + Org Admin + completed: reference answers included
+- [x] Non-participant/non-admin gets 404 (via RLS)
+- [x] Includes `my_participation` for the caller
+- _(descoped)_ FCS + participant + submitted: `my_scores` populated → moved to `GET /api/assessments/[id]/scores` (issue #95)
 
 **BDD specs:**
 
 ```
 describe('GET /api/assessments/[id]')
+  describe('Given an unauthenticated request')
+    it('then it returns 401')
+  describe('Given a user who is not a participant or admin')
+    it('then it returns 404')
   describe('Given a PRCC assessment')
     it('then reference answers are null')
   describe('Given a completed FCS assessment viewed by Org Admin')
     it('then reference answers are included')
   describe('Given a completed FCS assessment viewed by participant')
-    it('then my_scores is populated with their scores')
     it('then reference answers are null')
-  describe('Given a user who is not a participant or admin')
+  describe('Given a valid request')
+    it('then it returns the full response shape')
+  describe('Given a non-PGRST116 assessment DB error')
+    it('then it returns 500')
+  describe('Given a PGRST116 assessment DB error')
     it('then it returns 404')
 ```
 
+> **Implementation note (issue #58):** `my_scores` was initially implemented in this endpoint (including `fetchMyScores`, `shouldSkipMyScores`, `pickLatestAnswers`, `buildScoredQuestions`, `findLastReassessmentAt`) but drove the handler to ~350 lines and CodeScene cc > 20. Root cause: mixing metadata retrieval with multi-attempt answer processing (FCS-only, post-submission) is a design smell. Both concerns are needed but for different use cases. Solution: split to a dedicated endpoint (`GET /api/assessments/[id]/scores`, issue #95). Detail endpoint is now ~170 lines.
+>
+> Four private helpers in `route.ts` to manage CodeScene thresholds (cc < 10, LoC < 50):
+> - `assertNoDbError(error, label)` — logs and throws 500
+> - `resolveAssessment(data, error)` — maps PGRST116 → 404, other errors → 500
+> - `fetchParallelData(ctx: FetchContext)` — runs the four parallel queries, maps types
+> - `buildResponse(assessment, parallelData: ParallelData)` — builds the response object
+
 **Files to create/modify:**
-- `src/app/api/assessments/[id]/route.ts` — GET handler
+- `src/app/api/assessments/[id]/route.ts` — GET handler with private helpers
+- `src/app/api/assessments/[id]/helpers.ts` — `filterQuestionFields()` (extracted for testability)
 
 ---
 

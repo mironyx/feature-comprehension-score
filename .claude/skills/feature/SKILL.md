@@ -23,7 +23,7 @@ Execute these steps sequentially. Do not skip steps. Do not ask for confirmation
 
 If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 
-1. Run `gh project item-list 1 --owner leonids2005 --format json` and find the **top Todo item** (first item with `status: "Todo"`).
+1. Run `gh issue list --label L5-implementation --state open --limit 1` and use the first result.
 2. Read the issue body: `gh issue view <number>`.
 3. **Validate the issue has enough context:**
    - Design doc or LLD section reference
@@ -134,13 +134,17 @@ Continue until all acceptance criteria are covered.
 
 ### Step 5: Full verification
 
-Run all three checks. All must pass before proceeding.
+Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
 
 ```bash
-(cd "$WDIR" && npx vitest run)          # all tests green
+(cd "$WDIR" && npx vitest run)          # all tests green (unit + integration)
 (cd "$WDIR" && npx tsc --noEmit)        # no type errors
 (cd "$WDIR" && npm run lint)            # no lint errors
 ```
+
+**Integration test failures are not pre-existing — fix them.** If `npx vitest run` reports
+failures in `*.integration.test.ts` files, diagnose and resolve before continuing. Do not
+dismiss integration failures as "unrelated to this PR" and proceed to create the PR.
 
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
@@ -153,13 +157,17 @@ If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
-### Step 6: Diagnostics
+### Step 6: Diagnostics (blocking gate)
 
-Run `/diag` to check VS Code extension diagnostics.
+Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
 
-- Fix any Errors or Warnings.
-- Info-level items: fix if straightforward, otherwise note for the PR description.
-- Re-run Step 5 after any fixes.
+1. Run `/diag` on all changed files.
+2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`) — CodeScene exclusions are configured but may not cover every generated file.
+3. Re-run `/diag`.
+4. Repeat until `/diag` reports zero findings on non-generated files.
+5. Re-run Step 5 (full verification) after any fixes.
+
+Only proceed to Step 7 when `/diag` reports zero findings on non-generated files.
 
 ### Step 7: Commit
 
@@ -178,66 +186,11 @@ One commit per issue. Do not batch multiple issues.
 (cd "$WDIR" && git push -u origin feat/<branch-name>)
 ```
 
-Query Prometheus for session-total cost and tokens to include in the PR body.
+Create the PR first with a placeholder Usage section, then run the cost script once after the PR
+exists so labels are applied to both issue and PR in a single call, and patch the body.
 
 ```bash
-py - <<'PYEOF'
-import urllib.request, urllib.parse, json, pathlib, subprocess
-
-PROM = "http://localhost:9090/api/v1/query"
-
-# Anchor to main repo root (safe from worktree CWD)
-git_root = pathlib.Path(subprocess.run(
-    ["git", "rev-parse", "--show-toplevel"],
-    capture_output=True, text=True, check=True
-).stdout.strip())
-
-# Read all session_ids mapped to this feature from the textfile written in Step 1
-prom_file = git_root / "monitoring" / "textfile_collector" / "session_feature.prom"
-session_ids = []
-if prom_file.exists():
-    for line in prom_file.read_text().splitlines():
-        if line.startswith("claude_session_feature{"):
-            sid = None
-            for part in line.split(","):
-                if "session_id=" in part:
-                    sid = part.split('"')[1]
-                    break
-            if sid:
-                session_ids.append(sid)
-# Build a regex union so multi-session features aggregate all sessions
-sid_regex = "|".join(session_ids) if session_ids else None
-
-def query(promql):
-    try:
-        url = PROM + "?" + urllib.parse.urlencode({"query": promql})
-        rows = json.loads(urllib.request.urlopen(url, timeout=3).read()).get("data", {}).get("result", [])
-        return sum(float(r["value"][1]) for r in rows) if rows else 0.0
-    except Exception:
-        return None
-
-if sid_regex:
-    s = f'session_id=~"{sid_regex}"'
-    cost = query(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
-    inp  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})')
-    out  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})')
-    cr   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})')
-    cc   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})')
-else:
-    cost = inp = out = cr = cc = None
-
-sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
-if cost is None:
-    print("## Usage\n- Prometheus unavailable — run `docker compose up -d` in `monitoring/`")
-else:
-    print(f"## Usage (feature total{sessions_note})\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
-PYEOF
-```
-
-Incorporate the output into the PR body:
-
-```bash
-(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
+PR_URL=$(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points of what was implemented>
 
@@ -258,10 +211,22 @@ Closes #<number>
 - **Total tests:** N (M test files)
 
 ## Usage
-- **Cost:** $0.0000
-- **Tokens:** N input / N output / N cache-read / N cache-write
+- **Cost:** TBD
+- **Tokens:** TBD
 EOF
-)"
+)")
+
+PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+
+# Single cost script call — applies labels to issue + PR and outputs cost summary
+COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER)
+
+# Patch the PR body with the actual cost figures (replace TBD placeholders)
+COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
+TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
+CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
+UPDATED_BODY=$(echo "$CURRENT_BODY" | sed "s|- \*\*Cost:\*\* TBD|$COST_LINE|" | sed "s|- \*\*Tokens:\*\* TBD|$TOKEN_LINE|")
+gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
 ```
 
 ### Step 8b: CI probe (background)

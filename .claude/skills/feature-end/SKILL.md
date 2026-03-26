@@ -49,70 +49,21 @@ it in the session log.
 Query Prometheus for the full feature total (all sessions since `/feature` started — same
 session IDs registered in the textfile). This is the **final** cost snapshot; comparing it
 to the cost recorded in the PR body at creation time shows how much effort was spent
-post-PR (review fixes, re-runs, etc.).
+post-PR (review fixes, re-runs, etc.). Also updates the `ai-cost:*` label on the issue.
+
+Derive the issue number from the git log and run the shared script:
 
 ```bash
-py - <<'PYEOF'
-import urllib.request, urllib.parse, json, pathlib, subprocess
-
-PROM = "http://localhost:9090/api/v1/query"
-
-git_root = pathlib.Path(subprocess.run(
-    ["git", "rev-parse", "--show-toplevel"],
-    capture_output=True, text=True, check=True
-).stdout.strip())
-
-# Derive feature ID from branch name (feat/slug -> FCS-<N> via prom file)
-prom_file = git_root / "monitoring" / "textfile_collector" / "session_feature.prom"
-
-# Derive current feature ID from issue number in recent commits
-import re, subprocess as _sp
-log = _sp.run(["git", "log", "--oneline", "-10"], capture_output=True, text=True, check=True).stdout
-issue_matches = re.findall(r'#(\d+)', log)
-feature_id = f"FCS-{issue_matches[0]}" if issue_matches else None
-
-session_ids = []
-if prom_file.exists() and feature_id:
-    for line in prom_file.read_text().splitlines():
-        if line.startswith("claude_session_feature{") and f'feature_id="{feature_id}"' in line:
-            for part in line.split(","):
-                if "session_id=" in part:
-                    session_ids.append(part.split('"')[1])
-                    break
-
-sid_regex = "|".join(session_ids) if session_ids else None
-
-def query(promql):
-    try:
-        url = PROM + "?" + urllib.parse.urlencode({"query": promql})
-        rows = json.loads(urllib.request.urlopen(url, timeout=3).read()).get("data", {}).get("result", [])
-        return sum(float(r["value"][1]) for r in rows) if rows else 0.0
-    except Exception:
-        return None
-
-if sid_regex:
-    s = f'session_id=~"{sid_regex}"'
-    cost = query(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
-    inp  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})')
-    out  = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})')
-    cr   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})')
-    cc   = query(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})')
-else:
-    cost = inp = out = cr = cc = None
-
-sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
-if cost is None:
-    print("## Final Usage\n- Prometheus unavailable")
-else:
-    print(f"## Final Usage (feature total{sessions_note})\n- **Cost:** ${cost:.4f}\n- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write")
-    print(f"_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
-PYEOF
+ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
+PR=$(gh pr view --json number --jq .number 2>/dev/null || echo "")
+COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --final)
+echo "$COST_OUTPUT"
 ```
 
-Capture the output. Post it as a PR comment:
+Post the output as a PR comment:
 
 ```bash
-gh pr comment <number> --body "<final usage output>"
+gh pr comment <number> --body "$COST_OUTPUT"
 ```
 
 Store the cost figures — you will include them in the session log in Step 2.
@@ -176,7 +127,40 @@ Summarise what was done:
 - PR merged (link)
 - Issue closed
 - Now on branch `<base-branch>`, up to date with remote
-- Suggested next item from the board: run `gh project item-list 1 --owner <owner> --format json` and print the first Todo item's title and number. This is the only additional query allowed here.
+- Suggested next item: run `gh issue list --label L5-implementation --state open --limit 3` and print the results. This is the only additional query allowed here.
+
+### Step 7.5: Check branch protection
+
+Run:
+```bash
+gh api repos/{owner}/{repo}/branches/main/protection --silent 2>&1 | head -1
+```
+
+- If it returns protection config → branch protection is active, nothing to do.
+- If it returns a 404 or "Branch not protected" → remind the user:
+
+  > **Branch protection is not enabled.** To require all CI checks before merging, either make
+  > the repository public or upgrade to GitHub Pro, then run:
+  > ```bash
+  > gh api repos/{owner}/{repo}/branches/main/protection --method PUT --input - <<'EOF'
+  > {
+  >   "required_status_checks": {
+  >     "strict": true,
+  >     "contexts": [
+  >       "Lint & Type-check",
+  >       "Unit tests",
+  >       "Integration tests (Supabase)",
+  >       "Build",
+  >       "Docker build",
+  >       "E2E tests (Playwright)"
+  >     ]
+  >   },
+  >   "enforce_admins": false,
+  >   "required_pull_request_reviews": null,
+  >   "restrictions": null
+  > }
+  > EOF
+  > ```
 
 ## Blocker policy
 
