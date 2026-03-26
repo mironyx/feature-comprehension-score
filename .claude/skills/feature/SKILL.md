@@ -87,7 +87,15 @@ if new_line not in existing:
         content = existing.rstrip("\n") + "\n" + new_line
     prom_file.write_text(content, encoding="utf-8", newline="\n")
 
-print(f"Session tagged: {FEATURE_ID} → {session_id}")
+# 3. Record feature start timestamp (used by query-feature-cost.py for time-to-PR)
+timing_file = textfile_dir / "feature_timing.json"
+timing = json.loads(timing_file.read_text(encoding="utf-8")) if timing_file.exists() else {}
+if FEATURE_ID not in timing:
+    import datetime
+    timing[FEATURE_ID] = {"start_iso": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    timing_file.write_text(json.dumps(timing, indent=2), encoding="utf-8")
+
+print(f"Session tagged: {FEATURE_ID}")
 print(f"Prom file: {prom_file}")
 PYEOF
 ```
@@ -233,6 +241,7 @@ Closes #<number>
 ## Usage
 - **Cost:** TBD
 - **Tokens:** TBD
+- **Time to PR:** TBD
 EOF
 )")
 
@@ -244,8 +253,12 @@ COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue
 # Patch the PR body with the actual cost figures (replace TBD placeholders)
 COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
 TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
+TIME_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Time to PR:')
 CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
-UPDATED_BODY=$(echo "$CURRENT_BODY" | sed "s|- \*\*Cost:\*\* TBD|$COST_LINE|" | sed "s|- \*\*Tokens:\*\* TBD|$TOKEN_LINE|")
+UPDATED_BODY=$(echo "$CURRENT_BODY" \
+  | sed "s|- \*\*Cost:\*\* TBD|$COST_LINE|" \
+  | sed "s|- \*\*Tokens:\*\* TBD|$TOKEN_LINE|" \
+  | sed "s|- \*\*Time to PR:\*\* TBD|$TIME_LINE|")
 gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
 ```
 

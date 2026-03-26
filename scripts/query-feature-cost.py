@@ -1,11 +1,12 @@
 """Query Prometheus for feature cost/tokens and optionally tag the GitHub issue.
 
 Usage:
-  py scripts/query-feature-cost.py <feature_id> [--issue N] [--final]
+  py scripts/query-feature-cost.py <feature_id> [--issue N] [--pr N] [--final]
 
 Arguments:
   feature_id   Feature ID to look up, e.g. FCS-55
   --issue N    GitHub issue number; if given, applies an ai-cost:<value> label
+  --pr N       GitHub PR number; if given, also applies labels to PR and outputs time-to-PR
   --final      Prefix output heading with "Final" (used by feature-end)
 """
 
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 PROM = "http://localhost:9090/api/v1/query"
 
@@ -30,6 +32,44 @@ def git_root() -> pathlib.Path:
     if not p.is_absolute():
         p = pathlib.Path.cwd() / p
     return p.parent
+
+
+def read_feature_start(feature_id: str) -> datetime | None:
+    """Return the recorded start timestamp for feature_id, or None if not available."""
+    timing_file = git_root() / "monitoring" / "textfile_collector" / "feature_timing.json"
+    if not timing_file.exists():
+        return None
+    try:
+        data = json.loads(timing_file.read_text(encoding="utf-8"))
+        iso = data.get(feature_id, {}).get("start_iso")
+        if iso:
+            return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    return None
+
+
+def fetch_pr_created_at(pr: int) -> datetime | None:
+    """Return the PR creation timestamp from GitHub, or None on error."""
+    result = subprocess.run(
+        ["gh", "pr", "view", str(pr), "--json", "createdAt", "-q", ".createdAt"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        return datetime.fromisoformat(result.stdout.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds as a human-readable string."""
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h {mins}min"
 
 
 def read_session_ids(feature_id: str) -> list[str]:
@@ -130,11 +170,22 @@ def main() -> None:
         print(f"## {prefix}Usage\n- Prometheus unreachable at {PROM} — is the monitoring stack running?")
         sys.exit(0)
 
+    # Time-to-PR: only when --pr is provided and timing data exists
+    time_line = ""
+    if args.pr is not None:
+        start = read_feature_start(args.feature_id)
+        pr_created = fetch_pr_created_at(args.pr)
+        if start is not None and pr_created is not None:
+            elapsed = (pr_created - start).total_seconds()
+            duration = format_duration(elapsed)
+            time_line = f"\n- **Time to PR:** {duration}"
+
     print(
         f"## {prefix}Usage ({args.feature_id}{sessions_note})\n"
         f"- **Cost:** ${cost:.4f}\n"
         f"- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output"
         f" / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write"
+        f"{time_line}"
     )
     if args.final:
         print("_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
