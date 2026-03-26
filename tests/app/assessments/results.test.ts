@@ -80,13 +80,20 @@ function makeParticipant(status: 'pending' | 'submitted' = 'submitted') {
   return { id: `participant-${status}`, status };
 }
 
-function makeSecretClient(
-  assessment: object | null,
-  orgMembership: { github_role: string } | null,
-  participation: { id: string } | null,
-  questions: object[],
-  participants: object[],
-) {
+// ---------------------------------------------------------------------------
+// Mock builders
+// ---------------------------------------------------------------------------
+
+interface SecretClientOptions {
+  assessment: object | null;
+  orgMembership: { github_role: string } | null;
+  participation: { id: string } | null;
+  questions: object[];
+  participants: object[];
+}
+
+function makeSecretClient(opts: SecretClientOptions) {
+  const { assessment, orgMembership, participation, questions, participants } = opts;
   return {
     from: vi.fn((table: string) => {
       if (table === 'assessments') {
@@ -113,7 +120,8 @@ function makeSecretClient(
         };
       }
       if (table === 'assessment_participants') {
-        // Returns participation when called with user_id filter, all participants otherwise.
+        // Handles both participant-lookup (.eq('assessment_id').eq('user_id').maybeSingle())
+        // and count query (.eq('assessment_id').order()).
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockImplementation((col: string) => {
@@ -122,11 +130,7 @@ function makeSecretClient(
                   eq: vi.fn().mockReturnValue({
                     maybeSingle: vi.fn().mockResolvedValue({ data: participation, error: null }),
                   }),
-                  // Called without user_id filter — return all participants
                   order: vi.fn().mockResolvedValue({ data: participants, error: null }),
-                  // plain resolve for .eq('assessment_id', id) with no further chain
-                  // needed when select returns all participants
-                  then: undefined,
                 };
               }
               return { maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
@@ -163,6 +167,24 @@ function makeParams(id = ASSESSMENT_ID) {
   return Promise.resolve({ id });
 }
 
+const AUTHED_USER = { id: USER_ID };
+
+/** Sets up mocks and imports the page component. Reduces per-test boilerplate. */
+async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
+  mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
+  mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
+  const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+  return ResultsPage;
+}
+
+const emptyClient: SecretClientOptions = {
+  assessment: null,
+  orgMembership: null,
+  participation: null,
+  questions: [],
+  participants: [],
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -175,10 +197,7 @@ describe('FCS results page', () => {
 
   describe('Given an unauthenticated user', () => {
     it('then it redirects to /auth/sign-in', async () => {
-      mockCreateServer.mockResolvedValue(makeServerClient(null) as never);
-      mockCreateSecret.mockReturnValue(makeSecretClient(null, null, null, [], []) as never);
-
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const ResultsPage = await arrange(emptyClient, null);
       await expect(ResultsPage({ params: makeParams() })).rejects.toThrow(
         'NEXT_REDIRECT:/auth/sign-in',
       );
@@ -188,10 +207,7 @@ describe('FCS results page', () => {
 
   describe('Given the assessment does not exist', () => {
     it('then it calls notFound', async () => {
-      mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-      mockCreateSecret.mockReturnValue(makeSecretClient(null, null, null, [], []) as never);
-
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const ResultsPage = await arrange(emptyClient);
       await expect(ResultsPage({ params: makeParams() })).rejects.toThrow('NEXT_NOT_FOUND');
       expect(mockNotFound).toHaveBeenCalled();
     });
@@ -199,81 +215,54 @@ describe('FCS results page', () => {
 
   describe('Given a user who is not a participant or admin', () => {
     it('then it calls notFound', async () => {
-      const assessment = makeAssessment();
-      mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-      mockCreateSecret.mockReturnValue(
-        makeSecretClient(assessment, null, null, [], []) as never,
-      );
-
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const ResultsPage = await arrange({ ...emptyClient, assessment: makeAssessment() });
       await expect(ResultsPage({ params: makeParams() })).rejects.toThrow('NEXT_NOT_FOUND');
       expect(mockNotFound).toHaveBeenCalled();
     });
   });
 
   describe('Given a completed FCS assessment', () => {
-    describe('When the caller is a participant', () => {
-      it('then it renders the results page', async () => {
-        const assessment = makeAssessment();
-        const questions = [makeQuestion(1), makeQuestion(2)];
-        const participants = [makeParticipant('submitted'), makeParticipant('pending')];
-        mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-        mockCreateSecret.mockReturnValue(
-          makeSecretClient(assessment, null, { id: 'part-001' }, questions, participants) as never,
-        );
-
-        const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+    it.each([
+      ['participant', null,                          { id: 'part-001' }] as const,
+      ['org admin',  { github_role: 'admin' as const }, null           ] as const,
+    ])('When the caller is a %s, then it renders the results page',
+      async (_label, orgMembership, participation) => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment(),
+          orgMembership,
+          participation,
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted')],
+        });
         const result = await ResultsPage({ params: makeParams() });
-
         expect(result).toBeTruthy();
         expect(mockRedirect).not.toHaveBeenCalled();
         expect(mockNotFound).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('When the caller is an org admin', () => {
-      it('then it renders the results page', async () => {
-        const assessment = makeAssessment();
-        const questions = [makeQuestion(1)];
-        const participants = [makeParticipant('submitted')];
-        mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-        mockCreateSecret.mockReturnValue(
-          makeSecretClient(assessment, { github_role: 'admin' }, null, questions, participants) as never,
-        );
-
-        const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
-        const result = await ResultsPage({ params: makeParams() });
-
-        expect(result).toBeTruthy();
-        expect(mockRedirect).not.toHaveBeenCalled();
-      });
-    });
+      },
+    );
   });
 
   describe('Given a non-FCS assessment', () => {
     it('then it calls notFound', async () => {
-      const assessment = makeAssessment({ type: 'prcc' });
-      mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-      mockCreateSecret.mockReturnValue(
-        makeSecretClient(assessment, { github_role: 'admin' }, null, [], []) as never,
-      );
-
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const ResultsPage = await arrange({
+        ...emptyClient,
+        assessment: makeAssessment({ type: 'prcc' }),
+        orgMembership: { github_role: 'admin' },
+      });
       await expect(ResultsPage({ params: makeParams() })).rejects.toThrow('NEXT_NOT_FOUND');
     });
   });
 
   describe('Given scoring is incomplete', () => {
     it('then it renders a scoring-incomplete notice', async () => {
-      const assessment = makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 });
-      const questions = [makeQuestion(1, { aggregate_score: null })];
-      const participants = [makeParticipant('submitted')];
-      mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
-      mockCreateSecret.mockReturnValue(
-        makeSecretClient(assessment, null, { id: 'part-001' }, questions, participants) as never,
-      );
+      const ResultsPage = await arrange({
+        assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [makeQuestion(1, { aggregate_score: null })],
+        participants: [makeParticipant('submitted')],
+      });
 
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
       const result = await ResultsPage({ params: makeParams() });
 
       expect(result).toBeTruthy();
