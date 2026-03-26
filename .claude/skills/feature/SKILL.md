@@ -161,9 +161,18 @@ If any fail, fix and re-run. If stuck after 3 attempts on the same failure, paus
 
 Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
 
+**Before running `/diag`:** Open all changed source files in Windsurf so the extension generates fresh diagnostics. The extension only exports diagnostics for files that are open in the editor — without this step, the diagnostics file may be stale or missing.
+
+```bash
+windsurf --reuse-window src/path/to/file1.ts src/path/to/file2.ts   # open all changed files
+sleep 5                                                               # wait for CodeScene to analyse
+```
+
+Then:
+
 1. Run `/diag` on all changed files.
 2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`) — CodeScene exclusions are configured but may not cover every generated file.
-3. Re-run `/diag`.
+3. After fixing, open the fixed files in Windsurf again and wait 5 s, then re-run `/diag` to confirm the findings are gone — do not assume a fix worked without seeing the updated diagnostics.
 4. Repeat until `/diag` reports zero findings on non-generated files.
 5. Re-run Step 5 (full verification) after any fixes.
 

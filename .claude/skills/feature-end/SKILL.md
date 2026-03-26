@@ -68,6 +68,33 @@ gh pr comment <number> --body "$COST_OUTPUT"
 
 Store the cost figures — you will include them in the session log in Step 2.
 
+### Step 2.6: Cost retrospective
+
+Analyse the full cost and write a brief retrospective to include in the session log.
+This is the institutional memory that makes future features cheaper.
+
+1. **Cost summary:** PR-creation cost (from PR body `Usage` section) vs final total.
+   Delta = post-PR work (review fixes, re-runs, extra commits).
+
+2. **Identify cost drivers.** Check each of these against the git log and session history:
+
+   | Driver | How to detect | Typical impact |
+   |--------|--------------|----------------|
+   | Context compaction | Session summary starts "This session is being continued..." | High — re-summarising inflates cache-write tokens |
+   | Fix cycles (RED→fix rounds) | Count commits before the first green run | Medium — each vitest run adds tokens |
+   | Agent spawns | Count Agent calls in the session: simplify (3), pr-review (3), diagnostics, ci-probe | Medium — each spawn re-sends the full diff |
+   | LLD quality gaps | pr-review found design-contract violations → extra fix commit | Medium — avoidable with better LLD signatures upfront |
+   | Mock complexity | Many test fix rounds before mocks worked | Low–medium |
+   | Zod/framework version gotchas | Fix cycles on schema/type issues | Low |
+
+3. **Improvement actions:** For each driver, record a concrete change for next time:
+   - "LLD private-helper signatures were wrong → validate signatures in a quick `tsc` pass before writing tests"
+   - "Context compaction hit → keep PRs under 200 lines; break large features into two issues"
+   - "3 simplify agents re-read the full diff → run simplify before pr-review, not both"
+   - "Zod v4 UUID format → read migration notes at session start for framework upgrades"
+
+Record under **## Cost retrospective** in the session log.
+
 ### Step 3: Commit remaining changes
 
 1. Run `git status` to check for uncommitted changes (session log, review fixes, etc.).
