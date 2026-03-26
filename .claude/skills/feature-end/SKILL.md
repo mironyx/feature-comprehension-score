@@ -48,7 +48,8 @@ it in the session log.
    - Any review feedback addressed
    - Next steps or follow-up items
    - Final feature cost (from Step 2.5) — include both the PR-creation cost (from PR body) and the final total, so the delta is visible
-3. Stage the session log.
+3. If a draft file was used, delete it: `rm docs/sessions/*-draft.md`.
+4. Stage the session log (and the draft deletion if applicable).
 
 ### Step 2.5: Query final feature cost
 
