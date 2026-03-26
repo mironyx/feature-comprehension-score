@@ -969,17 +969,23 @@ Service (fcsService.createFcs):
 Controller (stays in `fcs/route.ts`, ≤ 5 lines):
 - Calls `createApiContext(request)` and `validateBody()`
 - Calls `fcsService.createFcs(ctx, body)`
-- Returns `json(result, { status: 201 })`
+- Returns `json(result, 201)` — `json` helper takes `(data, statusCode)` positional args
 
 Service (`fcs/service.ts`):
-- Exported: `createFcs(ctx: ApiContext, input: FcsCreateInput): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
+- Exported: `createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
 
   Private helpers (≤ 20 lines each):
-  - `validateMergedPRs(githubClient, repositoryId, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
-  - `resolveParticipants(adminSupabase, githubClient, orgId, usernames)` — resolves GitHub user IDs; 422 for unknown username
-  - `createAssessmentRecord(adminSupabase, input)` — inserts assessment row with status `rubric_generation`; returns new `assessment_id`
-  - `enrollParticipants(adminSupabase, assessmentId, participants)` — inserts `assessment_participants` rows
-  - `triggerRubricGeneration(assessmentId)` — fire-and-forget; logs and swallows on failure
+  - `assertOrgAdmin(supabase, userId, orgId)` — queries `user_organisations`; throws 403 if not admin
+  - `fetchRepoInfo(adminSupabase, repositoryId, orgId)` — parallel fetch of repository row + org_config; validates org ownership; returns `RepoInfo`
+  - `toRepoInfo(repo, cfg, orgId)` — pure mapper from DB rows to `RepoInfo`
+  - `validateMergedPRs(octokit, owner, repo, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
+  - `resolveParticipants(octokit, usernames)` — resolves GitHub user IDs via GitHub API; 422 for unknown username
+  - `createAssessmentRecord(adminSupabase, input: FcsCreateInput, repoInfo, validatedPRs, assessmentId)` — inserts `assessments` row with status `rubric_generation` and `fcs_merged_prs` rows
+  - `enrollParticipants(adminSupabase, assessmentId, orgId, participants)` — inserts `assessment_participants` rows
+  - `triggerRubricGeneration(params: RubricTriggerParams)` — fire-and-forget; fetches artefacts, generates rubric, updates status to `awaiting_responses`; logs and swallows on failure
+  - `storeRubricQuestions(adminSupabase, assessmentId, orgId, questions)` — inserts `assessment_questions` rows
+  - `finaliseRubric(adminSupabase, assessmentId, orgId, artefacts)` — calls LLM, stores questions, updates assessment status
+  - `buildLlmClient(): LLMClient` — factory; reads `ANTHROPIC_API_KEY`, returns `AnthropicClient`
 
 > **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
 >

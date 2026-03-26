@@ -11,6 +11,7 @@ import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import { generateRubric } from '@/lib/engine/pipeline';
 import { AnthropicClient } from '@/lib/engine/llm/client';
+import type { LLMClient } from '@/lib/engine/llm/types';
 import type { Database } from '@/lib/supabase/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import type { Question } from '@/lib/engine/llm/schemas';
@@ -32,6 +33,9 @@ export const FcsCreateBodySchema = z.object({
 });
 
 export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
+// FcsCreateInput is the mapped form passed to createAssessmentRecord (LLD §2.4 constraint).
+// Currently identical to FcsCreateBody; kept separate to honour the design boundary.
+export type FcsCreateInput = FcsCreateBody;
 
 export interface CreateFcsResponse {
   assessment_id: string;
@@ -94,6 +98,10 @@ interface RubricTriggerParams {
 // functions").
 // ---------------------------------------------------------------------------
 
+// Justification: assertOrgAdmin is extracted from createFcs to keep the exported function
+// under 20 lines. The LLD places the org-admin check in the controller; createApiContext does
+// not yet include adminSupabase + role-check together, so the check lives here until §2.4
+// controller refactor consolidates it into requireOrgAdmin().
 async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: string): Promise<void> {
   const { data, error } = await supabase
     .from('user_organisations')
@@ -108,6 +116,10 @@ async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: strin
   if (!rows.length || rows[0]?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
 }
 
+// Justification: toRepoInfo and fetchRepoInfo are not in the LLD §2.4 internal decomposition.
+// They were extracted to keep fetchRepoInfo CC below 9 (CodeScene complex-method threshold).
+// The LLD §2.4 Private helpers list omits the repo+config fetch step entirely; these helpers
+// implement that implicit step. The LLD should be updated to include them.
 function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: string): RepoInfo {
   return {
     orgName: repo.organisations.github_org_name,
@@ -149,6 +161,7 @@ async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, 
       return { pr_number: prNumber, pr_title: data.title };
     } catch (err) {
       if (err instanceof ApiError) throw err;
+      console.error(`validateMergedPRs: GitHub API error for PR #${prNumber}:`, err);
       throw new ApiError(422, `PR #${prNumber} not found`);
     }
   }));
@@ -159,7 +172,8 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
     try {
       const { data } = await octokit.rest.users.getByUsername({ username });
       return { github_username: data.login, github_user_id: data.id };
-    } catch {
+    } catch (err) {
+      console.error(`resolveParticipants: GitHub API error for username '${username}':`, err);
       throw new ApiError(422, `Unknown GitHub username: ${username}`);
     }
   }));
@@ -167,7 +181,7 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
 
 async function createAssessmentRecord(
   adminSupabase: ServiceClient,
-  body: FcsCreateBody,
+  body: FcsCreateInput,
   repoInfo: RepoInfo,
   validatedPRs: ValidatedPR[],
   assessmentId: string,
@@ -210,6 +224,9 @@ async function enrollParticipants(
   if (error) { console.error('enrollParticipants: insert failed:', error); throw new ApiError(500, 'Failed to enrol participants'); }
 }
 
+// Justification: storeRubricQuestions, buildLlmClient, and finaliseRubric are not in the LLD
+// §2.4 internal decomposition. They decompose triggerRubricGeneration's implicit rubric-writing
+// step which the LLD left unspecified. Each is ≤ 20 lines as required by CLAUDE.md.
 async function storeRubricQuestions(
   adminSupabase: ServiceClient,
   assessmentId: string,
@@ -227,10 +244,10 @@ async function storeRubricQuestions(
       reference_answer: q.reference_answer,
     })),
   );
-  if (error) throw new Error('Failed to store assessment questions');
+  if (error) { console.error('storeRubricQuestions: insert failed:', error); throw new Error('Failed to store assessment questions'); }
 }
 
-function buildLlmClient(): AnthropicClient {
+function buildLlmClient(): LLMClient {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) throw new ApiError(500, 'LLM client not configured');
   return new AnthropicClient({ apiKey });
@@ -279,7 +296,8 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
     resolveParticipants(octokit, body.participants.map(p => p.github_username)),
   ]);
   const assessmentId = randomUUID();
-  await createAssessmentRecord(adminSupabase, body, repoInfo, validatedPRs, assessmentId);
+  const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
+  await createAssessmentRecord(adminSupabase, input, repoInfo, validatedPRs, assessmentId);
   await enrollParticipants(adminSupabase, assessmentId, body.org_id, participants);
   void triggerRubricGeneration({ adminSupabase, userId: user.id, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
