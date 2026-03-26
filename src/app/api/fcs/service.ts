@@ -19,6 +19,12 @@ import type { Question } from '@/lib/engine/llm/schemas';
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
 
+// Branded ID types — prevents accidental swaps between look-alike string arguments.
+type OrgId = string & { readonly _brand: 'OrgId' };
+type UserId = string & { readonly _brand: 'UserId' };
+type RepositoryId = string & { readonly _brand: 'RepositoryId' };
+type AssessmentId = string & { readonly _brand: 'AssessmentId' };
+
 // ---------------------------------------------------------------------------
 // Request / response contracts
 // ---------------------------------------------------------------------------
@@ -33,9 +39,9 @@ export const FcsCreateBodySchema = z.object({
 });
 
 export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
-// FcsCreateInput is the mapped form passed to createAssessmentRecord (LLD §2.4 constraint).
-// Currently identical to FcsCreateBody; kept separate to honour the design boundary.
-export type FcsCreateInput = FcsCreateBody;
+// FcsCreateInput is the subset of fields passed to createAssessmentRecord (LLD §2.4 constraint).
+// Narrowed to only the fields the DB write needs, enforcing the design boundary.
+export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description'>;
 
 export interface CreateFcsResponse {
   assessment_id: string;
@@ -50,7 +56,7 @@ export interface CreateFcsResponse {
 interface RepoInfo {
   orgName: string;
   repoName: string;
-  orgId: string;
+  orgId: OrgId;
   questionCount: number;
   enforcementMode: string;
   scoreThreshold: number;
@@ -82,27 +88,21 @@ interface ResolvedParticipant {
 
 interface RubricTriggerParams {
   adminSupabase: ServiceClient;
-  userId: string;
-  assessmentId: string;
+  userId: UserId;
+  assessmentId: AssessmentId;
   repoInfo: RepoInfo;
   prNumbers: number[];
 }
 
 // ---------------------------------------------------------------------------
 // Private helpers
-// CodeScene notes: file-level "Primitive Obsession" and "String Heavy Function
-// Arguments" smells require branded UUID types to resolve fully. Deferred: adding
-// branded types across service boundaries adds complexity without runtime benefit and
-// conflicts with CLAUDE.md's simplicity guidelines. createAssessmentRecord 5-arg
-// signature is exempt per CLAUDE.md ("No parameter structs for single-use internal
-// functions").
 // ---------------------------------------------------------------------------
 
 // Justification: assertOrgAdmin is extracted from createFcs to keep the exported function
 // under 20 lines. The LLD places the org-admin check in the controller; createApiContext does
 // not yet include adminSupabase + role-check together, so the check lives here until §2.4
 // controller refactor consolidates it into requireOrgAdmin().
-async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: string): Promise<void> {
+async function assertOrgAdmin(supabase: UserClient, userId: UserId, orgId: OrgId): Promise<void> {
   const { data, error } = await supabase
     .from('user_organisations')
     .select('github_role')
@@ -120,7 +120,7 @@ async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: strin
 // They were extracted to keep fetchRepoInfo CC below 9 (CodeScene complex-method threshold).
 // The LLD §2.4 Private helpers list omits the repo+config fetch step entirely; these helpers
 // implement that implicit step. The LLD should be updated to include them.
-function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: string): RepoInfo {
+function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: OrgId): RepoInfo {
   return {
     orgName: repo.organisations.github_org_name,
     repoName: repo.github_repo_name,
@@ -132,7 +132,20 @@ function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: string): RepoInfo {
   };
 }
 
-async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: string, orgId: string): Promise<RepoInfo> {
+function validateRepo(result: { data: RepoRow | null; error: unknown }, orgId: OrgId): RepoRow {
+  const { data, error } = result;
+  if (error !== null || data === null) throw new ApiError(422, 'Repository not found');
+  if (data.org_id !== orgId) throw new ApiError(422, 'Repository does not belong to this organisation');
+  return data;
+}
+
+function validateCfg(result: { data: ConfigRow | null; error: unknown }): ConfigRow {
+  const { data, error } = result;
+  if (error !== null || data === null) throw new ApiError(500, 'Organisation config not found');
+  return data;
+}
+
+async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: RepositoryId, orgId: OrgId): Promise<RepoInfo> {
   const [repoResult, cfgResult] = await Promise.all([
     adminSupabase
       .from('repositories')
@@ -145,12 +158,7 @@ async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: string,
       .eq('org_id', orgId)
       .single() as unknown as Promise<{ data: ConfigRow | null; error: unknown }>,
   ]);
-  const { data: repo, error: repoError } = repoResult;
-  if (repoError || !repo) throw new ApiError(422, 'Repository not found');
-  if (repo.org_id !== orgId) throw new ApiError(422, 'Repository does not belong to this organisation');
-  const { data: cfg, error: cfgError } = cfgResult;
-  if (cfgError || !cfg) throw new ApiError(500, 'Organisation config not found');
-  return toRepoInfo(repo, cfg, orgId);
+  return toRepoInfo(validateRepo(repoResult, orgId), validateCfg(cfgResult), orgId);
 }
 
 async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, prNumbers: number[]): Promise<ValidatedPR[]> {
@@ -184,8 +192,8 @@ async function createAssessmentRecord(
   body: FcsCreateInput,
   repoInfo: RepoInfo,
   validatedPRs: ValidatedPR[],
-  assessmentId: string,
-): Promise<void> {
+): Promise<AssessmentId> {
+  const assessmentId = randomUUID() as AssessmentId;
   const { error: aErr } = await adminSupabase.from('assessments').insert({
     id: assessmentId,
     org_id: body.org_id,
@@ -204,12 +212,13 @@ async function createAssessmentRecord(
     validatedPRs.map(pr => ({ org_id: body.org_id, assessment_id: assessmentId, pr_number: pr.pr_number, pr_title: pr.pr_title })),
   );
   if (pErr) { console.error('createAssessmentRecord: pr insert failed:', pErr); throw new ApiError(500, 'Failed to store merged PRs'); }
+  return assessmentId;
 }
 
 async function enrollParticipants(
   adminSupabase: ServiceClient,
-  assessmentId: string,
-  orgId: string,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
   participants: ResolvedParticipant[],
 ): Promise<void> {
   const { error } = await adminSupabase.from('assessment_participants').insert(
@@ -229,8 +238,8 @@ async function enrollParticipants(
 // step which the LLD left unspecified. Each is ≤ 20 lines as required by CLAUDE.md.
 async function storeRubricQuestions(
   adminSupabase: ServiceClient,
-  assessmentId: string,
-  orgId: string,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
   questions: Question[],
 ): Promise<void> {
   const { error } = await adminSupabase.from('assessment_questions').insert(
@@ -255,8 +264,8 @@ function buildLlmClient(): LLMClient {
 
 async function finaliseRubric(
   adminSupabase: ServiceClient,
-  assessmentId: string,
-  orgId: string,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
   artefacts: AssembledArtefactSet,
 ): Promise<void> {
   const llmClient = buildLlmClient();
@@ -286,19 +295,22 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
   const { supabase, adminSupabase, user } = ctx;
-  await assertOrgAdmin(supabase, user.id, body.org_id);
+  // Cast plain strings to branded types at the service boundary (Zod validates format upstream).
+  const userId = user.id as UserId;
+  const orgId = body.org_id as OrgId;
+  const repositoryId = body.repository_id as RepositoryId;
+  await assertOrgAdmin(supabase, userId, orgId);
   const [repoInfo, octokit] = await Promise.all([
-    fetchRepoInfo(adminSupabase, body.repository_id, body.org_id),
-    createGithubClient(adminSupabase, user.id),
+    fetchRepoInfo(adminSupabase, repositoryId, orgId),
+    createGithubClient(adminSupabase, userId),
   ]);
   const [validatedPRs, participants] = await Promise.all([
     validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, body.merged_pr_numbers),
     resolveParticipants(octokit, body.participants.map(p => p.github_username)),
   ]);
-  const assessmentId = randomUUID();
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
-  await createAssessmentRecord(adminSupabase, input, repoInfo, validatedPRs, assessmentId);
-  await enrollParticipants(adminSupabase, assessmentId, body.org_id, participants);
-  void triggerRubricGeneration({ adminSupabase, userId: user.id, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
+  const assessmentId = await createAssessmentRecord(adminSupabase, input, repoInfo, validatedPRs);
+  await enrollParticipants(adminSupabase, assessmentId, orgId, participants);
+  void triggerRubricGeneration({ adminSupabase, userId, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }

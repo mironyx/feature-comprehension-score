@@ -1,19 +1,19 @@
 ---
 name: diag
-description: Check VS Code extension diagnostics for changed files. Use when the user wants to check code quality, review diagnostics, or before committing code.
+description: Check Windsurf extension diagnostics for changed files. Use when the user wants to check code quality, review diagnostics, or before committing code.
 disable-model-invocation: true
 allowed-tools: Read, Glob, Bash
 ---
 
 # Check Diagnostics — On-Demand Code Quality Check
 
-Reads diagnostics exported by the VS Code diagnostics-exporter extension from `.diagnostics/`. Use for a batch check across multiple files, e.g., before committing.
+Reads diagnostics exported by the Windsurf diagnostics-exporter extension from `.diagnostics/`. Use for a batch check across multiple files, e.g., before committing.
 
 ## How diagnostics are generated
 
-The VS Code `diagnostics-exporter` extension exports diagnostics for files that are **open in the editor**. A PostToolUse hook fires after every Write/Edit, waits 3 s, then reads whatever the extension has exported. If the file is not open in VS Code, the hook fires but the extension has nothing to export — the `.diagnostics/` file is either missing or reflects an earlier open session.
+The Windsurf `diagnostics-exporter` extension exports diagnostics for files that are **open in the editor**. A PostToolUse hook fires after every Write/Edit, waits 3 s, then reads whatever the extension has exported. If the file is not open in Windsurf, the hook fires but the extension has nothing to export — the `.diagnostics/` file is either missing or reflects an earlier open session.
 
-This means: after making fixes in a CLI session, the diagnostics file may be **stale** (shows old issues) or **missing** entirely. The fix is to open the file in VS Code using `code <file>`, which triggers a fresh CodeScene pass, then wait for the export.
+This means: after making fixes in a CLI session, the diagnostics file may be **stale** (shows old issues) or **missing** entirely. The fix is to open the file in Windsurf using `windsurf --reuse-window <file>`, which triggers a fresh CodeScene pass, then wait for the export.
 
 ## Instructions
 
@@ -21,40 +21,42 @@ This means: after making fixes in a CLI session, the diagnostics file may be **s
    - If arguments are provided (`$ARGUMENTS`), check only those files.
    - Otherwise, check **all** files that have a diagnostics export: list every `.json` file under `.diagnostics/` (these are the files the extension has analysed). Also run `git diff --name-only` and `git diff --cached --name-only` to find modified source files (`.ts`, `.tsx`, `.js`, `.jsx`) that may not have a diagnostics file yet. Union both sets.
 
-2. **Open files in VS Code to ensure fresh diagnostics.**
+2. **Open all target files in Windsurf immediately.**
 
-   For each target source file, run:
+   Do this **before reading diagnostics or making any fixes**. Once a file is open, Windsurf detects every subsequent on-disk save and triggers a fresh CodeScene pass automatically — so diagnostics will be live as you edit.
+
    ```bash
-   code <file>
-   ```
-   Then wait 5 seconds for VS Code to open the file and the extension to export:
-   ```bash
-   Start-Sleep -Seconds 5   # PowerShell / Windows
-   # or
-   sleep 5                  # bash
-   ```
-   If there are multiple files, open all of them first, then wait once:
-   ```bash
-   code src/app/api/fcs/service.ts src/lib/github/client.ts
+   windsurf --reuse-window src/app/api/fcs/service.ts src/lib/github/client.ts
    sleep 5
    ```
 
-3. **Check diagnostics for each file.** For each source file:
+   The `sleep 5` gives the initial analysis time to complete before you read diagnostics.
+
+3. **Read diagnostics for each file.** For each source file:
    - Look for `.diagnostics/<relative-path>.json`
    - Read the JSON file if it exists
    - Parse the diagnostics array: `{source, severity, message, line, column, code}`
 
-4. **Report findings:**
+4. **Report all findings, then fix them all.**
    - Total files checked vs files with diagnostics available
    - Issues grouped by severity (Errors first, then Warnings, then Info)
    - For each issue: `file:line:column [source/code] — message`
-   - Files with no diagnostics file (extension still not exported — wait another 5 s and retry once)
-   - Files with empty diagnostics (clean)
+   - Files with no diagnostics file: wait another 5 s and retry once
+   - Files with empty diagnostics: clean
    - **If there are any Errors, flag this clearly at the top of the report.**
 
-5. **After fixes: confirm resolution.**
+   After listing all findings, fix every one of them before proceeding. Do not stop at "documenting" a warning — fix it or, if it genuinely cannot be fixed without a major cross-file refactor, add an explicit `// Justification:` comment explaining why.
 
-   If issues were found and fixes were applied, re-run from Step 2 on the fixed files. Do not assume an issue is resolved because the code was changed — verify by reading the updated diagnostics file. Only mark an issue resolved when the diagnostics file no longer contains it.
+5. **Confirm resolution.**
+
+   After all fixes are applied, re-read the diagnostics files for the changed files. Because the files are already open in Windsurf (from Step 2), the extension will have exported fresh diagnostics after each save — no need to re-open. If any findings remain, fix them and re-check.
+
+   If a file's diagnostics timestamp has not advanced since before your edits (stale), run:
+   ```bash
+   windsurf --reuse-window <file>
+   sleep 5
+   ```
+   then re-read once more as a safety net.
 
 ## Diagnostics JSON Format
 
