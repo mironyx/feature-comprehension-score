@@ -398,19 +398,20 @@ gh pr comment <number> --body "<formatted report>"
 
 ### Step 5: Cost
 
-After outputting the review (and posting the PR comment if in PR mode), run the cost script
-for the current session and append the result to the terminal output. Do NOT apply labels —
-reporting only.
+After outputting the review (and posting the PR comment if in PR mode), compute the
+**review-only cost** (the delta since the PR was created) and append it to the terminal
+output. Do NOT apply labels and do NOT update the PR body — reporting only.
+
+**PR mode** — compute delta:
 
 ```bash
+# Step 5a: get the current session total
 py scripts/query-feature-cost.py "$(python3 - <<'PYEOF'
 import os, pathlib, json
-
 PROJECT_KEY = "c--projects-feature-comprehension-score"
 claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY
 jsonl_files = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
 if jsonl_files:
-    # Read the last few lines to find the most recent feature tag
     for line in reversed(jsonl_files[0].read_text(encoding="utf-8").splitlines()):
         try:
             obj = json.loads(line)
@@ -419,21 +420,47 @@ if jsonl_files:
                 raise SystemExit(0)
         except (json.JSONDecodeError, KeyError):
             continue
-print("pr-review")   # fallback if no feature tag found in this session
+print("pr-review")
 PYEOF
 )"
 ```
 
-If the script returns "Prometheus unreachable" or "No session data found", print the message
-as-is — do not retry or error. Cost reporting is best-effort.
+```python
+# Step 5b: read the baseline cost from the PR body (set at PR creation — never overwrite it)
+import re, subprocess
+body = subprocess.run(
+    ["gh", "pr", "view", "<number>", "--json", "body", "-q", ".body"],
+    capture_output=True, text=True
+).stdout
+match = re.search(r'\*\*Cost:\*\*\s*\$([0-9.]+)', body)
+baseline = float(match.group(1)) if match else None
+```
+
+```
+# Step 5c: compute and print delta
+If baseline is available:
+  review_cost = current_total - baseline
+  print(f"Review-only cost ≈ ${review_cost:.4f}  (session total: ${current_total:.4f})")
+Else:
+  print(f"Session total: ${current_total:.4f}  (no PR baseline found)")
+```
+
+**Local mode** — no PR baseline; just print the session total labelled as "Session cost to date".
+
+If the cost script returns "Prometheus unreachable" or "No session data found", print the
+message as-is — do not retry or error. Cost reporting is best-effort.
 
 Append to terminal output (not to the PR comment):
 
 ```
 ---
 ### Review cost (pr-review v1 — 3 agents)
-<script output>
+Review-only cost ≈ $X.XXXX  (session total: $Y.YYYY)
 ```
+
+**Important:** Do NOT update the PR body `Usage` section with cost figures.
+The PR body cost is set once at PR creation (by `/feature` Step 8) and is the baseline
+for delta computation. Overwriting it destroys the baseline.
 
 ---
 
