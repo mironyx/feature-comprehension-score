@@ -124,6 +124,15 @@ Each feature runs in an isolated git worktree so multiple `/feature` sessions ca
 
 Follow strict Red-Green-Refactor. One test at a time.
 
+**Open each file in Windsurf the first time you create or edit it** so the diagnostics
+extension begins analysing immediately. One open per file is enough — subsequent edits to
+the same file are picked up automatically. If the hook fires with inline findings during
+the cycle, address them before moving to the next test.
+
+```bash
+windsurf --reuse-window <path-to-file>   # run once per file, on first create/edit
+```
+
 For each behaviour in the BDD spec from the issue:
 
 1. **RED** — Write a failing test. Run `(cd "$WDIR" && npx vitest run <test-file>)`. Confirm it fails for the right reason.
@@ -162,11 +171,12 @@ If any fail, fix and re-run. If stuck after 3 attempts on the same failure, paus
 
 Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
 
-**Before running `/diag`:** Open all changed source files in Windsurf so the extension generates fresh diagnostics. The extension only exports diagnostics for files that are open in the editor — without this step, the diagnostics file may be stale or missing.
+**Files should already be open** from the Step 4 first-open protocol. If any changed file was
+not opened during Step 4 (e.g. it was modified indirectly), open it now before running `/diag`:
 
 ```bash
-windsurf --reuse-window src/path/to/file1.ts src/path/to/file2.ts   # open all changed files
-sleep 5                                                               # wait for CodeScene to analyse
+windsurf --reuse-window src/path/to/missed-file.ts   # only for files not yet opened
+sleep 5                                               # wait for CodeScene to analyse if opened cold
 ```
 
 Then:
