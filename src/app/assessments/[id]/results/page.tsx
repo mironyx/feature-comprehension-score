@@ -85,6 +85,13 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
         .eq('assessment_id', assessmentId),
     ]);
 
+  if (orgMembershipResult.error) {
+    console.error('results page: org membership query failed:', orgMembershipResult.error);
+  }
+  if (participationResult.error) {
+    console.error('results page: participation query failed:', participationResult.error);
+  }
+
   const isAdmin = (orgMembershipResult.data as { github_role: string } | null)?.github_role === 'admin';
   const isParticipant = !!participationResult.data;
 
