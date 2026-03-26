@@ -35,7 +35,13 @@ it in the session log.
 
 ### Step 2: Write session log
 
-1. Determine the session log filename: `docs/sessions/YYYY-MM-DD-session-N.md` (increment N from the latest log for today, or start at 1).
+1. Check for a compact draft: `ls docs/sessions/*-draft.md 2>/dev/null | tail -1`.
+   - If a draft exists, read it — it contains pre-compact snapshots with tool counts, files
+     touched, agent spawns, and git milestones captured automatically before context was lost.
+     Use this data to populate the cost retrospective (Step 2.6) with actual numbers rather
+     than estimates. The final session log filename should match the draft name minus `-draft`
+     (e.g., `2026-03-26-session-3-draft.md` → `2026-03-26-session-3.md`).
+   - If no draft exists, determine the filename by incrementing N from the latest log for today.
 2. Write the session log capturing:
    - Work completed (reference issue number and PR)
    - Decisions made during the session
