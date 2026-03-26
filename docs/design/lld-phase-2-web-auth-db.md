@@ -18,6 +18,7 @@
 | Revised | 2026-03-24 (Issue #57) |
 | Revised | 2026-03-24 (Issue #58) |
 | Revised | 2026-03-24 (Issue #96) |
+| Revised | 2026-03-26 (Issue #59) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -644,9 +645,8 @@ Next.js App Router has no DI container. The pragmatic equivalent is a **per-requ
 // src/lib/api/context.ts
 
 export interface ApiContext {
-  supabase: SupabaseClient<Database>      // session client — RLS enforced
-  adminSupabase: SupabaseClient<Database> // service-role client — bypasses RLS
-  githubClient: Octokit
+  supabase: ReturnType<typeof createReadonlyRouteHandlerClient>  // session client — RLS enforced
+  adminSupabase: ReturnType<typeof createSecretSupabaseClient>   // service-role client — bypasses RLS
   user: AuthUser
 }
 
@@ -654,6 +654,8 @@ export interface ApiContext {
  *  Throws ApiError(401) if the request is unauthenticated. */
 export async function createApiContext(request: NextRequest): Promise<ApiContext>
 ```
+
+> **Implementation note (issue #59):** The spec included `githubClient: Octokit` in `ApiContext`. The implementation omits it — the assessment API routes do not need GitHub access, and including it upfront would require wiring a GitHub client on every request unnecessarily. `githubClient` will be added to the interface when a route that requires it is implemented _(deferred)_.
 
 **Controller** — calls the factory, injects context into the service:
 
@@ -678,13 +680,13 @@ export async function getScores(ctx: ApiContext, params: { assessmentId: string 
 **Testing** — inject a mock context:
 
 ```typescript
-const ctx: ApiContext = { supabase: mockSupabase, adminSupabase: mockAdmin, githubClient: mockGithub, user: testUser }
+const ctx: ApiContext = { supabase: mockSupabase, adminSupabase: mockAdmin, user: testUser }
 await scoresService.getScores(ctx, { assessmentId: 'abc' })
 ```
 
 > **Constraint:** A service function that calls `createClient()`, `createServiceClient()`, or any infrastructure factory breaks dependency inversion — the service now depends on a concrete infrastructure concern rather than the injected abstraction. It also becomes impossible to unit-test without a live database.
 >
-> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and create clients inline. These should be refactored in a follow-up issue.
+> **Note (issue #96):** The existing implemented routes (`GET /api/assessments`, `GET /api/assessments/[id]`) pre-date this pattern and created clients inline. `GET /api/assessments/[id]` was refactored to use `createApiContext` in issue #59. `GET /api/assessments` (the list endpoint) still creates clients inline and should be refactored in a follow-up issue.
 
 #### GET /api/assessments
 
@@ -852,16 +854,34 @@ Service (`answers/service.ts`):
   Private helpers (≤ 20 lines each):
   - `resolveParticipant(supabase, assessmentId, userId)` — 403 if not enrolled, 422 if already submitted
   - `fetchQuestionsForValidation(adminSupabase, assessmentId)` — all question rows; 500 on DB error
-  - `validateSubmission(body, questions, participant)` — pure; 422 on missing answers (first attempt) or invalid question IDs (re-attempt)
-  - `storeAnswers(adminSupabase, participantId, answers, attemptNumber)` — inserts `participant_answers` rows
-  - `runRelevanceChecks(answers, questions)` — calls engine per answer; never throws; logs failures and treats as irrelevant
-  - `finaliseSubmission(adminSupabase, participantId, assessmentId)` — sets participant to `submitted`; calls `scoreAssessment()` synchronously if all participants done; returns `{ completed, total }`
+  - `resolveAttemptNumber(existingAnswers)` — pure; derives next attempt number from existing rows; returns 1 for first attempt
+  - `validateSubmission(body, questions, isFirstAttempt, previouslyIrrelevantIds)` — pure; dispatches to `validateFirstAttemptCoverage` or `validateReAttemptCoverage`
+  - `validateQuestionIds(answers, questionIds)` — 422 if any submitted ID is unknown
+  - `validateFirstAttemptCoverage(submittedIds, questions)` — 422 if any question lacks an answer
+  - `validateReAttemptCoverage(submittedIds, previouslyIrrelevantIds)` — 422 if any submitted ID was not previously flagged
+  - `storeAnswers(adminSupabase, participantId, orgId, assessmentId, answers, attemptNumber)` — inserts `participant_answers` rows
+  - `buildLlmClient()` — constructs `AnthropicClient` from env; throws ApiError(500) if key absent
+  - `runRelevanceChecks(answers, questions, llmClient)` — calls engine per answer; never throws; logs failures and treats as irrelevant
+  - `finaliseSubmission(adminSupabase, participantId, assessmentId, llmClient)` — sets participant to `submitted`; calls `triggerScoring()` synchronously if all participants done; returns `{ completed, total }`
+  - `triggerScoring(adminSupabase, assessmentId, llmClient)` — fetches scoring data, calls `scoreAnswers()` + `calculateAssessmentAggregate()`, persists results; wraps errors as ApiError(500)
+  - `fetchScoringData(adminSupabase, assessmentId)` — fetches questions and answers for scoring in parallel
+  - `persistScoringResults(adminSupabase, params)` — updates assessment aggregate and per-answer scores
 
 > **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
 >
-> **Constraint:** `scoreAssessment()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
+> **Constraint:** `triggerScoring()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
 >
 > **Constraint:** Determine attempt number from existing `participant_answers` rows — the client never sends one.
+>
+> **Implementation note (issue #59):** Several corrections and additions to the decomposition spec:
+>
+> 1. `validateSubmission` — spec signature was `(body, questions, participant)`. Changed to `(body, questions, isFirstAttempt, previouslyIrrelevantIds)`: the derived booleans/Set are passed rather than the raw `ParticipantRow`, keeping the function pure and the participant row out of validation logic.
+> 2. `finaliseSubmission` — spec had 3 args. A fourth, `llmClient`, was added because scoring requires the LLM client and constructing it inside `finaliseSubmission` would violate the single-client-per-request constraint.
+> 3. `scoreAssessment()` — the spec referenced this as a single engine function. No such function exists; the implementation calls `scoreAnswers()` + `calculateAssessmentAggregate()` from the pipeline directly via a `triggerScoring()` wrapper in the service.
+> 4. `storeAnswers` — spec had 4 args; implementation adds `orgId` and `assessmentId` (required for the DB insert row).
+> 5. Max-attempts enforcement — the acceptance criterion (`attemptNumber > MAX_ATTEMPTS` → 422) was not in the LLD decomposition; added to `submitAnswers` before validation.
+> 6. Relevance write-back step — not in the LLD flow: after storing answers and running relevance checks, a separate `UPDATE` writes `is_relevant` and `relevance_explanation` back to the stored rows. Non-fatal failures are logged.
+> 7. `AnswerResult.attempts_remaining` — added to the response shape (not in the LLD spec); communicates remaining attempts to the client on `relevance_failed`.
 
 Do NOT:
 - Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
