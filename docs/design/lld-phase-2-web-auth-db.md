@@ -20,6 +20,7 @@
 | Revised | 2026-03-24 (Issue #58) |
 | Revised | 2026-03-24 (Issue #96) |
 | Revised | 2026-03-26 (Issue #59) |
+| Revised | 2026-03-26 (Issue #102) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -951,18 +952,21 @@ Creates a new FCS assessment (Story 3.1). Requires Org Admin for the target repo
 
 ```
 Controller (route.ts):
-1. requireOrgAdmin() — auth + role check; creates/injects supabase, adminSupabase, githubClient
+1. createApiContext(request) — creates supabase + adminSupabase
 2. validateBody() — parse and validate request body
-3. → fcsService.createFcs(adminSupabase, githubClient, input)
+3. → createFcs(ctx, body)
 4. Return 201 Created
 
-Service (fcsService.createFcs):
-5. validateMergedPRs() — verify each PR is merged (GitHub API)
-6. resolveParticipants() — look up GitHub user IDs
-7. createAssessmentRecord() — insert assessment row, status = 'rubric_generation'
-8. enrollParticipants() — insert assessment_participants rows
-9. (After returning) triggerRubricGeneration() — fire-and-forget
+Service (createFcs):
+5. assertOrgAdmin() — queries user_organisations; throws 403 if not admin
+6. fetchRepoInfo() + createGithubClient() — parallel fetch
+7. validateMergedPRs() + resolveParticipants() — parallel GitHub API calls
+8. createAssessmentRecord() — insert assessment row (status rubric_generation) + fcs_merged_prs rows; returns assessmentId
+9. enrollParticipants() — insert assessment_participants rows
+10. (After returning) triggerRubricGeneration() — fire-and-forget
 ```
+
+> **Implementation note (issue #102):** `requireOrgAdmin()` was not yet available as a controller helper when this endpoint was built — `createApiContext` does not yet bundle the role check. The admin check (`assertOrgAdmin`) lives in the service with a justification comment; a future refactor will consolidate it into `requireOrgAdmin()` at the controller layer. Step 3 was also wrong: the actual signature is `createFcs(ctx: ApiContext, body: FcsCreateBody)` not `createFcs(adminSupabase, githubClient, input)`.
 
 #### Internal decomposition — POST /api/fcs
 
@@ -975,17 +979,21 @@ Service (`fcs/service.ts`):
 - Exported: `createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse>` — validate PRs, resolve participants, create assessment record, enrol participants; schedules rubric generation as fire-and-forget after returning
 
   Private helpers (≤ 20 lines each):
-  - `assertOrgAdmin(supabase, userId, orgId)` — queries `user_organisations`; throws 403 if not admin
-  - `fetchRepoInfo(adminSupabase, repositoryId, orgId)` — parallel fetch of repository row + org_config; validates org ownership; returns `RepoInfo`
-  - `toRepoInfo(repo, cfg, orgId)` — pure mapper from DB rows to `RepoInfo`
+  - `assertOrgAdmin(supabase, userId: UserId, orgId: OrgId)` — queries `user_organisations`; throws 403 if not admin
+  - `fetchRepoInfo(adminSupabase, repositoryId: RepositoryId, orgId: OrgId)` — parallel fetch of repository row + org_config; validates org ownership; returns `RepoInfo`
+  - `toRepoInfo(repo, cfg, orgId: OrgId)` — pure mapper from DB rows to `RepoInfo`
+  - `validateRepo(result, orgId: OrgId): RepoRow` — validates repo query result; throws 422 if not found or org mismatch _(added issue #102 — extracted from fetchRepoInfo to stay below CC=9)_
+  - `validateCfg(result): ConfigRow` — validates config query result; throws 500 if not found _(added issue #102 — extracted from fetchRepoInfo to stay below CC=9)_
   - `validateMergedPRs(octokit, owner, repo, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
   - `resolveParticipants(octokit, usernames)` — resolves GitHub user IDs via GitHub API; 422 for unknown username
-  - `createAssessmentRecord(adminSupabase, input: FcsCreateInput, repoInfo, validatedPRs, assessmentId)` — inserts `assessments` row with status `rubric_generation` and `fcs_merged_prs` rows
-  - `enrollParticipants(adminSupabase, assessmentId, orgId, participants)` — inserts `assessment_participants` rows
+  - `createAssessmentRecord(adminSupabase, input: FcsCreateInput, repoInfo, validatedPRs): Promise<AssessmentId>` — generates UUID internally, inserts `assessments` row with status `rubric_generation` and `fcs_merged_prs` rows; returns `assessmentId`
+  - `enrollParticipants(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, participants)` — inserts `assessment_participants` rows
   - `triggerRubricGeneration(params: RubricTriggerParams)` — fire-and-forget; fetches artefacts, generates rubric, updates status to `awaiting_responses`; logs and swallows on failure
-  - `storeRubricQuestions(adminSupabase, assessmentId, orgId, questions)` — inserts `assessment_questions` rows
-  - `finaliseRubric(adminSupabase, assessmentId, orgId, artefacts)` — calls LLM, stores questions, updates assessment status
+  - `storeRubricQuestions(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, questions)` — inserts `assessment_questions` rows
+  - `finaliseRubric(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, artefacts)` — calls LLM, stores questions, updates assessment status
   - `buildLlmClient(): LLMClient` — factory; reads `ANTHROPIC_API_KEY`, returns `AnthropicClient`
+
+> **Implementation note (issue #102):** `createAssessmentRecord` takes 4 parameters (not 5) — `assessmentId` is generated internally and returned. This satisfies the CodeScene "Excess Number of Function Arguments" threshold. Branded ID types (`OrgId`, `UserId`, `RepositoryId`, `AssessmentId`) were added to eliminate Primitive Obsession diagnostics; casts happen once at the `createFcs` entry point. `FcsCreateInput` is `Pick<FcsCreateBody, ...>` rather than `= FcsCreateBody` (Sonar S6564 — redundant alias). `createGithubClient` (deferred from issue #59) was built in this issue at `src/lib/github/client.ts`.
 
 > **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
 >
