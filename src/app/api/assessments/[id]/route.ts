@@ -2,11 +2,9 @@
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4
 
 import type { NextRequest } from 'next/server';
-import { requireAuth } from '@/lib/api/auth';
+import { createApiContext, type ApiContext } from '@/lib/api/context';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
-import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
-import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { Database } from '@/lib/supabase/types';
 import { filterQuestionFields } from './helpers';
 import type { FilteredQuestion } from './helpers';
@@ -75,8 +73,8 @@ interface RouteContext {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-type UserClient = ReturnType<typeof createReadonlyRouteHandlerClient>;
-type ServiceClient = ReturnType<typeof createSecretSupabaseClient>;
+type UserClient = ApiContext['supabase'];
+type ServiceClient = ApiContext['adminSupabase'];
 
 type ParallelData = {
   callerRole: 'admin' | 'participant';
@@ -189,9 +187,7 @@ function buildResponse(
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { id: assessmentId } = await params;
-    const user = await requireAuth(request);
-    const supabase = createReadonlyRouteHandlerClient(request);
-    const adminSupabase = createSecretSupabaseClient();
+    const { user, supabase, adminSupabase } = await createApiContext(request);
 
     const { data: rawAssessment, error: assessmentError } = await supabase
       .from('assessments')
