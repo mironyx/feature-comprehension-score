@@ -21,6 +21,7 @@
 | Revised | 2026-03-24 (Issue #96) |
 | Revised | 2026-03-26 (Issue #59) |
 | Revised | 2026-03-26 (Issue #102) |
+| Revised | 2026-03-26 (Issue #104) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1821,6 +1822,75 @@ describe('E2E: Assessment answering')
 - `src/app/(authenticated)/assessments/[id]/submitted/page.tsx` — confirmation page
 - `src/components/question-card.tsx` — question display component
 - `src/components/relevance-warning.tsx` — relevance failure display
+
+---
+
+### Task 12.5: Basic FCS results page
+
+**Issue title:** Basic FCS results page
+**Issue:** [#104](https://github.com/leonids2005/feature-comprehension-score/issues/104)
+**Layer:** FE
+**Depends on:** Scoring integration (#103)
+**Stories:** 6.2 (simplified)
+**HLD reference:** [docs/plans/2026-03-25-mvp-scope-review.md item 10](../plans/2026-03-25-mvp-scope-review.md)
+
+**What:** Server-rendered page at `/assessments/[id]/results` displaying the FCS assessment outcome after scoring is complete. Accessible to the Org Admin and all participants (FCS is educational — reference answers are shown to aid learning).
+
+**Acceptance criteria:**
+- [x] Page at `/assessments/[id]/results`
+- [x] Shows: feature name, repository (org/repo), assessment date
+- [x] Displays aggregate comprehension score as percentage
+- [x] Per-question breakdown: question text, Naur layer, aggregate score
+- [x] Displays reference answers (collapsed in `<details>`)
+- [x] Shows participant completion count (N of M completed)
+- [x] Does NOT show individual participant scores or attribution
+- [x] Accessible to Org Admin and all participants; all others get 404
+- [x] Shows `scoring_incomplete` notice when flag is set
+
+**Files created:**
+- `src/app/assessments/[id]/results/page.tsx` — results page (Server Component)
+- `tests/app/assessments/results.test.ts` — unit tests (7 scenarios)
+
+**Key types:**
+
+```typescript
+interface ScoredQuestion {
+  id: string;
+  question_number: number;
+  naur_layer: NaurLayer;
+  question_text: string;
+  aggregate_score: number | null;
+  reference_answer: string;
+}
+
+interface ResultsData {
+  assessment: AssessmentWithRelations;
+  questions: ScoredQuestion[];
+  participantTotal: number;
+  participantCompleted: number;
+}
+```
+
+**Internal decomposition:**
+
+| Function | Purpose |
+|----------|---------|
+| `fetchResultsData(assessmentId, userId)` | Fetches all data; enforces auth/access gate |
+| `toPercent(score)` | Formats `number \| null` as `"72%"` or `"—"` |
+| `formatDate(iso)` | Formats ISO timestamp as British locale date |
+| `NAUR_LABELS` | Constant mapping `NaurLayer` → display string |
+| `ResultsPage` | Default export — async Server Component |
+
+**Access control design:**
+
+- Auth: `createServerSupabaseClient().auth.getUser()` — redirects to `/auth/sign-in` if no session.
+- Data: all queries use `createSecretSupabaseClient()` (service role) — RLS on `assessment_participants` would restrict users to their own row, blocking full participant-count queries.
+- Gate: `isAdmin || isParticipant`; neither → `notFound()`.
+- FCS-type guard: `assessment.type !== 'fcs'` → `notFound()`.
+
+> **Implementation note (issue #104):** The MVP scope review plan described access as "via RLS". In practice, `createSecretSupabaseClient` (service role) is required for the full participant list because user-scoped RLS would only return the caller's own row. Auth is still enforced via `getUser()` — the service role is only used for data reads, not for bypassing authentication.
+
+> **Implementation note (issue #104):** Story 6.2 in `v1-design.md` restricts reference answers to Org Admins only. Issue #104 overrides this: reference answers are shown to all participants ("FCS is educational"). The design doc should be updated to reflect this decision in a future pass.
 
 ---
 

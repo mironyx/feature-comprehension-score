@@ -1,11 +1,12 @@
 """Query Prometheus for feature cost/tokens and optionally tag the GitHub issue.
 
 Usage:
-  py scripts/query-feature-cost.py <feature_id> [--issue N] [--final]
+  py scripts/query-feature-cost.py <feature_id> [--issue N] [--pr N] [--final]
 
 Arguments:
   feature_id   Feature ID to look up, e.g. FCS-55
   --issue N    GitHub issue number; if given, applies an ai-cost:<value> label
+  --pr N       GitHub PR number; if given, also applies labels to PR and outputs time-to-PR
   --final      Prefix output heading with "Final" (used by feature-end)
 """
 
@@ -16,6 +17,8 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 PROM = "http://localhost:9090/api/v1/query"
 
@@ -32,18 +35,59 @@ def git_root() -> pathlib.Path:
     return p.parent
 
 
+def read_feature_start(feature_id: str) -> datetime | None:
+    """Return the recorded start timestamp for feature_id, or None if not available."""
+    timing_file = git_root() / "monitoring" / "textfile_collector" / "feature_timing.json"
+    if not timing_file.exists():
+        return None
+    try:
+        data = json.loads(timing_file.read_text(encoding="utf-8"))
+        iso = data.get(feature_id, {}).get("start_iso")
+        if iso:
+            return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    return None
+
+
+def fetch_pr_created_at(pr: int) -> datetime | None:
+    """Return the PR creation timestamp from GitHub, or None on error."""
+    result = subprocess.run(
+        ["gh", "pr", "view", str(pr), "--json", "createdAt", "-q", ".createdAt"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        return datetime.fromisoformat(result.stdout.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds as a human-readable string."""
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h {mins}min"
+
+
+def _extract_session_id(line: str, feature_id: str) -> str | None:
+    if not (line.startswith("claude_session_feature{") and f'feature_id="{feature_id}"' in line):
+        return None
+    for part in line.split(","):
+        if "session_id=" in part:
+            return part.split('"')[1]
+    return None
+
+
 def read_session_ids(feature_id: str) -> list[str]:
     prom_file = git_root() / "monitoring" / "textfile_collector" / "session_feature.prom"
     if not prom_file.exists():
         return []
-    session_ids = []
-    for line in prom_file.read_text(encoding="utf-8").splitlines():
-        if line.startswith("claude_session_feature{") and f'feature_id="{feature_id}"' in line:
-            for part in line.split(","):
-                if "session_id=" in part:
-                    session_ids.append(part.split('"')[1])
-                    break
-    return session_ids
+    lines = prom_file.read_text(encoding="utf-8").splitlines()
+    return [sid for line in lines if (sid := _extract_session_id(line, feature_id))]
 
 
 def query_prom(promql: str) -> float | None:
@@ -59,42 +103,71 @@ def query_prom(promql: str) -> float | None:
         return None
 
 
-def apply_labels(issue: int, cost: float, inp: float, out: float, pr: int | None = None) -> None:
-    labels = [
-        ("ai-cost", f"ai-cost:{cost:.4f}"),
-        ("input-tokens", f"input-tokens:{int(inp)}"),
-        ("output-tokens", f"output-tokens:{int(out)}"),
-    ]
-    # Fetch current issue labels once
+@dataclass
+class UsageMetrics:
+    cost: float
+    inp: float
+    out: float
+    cr: float
+    cc: float
+
+
+def query_metrics(session_ids: list[str]) -> UsageMetrics | None:
+    """Query Prometheus for all usage metrics; returns None if unreachable."""
+    sid_regex = "|".join(session_ids)
+    s = f'session_id=~"{sid_regex}"'
+    cost = query_prom(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
+    if cost is None:
+        return None
+    inp = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})') or 0.0
+    out = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})') or 0.0
+    cr  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})') or 0.0
+    cc  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})') or 0.0
+    return UsageMetrics(cost=cost, inp=inp, out=out, cr=cr, cc=cc)
+
+
+def build_time_line(feature_id: str, pr: int) -> str:
+    """Return a time-to-PR markdown line, or empty string if data unavailable."""
+    start = read_feature_start(feature_id)
+    pr_created = fetch_pr_created_at(pr)
+    if start is None or pr_created is None:
+        return ""
+    elapsed = (pr_created - start).total_seconds()
+    return f"\n- **Time to PR:** {format_duration(elapsed)}"
+
+
+def _remove_stale_labels(issue: int, existing: list[dict], prefix: str, new_label: str) -> None:
+    for lbl in existing:
+        if lbl["name"].startswith(f"{prefix}:") and lbl["name"] != new_label:
+            subprocess.run(
+                ["gh", "issue", "edit", str(issue), "--remove-label", lbl["name"]],
+                capture_output=True,
+            )
+
+
+def _fetch_existing_labels(issue: int) -> list[dict]:
     result = subprocess.run(
         ["gh", "issue", "view", str(issue), "--json", "labels"],
         capture_output=True, text=True,
     )
-    existing = json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
+    return json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
+
+
+def apply_labels(issue: int, metrics: UsageMetrics, pr: int | None = None) -> None:
+    labels = [
+        ("ai-cost", f"ai-cost:{metrics.cost:.4f}"),
+        ("input-tokens", f"input-tokens:{int(metrics.inp)}"),
+        ("output-tokens", f"output-tokens:{int(metrics.out)}"),
+    ]
+    existing = _fetch_existing_labels(issue)
+    targets = f"issue #{issue}" + (f", PR #{pr}" if pr is not None else "")
 
     for prefix, label in labels:
-        # Create label if it doesn't exist (colour: blue)
-        subprocess.run(
-            ["gh", "label", "create", label, "--color", "0075ca", "--force"],
-            capture_output=True,
-        )
-        # Remove stale label with same prefix
-        for lbl in existing:
-            if lbl["name"].startswith(f"{prefix}:") and lbl["name"] != label:
-                subprocess.run(
-                    ["gh", "issue", "edit", str(issue), "--remove-label", lbl["name"]],
-                    capture_output=True,
-                )
-        subprocess.run(
-            ["gh", "issue", "edit", str(issue), "--add-label", label],
-            capture_output=True,
-        )
+        subprocess.run(["gh", "label", "create", label, "--color", "0075ca", "--force"], capture_output=True)
+        _remove_stale_labels(issue, existing, prefix, label)
+        subprocess.run(["gh", "issue", "edit", str(issue), "--add-label", label], capture_output=True)
         if pr is not None:
-            subprocess.run(
-                ["gh", "pr", "edit", str(pr), "--add-label", label],
-                capture_output=True,
-            )
-        targets = f"issue #{issue}" + (f", PR #{pr}" if pr is not None else "")
+            subprocess.run(["gh", "pr", "edit", str(pr), "--add-label", label], capture_output=True)
         print(f"Label applied: {label} -> {targets}")
 
 
@@ -107,40 +180,32 @@ def main() -> None:
     args = parser.parse_args()
 
     session_ids = read_session_ids(args.feature_id)
-    sid_regex = "|".join(session_ids) if session_ids else None
-
-    if sid_regex:
-        s = f'session_id=~"{sid_regex}"'
-        cost = query_prom(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
-        inp  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})')
-        out  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})')
-        cr   = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})')
-        cc   = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})')
-    else:
-        cost = inp = out = cr = cc = None
-
     sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
-    prefix = "Final " if args.final else ""
+    heading = "Final " if args.final else ""
 
     if not session_ids:
-        print(f"## {prefix}Usage\n- No session data found for {args.feature_id} — session tagging may not have run")
+        print(f"## {heading}Usage\n- No session data found for {args.feature_id} — session tagging may not have run")
         sys.exit(0)
 
-    if cost is None:
-        print(f"## {prefix}Usage\n- Prometheus unreachable at {PROM} — is the monitoring stack running?")
+    metrics = query_metrics(session_ids)
+    if metrics is None:
+        print(f"## {heading}Usage\n- Prometheus unreachable at {PROM} — is the monitoring stack running?")
         sys.exit(0)
+
+    time_line = build_time_line(args.feature_id, args.pr) if args.pr is not None else ""
 
     print(
-        f"## {prefix}Usage ({args.feature_id}{sessions_note})\n"
-        f"- **Cost:** ${cost:.4f}\n"
-        f"- **Tokens:** {int(inp or 0):,} input / {int(out or 0):,} output"
-        f" / {int(cr or 0):,} cache-read / {int(cc or 0):,} cache-write"
+        f"## {heading}Usage ({args.feature_id}{sessions_note})\n"
+        f"- **Cost:** ${metrics.cost:.4f}\n"
+        f"- **Tokens:** {int(metrics.inp):,} input / {int(metrics.out):,} output"
+        f" / {int(metrics.cr):,} cache-read / {int(metrics.cc):,} cache-write"
+        f"{time_line}"
     )
     if args.final:
         print("_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
 
     if args.issue is not None:
-        apply_labels(args.issue, cost, inp or 0.0, out or 0.0, pr=args.pr)
+        apply_labels(args.issue, metrics, pr=args.pr)
 
 
 if __name__ == "__main__":
