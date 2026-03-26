@@ -29,6 +29,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": ".claude/hooks/open-in-windsurf.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": ".claude/hooks/check-diagnostics.sh",
             "timeout": 10
           }
