@@ -994,7 +994,7 @@ Service (`fcs/service.ts`):
   - `buildLlmClient(): LLMClient` — factory; reads `ANTHROPIC_API_KEY`, returns `AnthropicClient`
 
 > **Implementation note (issue #102):** `createAssessmentRecord` takes 4 parameters (not 5) — `assessmentId` is generated internally and returned. This satisfies the CodeScene "Excess Number of Function Arguments" threshold. Branded ID types (`OrgId`, `UserId`, `RepositoryId`, `AssessmentId`) were added to eliminate Primitive Obsession diagnostics; casts happen once at the `createFcs` entry point. `FcsCreateInput` is `Pick<FcsCreateBody, ...>` rather than `= FcsCreateBody` (Sonar S6564 — redundant alias). `createGithubClient` (deferred from issue #59) was built in this issue at `src/lib/github/client.ts`.
-
+>
 > **Constraint:** PR validation must call the GitHub API — never accept a PR as merged based on a DB record.
 >
 > **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment.
