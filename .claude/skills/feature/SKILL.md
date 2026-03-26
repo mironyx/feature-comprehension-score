@@ -137,9 +137,10 @@ Continue until all acceptance criteria are covered.
 Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
 
 ```bash
-(cd "$WDIR" && npx vitest run)          # all tests green (unit + integration)
-(cd "$WDIR" && npx tsc --noEmit)        # no type errors
-(cd "$WDIR" && npm run lint)            # no lint errors
+(cd "$WDIR" && npx vitest run)                                   # all tests green (unit + integration)
+(cd "$WDIR" && npx tsc --noEmit)                                 # no type errors
+(cd "$WDIR" && npm run lint)                                     # no lint errors
+(cd "$WDIR" && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5)  # no markdown lint errors (catches pre-existing violations that will fail CI)
 ```
 
 **Integration test failures are not pre-existing — fix them.** If `npx vitest run` reports

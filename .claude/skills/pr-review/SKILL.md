@@ -47,8 +47,13 @@ From the diff:
 - `CHANGED_FILES` — `.ts`, `.tsx`, `.js`, `.jsx` files added or modified (not deleted)
 - `FRAMEWORK_DEPS` — top 5 packages imported in changed files that appear in
   `package.json` dependencies (not devDependencies)
+- `TEST_ONLY` — `true` if ALL changed files match `tests/**` or `*.test.ts` or `*.spec.ts`
+  patterns and no `src/` files were modified; `false` otherwise.
 
-### Step 3: Launch THREE agents in parallel (single message, all three Agent calls)
+If `TEST_ONLY` is `true`, skip Agent B entirely — test files have no production framework
+usage to audit and no framework web-search is warranted. Launch only Agent A and Agent C.
+
+### Step 3: Launch agents in parallel (single message)
 
 #### Agent A — Code Quality & Correctness
 
