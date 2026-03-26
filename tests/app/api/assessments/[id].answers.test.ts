@@ -35,6 +35,7 @@ vi.mock('@/lib/engine/pipeline', () => ({
 
 import { requireAuth } from '@/lib/api/auth';
 import { detectRelevance } from '@/lib/engine/relevance';
+import { scoreAnswers } from '@/lib/engine/pipeline';
 import type { NextResponse } from 'next/server';
 
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<NextResponse>;
@@ -374,6 +375,31 @@ describe('POST /api/assessments/[id]/answers', () => {
       expect(response.status).toBe(200);
       const body = await response.json() as Record<string, unknown>;
       expect(body.status).toBe('accepted');
+      expect(scoreAnswers).toHaveBeenCalledOnce();
+    });
+
+    it('then it returns 500 when scoring fails', async () => {
+      setupPendingParticipant();
+      setupAllRelevance();
+
+      allParticipantsResult = {
+        data: [
+          { id: PARTICIPANT_ID, status: 'submitted' },
+          { id: 'participant-002', status: 'submitted' },
+        ],
+        error: null,
+      };
+
+      vi.mocked(scoreAnswers).mockRejectedValueOnce(new Error('LLM unavailable'));
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-001', answer_text: 'Answer 1' },
+          { question_id: 'question-002', answer_text: 'Answer 2' },
+        ],
+      });
+
+      expect(response.status).toBe(500);
     });
   });
 
