@@ -212,24 +212,21 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
-          encrypted_token: string;
-          key_id: string;
+          token_secret_id: string;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
-          encrypted_token: string;
-          key_id: string;
+          token_secret_id: string;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
-          encrypted_token?: string;
-          key_id?: string;
+          token_secret_id?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -569,6 +566,10 @@ export interface Database {
       store_github_token: {
         Args: { p_user_id: string; p_token: string };
         Returns: void;
+      };
+      get_github_token: {
+        Args: { p_user_id: string };
+        Returns: string | null;
       };
     };
   };
