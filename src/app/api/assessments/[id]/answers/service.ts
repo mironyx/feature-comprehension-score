@@ -14,6 +14,7 @@ type ServiceClient = ApiContext['adminSupabase'];
 
 type ParticipantRow = Database['public']['Tables']['assessment_participants']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
+type ExistingAnswer = { question_id: string; attempt_number: number; is_relevant: boolean | null };
 
 // ---------------------------------------------------------------------------
 // Request / response contracts
@@ -120,7 +121,7 @@ function validateQuestionIds(answers: SubmitBody['answers'], questionIds: Set<st
 function validateFirstAttemptCoverage(submittedIds: Set<string>, questions: QuestionRow[]): void {
   const missing = questions.filter(q => !submittedIds.has(q.id));
   if (missing.length > 0) {
-    throw new ApiError(422, 'Missing answers for all questions', { missing: missing.map(q => q.id) });
+    throw new ApiError(422, 'All questions must be answered', { missing: missing.map(q => q.id) });
   }
 }
 
@@ -399,7 +400,7 @@ export async function submitAnswers(
     throw new ApiError(500, 'Internal server error');
   }
 
-  const typedExisting = (existingAnswers ?? []) as { question_id: string; attempt_number: number; is_relevant: boolean | null }[];
+  const typedExisting = (existingAnswers ?? []) as ExistingAnswer[];
   const isFirstAttempt = typedExisting.length === 0;
   const previouslyIrrelevantIds = new Set(
     typedExisting.filter(a => a.is_relevant === false).map(a => a.question_id),
@@ -423,7 +424,7 @@ export async function submitAnswers(
   const relevanceResults = await runRelevanceChecks(body.answers, questions, llmClient);
 
   // 8. Update stored answers with relevance results
-  await Promise.all(
+  const relevanceUpdates = await Promise.all(
     relevanceResults.map(r =>
       adminSupabase
         .from('participant_answers')
@@ -434,6 +435,12 @@ export async function submitAnswers(
         .eq('is_reassessment', false),
     ),
   );
+  relevanceUpdates.forEach((result, i) => {
+    if (result.error) {
+      // Non-fatal: answer is stored, only relevance flag is missing. Logged for ops visibility.
+      console.error(`submitAnswers: relevance update failed for question ${relevanceResults[i]?.question_id}:`, result.error);
+    }
+  });
 
   const anyIrrelevant = relevanceResults.some(r => !r.is_relevant);
 
