@@ -7,7 +7,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
 import { validateBody } from '@/lib/api/validation';
 import { submitAnswers, SubmitBodySchema } from './service';
-export type { SubmitResponse } from './service';
+export type { AnswerResult, SubmitResponse } from './service';
 
 // ---------------------------------------------------------------------------
 // Contract types — path params and response shape. Convention: ADR-0014.
