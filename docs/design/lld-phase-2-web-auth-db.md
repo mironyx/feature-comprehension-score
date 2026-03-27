@@ -23,6 +23,7 @@
 | Revised | 2026-03-26 (Issue #102) |
 | Revised | 2026-03-26 (Issue #104) |
 | Revised | 2026-03-27 (Issue #61) |
+| Revised | 2026-03-27 (Issue #62) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1177,12 +1178,17 @@ When the API returns `status: 'relevance_failed'`:
 
 #### Route protection
 
-Admin-only routes are protected server-side in their route handlers using `requireOrgAdmin()` from [§2.4](#24-api-routes--assessments). No separate middleware — each route handler validates independently.
+Admin-only routes are protected server-side. No separate middleware — each route validates independently.
+
+- **API routes** (`PUT /api/orgs/[orgId]/config`, `PUT /api/repos/[repoId]/config`) use `requireOrgAdmin()` from [§2.4](#24-api-routes--assessments) which takes `NextRequest`.
+- **Server Component pages** (`/organisation`, `/organisation/settings`, `/repos/[id]/settings`) call `forbidden()` from `next/navigation` (Next.js 15 experimental, enabled via `experimental.authInterrupts: true` in `next.config.ts`). `requireOrgAdmin()` cannot be used here — it takes `NextRequest` which is not available in Server Component pages.
+
+> **Implementation note (issue #62):** The spec said "using `requireOrgAdmin()` from §2.4" without distinguishing API routes from Server Component pages. `requireOrgAdmin()` takes `NextRequest` and is only usable in route handlers. Server Component pages use `forbidden()` instead, which triggers Next.js 15's built-in 403 response. `experimental.authInterrupts: true` must be set in `next.config.ts`.
 
 Protected routes (Org Admin only):
 - `/organisation` — org overview page
-- `/organisation/settings` — org config page
-- `/repos/[id]/settings` — repo config page
+- `/organisation/settings` — org config page _(not yet implemented)_
+- `/repos/[id]/settings` — repo config page _(not yet implemented)_
 - `PUT /api/orgs/[orgId]/config`
 - `PUT /api/repos/[repoId]/config`
 
@@ -1931,6 +1937,10 @@ describe('E2E: Navigation')
 - `src/app/(authenticated)/layout.tsx` — authenticated layout
 - `src/components/nav-bar.tsx` — navigation bar
 - `src/app/(authenticated)/assessments/page.tsx` — assessments list page
+- `src/app/(authenticated)/organisation/page.tsx` — org overview (admin only, HTTP 403 via `forbidden()`)
+- `next.config.ts` — add `experimental.authInterrupts: true`
+
+> **Implementation note (issue #62):** `organisation/page.tsx` was not listed in the original "Files to create/modify" but is required — it is the admin-only route that triggers `forbidden()`. The authenticated layout (`layout.tsx`) contains a private helper `fetchOrgContext(supabase, userId, orgId)` that runs two Supabase queries in parallel (`organisations.maybeSingle` + `user_organisations.eq`) then fetches other-org memberships in a third query only when needed. This helper is not specified in the LLD but is a straightforward decomposition of the layout's data-fetching responsibility.
 
 ---
 
