@@ -3,84 +3,32 @@
 
 import { describe, it, expect } from 'vitest';
 import { shouldRevealReferenceAnswers } from '@/lib/engine/results';
+import type { RevealGateInput } from '@/lib/engine/results';
+
+type GateCase = [label: string, input: RevealGateInput, expected: boolean];
 
 describe('shouldRevealReferenceAnswers', () => {
-  describe('Given all participants have submitted and scoring is complete', () => {
-    it('then it returns true', () => {
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 3,
-          participantTotal: 3,
-          aggregateScore: 0.72,
-          scoringIncomplete: false,
-        }),
-      ).toBe(true);
-    });
-  });
+  const COMPLETE: RevealGateInput = {
+    participantCompleted: 3,
+    participantTotal: 3,
+    aggregateScore: 0.72,
+    scoringIncomplete: false,
+  };
 
-  describe('Given not all participants have submitted', () => {
-    it('then it returns false', () => {
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 2,
-          participantTotal: 3,
-          aggregateScore: 0.72,
-          scoringIncomplete: false,
-        }),
-      ).toBe(false);
-    });
-  });
-
-  describe('Given aggregate_score is null', () => {
-    it('then it returns false', () => {
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 3,
-          participantTotal: 3,
-          aggregateScore: null,
-          scoringIncomplete: false,
-        }),
-      ).toBe(false);
-    });
-  });
-
-  describe('Given scoring_incomplete is true', () => {
-    it('then it returns false', () => {
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 3,
-          participantTotal: 3,
-          aggregateScore: 0.72,
-          scoringIncomplete: true,
-        }),
-      ).toBe(false);
-    });
-  });
-
-  describe('Given there are no participants', () => {
-    it('then it returns false', () => {
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 0,
-          participantTotal: 0,
-          aggregateScore: 0.72,
-          scoringIncomplete: false,
-        }),
-      ).toBe(false);
-    });
-  });
-
-  describe('Given org admin (same rules — no bypass)', () => {
-    it('returns false when not all have submitted even for admin scenario', () => {
-      // Admins follow the same gate; no special bypass
-      expect(
-        shouldRevealReferenceAnswers({
-          participantCompleted: 1,
-          participantTotal: 2,
-          aggregateScore: 0.72,
-          scoringIncomplete: false,
-        }),
-      ).toBe(false);
-    });
+  it.each<GateCase>([
+    ['all submitted and scoring complete → true',
+      COMPLETE, true],
+    ['not all participants submitted → false',
+      { ...COMPLETE, participantCompleted: 2 }, false],
+    ['aggregate_score is null → false',
+      { ...COMPLETE, aggregateScore: null }, false],
+    ['scoring_incomplete is true → false',
+      { ...COMPLETE, scoringIncomplete: true }, false],
+    ['no participants → false',
+      { ...COMPLETE, participantCompleted: 0, participantTotal: 0 }, false],
+    ['admin — not all submitted (no bypass) → false',
+      { ...COMPLETE, participantCompleted: 1, participantTotal: 2 }, false],
+  ])('Given %s', (_label, input, expected) => {
+    expect(shouldRevealReferenceAnswers(input)).toBe(expected);
   });
 });

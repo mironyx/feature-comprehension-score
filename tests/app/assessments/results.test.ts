@@ -180,6 +180,13 @@ async function arrange(opts: SecretClientOptions, user: { id: string } | null = 
   return ResultsPage;
 }
 
+/** Arranges mocks, renders the page, and returns HTML. Eliminates repetition in gate tests. */
+async function renderPage(opts: SecretClientOptions) {
+  const ResultsPage = await arrange(opts);
+  const element = await ResultsPage({ params: makeParams() });
+  return renderToStaticMarkup(element);
+}
+
 const emptyClient: SecretClientOptions = {
   assessment: null,
   orgMembership: null,
@@ -258,7 +265,7 @@ describe('FCS results page', () => {
 
   describe('Given scoring is incomplete', () => {
     it('then it renders a scoring-incomplete notice', async () => {
-      const ResultsPage = await arrange({
+      const html = await renderPage({
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
         orgMembership: null,
         participation: { id: 'part-001' },
@@ -266,26 +273,23 @@ describe('FCS results page', () => {
         participants: [makeParticipant('submitted')],
       });
 
-      const element = await ResultsPage({ params: makeParams() });
-      const html = renderToStaticMarkup(element);
-
       expect(html).toContain('scoring incomplete');
     });
   });
 
   describe('Reference answer gate', () => {
+    const SUBMITTED_ONE = [makeParticipant('submitted')];
+    const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];
+
     describe('Given all participants have submitted and scoring is complete', () => {
       it('then reference answers are visible', async () => {
-        const ResultsPage = await arrange({
+        const html = await renderPage({
           assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
           orgMembership: null,
           participation: { id: 'part-001' },
           questions: [makeQuestion(1)],
-          participants: [makeParticipant('submitted')],
+          participants: SUBMITTED_ONE,
         });
-
-        const element = await ResultsPage({ params: makeParams() });
-        const html = renderToStaticMarkup(element);
 
         expect(html).toContain('Reference answer 1');
         expect(html).not.toContain('Reference answers will be visible');
@@ -294,16 +298,13 @@ describe('FCS results page', () => {
 
     describe('Given not all participants have submitted', () => {
       it('then reference answers are withheld and a message is shown', async () => {
-        const ResultsPage = await arrange({
+        const html = await renderPage({
           assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
           orgMembership: null,
           participation: { id: 'part-001' },
           questions: [makeQuestion(1)],
-          participants: [makeParticipant('submitted'), makeParticipant('pending')],
+          participants: INCOMPLETE,
         });
-
-        const element = await ResultsPage({ params: makeParams() });
-        const html = renderToStaticMarkup(element);
 
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
@@ -312,16 +313,13 @@ describe('FCS results page', () => {
 
     describe('Given aggregate_score is null', () => {
       it('then reference answers are withheld', async () => {
-        const ResultsPage = await arrange({
+        const html = await renderPage({
           assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }),
           orgMembership: null,
           participation: { id: 'part-001' },
           questions: [makeQuestion(1)],
-          participants: [makeParticipant('submitted')],
+          participants: SUBMITTED_ONE,
         });
-
-        const element = await ResultsPage({ params: makeParams() });
-        const html = renderToStaticMarkup(element);
 
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
@@ -330,16 +328,13 @@ describe('FCS results page', () => {
 
     describe('Given scoring_incomplete is true', () => {
       it('then reference answers are withheld', async () => {
-        const ResultsPage = await arrange({
+        const html = await renderPage({
           assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }),
           orgMembership: null,
           participation: { id: 'part-001' },
           questions: [makeQuestion(1)],
-          participants: [makeParticipant('submitted')],
+          participants: SUBMITTED_ONE,
         });
-
-        const element = await ResultsPage({ params: makeParams() });
-        const html = renderToStaticMarkup(element);
 
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
@@ -348,16 +343,13 @@ describe('FCS results page', () => {
 
     describe('Given org admin with incomplete submission', () => {
       it('then reference answers are withheld (no admin bypass)', async () => {
-        const ResultsPage = await arrange({
+        const html = await renderPage({
           assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
           orgMembership: { github_role: 'admin' },
           participation: null,
           questions: [makeQuestion(1)],
-          participants: [makeParticipant('submitted'), makeParticipant('pending')],
+          participants: INCOMPLETE,
         });
-
-        const element = await ResultsPage({ params: makeParams() });
-        const html = renderToStaticMarkup(element);
 
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
