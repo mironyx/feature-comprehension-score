@@ -213,7 +213,7 @@ async function postAnswers(body: unknown) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  process.env['OPENROUTER_API_KEY'] = 'test-key';
   ({ POST } = await import('@/app/api/assessments/' + '[id]/answers/route'));
   participantResult = { data: null, error: null };
   questionsResult = { data: [], error: null };
