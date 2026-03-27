@@ -1889,7 +1889,7 @@ interface ResultsData {
 - FCS-type guard: `assessment.type !== 'fcs'` → `notFound()`.
 
 > **Implementation note (issue #104):** The MVP scope review plan described access as "via RLS". In practice, `createSecretSupabaseClient` (service role) is required for the full participant list because user-scoped RLS would only return the caller's own row. Auth is still enforced via `getUser()` — the service role is only used for data reads, not for bypassing authentication.
-
+>
 > **Implementation note (issue #104):** Story 6.2 in `v1-design.md` restricts reference answers to Org Admins only. Issue #104 overrides this: reference answers are shown to all participants ("FCS is educational"). The design doc should be updated to reflect this decision in a future pass.
 
 ---
