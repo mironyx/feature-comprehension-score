@@ -20,6 +20,9 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
+  forbidden: vi.fn(() => {
+    throw new Error('NEXT_FORBIDDEN');
+  }),
 }));
 
 vi.mock('next/headers', () => ({
@@ -32,12 +35,13 @@ vi.mock('next/headers', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
-import { redirect } from 'next/navigation';
+import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockRedirect = vi.mocked(redirect);
+const mockForbidden = vi.mocked(forbidden);
 const mockCookies = vi.mocked(cookies);
 
 // ---------------------------------------------------------------------------
@@ -82,16 +86,15 @@ describe('Organisation page', () => {
   });
 
   describe('Given I am a regular user visiting /organisation', () => {
-    it('then I see 403', async () => {
+    it('then it returns 403 Forbidden', async () => {
       mockCreateServer.mockResolvedValue(makeClient('member') as never);
 
       const { default: OrganisationPage } = await import(
         '@/app/(authenticated)/organisation/page'
       );
 
-      const result = await OrganisationPage();
-      const html = JSON.stringify(result);
-      expect(html).toContain('403');
+      await expect(OrganisationPage()).rejects.toThrow('NEXT_FORBIDDEN');
+      expect(mockForbidden).toHaveBeenCalled();
     });
   });
 

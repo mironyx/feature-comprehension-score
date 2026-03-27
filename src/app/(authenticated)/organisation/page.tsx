@@ -4,26 +4,13 @@
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
 // Issue: #62
 
-import { redirect } from 'next/navigation';
+import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import type { Database } from '@/lib/supabase/types';
 
 type MembershipRow = Pick<Database['public']['Tables']['user_organisations']['Row'], 'org_id' | 'github_role'>;
-
-// ---------------------------------------------------------------------------
-// Sub-views
-// ---------------------------------------------------------------------------
-
-function ForbiddenPage() {
-  return (
-    <main>
-      <h1>403 Forbidden</h1>
-      <p>You do not have permission to view this page.</p>
-    </main>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -50,9 +37,7 @@ export default async function OrganisationPage() {
   const membership = (data ?? []) as MembershipRow[];
   const isAdmin = membership.length > 0 && membership[0]?.github_role === 'admin';
 
-  if (!isAdmin) {
-    return ForbiddenPage();
-  }
+  if (!isAdmin) forbidden();
 
   return (
     <main>
