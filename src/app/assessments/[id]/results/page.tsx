@@ -1,11 +1,11 @@
 // FCS results page — aggregate comprehension score, per-question breakdown, reference answers.
-// Accessible to Org Admins and all participants. Shows reference answers (FCS is educational).
-// Design reference: docs/plans/2026-03-25-mvp-scope-review.md (item 10)
-// Issue: #104
+// Accessible to Org Admins and all participants. Reference answers revealed only once all
+// participants have submitted and scoring is complete. Issue: #104, #109
 
 import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import { shouldRevealReferenceAnswers } from '@/lib/engine/results';
 import type { Database } from '@/lib/supabase/types';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
@@ -131,6 +131,9 @@ const NAUR_LABELS: Record<NaurLayer, string> = {
   modification_capacity: 'Modification Capacity',
 };
 
+const ANSWERS_WITHHELD_MESSAGE =
+  'Reference answers will be visible once all participants have submitted and scoring is complete.';
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -146,6 +149,12 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
     await fetchResultsData(assessmentId, user.id);
 
   const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
+  const revealAnswers = shouldRevealReferenceAnswers({
+    participantCompleted,
+    participantTotal,
+    aggregateScore: assessment.aggregate_score,
+    scoringIncomplete: assessment.scoring_incomplete ?? false,
+  });
 
   return (
     <main>
@@ -172,6 +181,7 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
 
       <section>
         <h2>Question Breakdown</h2>
+        {!revealAnswers && <p>{ANSWERS_WITHHELD_MESSAGE}</p>}
         <ol>
           {questions.map(q => (
             <li key={q.id}>
@@ -180,10 +190,12 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
               </p>
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
-              <details>
-                <summary>Reference answer</summary>
-                <p>{q.reference_answer}</p>
-              </details>
+              {revealAnswers && (
+                <details>
+                  <summary>Reference answer</summary>
+                  <p>{q.reference_answer}</p>
+                </details>
+              )}
             </li>
           ))}
         </ol>

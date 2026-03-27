@@ -1,8 +1,9 @@
 // Tests for /assessments/[id]/results — FCS results page.
 // Design reference: docs/plans/2026-03-25-mvp-scope-review.md (item 10)
-// Issue: #104
+// Issue: #104, #109
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -120,19 +121,21 @@ function makeSecretClient(opts: SecretClientOptions) {
         };
       }
       if (table === 'assessment_participants') {
-        // Handles both participant-lookup (.eq('assessment_id').eq('user_id').maybeSingle())
-        // and count query (.eq('assessment_id').order()).
+        // Handles both:
+        //   participant-lookup: .eq('assessment_id').eq('user_id').maybeSingle()
+        //   all-participants:   .eq('assessment_id')   (awaited directly — thenable)
+        const allParticipantsResult = Object.assign(
+          Promise.resolve({ data: participants, error: null }),
+          {
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: participation, error: null }),
+            }),
+          },
+        );
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockImplementation((col: string) => {
-              if (col === 'assessment_id') {
-                return {
-                  eq: vi.fn().mockReturnValue({
-                    maybeSingle: vi.fn().mockResolvedValue({ data: participation, error: null }),
-                  }),
-                  order: vi.fn().mockResolvedValue({ data: participants, error: null }),
-                };
-              }
+              if (col === 'assessment_id') return allParticipantsResult;
               return { maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
             }),
           }),
@@ -263,9 +266,102 @@ describe('FCS results page', () => {
         participants: [makeParticipant('submitted')],
       });
 
-      const result = await ResultsPage({ params: makeParams() });
+      const element = await ResultsPage({ params: makeParams() });
+      const html = renderToStaticMarkup(element);
 
-      expect(result).toBeTruthy();
+      expect(html).toContain('scoring incomplete');
+    });
+  });
+
+  describe('Reference answer gate', () => {
+    describe('Given all participants have submitted and scoring is complete', () => {
+      it('then reference answers are visible', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted')],
+        });
+
+        const element = await ResultsPage({ params: makeParams() });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).toContain('Reference answer 1');
+        expect(html).not.toContain('Reference answers will be visible');
+      });
+    });
+
+    describe('Given not all participants have submitted', () => {
+      it('then reference answers are withheld and a message is shown', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted'), makeParticipant('pending')],
+        });
+
+        const element = await ResultsPage({ params: makeParams() });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).not.toContain('Reference answer 1');
+        expect(html).toContain('Reference answers will be visible');
+      });
+    });
+
+    describe('Given aggregate_score is null', () => {
+      it('then reference answers are withheld', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted')],
+        });
+
+        const element = await ResultsPage({ params: makeParams() });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).not.toContain('Reference answer 1');
+        expect(html).toContain('Reference answers will be visible');
+      });
+    });
+
+    describe('Given scoring_incomplete is true', () => {
+      it('then reference answers are withheld', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted')],
+        });
+
+        const element = await ResultsPage({ params: makeParams() });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).not.toContain('Reference answer 1');
+        expect(html).toContain('Reference answers will be visible');
+      });
+    });
+
+    describe('Given org admin with incomplete submission', () => {
+      it('then reference answers are withheld (no admin bypass)', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: { github_role: 'admin' },
+          participation: null,
+          questions: [makeQuestion(1)],
+          participants: [makeParticipant('submitted'), makeParticipant('pending')],
+        });
+
+        const element = await ResultsPage({ params: makeParams() });
+        const html = renderToStaticMarkup(element);
+
+        expect(html).not.toContain('Reference answer 1');
+        expect(html).toContain('Reference answers will be visible');
+      });
     });
   });
 });
