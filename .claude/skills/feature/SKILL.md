@@ -33,71 +33,7 @@ If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 Once the issue number is known, tag the session so it is identifiable in the IDE and in Grafana:
 
 ```bash
-py - <<'PYEOF'
-import os, json, subprocess, pathlib
-
-ISSUE = "<issue-number>"            # replace with actual issue number
-FEATURE_ID = f"FCS-{ISSUE}"
-PROJECT_KEY = "c--projects-feature-comprehension-score"
-
-# Anchor to main repo root — works whether CWD is main tree or a worktree
-git_root = pathlib.Path(subprocess.run(
-    ["git", "rev-parse", "--show-toplevel"],
-    capture_output=True, text=True, check=True
-).stdout.strip())
-
-# Find current session JSONL (newest file in the project's Claude dir)
-claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY
-jsonl_files = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
-if not jsonl_files:
-    print("No session JSONL found — skipping session tagging")
-    raise SystemExit(0)
-
-jsonl_path = jsonl_files[0]
-session_id = jsonl_path.stem          # UUID is the filename without extension
-
-# 1. Append custom-title so the IDE session list shows "FCS-<N>"
-with open(jsonl_path, "a", encoding="utf-8") as f:
-    f.write(json.dumps({
-        "type": "custom-title",
-        "sessionId": session_id,
-        "customTitle": FEATURE_ID,
-    }) + "\n")
-
-# 2. Write Prometheus textfile mapping session → feature
-# Always writes to main repo's monitoring dir (where node-exporter mounts from)
-textfile_dir = git_root / "monitoring" / "textfile_collector"
-textfile_dir.mkdir(parents=True, exist_ok=True)
-prom_file = textfile_dir / "session_feature.prom"
-
-# Append new session entry (preserve prior sessions — Prometheus keeps all labels)
-existing = prom_file.read_text(encoding="utf-8") if prom_file.exists() else ""
-new_line = f'claude_session_feature{{session_id="{session_id}",feature_id="{FEATURE_ID}"}} 1\n'
-if new_line not in existing:
-    header = (
-        "# HELP claude_session_feature Maps Claude Code session ID to feature ID\n"
-        "# TYPE claude_session_feature gauge\n"
-    )
-    if existing and not existing.startswith("# HELP"):
-        # File exists but has no header — prepend it
-        content = header + existing + new_line
-    elif not existing:
-        content = header + new_line
-    else:
-        content = existing.rstrip("\n") + "\n" + new_line
-    prom_file.write_text(content, encoding="utf-8", newline="\n")
-
-# 3. Record feature start timestamp (used by query-feature-cost.py for time-to-PR)
-timing_file = textfile_dir / "feature_timing.json"
-timing = json.loads(timing_file.read_text(encoding="utf-8")) if timing_file.exists() else {}
-if FEATURE_ID not in timing:
-    import datetime
-    timing[FEATURE_ID] = {"start_iso": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
-    timing_file.write_text(json.dumps(timing, indent=2), encoding="utf-8")
-
-print(f"Session tagged: {FEATURE_ID}")
-print(f"Prom file: {prom_file}")
-PYEOF
+py scripts/tag-session.py <issue-number>
 ```
 
 ### Step 2: Set up the worktree and branch
