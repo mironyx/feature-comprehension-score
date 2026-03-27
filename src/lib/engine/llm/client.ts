@@ -1,3 +1,4 @@
+
 import OpenAI from 'openai';
 import { z } from 'zod';
 import {
@@ -13,6 +14,7 @@ export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6';
 
 export interface OpenRouterClientConfig {
   apiKey: string;
+  model?: string;
   openAIClient?: OpenAI;
   retryConfig?: Partial<RetryConfig>;
 }
@@ -27,6 +29,7 @@ export interface GenerateStructuredRequest<T extends z.ZodType> {
 
 export class OpenRouterClient implements LLMClient {
   private readonly client: OpenAI;
+  private readonly defaultModel: string;
   private readonly retryConfig: RetryConfig;
 
   constructor(config: OpenRouterClientConfig) {
@@ -36,6 +39,7 @@ export class OpenRouterClient implements LLMClient {
         baseURL: 'https://openrouter.ai/api/v1',
         apiKey: config.apiKey,
       });
+    this.defaultModel = config.model ?? DEFAULT_MODEL;
     this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig };
   }
 
@@ -46,7 +50,7 @@ export class OpenRouterClient implements LLMClient {
 
     return this.withRetry(async () => {
       const response = await this.client.chat.completions.create({
-        model: model ?? DEFAULT_MODEL,
+        model: model ?? this.defaultModel,
         max_tokens: maxTokens ?? 4096,
         messages: [
           { role: 'system', content: systemPrompt },
