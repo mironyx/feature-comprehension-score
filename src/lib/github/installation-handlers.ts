@@ -145,11 +145,13 @@ export async function handleRepositoriesAdded(
     .select('id')
     .eq('installation_id', payload.installation.id)
     .maybeSingle();
-  if (orgError) throw orgError;
+  if (orgError) {
+    console.error('handleRepositoriesAdded: org lookup failed:', orgError);
+    throw orgError;
+  }
   const orgId = org?.id;
   if (!orgId) {
-    console.error('handleRepositoriesAdded: org not found for installation', payload.installation.id);
-    return;
+    throw new Error(`No org found for installation ${payload.installation.id}`);
   }
   await upsertRepos(supabase, orgId, payload.repositories_added, now);
 }

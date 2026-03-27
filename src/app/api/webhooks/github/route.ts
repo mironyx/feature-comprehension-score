@@ -63,27 +63,25 @@ export async function POST(request: NextRequest): Promise<Response> {
 // Internal dispatch — keeps POST body ≤ 25 lines
 // ---------------------------------------------------------------------------
 
+type Handler = (payload: Record<string, unknown>, supabase: SupabaseClient<Database>) => Promise<void>;
+
+const HANDLERS: Record<string, Record<string, Handler>> = {
+  installation: {
+    created: (p, s) => handleInstallationCreated(p as unknown as InstallationCreatedPayload, s),
+    deleted: (p, s) => handleInstallationDeleted(p as unknown as InstallationDeletedPayload, s),
+  },
+  installation_repositories: {
+    added: (p, s) => handleRepositoriesAdded(p as unknown as InstallationRepositoriesPayload, s),
+    removed: (p, s) => handleRepositoriesRemoved(p as unknown as InstallationRepositoriesPayload, s),
+  },
+};
+
 async function dispatch(
   event: string,
   payload: Record<string, unknown>,
   supabase: SupabaseClient<Database>,
 ): Promise<void> {
   const action = typeof payload.action === 'string' ? payload.action : '';
-
-  if (event === 'installation') {
-    if (action === 'created') {
-      await handleInstallationCreated(payload as unknown as InstallationCreatedPayload, supabase);
-    } else if (action === 'deleted') {
-      await handleInstallationDeleted(payload as unknown as InstallationDeletedPayload, supabase);
-    }
-    return;
-  }
-
-  if (event === 'installation_repositories') {
-    if (action === 'added') {
-      await handleRepositoriesAdded(payload as unknown as InstallationRepositoriesPayload, supabase);
-    } else if (action === 'removed') {
-      await handleRepositoriesRemoved(payload as unknown as InstallationRepositoriesPayload, supabase);
-    }
-  }
+  const handler = HANDLERS[event]?.[action];
+  if (handler) await handler(payload, supabase);
 }
