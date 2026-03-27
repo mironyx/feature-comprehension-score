@@ -9,7 +9,7 @@ Measures whether engineering teams understand what they built, using Peter Naur'
 ## Current Phase
 
 **Phase 0.5: Scaffolding & Infrastructure** — Project initialisation, test infrastructure, CI/CD, architecture guardrails.
-Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS), Anthropic Claude API, GCP Cloud Run.
+Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS), OpenRouter (LLM gateway — see ADR-0015), GCP Cloud Run.
 Development approach: TDD/BDD-first, PR-based workflow, specialised role agents (Tester → Developer → Reviewer).
 See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for full details.
 

@@ -1,7 +1,7 @@
 # 0012. LLM Client Interface Design and Model Default
 
 **Date:** 2026-03-16
-**Status:** Accepted
+**Status:** Partially superseded by [ADR-0015](0015-openrouter-as-llm-gateway.md) (adapter implementation replaced; interface contract unchanged)
 **Deciders:** LS, Claude
 
 ## Context
