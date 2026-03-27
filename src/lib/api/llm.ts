@@ -5,5 +5,5 @@ import type { LLMClient } from '@/lib/engine/llm/types';
 export function buildLlmClient(): LLMClient {
   const apiKey = process.env['OPENROUTER_API_KEY'];
   if (!apiKey) throw new ApiError(500, 'LLM client not configured');
-  return new OpenRouterClient({ apiKey, model: process.env['OPENROUTER_MODEL'] });
+  return new OpenRouterClient({ apiKey, defaultModel: process.env['OPENROUTER_MODEL'] });
 }
