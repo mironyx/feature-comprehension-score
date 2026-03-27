@@ -22,6 +22,7 @@
 | Revised | 2026-03-26 (Issue #59) |
 | Revised | 2026-03-26 (Issue #102) |
 | Revised | 2026-03-26 (Issue #104) |
+| Revised | 2026-03-27 (Issue #61) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1086,8 +1087,10 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
 | Route | Component | Data fetching | Auth |
 |-------|-----------|--------------|------|
-| `/assessments/[id]` | `AssessmentPage` | Server-side: `GET /api/assessments/[id]` | Required; must be participant |
-| `/assessments/[id]/submitted` | `SubmittedPage` | Client-side redirect after submission | Required |
+| `/assessments/[id]` | `AssessmentPage` | Server-side: direct Supabase admin client (no internal API hop) | Required; must be participant |
+| `/assessments/[id]/submitted` | `SubmittedPage` | Server-side: direct Supabase admin client | Required; must be participant |
+
+> **Implementation note (issue #61):** The spec described `SubmittedPage` as using a "client-side redirect after submission". In practice it is a server-rendered page — `router.push()` in `AnsweringForm` navigates to it, but the page itself is a standard async server component that fetches directly from Supabase. The participant auth check (guards against non-participant URL access) was added post-review.
 
 #### Component tree
 
@@ -1129,10 +1132,12 @@ State managed with React `useState` — no external state library needed for thi
 interface AnsweringState {
   answers: Record<string, string>;          // questionId → answer text
   submitting: boolean;
-  relevanceResults: RelevanceResult[] | null; // null until first submission
-  attemptCounts: Record<string, number>;     // questionId → attempt number
+  relevanceResults: AnswerResult[] | null;  // null until first submission; AnswerResult from answers route
+  submitError: string | null;               // network/API error message
 }
 ```
+
+> **Implementation note (issue #61):** `attemptCounts` was not implemented as separate state. The attempt count is carried inside each `AnswerResult.attempts_remaining` (returned by the API), so there is no need to track it client-side. `submitError` was added (not in the original spec) to support the error banner + retry flow. State is managed inside a `useAnsweringForm` custom hook (not directly in `AnsweringForm`) to reduce component complexity.
 
 #### UI states
 
@@ -1818,10 +1823,13 @@ describe('E2E: Assessment answering')
 ```
 
 **Files to create/modify:**
-- `src/app/(authenticated)/assessments/[id]/page.tsx` — answering page
-- `src/app/(authenticated)/assessments/[id]/submitted/page.tsx` — confirmation page
+- `src/app/assessments/[id]/page.tsx` — server component (auth check, DB fetch, state routing)
+- `src/app/assessments/[id]/answering-form.tsx` — `'use client'` component with `useAnsweringForm` hook
+- `src/app/assessments/[id]/submitted/page.tsx` — confirmation page (server component)
 - `src/components/question-card.tsx` — question display component
 - `src/components/relevance-warning.tsx` — relevance failure display
+
+> **Implementation note (issue #61):** The spec listed `(authenticated)` route group paths. The actual files are under `src/app/assessments/[id]/` (no route group) — the `(authenticated)` group was not used for this feature as auth is enforced per-page via `getUser()`. The server/client split required an additional file: `answering-form.tsx` holds the `'use client'` boundary so `page.tsx` can remain a pure server component.
 
 ---
 
@@ -1889,7 +1897,7 @@ interface ResultsData {
 - FCS-type guard: `assessment.type !== 'fcs'` → `notFound()`.
 
 > **Implementation note (issue #104):** The MVP scope review plan described access as "via RLS". In practice, `createSecretSupabaseClient` (service role) is required for the full participant list because user-scoped RLS would only return the caller's own row. Auth is still enforced via `getUser()` — the service role is only used for data reads, not for bypassing authentication.
-
+>
 > **Implementation note (issue #104):** Story 6.2 in `v1-design.md` restricts reference answers to Org Admins only. Issue #104 overrides this: reference answers are shown to all participants ("FCS is educational"). The design doc should be updated to reflect this decision in a future pass.
 
 ---
