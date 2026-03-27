@@ -31,6 +31,13 @@ interface AnsweringFormProps {
   readonly questions: Question[];
 }
 
+interface QuestionListProps {
+  readonly questions: Question[];
+  readonly answers: Record<string, string>;
+  readonly relevanceResults: AnswerResult[] | null;
+  readonly onChange: (questionId: string, value: string) => void;
+}
+
 function buildAnswerPayload(
   questions: Question[],
   answers: Record<string, string>,
@@ -89,7 +96,28 @@ async function postAnswers(
   return res.json() as Promise<SubmitResponse>;
 }
 
-export default function AnsweringForm({ assessment, questions }: AnsweringFormProps) {
+function QuestionList({ questions, answers, relevanceResults, onChange }: QuestionListProps) {
+  return (
+    <ol>
+      {questions.map(q => (
+        <li key={q.id}>
+          <QuestionCard
+            questionId={q.id}
+            questionNumber={q.question_number}
+            naurLayer={q.naur_layer}
+            questionText={q.question_text}
+            answer={answers[q.id] ?? ''}
+            locked={isAnswerLocked(q.id, relevanceResults)}
+            relevanceResult={relevanceResults?.find(r => r.question_id === q.id)}
+            onChange={onChange}
+          />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function useAnsweringForm(assessmentId: string, questions: Question[]) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     Object.fromEntries(questions.map(q => [q.id, ''])),
@@ -108,18 +136,26 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
     setSubmitError(null);
     try {
       const payload = buildAnswerPayload(questions, answers, relevanceResults);
-      const data = await postAnswers(assessment.id, payload);
+      const data = await postAnswers(assessmentId, payload);
       if (data.status === 'accepted') {
-        router.push(`/assessments/${assessment.id}/submitted`);
+        router.push(`/assessments/${assessmentId}/submitted`);
       } else {
         setRelevanceResults(data.results);
       }
     } catch (err) {
+      console.error('Answer submission failed:', err);
       setSubmitError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
     } finally {
       setSubmitting(false);
     }
-  }, [assessment.id, answers, questions, relevanceResults, router, submitting]);
+  }, [assessmentId, answers, questions, relevanceResults, router, submitting]);
+
+  return { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit };
+}
+
+export default function AnsweringForm({ assessment, questions }: AnsweringFormProps) {
+  const { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit } =
+    useAnsweringForm(assessment.id, questions);
 
   const ready = isSubmitReady(questions, answers, relevanceResults);
   const isReAnswer = relevanceResults !== null;
@@ -147,22 +183,12 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
         </div>
       )}
 
-      <ol>
-        {questions.map(q => (
-          <li key={q.id}>
-            <QuestionCard
-              questionId={q.id}
-              questionNumber={q.question_number}
-              naurLayer={q.naur_layer}
-              questionText={q.question_text}
-              answer={answers[q.id] ?? ''}
-              locked={isAnswerLocked(q.id, relevanceResults)}
-              relevanceResult={relevanceResults?.find(r => r.question_id === q.id)}
-              onChange={handleChange}
-            />
-          </li>
-        ))}
-      </ol>
+      <QuestionList
+        questions={questions}
+        answers={answers}
+        relevanceResults={relevanceResults}
+        onChange={handleChange}
+      />
 
       <button
         type="button"

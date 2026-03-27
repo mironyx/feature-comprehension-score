@@ -31,19 +31,20 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
   const [assessmentResult, participantsResult] = await Promise.all([
     adminSupabase
       .from('assessments')
-      .select('*, repositories!inner(github_repo_name), organisations!inner(github_org_name)')
+      .select('feature_name')
       .eq('id', assessmentId)
       .single(),
     adminSupabase
       .from('assessment_participants')
-      .select('id, status')
+      .select('id, status, user_id')
       .eq('assessment_id', assessmentId),
   ]);
 
   if (assessmentResult.error || !assessmentResult.data) notFound();
 
   const assessment = assessmentResult.data as { feature_name: string | null };
-  const participants = (participantsResult.data ?? []) as { id: string; status: string }[];
+  const participants = (participantsResult.data ?? []) as { id: string; status: string; user_id: string }[];
+  if (!participants.some(p => p.user_id === user.id)) notFound();
   const total = participants.length;
   const completed = participants.filter(p => p.status === 'submitted').length;
 

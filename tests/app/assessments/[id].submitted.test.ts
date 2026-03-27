@@ -57,6 +57,7 @@ function makeParticipants(total: number, completed: number) {
   return Array.from({ length: total }, (_, i) => ({
     id: `p-${i}`,
     status: i < completed ? 'submitted' : 'pending',
+    user_id: i === 0 ? USER_ID : `other-user-${i}`,
   }));
 }
 
