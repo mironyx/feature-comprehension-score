@@ -19,7 +19,7 @@ This means: after making fixes in a CLI session, the diagnostics file may be **s
 
 1. **Identify target files.**
    - If arguments are provided (`$ARGUMENTS`), check only those files.
-   - Otherwise, check **all** files that have a diagnostics export: list every `.json` file under `.diagnostics/` (these are the files the extension has analysed). Also run `git diff --name-only` and `git diff --cached --name-only` to find modified source files (`.ts`, `.tsx`, `.js`, `.jsx`) that may not have a diagnostics file yet. Union both sets.
+   - Otherwise, check **all** files that have a diagnostics export: list every `.json` file under `.diagnostics/` (these are the files the extension has analysed). Also run `git diff --name-only` and `git diff --cached --name-only` to find modified files (`.ts`, `.tsx`, `.js`, `.jsx`) under **both `src/` and `tests/`** that may not have a diagnostics file yet. Union both sets. Test files are analysed by CodeScene and must be included — do not restrict to `src/` only.
 
 2. **Open all target files in Windsurf immediately.**
 

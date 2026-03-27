@@ -1,8 +1,9 @@
 // Tests for /assessments/[id]/results — FCS results page.
 // Design reference: docs/plans/2026-03-25-mvp-scope-review.md (item 10)
-// Issue: #104
+// Issue: #104, #109
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -120,19 +121,21 @@ function makeSecretClient(opts: SecretClientOptions) {
         };
       }
       if (table === 'assessment_participants') {
-        // Handles both participant-lookup (.eq('assessment_id').eq('user_id').maybeSingle())
-        // and count query (.eq('assessment_id').order()).
+        // Handles both:
+        //   participant-lookup: .eq('assessment_id').eq('user_id').maybeSingle()
+        //   all-participants:   .eq('assessment_id')   (awaited directly — thenable)
+        const allParticipantsResult = Object.assign(
+          Promise.resolve({ data: participants, error: null }),
+          {
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: participation, error: null }),
+            }),
+          },
+        );
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockImplementation((col: string) => {
-              if (col === 'assessment_id') {
-                return {
-                  eq: vi.fn().mockReturnValue({
-                    maybeSingle: vi.fn().mockResolvedValue({ data: participation, error: null }),
-                  }),
-                  order: vi.fn().mockResolvedValue({ data: participants, error: null }),
-                };
-              }
+              if (col === 'assessment_id') return allParticipantsResult;
               return { maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
             }),
           }),
@@ -175,6 +178,13 @@ async function arrange(opts: SecretClientOptions, user: { id: string } | null = 
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
   const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
   return ResultsPage;
+}
+
+/** Arranges mocks, renders the page, and returns HTML. Eliminates repetition in gate tests. */
+async function renderPage(opts: SecretClientOptions) {
+  const ResultsPage = await arrange(opts);
+  const element = await ResultsPage({ params: makeParams() });
+  return renderToStaticMarkup(element);
 }
 
 const emptyClient: SecretClientOptions = {
@@ -255,7 +265,7 @@ describe('FCS results page', () => {
 
   describe('Given scoring is incomplete', () => {
     it('then it renders a scoring-incomplete notice', async () => {
-      const ResultsPage = await arrange({
+      const html = await renderPage({
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
         orgMembership: null,
         participation: { id: 'part-001' },
@@ -263,9 +273,38 @@ describe('FCS results page', () => {
         participants: [makeParticipant('submitted')],
       });
 
-      const result = await ResultsPage({ params: makeParams() });
+      expect(html).toContain('scoring incomplete');
+    });
+  });
 
-      expect(result).toBeTruthy();
+  describe('Reference answer gate', () => {
+    const SUBMITTED_ONE = [makeParticipant('submitted')];
+    const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];
+    const BASE: SecretClientOptions = {
+      assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+      orgMembership: null,
+      participation: { id: 'part-001' },
+      questions: [makeQuestion(1)],
+      participants: SUBMITTED_ONE,
+    };
+
+    type GateCase = [label: string, opts: SecretClientOptions, expectVisible: boolean];
+
+    it.each<GateCase>([
+      ['all submitted and scoring complete → visible', BASE, true],
+      ['not all participants submitted → withheld', { ...BASE, participants: INCOMPLETE }, false],
+      ['aggregate_score is null → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }) }, false],
+      ['scoring_incomplete is true → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }) }, false],
+      ['admin with incomplete submission → withheld (no bypass)', { ...BASE, orgMembership: { github_role: 'admin' }, participation: null, participants: INCOMPLETE }, false],
+    ])('Given %s', async (_label, opts, expectVisible) => {
+      const html = await renderPage(opts);
+      if (expectVisible) {
+        expect(html).toContain('Reference answer 1');
+        expect(html).not.toContain('Reference answers will be visible');
+      } else {
+        expect(html).not.toContain('Reference answer 1');
+        expect(html).toContain('Reference answers will be visible');
+      }
     });
   });
 });

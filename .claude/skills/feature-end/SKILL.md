@@ -112,6 +112,23 @@ Record under **## Cost retrospective** in the session log.
    ```
 3. Push to remote: `git push`.
 
+### Step 3.5: Rebase onto latest base branch
+
+With multiple agents working in parallel, the base branch may have advanced since this branch was cut.
+Rebase before merging so CI validates the integrated code and the merge is conflict-free.
+
+```bash
+BASE=$(gh pr view --json baseRefName --jq .baseRefName)
+git fetch origin "$BASE"
+git merge-base --is-ancestor "origin/$BASE" HEAD \
+  && echo "ALREADY_UP_TO_DATE" \
+  || (git rebase "origin/$BASE" && git push --force-with-lease && echo "REBASED_AND_PUSHED")
+```
+
+- **Already up to date** (`ALREADY_UP_TO_DATE`) → proceed directly to Step 4.
+- **Rebased cleanly** (`REBASED_AND_PUSHED`) → proceed to Step 4. CI will re-run on the rebased commit; wait for it to pass before merging (use `gh run watch`).
+- **Rebase conflict** (non-zero exit from `git rebase`) → run `git rebase --abort`, stop, and report the conflicting files to the user. Do not attempt to resolve conflicts automatically.
+
 ### Step 4: Merge the PR — USER APPROVAL REQUIRED
 
 

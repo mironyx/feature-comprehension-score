@@ -45,16 +45,27 @@ describe('LLM client wrapper', () => {
     vi.clearAllMocks();
   });
 
+  async function generateOk() {
+    const result = await client.generateStructured(TEST_REQUEST);
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected success result');
+    return result.data;
+  }
+
+  async function generateErr() {
+    const result = await client.generateStructured(TEST_REQUEST);
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected error result');
+    return result.error;
+  }
+
   describe('Given a successful API call', () => {
     it('then it returns parsed, validated response', async () => {
       mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
 
-      const result = await client.generateStructured(TEST_REQUEST);
+      const data = await generateOk();
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data).toEqual({ answer: 'Test answer', confidence: 0.95 });
-      }
+      expect(data).toEqual({ answer: 'Test answer', confidence: 0.95 });
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
     });
   });
@@ -91,13 +102,10 @@ describe('LLM client wrapper', () => {
     it('then it returns a typed error, not an exception', async () => {
       mockOpenAI.chat.completions.create.mockResolvedValue(makeTextResponse('invalid json'));
 
-      const result = await client.generateStructured(TEST_REQUEST);
+      const error = await generateErr();
 
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.code).toBe('malformed_response');
-        expect(result.error.retryable).toBe(true);
-      }
+      expect(error.code).toBe('malformed_response');
+      expect(error.retryable).toBe(true);
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(4);
     });
   });
@@ -123,13 +131,10 @@ describe('LLM client wrapper', () => {
       const serverError = Object.assign(new Error('Internal server error'), { status: 500 });
       mockOpenAI.chat.completions.create.mockRejectedValue(serverError);
 
-      const result = await client.generateStructured(TEST_REQUEST);
+      const error = await generateErr();
 
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.code).toBe('server_error');
-        expect(result.error.retryable).toBe(true);
-      }
+      expect(error.code).toBe('server_error');
+      expect(error.retryable).toBe(true);
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(4);
     });
   });
@@ -139,12 +144,9 @@ describe('LLM client wrapper', () => {
       const authError = Object.assign(new Error('Invalid API key'), { status: 401 });
       mockOpenAI.chat.completions.create.mockRejectedValue(authError);
 
-      const result = await client.generateStructured(TEST_REQUEST);
+      const error = await generateErr();
 
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.retryable).toBe(false);
-      }
+      expect(error.retryable).toBe(false);
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
     });
   });

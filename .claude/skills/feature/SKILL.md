@@ -119,13 +119,18 @@ Run `/diag` on all files changed in this cycle. This is a **blocking gate** — 
 not opened during Step 4 (e.g. it was modified indirectly), open it now before running `/diag`:
 
 ```bash
-windsurf --reuse-window src/path/to/missed-file.ts   # only for files not yet opened
-sleep 5                                               # wait for CodeScene to analyse if opened cold
+windsurf --reuse-window src/path/to/missed-file.ts    # only for files not yet opened
+windsurf --reuse-window tests/path/to/missed-file.ts  # test files too — CodeScene analyses them
+sleep 5                                                # wait for CodeScene to analyse if opened cold
 ```
+
+**Both `src/` and `tests/` files must be checked.** CodeScene analyses test files and flags Code
+Duplication in them (repeated `it()` blocks, repeated arrange/render patterns). These warnings
+are blocking — fix them before proceeding to Step 7.
 
 Then:
 
-1. Run `/diag` on all changed files.
+1. Run `/diag` on all changed files — including every modified test file under `tests/`.
 2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`) — CodeScene exclusions are configured but may not cover every generated file.
 3. After fixing, open the fixed files in Windsurf again and wait 5 s, then re-run `/diag` to confirm the findings are gone — do not assume a fix worked without seeing the updated diagnostics.
 4. Repeat until `/diag` reports zero findings on non-generated files.
