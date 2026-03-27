@@ -10,8 +10,7 @@ import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import { generateRubric } from '@/lib/engine/pipeline';
-import { AnthropicClient } from '@/lib/engine/llm/client';
-import type { LLMClient } from '@/lib/engine/llm/types';
+import { buildLlmClient } from '@/lib/api/llm';
 import type { Database } from '@/lib/supabase/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import type { Question } from '@/lib/engine/llm/schemas';
@@ -256,11 +255,6 @@ async function storeRubricQuestions(
   if (error) { console.error('storeRubricQuestions: insert failed:', error); throw new Error('Failed to store assessment questions'); }
 }
 
-function buildLlmClient(): LLMClient {
-  const apiKey = process.env['ANTHROPIC_API_KEY'];
-  if (!apiKey) throw new ApiError(500, 'LLM client not configured');
-  return new AnthropicClient({ apiKey });
-}
 
 async function finaliseRubric(
   adminSupabase: ServiceClient,

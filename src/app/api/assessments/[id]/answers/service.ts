@@ -7,7 +7,8 @@ import type { ApiContext } from '@/lib/api/context';
 import { detectRelevance } from '@/lib/engine/relevance';
 import { scoreAnswers, calculateAssessmentAggregate, type ScoredAnswer } from '@/lib/engine/pipeline';
 import type { Database } from '@/lib/supabase/types';
-import { AnthropicClient } from '@/lib/engine/llm/client';
+import { buildLlmClient } from '@/lib/api/llm';
+import type { LLMClient } from '@/lib/engine/llm/types';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = ApiContext['adminSupabase'];
@@ -187,7 +188,7 @@ async function storeAnswers(
 async function runRelevanceChecks(
   answers: SubmitBody['answers'],
   questions: QuestionRow[],
-  llmClient: AnthropicClient,
+  llmClient: LLMClient,
 ): Promise<AnswerResult[]> {
   const questionMap = new Map(questions.map(q => [q.id, q]));
 
@@ -226,14 +227,9 @@ async function runRelevanceChecks(
   return results;
 }
 
-// Justification: buildLlmClient is a factory extracted from submitAnswers to allow the
-// single client instance to be passed through to both runRelevanceChecks and finaliseSubmission.
+// Justification: buildLlmClient is imported from @/lib/api/llm so a single client instance
+// is passed through to both runRelevanceChecks and finaliseSubmission.
 // Keeping construction at the top of submitAnswers satisfies DI without a full DI container.
-function buildLlmClient(): AnthropicClient {
-  const apiKey = process.env['ANTHROPIC_API_KEY'];
-  if (!apiKey) throw new ApiError(500, 'LLM client not configured');
-  return new AnthropicClient({ apiKey });
-}
 
 /**
  * Finalise submission: mark participant as submitted, check if all done,
@@ -243,7 +239,7 @@ async function finaliseSubmission(
   adminSupabase: ServiceClient,
   participantId: string,
   assessmentId: string,
-  llmClient: AnthropicClient,
+  llmClient: LLMClient,
 ): Promise<{ completed: number; total: number }> {
   // Mark participant as submitted
   const { error: updateError } = await adminSupabase
@@ -337,7 +333,7 @@ async function persistScoringResults(
 async function triggerScoring(
   adminSupabase: ServiceClient,
   assessmentId: string,
-  llmClient: AnthropicClient,
+  llmClient: LLMClient,
 ): Promise<void> {
   try {
     const { questions, answers } = await fetchScoringData(adminSupabase, assessmentId);

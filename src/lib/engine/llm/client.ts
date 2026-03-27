@@ -1,4 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
+
+import OpenAI from 'openai';
 import { z } from 'zod';
 import {
   DEFAULT_RETRY_CONFIG,
@@ -9,9 +10,12 @@ import {
   type RetryConfig,
 } from './types';
 
-export interface AnthropicClientConfig {
+export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6';
+
+export interface OpenRouterClientConfig {
   apiKey: string;
-  anthropicClient?: Anthropic;
+  defaultModel?: string;
+  openAIClient?: OpenAI;
   retryConfig?: Partial<RetryConfig>;
 }
 
@@ -23,44 +27,52 @@ export interface GenerateStructuredRequest<T extends z.ZodType> {
   maxTokens?: number;
 }
 
-export class AnthropicClient implements LLMClient {
-  private readonly client: Anthropic;
+export class OpenRouterClient implements LLMClient {
+  private readonly client: OpenAI;
+  private readonly defaultModel: string;
   private readonly retryConfig: RetryConfig;
 
-  constructor(config: AnthropicClientConfig) {
+  constructor(config: OpenRouterClientConfig) {
     this.client =
-      config.anthropicClient ?? new Anthropic({ apiKey: config.apiKey });
+      config.openAIClient ??
+      new OpenAI({
+        baseURL: 'https://openrouter.ai/api/v1',
+        apiKey: config.apiKey,
+      });
+    this.defaultModel = config.defaultModel ?? DEFAULT_MODEL;
     this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig };
   }
 
   async generateStructured<T extends z.ZodType>(
     request: GenerateStructuredRequest<T>,
   ): Promise<LLMResult<z.infer<T>>> {
-    const { prompt, systemPrompt, schema, model, maxTokens } = request;
+    const { prompt, systemPrompt, schema, model: modelOverride, maxTokens } = request;
 
     return this.withRetry(async () => {
-      const response = await this.client.messages.create({
-        model: model ?? 'claude-sonnet-4-5-20250514',
+      const response = await this.client.chat.completions.create({
+        model: modelOverride ?? this.defaultModel,
         max_tokens: maxTokens ?? 4096,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt },
+        ],
       });
 
-      const textContent = response.content.find((c) => c.type === 'text');
-      if (!textContent || textContent.type !== 'text') { // second check narrows type for TS
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
         return failure(makeError('malformed_response', 'No text content in response', true));
       }
 
       let parsed: unknown;
       try {
-        parsed = JSON.parse(textContent.text);
+        parsed = JSON.parse(content);
       } catch (err) {
         return failure(
           makeError(
             'malformed_response',
             `Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`,
             true,
-            { responseText: textContent.text.slice(0, 200) },
+            { responseText: content.slice(0, 200) },
           ),
         );
       }
@@ -133,7 +145,10 @@ function classifyException(err: unknown): LLMError {
   if (!(err instanceof Error)) {
     return makeError('unknown', 'Unknown error occurred', false);
   }
-  const status = (err as NodeJS.ErrnoException & { status?: number }).status;
+  // OpenAI SDK errors carry .status as a typed property; plain errors may carry it duck-typed.
+  const status = err instanceof OpenAI.APIError
+    ? err.status
+    : (err as Error & { status?: number }).status;
   return classifyHttpError(err, status);
 }
 

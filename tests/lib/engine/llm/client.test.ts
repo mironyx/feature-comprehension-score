@@ -1,19 +1,21 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
-import { AnthropicClient } from '@/lib/engine/llm/client';
+import { OpenRouterClient, DEFAULT_MODEL } from '@/lib/engine/llm/client';
 
 const TestSchema = z.object({
   answer: z.string(),
   confidence: z.number(),
 });
 
-type MockAnthropic = {
-  messages: { create: ReturnType<typeof vi.fn> };
+type MockOpenAI = {
+  chat: { completions: { create: ReturnType<typeof vi.fn> } };
 };
 
 function makeTextResponse(text: string) {
-  return { content: [{ type: 'text', text }], role: 'assistant' };
+  return {
+    choices: [{ message: { role: 'assistant', content: text } }],
+  };
 }
 
 function makeValidResponse() {
@@ -27,14 +29,14 @@ const TEST_REQUEST = {
 } as const;
 
 describe('LLM client wrapper', () => {
-  let mockAnthropic: MockAnthropic;
-  let client: AnthropicClient;
+  let mockOpenAI: MockOpenAI;
+  let client: OpenRouterClient;
 
   beforeEach(() => {
-    mockAnthropic = { messages: { create: vi.fn() } };
-    client = new AnthropicClient({
+    mockOpenAI = { chat: { completions: { create: vi.fn() } } };
+    client = new OpenRouterClient({
       apiKey: 'test-key',
-      anthropicClient: mockAnthropic as unknown as Anthropic,
+      openAIClient: mockOpenAI as unknown as OpenAI,
       retryConfig: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 100 },
     });
   });
@@ -45,7 +47,7 @@ describe('LLM client wrapper', () => {
 
   describe('Given a successful API call', () => {
     it('then it returns parsed, validated response', async () => {
-      mockAnthropic.messages.create.mockResolvedValueOnce(makeValidResponse());
+      mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
 
       const result = await client.generateStructured(TEST_REQUEST);
 
@@ -53,13 +55,13 @@ describe('LLM client wrapper', () => {
       if (result.success) {
         expect(result.data).toEqual({ answer: 'Test answer', confidence: 0.95 });
       }
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(1);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('Given a malformed JSON response', () => {
     it('then it retries up to 3 times before succeeding', async () => {
-      mockAnthropic.messages.create
+      mockOpenAI.chat.completions.create
         .mockResolvedValueOnce(makeTextResponse('invalid json {'))
         .mockResolvedValueOnce(makeTextResponse('still invalid'))
         .mockResolvedValueOnce(makeTextResponse('nope'))
@@ -67,27 +69,27 @@ describe('LLM client wrapper', () => {
 
       const result = await client.generateStructured(TEST_REQUEST);
 
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(4);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(4);
       expect(result.success).toBe(true);
     });
   });
 
   describe('Given a valid response with missing required fields', () => {
     it('then it treats it as malformed and retries', async () => {
-      mockAnthropic.messages.create
+      mockOpenAI.chat.completions.create
         .mockResolvedValueOnce(makeTextResponse(JSON.stringify({ answer: 'Missing confidence' })))
         .mockResolvedValueOnce(makeValidResponse());
 
       const result = await client.generateStructured(TEST_REQUEST);
 
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(2);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(2);
       expect(result.success).toBe(true);
     });
   });
 
   describe('Given all retries exhausted', () => {
     it('then it returns a typed error, not an exception', async () => {
-      mockAnthropic.messages.create.mockResolvedValue(makeTextResponse('invalid json'));
+      mockOpenAI.chat.completions.create.mockResolvedValue(makeTextResponse('invalid json'));
 
       const result = await client.generateStructured(TEST_REQUEST);
 
@@ -96,7 +98,7 @@ describe('LLM client wrapper', () => {
         expect(result.error.code).toBe('malformed_response');
         expect(result.error.retryable).toBe(true);
       }
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(4);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -104,14 +106,14 @@ describe('LLM client wrapper', () => {
     it('then it retries with exponential backoff', async () => {
       const rateLimitError = Object.assign(new Error('Rate limit exceeded'), { status: 429 });
 
-      mockAnthropic.messages.create
+      mockOpenAI.chat.completions.create
         .mockRejectedValueOnce(rateLimitError)
         .mockRejectedValueOnce(rateLimitError)
         .mockResolvedValueOnce(makeValidResponse());
 
       const result = await client.generateStructured(TEST_REQUEST);
 
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(3);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(3);
       expect(result.success).toBe(true);
     });
   });
@@ -119,7 +121,7 @@ describe('LLM client wrapper', () => {
   describe('Given a server error (500)', () => {
     it('then it retries and returns a typed error after exhaustion', async () => {
       const serverError = Object.assign(new Error('Internal server error'), { status: 500 });
-      mockAnthropic.messages.create.mockRejectedValue(serverError);
+      mockOpenAI.chat.completions.create.mockRejectedValue(serverError);
 
       const result = await client.generateStructured(TEST_REQUEST);
 
@@ -128,14 +130,14 @@ describe('LLM client wrapper', () => {
         expect(result.error.code).toBe('server_error');
         expect(result.error.retryable).toBe(true);
       }
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(4);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(4);
     });
   });
 
   describe('Given a non-retryable error (401)', () => {
     it('then it fails immediately without retrying', async () => {
       const authError = Object.assign(new Error('Invalid API key'), { status: 401 });
-      mockAnthropic.messages.create.mockRejectedValue(authError);
+      mockOpenAI.chat.completions.create.mockRejectedValue(authError);
 
       const result = await client.generateStructured(TEST_REQUEST);
 
@@ -143,24 +145,48 @@ describe('LLM client wrapper', () => {
       if (!result.success) {
         expect(result.error.retryable).toBe(false);
       }
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(1);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('Given custom retry configuration', () => {
     it('then it respects the custom maxRetries limit', async () => {
-      const customClient = new AnthropicClient({
+      const customClient = new OpenRouterClient({
         apiKey: 'test-key',
-        anthropicClient: mockAnthropic as unknown as Anthropic,
+        openAIClient: mockOpenAI as unknown as OpenAI,
         retryConfig: { maxRetries: 1, baseDelayMs: 10, maxDelayMs: 100 },
       });
 
-      mockAnthropic.messages.create.mockResolvedValue(makeTextResponse('invalid'));
+      mockOpenAI.chat.completions.create.mockResolvedValue(makeTextResponse('invalid'));
 
       const result = await customClient.generateStructured(TEST_REQUEST);
 
       expect(result.success).toBe(false);
-      expect(mockAnthropic.messages.create).toHaveBeenCalledTimes(2);
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Given default model configuration', () => {
+    it('then it calls OpenRouter with the default model', async () => {
+      mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
+
+      await client.generateStructured(TEST_REQUEST);
+
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({ model: DEFAULT_MODEL }),
+      );
+    });
+  });
+
+  describe('Given a custom model override', () => {
+    it('then it uses the specified model', async () => {
+      mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
+
+      await client.generateStructured({ ...TEST_REQUEST, model: 'anthropic/claude-opus-4-6' });
+
+      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'anthropic/claude-opus-4-6' }),
+      );
     });
   });
 });
