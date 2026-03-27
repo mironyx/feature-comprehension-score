@@ -280,80 +280,31 @@ describe('FCS results page', () => {
   describe('Reference answer gate', () => {
     const SUBMITTED_ONE = [makeParticipant('submitted')];
     const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];
+    const BASE: SecretClientOptions = {
+      assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+      orgMembership: null,
+      participation: { id: 'part-001' },
+      questions: [makeQuestion(1)],
+      participants: SUBMITTED_ONE,
+    };
 
-    describe('Given all participants have submitted and scoring is complete', () => {
-      it('then reference answers are visible', async () => {
-        const html = await renderPage({
-          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
-          orgMembership: null,
-          participation: { id: 'part-001' },
-          questions: [makeQuestion(1)],
-          participants: SUBMITTED_ONE,
-        });
+    type GateCase = [label: string, opts: SecretClientOptions, expectVisible: boolean];
 
+    it.each<GateCase>([
+      ['all submitted and scoring complete → visible', BASE, true],
+      ['not all participants submitted → withheld', { ...BASE, participants: INCOMPLETE }, false],
+      ['aggregate_score is null → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }) }, false],
+      ['scoring_incomplete is true → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }) }, false],
+      ['admin with incomplete submission → withheld (no bypass)', { ...BASE, orgMembership: { github_role: 'admin' }, participation: null, participants: INCOMPLETE }, false],
+    ])('Given %s', async (_label, opts, expectVisible) => {
+      const html = await renderPage(opts);
+      if (expectVisible) {
         expect(html).toContain('Reference answer 1');
         expect(html).not.toContain('Reference answers will be visible');
-      });
-    });
-
-    describe('Given not all participants have submitted', () => {
-      it('then reference answers are withheld and a message is shown', async () => {
-        const html = await renderPage({
-          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
-          orgMembership: null,
-          participation: { id: 'part-001' },
-          questions: [makeQuestion(1)],
-          participants: INCOMPLETE,
-        });
-
+      } else {
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
-      });
-    });
-
-    describe('Given aggregate_score is null', () => {
-      it('then reference answers are withheld', async () => {
-        const html = await renderPage({
-          assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }),
-          orgMembership: null,
-          participation: { id: 'part-001' },
-          questions: [makeQuestion(1)],
-          participants: SUBMITTED_ONE,
-        });
-
-        expect(html).not.toContain('Reference answer 1');
-        expect(html).toContain('Reference answers will be visible');
-      });
-    });
-
-    describe('Given scoring_incomplete is true', () => {
-      it('then reference answers are withheld', async () => {
-        const html = await renderPage({
-          assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }),
-          orgMembership: null,
-          participation: { id: 'part-001' },
-          questions: [makeQuestion(1)],
-          participants: SUBMITTED_ONE,
-        });
-
-        expect(html).not.toContain('Reference answer 1');
-        expect(html).toContain('Reference answers will be visible');
-      });
-    });
-
-    describe('Given org admin with incomplete submission', () => {
-      it('then reference answers are withheld (no admin bypass)', async () => {
-        const html = await renderPage({
-          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
-          orgMembership: { github_role: 'admin' },
-          participation: null,
-          questions: [makeQuestion(1)],
-          participants: INCOMPLETE,
-        });
-
-        expect(html).not.toContain('Reference answer 1');
-        expect(html).toContain('Reference answers will be visible');
-      });
+      }
     });
   });
 });
