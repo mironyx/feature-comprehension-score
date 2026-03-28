@@ -113,10 +113,16 @@ export async function handleWebhookEvent(
   supabase: Db,
 ): Promise<void> {
   const action = typeof payload.action === 'string' ? payload.action : '';
-  if (event === 'installation' && action === 'created') return handleInstallationCreated(payload as unknown as InstallationCreatedPayload, supabase);
-  if (event === 'installation' && action === 'deleted') return handleInstallationDeleted(payload as unknown as InstallationDeletedPayload, supabase);
-  if (event === 'installation_repositories' && action === 'added') return handleRepositoriesAdded(payload as unknown as InstallationRepositoriesPayload, supabase);
-  if (event === 'installation_repositories' && action === 'removed') return handleRepositoriesRemoved(payload as unknown as InstallationRepositoriesPayload, supabase);
+  if (event === 'installation' ) 
+    if (action === 'created') 
+        return handleInstallationCreated(payload as unknown as InstallationCreatedPayload, supabase);
+    else if (action === 'deleted') 
+        return handleInstallationDeleted(payload as unknown as InstallationDeletedPayload, supabase);
+  if (event === 'installation_repositories')
+    if (action === 'added') 
+        return handleRepositoriesAdded(payload as unknown as InstallationRepositoriesPayload, supabase);
+    else if (action === 'removed') 
+       return handleRepositoriesRemoved(payload as unknown as InstallationRepositoriesPayload, supabase);
 }
 
 export async function handleInstallationCreated(
