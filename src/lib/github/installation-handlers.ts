@@ -1,3 +1,4 @@
+
 // GitHub App installation event handlers.
 // Design reference: docs/design/v1-design.md §4.4, §4.5
 
@@ -105,6 +106,18 @@ async function upsertRepos(supabase: Db, orgId: string, repos: GithubRepo[], now
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
+
+export async function handleWebhookEvent(
+  event: string,
+  payload: Record<string, unknown>,
+  supabase: Db,
+): Promise<void> {
+  const action = typeof payload.action === 'string' ? payload.action : '';
+  if (event === 'installation' && action === 'created') return handleInstallationCreated(payload as unknown as InstallationCreatedPayload, supabase);
+  if (event === 'installation' && action === 'deleted') return handleInstallationDeleted(payload as unknown as InstallationDeletedPayload, supabase);
+  if (event === 'installation_repositories' && action === 'added') return handleRepositoriesAdded(payload as unknown as InstallationRepositoriesPayload, supabase);
+  if (event === 'installation_repositories' && action === 'removed') return handleRepositoriesRemoved(payload as unknown as InstallationRepositoriesPayload, supabase);
+}
 
 export async function handleInstallationCreated(
   payload: InstallationCreatedPayload,
