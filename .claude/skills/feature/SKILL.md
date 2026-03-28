@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, runs diagnostics, commits, creates a PR, runs /pr-review and fixes any findings, then reports. Only pauses for real blockers.
+description: Autonomously implement the next feature from the project board. Picks the top Todo item, creates a branch, implements with TDD, runs diagnostics, commits, creates a PR, runs /pr-review-v2 and fixes any findings, then reports. Only pauses for real blockers.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -221,7 +221,7 @@ When the probe reports back, triage its findings the same way as review findings
 
 ### Step 9: Review
 
-Run `/pr-review <pr-number>` on the PR just created. This posts a comment on the PR and
+Run `/pr-review-v2 <pr-number>` on the PR just created. This posts a comment on the PR and
 returns findings. Triage each finding:
 
 - **Blocker / correctness issue** — fix it: update the code, re-run Step 5 (verification), add a commit, push.
@@ -264,3 +264,5 @@ Summarise what was done:
 - Missing barrel exports (create them)
 - Diagnostic warnings (fix them)
 - PR size slightly over 200 lines (warn in PR description, continue)
+
+**Never invoke `/simplify`** — it is too costly for routine features and redundant with `/pr-review-v2`'s code quality checks. Only run it if the user explicitly asks.

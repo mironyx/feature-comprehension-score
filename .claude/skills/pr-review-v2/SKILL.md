@@ -129,6 +129,11 @@ current and non-deprecated while specific usage patterns within it are wrong.
 - `createClient` called with anon key in a server context → **block** same reason.
 - `.from('table')` without `.select(...)` — returns all columns, exposes schema → **warn**.
 - `createClient` on the server without service role key and no evidence of RLS → **warn**.
+- Multiple `.from()` write calls (upsert/insert/update/delete) in a single function with no
+  transaction wrapping — if any step after the first fails, the DB is left partially written
+  → **warn**. Fix: move multi-step writes into a PostgreSQL function called via `.rpc()` so
+  all writes are atomic. Exception: if writes are genuinely independent (failure of one cannot
+  corrupt the other), note this in the finding.
 
 ### Next.js
 - `cookies()`, `headers()` called outside an async server component or route handler → **block**.
@@ -246,6 +251,11 @@ current and non-deprecated while specific usage patterns within it are wrong.
 - `createClient` called with anon key in a server context → **block** same reason.
 - `.from('table')` without `.select(...)` → **warn** (returns all columns, exposes schema).
 - `createClient` on the server without service role key and no evidence of RLS → **warn**.
+- Multiple `.from()` write calls (upsert/insert/update/delete) in a single function with no
+  transaction wrapping — if any step after the first fails, the DB is left partially written
+  → **warn**. Fix: move multi-step writes into a PostgreSQL function called via `.rpc()` so
+  all writes are atomic. Exception: if writes are genuinely independent (failure of one cannot
+  corrupt the other), note this in the finding.
 
 ### Next.js
 - `cookies()`, `headers()` called outside async server component or route handler → **block**.

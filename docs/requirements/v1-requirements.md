@@ -8,7 +8,7 @@
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-18 |
+| Last updated | 2026-03-27 |
 
 ## Change Log
 
@@ -24,6 +24,7 @@
 | 0.8 | 2026-03-15 | LS / Claude | Story 4.1: added additional_context_suggestions to LLM response (passive metadata). V2: added OSS model consideration and agentic artefact retrieval sections. Out of Scope: added OSS models and agentic retrieval entries. |
 | 0.9 | 2026-03-16 | LS / Claude | Story 3.4: added self-directed private view for FCS participants (own scores, Naur layer, submitted answers — no reference answers). Added Story 3.6: FCS Self-Reassessment (re-answer flow, locked aggregate). Per ADR-0005 revision (Option 4). |
 | 1.0 | 2026-03-18 | LS / Claude | V2: added expanded assessment areas (test strategy, operational, security); added IP-rich feature concepts (comprehension decay, outcome correlation, AI vs human delta, bus factor map, artefact quality scoring, benchmark mode). |
+| 1.1 | 2026-03-27 | LS / Claude | Story 1.1: added technical mechanism note — webhook handler at `POST /api/webhooks/github` is the implementation mechanism for org/repo registration. |
 
 ---
 
@@ -82,6 +83,8 @@ Enable organisations to install the GitHub App, onboard repositories, and config
 - Given a repository is removed from the app installation, the repository record is set to inactive. Existing assessment data is retained.
 
 **Notes:** The GitHub App must request the minimum permissions needed: read access to pull requests, code, and metadata; write access to checks and statuses.
+
+**Technical mechanism:** Organisation and repository registration is driven by a GitHub App webhook handler at `POST /api/webhooks/github`. GitHub fires `installation` and `installation_repositories` events to this endpoint when the app is installed, modified, or uninstalled. The handler verifies the request signature (`X-Hub-Signature-256`) before processing. See §4.4 in the design document for the full route contract.
 
 ---
 

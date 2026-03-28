@@ -24,6 +24,7 @@
 | Revised | 2026-03-26 (Issue #104) |
 | Revised | 2026-03-27 (Issue #61) |
 | Revised | 2026-03-27 (Issue #62) |
+| Revised | 2026-03-28 (Issue #116) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1027,29 +1028,28 @@ Receives GitHub App webhook events. Verifies HMAC-SHA256 signature. Acknowledges
 
 #### Internal decomposition — POST /api/webhooks/github
 
-Controller (stays in `webhooks/github/route.ts`, ≤ 8 lines):
+Controller (`src/app/api/webhooks/github/route.ts`, ≤ 25 lines):
 - Reads raw body as text (HTTP layer — stream cannot be read twice after this)
-- Calls `verifySignature(body, sig)` — returns 401 on failure
-- Calls `createApiContext(request)`, then `webhookService.handleGithubWebhook(ctx, event, JSON.parse(body))`
-- Returns `json({ received: true })`
+- Calls `verifyWebhookSignature(body, signature, WEBHOOK_SECRET)` from `src/lib/github/webhook-verification.ts` — throws `ApiError(401)` on failure
+- Calls `handleWebhookEvent(event, payload, createSecretSupabaseClient())` from `src/lib/github/installation-handlers.ts`
+- Returns `json<WebhookSuccessResponse>({ received: true })`
+- `WEBHOOK_SECRET` is resolved at module load time — throws at startup if `GITHUB_WEBHOOK_SECRET` env var is missing (fail-fast)
 
-> **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifySignature` stays in the controller (HTTP layer concern).
+> **Implementation note (issue #116):** The LLD specified a separate `webhooks/github/service.ts` with `handleGithubWebhook(ctx: ApiContext, ...)`. What was built is simpler: handlers live in `src/lib/github/installation-handlers.ts` and the route calls `handleWebhookEvent` directly, passing the Supabase client. No `ApiContext` wrapper is needed at this stage — the only shared dependency is the Supabase client. If future handlers need more shared context (e.g. a GitHub client), introduce `ApiContext` then.
 
-Service (`webhooks/github/service.ts`):
-- Exported: `handleGithubWebhook(ctx: ApiContext, event: string, payload: unknown): Promise<void>` — dispatches by event type; wraps all errors with `console.error` and swallows so the controller always returns 200
+> **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifyWebhookSignature` stays in the controller (HTTP layer concern).
 
-  Private helpers (≤ 20 lines each):
-  - `handleInstallation(adminSupabase, payload)` — `created`: inserts org + org_config + repositories; `deleted`: sets org inactive; other actions: no-op
-  - `handleInstallationRepositories(adminSupabase, payload)` — `added`: inserts repositories; `removed`: sets inactive; other actions: no-op
-  - `handlePullRequest(adminSupabase, githubClient, payload)` — delegates to sub-helpers by `payload.action`; other actions: no-op
-  - `initiatePrcc(adminSupabase, githubClient, payload)` — skip check → fetch PR context → generate rubric → create assessment + participants + Check Run
-  - `handleSync(adminSupabase, payload)` — upserts `sync_debounce` row with new SHA and timestamp only
-  - `addParticipant(adminSupabase, payload)` — inserts participant row; no-op if already enrolled
-  - `removeParticipant(adminSupabase, payload)` — soft-deletes participant; re-evaluates submission completeness
+> **Implementation note (issue #116):** The LLD specified that `handleGithubWebhook` should swallow all errors so the controller always returns 200. What was built: errors propagate through the route's `try/catch` to `handleApiError`, returning 401 on signature failure and 500 on internal errors. This is the better behaviour — GitHub retries on 5xx (transient failures get a retry), and 401 on invalid signatures is semantically correct.
 
-> **Constraint:** Always return `200 { received: true }` after signature verification passes — GitHub retries on non-200. Catch and log all errors inside `handleGithubWebhook`; never surface them to the controller.
->
-> **Constraint:** `handleSync` records the debounce entry only — must NOT call `initiatePrcc`. PRCC after the 60-second window is a future scheduled job.
+Installation handlers (`src/lib/github/installation-handlers.ts`):
+- Exported: `handleWebhookEvent(event: string, payload: Record<string, unknown>, supabase: Db): Promise<void>` — dispatches by event + action using nested `if/else if`
+- Exported (for direct testing): `handleInstallationCreated`, `handleInstallationDeleted`, `handleRepositoriesAdded`, `handleRepositoriesRemoved`
+- Private helpers: `buildRepoRows`, `upsertOrg`, `upsertOrgConfig`, `upsertRepos`
+
+`pull_request` handlers (`handlePullRequest`, `initiatePrcc`, `handleSync`, `addParticipant`, `removeParticipant`) _(deferred → PRCC feature)_
+
+HMAC verification (`src/lib/github/webhook-verification.ts`):
+- Exported: `verifyWebhookSignature(body: string, signature: string, secret: string): boolean`
 
 Do NOT:
 - Use a `switch` for event routing — use `if/else if` with explicit handler calls
