@@ -30,6 +30,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
     if (rpcError) {
       console.error('Failed to store provider token:', rpcError);
+      await supabase.auth.signOut();
+      return NextResponse.redirect(`${origin}/auth/sign-in?error=token_storage_failed`);
     }
 
     // Sync org memberships — step 5 deferred from §2.2, now implemented in §2.3.
