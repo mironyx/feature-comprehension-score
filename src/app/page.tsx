@@ -1,8 +1,8 @@
-export default function Home() {
-  return (
-    <main>
-      <h1>Feature Comprehension Score</h1>
-      <p>Measure whether engineering teams understand what they built.</p>
-    </main>
-  );
+import { redirect } from 'next/navigation';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+export default async function Home() {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  redirect(user ? '/assessments' : '/auth/sign-in');
 }
