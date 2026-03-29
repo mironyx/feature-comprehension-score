@@ -453,7 +453,7 @@ export async function syncOrgMembership(
 `syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
 
 > **Known limitation:** `syncOrgMembership` only matches GitHub organisations returned by `GET /user/orgs`. Personal account installations (where the app is installed on a user account rather than an org) are stored in the `organisations` table by the webhook handler but are never surfaced in the org-select UI because personal accounts do not appear in `/user/orgs`. See issue tracker for the fix.
-
+>
 > **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 
 **Stale membership removal:** If a user is removed from a GitHub org between sign-ins, their `user_organisations` row is deleted on next sync. This cascades to their visibility of that org's data via RLS.
@@ -1039,9 +1039,9 @@ Controller (`src/app/api/webhooks/github/route.ts`, ≤ 25 lines):
 - `WEBHOOK_SECRET` is resolved at module load time — throws at startup if `GITHUB_WEBHOOK_SECRET` env var is missing (fail-fast)
 
 > **Implementation note (issue #116):** The LLD specified a separate `webhooks/github/service.ts` with `handleGithubWebhook(ctx: ApiContext, ...)`. What was built is simpler: handlers live in `src/lib/github/installation-handlers.ts` and the route calls `handleWebhookEvent` directly, passing the Supabase client. No `ApiContext` wrapper is needed at this stage — the only shared dependency is the Supabase client. If future handlers need more shared context (e.g. a GitHub client), introduce `ApiContext` then.
-
+>
 > **Constraint:** Read raw body as text before anything else — calling `request.json()` first consumes the stream and makes HMAC verification impossible. `verifyWebhookSignature` stays in the controller (HTTP layer concern).
-
+>
 > **Implementation note (issue #116):** The LLD specified that `handleGithubWebhook` should swallow all errors so the controller always returns 200. What was built: errors propagate through the route's `try/catch` to `handleApiError`, returning 401 on signature failure and 500 on internal errors. This is the better behaviour — GitHub retries on 5xx (transient failures get a retry), and 401 on invalid signatures is semantically correct.
 
 Installation handlers (`src/lib/github/installation-handlers.ts`):
