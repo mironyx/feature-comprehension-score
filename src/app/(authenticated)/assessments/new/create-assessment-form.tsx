@@ -97,7 +97,7 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
   );
 
   const handleSubmit = useCallback(
-    async (e: React.FormEvent<HTMLFormElement>) => {
+    async (e: React.SyntheticEvent<HTMLFormElement>) => {
       e.preventDefault();
       const validationError = validate(form);
       if (validationError) { setError(validationError); return; }
