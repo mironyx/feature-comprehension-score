@@ -27,6 +27,7 @@
 | Revised | 2026-03-28 (Issue #116) |
 | Revised | 2026-03-29 (Issue #119) |
 | Revised | 2026-03-29 (Issue #121) |
+| Revised | 2026-03-29 (Issue #122) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -456,6 +457,8 @@ export async function syncOrgMembership(
 
 > **Implementation note (issue #119):** The original spec only queried the `organisations` table against org IDs from `GET /user/orgs`. This excluded personal account installations because that endpoint returns GitHub Organisations only. The fix: build `githubAccountIds = [githubUser.id, ...githubOrgs.map(o => o.id)]` and use that in the `.in()` query. For personal accounts (`org.github_org_id === githubUser.id`), skip the `/orgs/{org}/memberships/{username}` call (the endpoint does not exist for personal accounts) and default role to `'member'`.
 >
+> **Implementation note (issue #122):** The `'member'` default for personal accounts blocked the installer from creating assessments (`assertOrgAdmin` returns 403 for members). Changed to `'admin'` — the person who installed the GitHub App on their personal account is always the owner and therefore an admin.
+>
 > **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 
 **Stale membership removal:** If a user is removed from a GitHub org between sign-ins, their `user_organisations` row is deleted on next sync. This cascades to their visibility of that org's data via RLS.
@@ -469,7 +472,7 @@ export async function syncOrgMembership(
 - Given transient GitHub error on membership fetch → existing rows preserved
 - Given GitHub server error on initial `/user/orgs` fetch → existing rows preserved _(added post-review, issue #54)_
 - Given Supabase DB error querying installed orgs → existing rows preserved
-- Given personal account installation (no org memberships) → account appears with role `member` _(issue #119)_
+- Given personal account installation (no org memberships) → account appears with role `admin` _(issue #119; role corrected to `admin` by issue #122)_
 - Given personal account + one org installation → both appear; membership API not called for personal account _(issue #119)_
 
 **MSW mock factories** (in `tests/mocks/github.ts`):
@@ -1099,6 +1102,8 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 | `/assessments/[id]/submitted` | `SubmittedPage` | Server-side: direct Supabase admin client | Required; must be participant |
 
 > **Implementation note (issue #61):** The spec described `SubmittedPage` as using a "client-side redirect after submission". In practice it is a server-rendered page — `router.push()` in `AnsweringForm` navigates to it, but the page itself is a standard async server component that fetches directly from Supabase. The participant auth check (guards against non-participant URL access) was added post-review.
+>
+> **Implementation note (issue #122):** `AssessmentPage` calls `adminSupabase.rpc('link_participant', { p_assessment_id, p_github_user_id })` before `fetchParticipant`. This is required because `assessment_participants.user_id` is NULL at enrolment time (only `github_user_id` is set); `fetchParticipant` queries by `user_id` and returns `null` until the link is made. The RPC runs concurrently with `fetchAssessment` (no dependency on assessment data); `fetchParticipant` runs after both settle. Link failures are logged but non-fatal (best-effort).
 
 #### Component tree
 
@@ -1237,12 +1242,13 @@ NavBar
   ├── OrgSwitcher (from §2.3)
   ├── NavLinks
   │     ├── "My Assessments" (all users)
-  │     ├── "Organisation" (admin only — hidden for non-admin)
-  │     └── "Repositories" (admin only — hidden for non-admin)
+  │     └── "Organisation" (admin only — hidden for non-admin)
   └── UserMenu
         ├── Username
-        └── "Sign out" link
+        └── "Sign out" — <form method="POST" action="/auth/sign-out"> with a button
 ```
+
+> **Implementation note (issue #122):** The "Repositories" nav link was removed — the `/repos` route does not exist (deferred post-MVP per `docs/plans/2026-03-25-mvp-scope-review.md`). "Sign out" is rendered as a `<form method="POST">` rather than an `<a>` link; the sign-out route handler only exports `POST`, so a GET anchor never cleared the session.
 
 **Admin detection:** The nav bar reads the user's role from the org membership data (available via the Supabase client). Admin links are conditionally rendered — not shown to non-admins.
 
