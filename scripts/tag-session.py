@@ -35,7 +35,11 @@ def derive_project_key(root: pathlib.Path) -> str:
     Windows: C:\\projects\\feature-comprehension-score -> c--projects-feature-comprehension-score
     WSL:     /home/user/projects/feature-comprehension-score -> -home-user-projects-feature-comprehension-score
     """
-    return str(root).replace("/", "-").replace("\\", "-").replace(":", "")
+    path_str = str(root).lower()
+    # On Windows, "c:\projects\foo" must become "c--projects-foo".
+    # The drive-letter "c:\" maps to "c--", so replace ":\\" first.
+    path_str = path_str.replace(":\\", "--")
+    return path_str.replace("\\", "-").replace("/", "-").replace(":", "")
 
 
 def find_session_jsonl(claude_dir: pathlib.Path) -> pathlib.Path | None:

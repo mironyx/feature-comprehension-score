@@ -76,6 +76,7 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
 - **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval). During review, check design adequacy: were the design contracts precise enough to implement from? If not, update `docs/design/` in the same PR.
+- **No git worktrees.** Work directly in the main repo directory. Do not use `git worktree add` or the `isolation: "worktree"` agent option — the developer needs to see changes live in the same editor instance. This applies to `/feature`, `/feature-end`, and all sub-agents they spawn.
 - **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
 
 ## TDD Discipline
