@@ -25,6 +25,7 @@
 | 0.9 | 2026-03-16 | LS / Claude | Story 3.4: added self-directed private view for FCS participants (own scores, Naur layer, submitted answers — no reference answers). Added Story 3.6: FCS Self-Reassessment (re-answer flow, locked aggregate). Per ADR-0005 revision (Option 4). |
 | 1.0 | 2026-03-18 | LS / Claude | V2: added expanded assessment areas (test strategy, operational, security); added IP-rich feature concepts (comprehension decay, outcome correlation, AI vs human delta, bus factor map, artefact quality scoring, benchmark mode). |
 | 1.1 | 2026-03-27 | LS / Claude | Story 1.1: added technical mechanism note — webhook handler at `POST /api/webhooks/github` is the implementation mechanism for org/repo registration. |
+| 1.2 | 2026-03-29 | LS / Claude | Story 3.1: added post-creation UX AC (rubric_generation waiting state, rubric_failed error state with retry). Story 4.5: renamed status to `rubric_failed`; added admin retry AC and admin visibility AC. Story 5.1: added `repo` to required OAuth scopes (required for reading PR content). |
 
 ---
 
@@ -339,6 +340,9 @@ The retrospective diagnostic. An Org Admin creates an assessment for a feature b
   - Participant list: auto-suggested from the authors and reviewers of the selected merged PRs. Org Admin can add or remove participants before confirming.
 - Given I select merged PRs, the system auto-suggests participants from those PRs' authors and reviewers.
 - Given I submit, the system fetches artefacts from the selected PRs via GitHub API and initiates question generation.
+- Given I submit successfully, I am redirected to the assessments list where the new assessment appears in a "Generating questions…" state (`rubric_generation` status) until the LLM completes.
+- Given rubric generation completes successfully, the assessment status changes to `awaiting_responses` and it becomes actionable for participants.
+- Given rubric generation fails (LLM error, network timeout), the assessment is marked `rubric_failed` and I see an error state with a "Retry" button. Retrying re-runs rubric generation against the already-stored PR records without re-validating them.
 - Given a selected PR has an active or in-progress PRCC assessment, the system displays a warning before proceeding.
 - Given the artefacts are insufficient (e.g., single empty file), the system warns the initiator and proceeds (thin artefacts produce thin questions — by design).
 
@@ -524,7 +528,9 @@ Modification capacity (safe change paths): "Given the following codebase and req
 
 **Acceptance Criteria:**
 
-- LLM API errors during question generation: retry up to 3 times with exponential backoff. If exhausted, assessment marked "generation_failed" and GitHub Check set to "neutral".
+- LLM API errors during question generation: retry up to 3 times with exponential backoff. If all retries are exhausted, assessment status is set to `rubric_failed` (not rolled back — PR records are retained for retry). For PRCC, GitHub Check is set to "neutral".
+- Given an assessment is in `rubric_failed` state, an Org Admin can trigger a retry from the assessments list. Retry re-runs rubric generation against the already-stored PR records without re-validating them.
+- Given an assessment is in `rubric_generation` or `rubric_failed` state, it appears in the Org Admin's assessments list with its current status clearly indicated (not silently hidden).
 - LLM API errors during scoring: retry up to 3 times. If exhausted, individual score marked "scoring_failed" and assessment proceeds with available scores.
 - Malformed LLM responses (unparseable JSON, missing fields): treated as failure and retried.
 - All LLM errors logged with request context (minus participant answers for privacy).
@@ -548,7 +554,7 @@ The Next.js web application hosted on GCP Cloud Run (ADR-0002). Handles authenti
 - Unauthenticated users see a "Sign in with GitHub" button.
 - Authentication uses Supabase Auth with GitHub as the OAuth provider. Supabase manages sessions and token refresh; GitHub provides identity.
 - OAuth flow redirects to GitHub, then back to the app on authorisation.
-- Minimum OAuth scopes: `read:user`, `read:org`.
+- Minimum OAuth scopes: `read:user`, `read:org`, `repo`. The `repo` scope is required to read PR content (titles, merge status, diffs) for artefact extraction and rubric generation.
 - Expired sessions prompt re-authentication via Supabase token refresh.
 - Sign-out invalidates the Supabase session.
 

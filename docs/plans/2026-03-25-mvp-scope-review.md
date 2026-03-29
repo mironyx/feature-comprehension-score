@@ -28,7 +28,7 @@ Ship the smallest product that validates the core hypothesis: LLM-generated comp
 | 3 | Org selection page | 1.2 | ✅ Done (#54) |
 | 4 | Anthropic client wrapper with retry/error handling | 4.5 | Open (#23) |
 | 5 | Artefact input types and prompt builders | 4.1 | Open (#25) |
-| 6 | Create FCS assessment (select merged PRs, name feature, pick participants) | 3.1 | New |
+| 6 | Create FCS assessment (select merged PRs, name feature, pick participants) | 3.1 | Open (#121) |
 | 7 | POST /api/assessments/[id]/answers — submit answers | 5.3 | Open (#59) |
 | 8 | Scoring integration (wire engine scoring → API on last submission) | 4.2, 4.3 | New |
 | 9 | Assessment answering page UI | 5.3 | Open (#61) |
@@ -59,6 +59,21 @@ Ship the smallest product that validates the core hypothesis: LLM-generated comp
 **Estimated effort:** ~6–8 focused sessions.
 
 Tasks 1–3 have no dependencies on each other and can be parallelised.
+
+---
+
+## Smoke Test Findings (2026-03-29)
+
+Four bugs discovered during first E2E smoke test. Grouped as #122; must be fixed before a full cycle is possible.
+
+| Bug | File | Fix |
+|-----|------|-----|
+| Sign out sends GET; route only handles POST | `src/components/nav-bar.tsx` | Wrap in `<form method="POST">` |
+| `link_participant()` never called — all participants get Access Denied | `src/app/assessments/[id]/page.tsx` | Call `rpc('link_participant')` before `fetchParticipant` |
+| Personal account installation defaults to role `'member'` — owner blocked from creating assessments | `src/lib/supabase/org-sync.ts` | Set role to `'admin'` for personal accounts |
+| `/repos` linked from nav but no route exists (404) | `src/components/nav-bar.tsx` | Remove link (repos config is post-MVP) |
+
+Issue: #122
 
 ---
 

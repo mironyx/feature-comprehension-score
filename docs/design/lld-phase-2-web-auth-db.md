@@ -348,7 +348,7 @@ src/app/auth/sign-in/
 
 `SignInButton` calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with the callback URL set to `/auth/callback`. PKCE is enabled by default in `@supabase/ssr`.
 
-**OAuth scopes:** `user:email`, `read:user`, `read:org` — must be passed explicitly in `signInWithOAuth` client code (see correction below); dashboard configuration alone is insufficient.
+**OAuth scopes:** `user:email`, `read:user`, `read:org`, `repo` — must be passed explicitly in `signInWithOAuth` client code (see correction below); dashboard configuration alone is insufficient. The `repo` scope is required for reading PR content (titles, merge status, diffs) via the GitHub API during artefact extraction and rubric generation.
 
 > **Post-implementation corrections (issue #82, smoke test):**
 >
@@ -360,8 +360,10 @@ src/app/auth/sign-in/
 >
 > 2. **OAuth scopes must also be passed in `signInWithOAuth` client code**, not only in the
 >    Supabase dashboard. GitHub returns 403 on `/user/emails` without the `user:email` scope
->    explicitly requested. Required scopes: `user:email read:user read:org`. The `read:org`
->    scope is required for `GET /user/orgs` used in `syncOrgMembership`. The dashboard
+>    explicitly requested. Required scopes: `user:email read:user read:org repo`. The `read:org`
+>    scope is required for `GET /user/orgs` used in `syncOrgMembership`. The `repo` scope is
+>    required for `GET /repos/{owner}/{repo}/pulls/{number}` and diff endpoints used during
+>    artefact extraction (discovered via dogfooding, issue #129). The dashboard
 >    configuration alone is insufficient.
 >
 > 3. **pgsodium limitation (resolved in issue #84):** `store_github_token` originally used
@@ -455,7 +457,7 @@ export async function syncOrgMembership(
 
 `syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
 
-> **Implementation note (issue #119):** The original spec only queried the `organisations` table against org IDs from `GET /user/orgs`. This excluded personal account installations because that endpoint returns GitHub Organisations only. The fix: build `githubAccountIds = [githubUser.id, ...githubOrgs.map(o => o.id)]` and use that in the `.in()` query. For personal accounts (`org.github_org_id === githubUser.id`), skip the `/orgs/{org}/memberships/{username}` call (the endpoint does not exist for personal accounts) and default role to `'member'`.
+> **Implementation note (issue #119):** The original spec only queried the `organisations` table against org IDs from `GET /user/orgs`. This excluded personal account installations because that endpoint returns GitHub Organisations only. The fix: build `githubAccountIds = [githubUser.id, ...githubOrgs.map(o => o.id)]` and use that in the `.in()` query. For personal accounts (`org.github_org_id === githubUser.id`), skip the `/orgs/{org}/memberships/{username}` call (the endpoint does not exist for personal accounts) and assign role `'admin'` — the account owner is implicitly the admin of their own personal account (issue #126; corrected from initial `'member'` default in #119).
 >
 > **Implementation note (issue #122):** The `'member'` default for personal accounts blocked the installer from creating assessments (`assertOrgAdmin` returns 403 for members). Changed to `'admin'` — the person who installed the GitHub App on their personal account is always the owner and therefore an admin.
 >
@@ -1002,10 +1004,11 @@ Service (`fcs/service.ts`):
   - `resolveParticipants(octokit, usernames)` — resolves GitHub user IDs via GitHub API; 422 for unknown username
   - `createAssessmentRecord(adminSupabase, input: FcsCreateInput, repoInfo, validatedPRs): Promise<AssessmentId>` — generates UUID internally, inserts `assessments` row with status `rubric_generation` and `fcs_merged_prs` rows; returns `assessmentId`
   - `enrollParticipants(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, participants)` — inserts `assessment_participants` rows
-  - `triggerRubricGeneration(params: RubricTriggerParams)` — fire-and-forget; fetches artefacts, generates rubric, updates status to `awaiting_responses`; logs and swallows on failure
+  - `triggerRubricGeneration(params: RubricTriggerParams)` — fire-and-forget; fetches artefacts, generates rubric, updates status to `awaiting_responses`; on failure updates status to `rubric_failed` and logs (does not rethrow)
+  - `toRepoInfo(repo, cfg, orgId: OrgId)` — pure mapper; strips org prefix from `github_repo_name` if stored as `owner/repo` (personal account installations store the full name)
   - `storeRubricQuestions(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, questions)` — inserts `assessment_questions` rows
   - `finaliseRubric(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, artefacts)` — calls LLM, stores questions, updates assessment status
-  - `buildLlmClient(): LLMClient` — factory; reads `ANTHROPIC_API_KEY`, returns `AnthropicClient`
+  - `buildLlmClient(): LLMClient` — factory; reads `OPENROUTER_API_KEY` (and optional `OPENROUTER_MODEL`), returns `OpenRouterClient`
 
 > **Implementation note (issue #102):** `createAssessmentRecord` takes 4 parameters (not 5) — `assessmentId` is generated internally and returned. This satisfies the CodeScene "Excess Number of Function Arguments" threshold. Branded ID types (`OrgId`, `UserId`, `RepositoryId`, `AssessmentId`) were added to eliminate Primitive Obsession diagnostics; casts happen once at the `createFcs` entry point. `FcsCreateInput` is `Pick<FcsCreateBody, ...>` rather than `= FcsCreateBody` (Sonar S6564 — redundant alias). `createGithubClient` (deferred from issue #59) was built in this issue at `src/lib/github/client.ts`.
 >
@@ -1252,13 +1255,21 @@ NavBar
 
 **Admin detection:** The nav bar reads the user's role from the org membership data (available via the Supabase client). Admin links are conditionally rendered — not shown to non-admins.
 
+**Sign-out:** Rendered as `<form method="POST" action="/auth/sign-out">` — not a plain anchor link. A GET to `/auth/sign-out` has no handler; a form POST is required to invoke the route handler that calls `supabase.auth.signOut()`.
+
 #### Landing page
 
 After sign-in (and org selection if needed), users land on `/assessments` — their pending assessments list. This is the most common entry point and provides immediate actionability.
 
+The assessments list must show assessments in all non-terminal states relevant to the current user's role:
+- **Org Admin** sees: `rubric_generation` (generating…), `rubric_failed` (failed, with retry action), `awaiting_responses` (open for answering)
+- **User** sees: `awaiting_responses` only (they cannot act on in-progress generation)
+
+The root page (`/`) redirects: authenticated users → `/assessments`, unauthenticated users → `/auth/sign-in`.
+
 > **Implementation note (issue #121):** The `/assessments` landing page was extended to run an additional `user_organisations` membership query (in parallel with the assessments query via `Promise.all`) and conditionally render a "New Assessment" link for admins. Admin detection is done per-page rather than in the nav bar — the nav bar pattern described above was not used here. A shared helper `isOrgAdmin(rows: MembershipRow[]): boolean` was extracted to `src/lib/supabase/membership.ts` to avoid duplicating the check across `assessments/page.tsx` and `assessments/new/page.tsx`.
 >
-> **Implementation note (issue #121):** `/assessments/new` was not in the original spec (discovered as a gap during smoke testing — see `docs/plans/2026-03-25-mvp-scope-review.md` item #6). It is an admin-only server component that fetches `user_organisations` and `repositories` in parallel, redirects non-admins to `/assessments`, and renders `CreateAssessmentForm` (a `'use client'` component). `CreateAssessmentForm` submits to `POST /api/fcs` and redirects to `/assessments` on success. Validation is cumulative (all field errors collected into `string[]` and displayed as a list) rather than early-return single-error — this allows the user to fix all issues in one pass.
+> **Implementation note (issue #121):** `/assessments/new` was not in the original spec (discovered as a gap during smoke testing — see `docs/plans/2026-03-25-mvp-scope-review.md` item #6). It is an admin-only server component that fetches `user_organisations` and `repositories` in parallel, redirects non-admins to `/assessments`, and renders `CreateAssessmentForm` (a `'use client'` component). `CreateAssessmentForm` submits to `POST /api/fcs` and redirects to `/assessments` on success. Validation is cumulative (all field errors collected into `string[]` and displayed as a list) rather than early-return single-error — this allows the user to fix all issues in one pass. After redirect, the assessment is in `rubric_generation` status; the landing page must show this state (issue #130). Success feedback is tracked in issue #131.
 >
 > **Implementation note (issue #121):** `React.FormEvent` is deprecated in React 19. `handleSubmit` uses `React.SyntheticEvent<HTMLFormElement>` instead.
 
