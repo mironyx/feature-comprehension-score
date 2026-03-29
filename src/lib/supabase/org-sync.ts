@@ -102,14 +102,14 @@ export async function syncOrgMembership(
 
   // 3. Fetch membership role for all installed accounts concurrently.
   //    Personal accounts (github_org_id === githubUser.id) have no org
-  //    membership API — default their role to 'member' and skip the call.
+  //    membership API — assign 'admin' (the installer owns the account) and skip the call.
   //    Distinguish 404 (confirmed non-member) from other errors (transient
   //    failures). On any transient error, abort and preserve existing rows
   //    rather than incorrectly deleting valid memberships.
   const membershipResults = await Promise.all(
     installedOrgs.map(async (org) => {
       if (org.github_org_id === githubUser.id) {
-        return { org, membership: { role: 'member' as const }, error: false };
+        return { org, membership: { role: 'admin' as const }, error: false };
       }
       const githubOrg = githubOrgs.find((o) => o.id === org.github_org_id);
       if (!githubOrg) return { org, membership: null, error: false };

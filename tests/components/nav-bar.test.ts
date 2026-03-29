@@ -58,14 +58,22 @@ describe('NavBar', () => {
       expect(JSON.stringify(jsx)).toContain('Organisation');
     });
 
-    it('then I see Repositories in navigation', () => {
+    it('then I do not see a Repositories link (deferred post-MVP)', () => {
       const jsx = NavBar({ username: 'alice', isAdmin: true, currentOrg, allOrgs: [] });
-      expect(JSON.stringify(jsx)).toContain('Repositories');
+      expect(JSON.stringify(jsx)).not.toContain('Repositories');
     });
 
     it('then I see My Assessments in navigation', () => {
       const jsx = NavBar({ username: 'alice', isAdmin: true, currentOrg, allOrgs: [] });
       expect(JSON.stringify(jsx)).toContain('My Assessments');
+    });
+
+    it('then sign out renders as a POST form, not an anchor', () => {
+      const jsx = NavBar({ username: 'alice', isAdmin: true, currentOrg, allOrgs: [] });
+      const html = JSON.stringify(jsx);
+      expect(html).toContain('form');
+      expect(html).toContain('/auth/sign-out');
+      expect(html).not.toContain('"a"');
     });
   });
 
