@@ -318,14 +318,14 @@ describe('syncOrgMembership', () => {
   });
 
   describe('Given a user who installed the app on their personal account (no org memberships)', () => {
-    it('then their personal account appears in user_organisations with role member', async () => {
+    it('then their personal account appears in user_organisations with role admin', async () => {
       // Personal account: github_org_id matches the user's own GitHub ID
       const personalOrg = makeOrg({
         github_org_id: GITHUB_USER.id,
         github_org_name: GITHUB_USER.login,
         id: 'org-personal',
       });
-      const personalUo = makeUserOrg('org-personal', { github_role: 'member' });
+      const personalUo = makeUserOrg('org-personal', { github_role: 'admin' });
 
       // /user/orgs returns empty — personal accounts are never listed there
       server.use(
@@ -345,7 +345,7 @@ describe('syncOrgMembership', () => {
       expect(result).toHaveLength(1);
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ org_id: 'org-personal', github_role: 'member' }),
+          expect.objectContaining({ org_id: 'org-personal', github_role: 'admin' }),
         ]),
         expect.objectContaining({ onConflict: 'user_id,org_id' }),
       );
@@ -360,7 +360,7 @@ describe('syncOrgMembership', () => {
         id: 'org-personal',
       });
       const teamOrg = makeOrg({ github_org_id: 1001, github_org_name: 'acme', id: 'org-1' });
-      const personalUo = makeUserOrg('org-personal', { github_role: 'member' });
+      const personalUo = makeUserOrg('org-personal', { github_role: 'admin' });
       const teamUo = makeUserOrg('org-1', { github_role: 'admin' });
 
       server.use(
@@ -381,7 +381,7 @@ describe('syncOrgMembership', () => {
       expect(result).toHaveLength(2);
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ org_id: 'org-personal', github_role: 'member' }),
+          expect.objectContaining({ org_id: 'org-personal', github_role: 'admin' }),
           expect.objectContaining({ org_id: 'org-1', github_role: 'admin' }),
         ]),
         expect.objectContaining({ onConflict: 'user_id,org_id' }),

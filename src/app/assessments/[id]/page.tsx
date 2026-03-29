@@ -116,10 +116,21 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!user) redirect('/auth/sign-in');
 
   const adminSupabase = createSecretSupabaseClient();
-  const [assessment, participant] = await Promise.all([
+  const githubUserIdRaw = user.user_metadata?.['provider_id'];
+  const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
+
+  // link_participant runs concurrently with fetchAssessment — it has no dependency on
+  // assessment data. fetchParticipant runs after because it queries by user_id which the
+  // RPC may have just written.
+  const [, assessment] = await Promise.all([
+    githubUserId
+      ? adminSupabase.rpc('link_participant', { p_assessment_id: assessmentId, p_github_user_id: githubUserId })
+          .then(({ error }) => { if (error) console.error('link_participant failed — participant linking is best-effort', error); })
+      : Promise.resolve(),
     fetchAssessment(adminSupabase, assessmentId),
-    fetchParticipant(adminSupabase, assessmentId, user.id),
   ]);
+
+  const participant = await fetchParticipant(adminSupabase, assessmentId, user.id);
 
   if (!participant) return <AccessDeniedPage />;
   if (participant.status === 'submitted') return <AlreadySubmittedPage assessmentId={assessmentId} />;

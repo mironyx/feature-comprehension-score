@@ -44,6 +44,7 @@ const mockNotFound = vi.mocked(notFound);
 
 const USER_ID = 'user-001';
 const ASSESSMENT_ID = 'assessment-001';
+const GITHUB_PROVIDER_ID = '12345';
 
 function makeAssessment(overrides: Record<string, unknown> = {}) {
   return {
@@ -89,7 +90,9 @@ interface SecretClientOptions {
 
 function makeSecretClient(opts: SecretClientOptions) {
   const { assessment, participant, questions } = opts;
-  return {
+  const rpcSpy = vi.fn().mockResolvedValue({ data: null, error: null });
+  const client = {
+    rpc: rpcSpy,
     from: vi.fn((table: string) => {
       if (table === 'assessments') {
         return {
@@ -126,9 +129,10 @@ function makeSecretClient(opts: SecretClientOptions) {
       return {};
     }),
   };
+  return { client, rpcSpy };
 }
 
-function makeServerClient(user: { id: string } | null) {
+function makeServerClient(user: { id: string; user_metadata?: Record<string, unknown> } | null) {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -143,13 +147,14 @@ function makeParams(id = ASSESSMENT_ID) {
   return Promise.resolve({ id });
 }
 
-const AUTHED_USER = { id: USER_ID };
+const AUTHED_USER = { id: USER_ID, user_metadata: { provider_id: GITHUB_PROVIDER_ID } };
 
-async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
+async function arrange(opts: SecretClientOptions, user: { id: string; user_metadata?: Record<string, unknown> } | null = AUTHED_USER) {
   mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
-  mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
+  const { client, rpcSpy } = makeSecretClient(opts);
+  mockCreateSecret.mockReturnValue(client as never);
   const { default: AssessmentPage } = await import('@/app/assessments/[id]/page');
-  return AssessmentPage;
+  return { AssessmentPage, rpcSpy };
 }
 
 const defaultOpts: SecretClientOptions = {
@@ -170,7 +175,7 @@ describe('Assessment answering page', () => {
 
   describe('Given an unauthenticated user', () => {
     it('then it redirects to /auth/sign-in', async () => {
-      const AssessmentPage = await arrange(defaultOpts, null);
+      const { AssessmentPage } = await arrange(defaultOpts, null);
       await expect(AssessmentPage({ params: makeParams() })).rejects.toThrow(
         'NEXT_REDIRECT:/auth/sign-in',
       );
@@ -180,7 +185,7 @@ describe('Assessment answering page', () => {
 
   describe('Given the assessment does not exist', () => {
     it('then it calls notFound', async () => {
-      const AssessmentPage = await arrange(defaultOpts);
+      const { AssessmentPage } = await arrange(defaultOpts);
       await expect(AssessmentPage({ params: makeParams() })).rejects.toThrow('NEXT_NOT_FOUND');
       expect(mockNotFound).toHaveBeenCalled();
     });
@@ -205,11 +210,24 @@ describe('Assessment answering page', () => {
         { assessment: makeAssessment({ type: 'prcc', pr_number: 42 }), participant: makeParticipant('pending'), questions: [makeQuestion(1)] },
       ],
     ])('When %s', async (_label, opts) => {
-      const AssessmentPage = await arrange(opts);
+      const { AssessmentPage } = await arrange(opts);
       const result = await AssessmentPage({ params: makeParams() });
       expect(result).toBeTruthy();
       expect(mockRedirect).not.toHaveBeenCalled();
       expect(mockNotFound).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Given an authenticated participant visiting their assessment', () => {
+    it('then link_participant RPC is called with their GitHub provider_id', async () => {
+      const opts = {
+        assessment: makeAssessment(),
+        participant: makeParticipant('pending'),
+        questions: [makeQuestion(1)],
+      };
+      const { AssessmentPage, rpcSpy } = await arrange(opts);
+      await AssessmentPage({ params: makeParams() });
+      expect(rpcSpy).toHaveBeenCalledWith('link_participant', { p_assessment_id: ASSESSMENT_ID, p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10) });
     });
   });
 });

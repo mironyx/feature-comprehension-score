@@ -29,14 +29,11 @@ export function NavBar({ username, isAdmin, currentOrg, allOrgs }: NavBarProps) 
             <Link href="/organisation">Organisation</Link>
           </li>
         )}
-        {isAdmin && (
-          <li>
-            <Link href="/repos">Repositories</Link>
-          </li>
-        )}
       </ul>
       <span>{username}</span>
-      <a href="/auth/sign-out">Sign out</a>
+      <form method="POST" action="/auth/sign-out">
+        <button type="submit">Sign out</button>
+      </form>
     </nav>
   );
 }
