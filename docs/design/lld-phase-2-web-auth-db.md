@@ -25,6 +25,7 @@
 | Revised | 2026-03-27 (Issue #61) |
 | Revised | 2026-03-27 (Issue #62) |
 | Revised | 2026-03-28 (Issue #116) |
+| Revised | 2026-03-29 (Issue #119) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -436,8 +437,8 @@ export async function syncOrgMembership(
 **GitHub API calls (actual):** Uses the **live session provider token** directly — not a decrypted stored token. Three GitHub endpoints are used:
 
 - `GET /user` — user identity (`id`, `login`); fetched in parallel with `/user/orgs`
-- `GET /user/orgs` — list of orgs the user belongs to
-- `GET /orgs/{org}/memberships/{username}` — role per org (one call per installed org, concurrent)
+- `GET /user/orgs` — list of orgs the user belongs to (returns GitHub Organisations only — never personal accounts)
+- `GET /orgs/{org}/memberships/{username}` — role per org (one call per installed org, concurrent; skipped for personal accounts)
 
 > **Implementation note (issue #54):** The spec said "decrypted from `user_github_tokens`". The actual implementation uses the session's live `provider_token` passed directly from the auth callback. Decrypting a stored token is unnecessary — the live token is available at sign-in time and is the freshest credential.
 
@@ -452,13 +453,13 @@ export async function syncOrgMembership(
 
 `syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
 
-> **Known limitation:** `syncOrgMembership` only matches GitHub organisations returned by `GET /user/orgs`. Personal account installations (where the app is installed on a user account rather than an org) are stored in the `organisations` table by the webhook handler but are never surfaced in the org-select UI because personal accounts do not appear in `/user/orgs`. See issue tracker for the fix.
+> **Implementation note (issue #119):** The original spec only queried the `organisations` table against org IDs from `GET /user/orgs`. This excluded personal account installations because that endpoint returns GitHub Organisations only. The fix: build `githubAccountIds = [githubUser.id, ...githubOrgs.map(o => o.id)]` and use that in the `.in()` query. For personal accounts (`org.github_org_id === githubUser.id`), skip the `/orgs/{org}/memberships/{username}` call (the endpoint does not exist for personal accounts) and default role to `'member'`.
 >
 > **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 
 **Stale membership removal:** If a user is removed from a GitHub org between sign-ins, their `user_organisations` row is deleted on next sync. This cascades to their visibility of that org's data via RLS.
 
-**Tests (actual BDD specs — 7 total):**
+**Tests (actual BDD specs — 9 total):**
 
 - Given 2 installed orgs → both appear in `user_organisations`
 - Given role changed since last login → `user_organisations` updated on sign-in
@@ -467,6 +468,8 @@ export async function syncOrgMembership(
 - Given transient GitHub error on membership fetch → existing rows preserved
 - Given GitHub server error on initial `/user/orgs` fetch → existing rows preserved _(added post-review, issue #54)_
 - Given Supabase DB error querying installed orgs → existing rows preserved
+- Given personal account installation (no org memberships) → account appears with role `member` _(issue #119)_
+- Given personal account + one org installation → both appear; membership API not called for personal account _(issue #119)_
 
 **MSW mock factories** (in `tests/mocks/github.ts`):
 
