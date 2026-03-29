@@ -59,15 +59,19 @@ function parseParticipants(raw: string): { github_username: string }[] {
     .map((github_username) => ({ github_username }));
 }
 
-function validate(form: FormState): string | null {
-  if (!form.featureName.trim()) return 'Feature name is required.';
-  if (!form.repositoryId) return 'Please select a repository.';
+function validate(form: FormState): string[] {
+  const errors: string[] = [];
+  if (!form.featureName.trim()) errors.push('Feature name is required.');
+  if (!form.repositoryId) errors.push('Please select a repository.');
   const rawPrs = form.prNumbers.split(',').map((s) => s.trim()).filter(Boolean);
-  if (rawPrs.length === 0) return 'Enter at least one merged PR number.';
-  const invalid = rawPrs.filter((s) => !Number.isInteger(Number(s)) || Number(s) <= 0);
-  if (invalid.length > 0) return `Invalid PR number(s): ${invalid.join(', ')}`;
-  if (parseParticipants(form.participants).length === 0) return 'Enter at least one participant GitHub username.';
-  return null;
+  if (rawPrs.length === 0) {
+    errors.push('Enter at least one merged PR number.');
+  } else {
+    const invalid = rawPrs.filter((s) => !Number.isInteger(Number(s)) || Number(s) <= 0);
+    if (invalid.length > 0) errors.push(`Invalid PR number(s): ${invalid.join(', ')}`);
+  }
+  if (parseParticipants(form.participants).length === 0) errors.push('Enter at least one participant GitHub username.');
+  return errors;
 }
 
 async function postAssessment(payload: AssessmentPayload): Promise<string | null> {
@@ -86,7 +90,8 @@ async function postAssessment(payload: AssessmentPayload): Promise<string | null
 export default function CreateAssessmentForm({ orgId, repositories }: CreateAssessmentFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
-  const [error, setError] = useState<string | null>(null);
+  // Justification: S1854 false positive — React reads `errors` on every render via useState; the initial [] is not a dead assignment.
+  const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const handleChange = useCallback(
@@ -99,10 +104,10 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
   const handleSubmit = useCallback(
     async (e: React.SyntheticEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const validationError = validate(form);
-      if (validationError) { setError(validationError); return; }
+      const validationErrors = validate(form);
+      if (validationErrors.length > 0) { setErrors(validationErrors); return; }
       setSubmitting(true);
-      setError(null);
+      setErrors([]);
       try {
         const apiError = await postAssessment({
           org_id: orgId,
@@ -112,11 +117,11 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
           merged_pr_numbers: parsePrNumbers(form.prNumbers),
           participants: parseParticipants(form.participants),
         });
-        if (apiError) { setError(apiError); return; }
+        if (apiError) { setErrors([apiError]); return; }
         router.push('/assessments');
       } catch (err) {
         console.error('CreateAssessmentForm: submit failed:', err);
-        setError('Network error. Please try again.');
+        setErrors(['Network error. Please try again.']);
       } finally {
         setSubmitting(false);
       }
@@ -126,7 +131,11 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
 
   return (
     <form onSubmit={handleSubmit} noValidate>
-      {error && <p role="alert">{error}</p>}
+      {errors.length > 0 && (
+        <ul role="alert">
+          {errors.map((e) => <li key={e}>{e}</li>)}
+        </ul>
+      )}
 
       <label htmlFor="featureName">Feature name *</label>
       <input
