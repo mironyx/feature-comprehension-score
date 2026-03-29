@@ -77,7 +77,7 @@ async function postAssessment(payload: AssessmentPayload): Promise<string | null
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string };
+    const body = await res.json().catch((err: unknown) => { console.error('postAssessment: failed to parse error response:', err); return {}; }) as { error?: string };
     return body.error ?? 'Failed to create assessment. Please try again.';
   }
   return null;
@@ -114,7 +114,8 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         });
         if (apiError) { setError(apiError); return; }
         router.push('/assessments');
-      } catch {
+      } catch (err) {
+        console.error('CreateAssessmentForm: submit failed:', err);
         setError('Network error. Please try again.');
       } finally {
         setSubmitting(false);
