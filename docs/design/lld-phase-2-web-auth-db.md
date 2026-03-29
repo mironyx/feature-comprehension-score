@@ -26,6 +26,7 @@
 | Revised | 2026-03-27 (Issue #62) |
 | Revised | 2026-03-28 (Issue #116) |
 | Revised | 2026-03-29 (Issue #119) |
+| Revised | 2026-03-29 (Issue #121) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1208,7 +1209,10 @@ src/app/
   (authenticated)/
     layout.tsx             — authenticated layout with navigation
     assessments/
-      page.tsx             — My Assessments (landing page)
+      page.tsx             — My Assessments (landing page, admin link injected)
+      new/
+        page.tsx           — New Assessment (admin only, redirects non-admins)
+        create-assessment-form.tsx  — client component; POST /api/fcs on submit
     organisation/
       page.tsx             — Org overview (admin only)
       settings/page.tsx    — Org config (admin only)
@@ -1216,6 +1220,8 @@ src/app/
       [id]/
         page.tsx           — Repo assessment history
         settings/page.tsx  — Repo config (admin only)
+src/lib/supabase/
+  membership.ts            — MembershipRow, isOrgAdmin() — shared across pages
 ```
 
 #### Navigation component
@@ -1243,6 +1249,12 @@ NavBar
 #### Landing page
 
 After sign-in (and org selection if needed), users land on `/assessments` — their pending assessments list. This is the most common entry point and provides immediate actionability.
+
+> **Implementation note (issue #121):** The `/assessments` landing page was extended to run an additional `user_organisations` membership query (in parallel with the assessments query via `Promise.all`) and conditionally render a "New Assessment" link for admins. Admin detection is done per-page rather than in the nav bar — the nav bar pattern described above was not used here. A shared helper `isOrgAdmin(rows: MembershipRow[]): boolean` was extracted to `src/lib/supabase/membership.ts` to avoid duplicating the check across `assessments/page.tsx` and `assessments/new/page.tsx`.
+>
+> **Implementation note (issue #121):** `/assessments/new` was not in the original spec (discovered as a gap during smoke testing — see `docs/plans/2026-03-25-mvp-scope-review.md` item #6). It is an admin-only server component that fetches `user_organisations` and `repositories` in parallel, redirects non-admins to `/assessments`, and renders `CreateAssessmentForm` (a `'use client'` component). `CreateAssessmentForm` submits to `POST /api/fcs` and redirects to `/assessments` on success. Validation is cumulative (all field errors collected into `string[]` and displayed as a list) rather than early-return single-error — this allows the user to fix all issues in one pass.
+>
+> **Implementation note (issue #121):** `React.FormEvent` is deprecated in React 19. `handleSubmit` uses `React.SyntheticEvent<HTMLFormElement>` instead.
 
 ---
 
