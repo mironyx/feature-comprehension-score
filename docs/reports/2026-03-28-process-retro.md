@@ -52,8 +52,8 @@
 ### Done-but-Open streak: still unresolved (seventh consecutive retro)
 
 **Observation:** #18, #27, #35, #36, #37 remain open on GitHub. #23 and #25 appear to have been
-closed (no longer in the open issue list), which is partial progress. But the core set (#18, #27,
-#35, #36) has appeared in every retro since 2026-03-09.
+closed (no longer in the open issue list), which is partial progress. But the core set
+(#18, #27, #35, #36) has appeared in every retro since 2026-03-09.
 
 **Impact:** The open issue list includes ~30% false positives, corrupting priority decisions. The
 action has been listed in every retro for seven weeks without full execution.

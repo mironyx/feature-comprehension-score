@@ -73,15 +73,15 @@ export async function syncOrgMembership(
     return existing ?? [];
   }
 
-  // 2. Find which of the user's orgs have our app installed.
-  const githubOrgIds = githubOrgs.map((o) => o.id);
-  const installedOrgsResult = githubOrgIds.length > 0
-    ? await serviceClient
-        .from('organisations')
-        .select('id, github_org_id, github_org_name')
-        .in('github_org_id', githubOrgIds)
-        .eq('status', 'active')
-    : { data: [] as { id: string; github_org_id: number; github_org_name: string }[], error: null };
+  // 2. Find which of the user's accounts have our app installed.
+  //    Include the user's own GitHub ID to catch personal account installations —
+  //    /user/orgs only returns GitHub Organisations, never personal accounts.
+  const githubAccountIds = [githubUser.id, ...githubOrgs.map((o) => o.id)];
+  const installedOrgsResult = await serviceClient
+    .from('organisations')
+    .select('id, github_org_id, github_org_name')
+    .in('github_org_id', githubAccountIds)
+    .eq('status', 'active');
 
   // A DB error here must not trigger deletion — preserve existing rows.
   if (installedOrgsResult.error) {
@@ -100,26 +100,28 @@ export async function syncOrgMembership(
     return [];
   }
 
-  // 3. Fetch membership role for all installed orgs concurrently.
+  // 3. Fetch membership role for all installed accounts concurrently.
+  //    Personal accounts (github_org_id === githubUser.id) have no org
+  //    membership API — default their role to 'member' and skip the call.
   //    Distinguish 404 (confirmed non-member) from other errors (transient
   //    failures). On any transient error, abort and preserve existing rows
   //    rather than incorrectly deleting valid memberships.
   const membershipResults = await Promise.all(
-    installedOrgs
-      .map((org) => ({ org, githubOrg: githubOrgs.find((o) => o.id === org.github_org_id) }))
-      .filter((e): e is { org: (typeof installedOrgs)[number]; githubOrg: GitHubOrg } =>
-        e.githubOrg !== undefined,
-      )
-      .map(async ({ org, githubOrg }) => {
-        const resp = await fetch(
-          `${GITHUB_API}/orgs/${githubOrg.login}/memberships/${githubUser.login}`,
-          { headers },
-        );
-        if (resp.status === 404) return { org, membership: null, error: false };
-        if (!resp.ok) return { org, membership: null, error: true };
-        const membership = (await resp.json()) as unknown as GitHubMembership;
-        return { org, membership, error: false };
-      }),
+    installedOrgs.map(async (org) => {
+      if (org.github_org_id === githubUser.id) {
+        return { org, membership: { role: 'member' as const }, error: false };
+      }
+      const githubOrg = githubOrgs.find((o) => o.id === org.github_org_id);
+      if (!githubOrg) return { org, membership: null, error: false };
+      const resp = await fetch(
+        `${GITHUB_API}/orgs/${githubOrg.login}/memberships/${githubUser.login}`,
+        { headers },
+      );
+      if (resp.status === 404) return { org, membership: null, error: false };
+      if (!resp.ok) return { org, membership: null, error: true };
+      const membership = (await resp.json()) as unknown as GitHubMembership;
+      return { org, membership, error: false };
+    }),
   );
 
   // On any transient error, preserve existing rows — don't risk a false removal.
