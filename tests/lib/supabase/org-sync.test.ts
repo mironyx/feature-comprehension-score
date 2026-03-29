@@ -316,4 +316,76 @@ describe('syncOrgMembership', () => {
       expect(result[0]?.org_id).toBe('org-1');
     });
   });
+
+  describe('Given a user who installed the app on their personal account (no org memberships)', () => {
+    it('then their personal account appears in user_organisations with role member', async () => {
+      // Personal account: github_org_id matches the user's own GitHub ID
+      const personalOrg = makeOrg({
+        github_org_id: GITHUB_USER.id,
+        github_org_name: GITHUB_USER.login,
+        id: 'org-personal',
+      });
+      const personalUo = makeUserOrg('org-personal', { github_role: 'member' });
+
+      // /user/orgs returns empty — personal accounts are never listed there
+      server.use(
+        mockGitHubUser(GITHUB_USER),
+        mockUserOrgs([]),
+        // No mockOrgMembershipRole — must not be called for personal accounts
+      );
+
+      const { client, upsertSpy } = buildMockClient({
+        installedOrgs: [personalOrg],
+        finalUserOrgs: [personalUo],
+      });
+
+      const { syncOrgMembership } = await import('@/lib/supabase/org-sync');
+      const result = await syncOrgMembership(client, TEST_USER_ID, TEST_PROVIDER_TOKEN);
+
+      expect(result).toHaveLength(1);
+      expect(upsertSpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ org_id: 'org-personal', github_role: 'member' }),
+        ]),
+        expect.objectContaining({ onConflict: 'user_id,org_id' }),
+      );
+    });
+  });
+
+  describe('Given a user who installed the app on personal account and one org', () => {
+    it('then both appear in user_organisations', async () => {
+      const personalOrg = makeOrg({
+        github_org_id: GITHUB_USER.id,
+        github_org_name: GITHUB_USER.login,
+        id: 'org-personal',
+      });
+      const teamOrg = makeOrg({ github_org_id: 1001, github_org_name: 'acme', id: 'org-1' });
+      const personalUo = makeUserOrg('org-personal', { github_role: 'member' });
+      const teamUo = makeUserOrg('org-1', { github_role: 'admin' });
+
+      server.use(
+        mockGitHubUser(GITHUB_USER),
+        mockUserOrgs([{ id: 1001, login: 'acme' }]),
+        mockOrgMembershipRole('acme', GITHUB_USER.login, 'admin'),
+        // No membership mock for personal account — must not be called
+      );
+
+      const { client, upsertSpy } = buildMockClient({
+        installedOrgs: [personalOrg, teamOrg],
+        finalUserOrgs: [personalUo, teamUo],
+      });
+
+      const { syncOrgMembership } = await import('@/lib/supabase/org-sync');
+      const result = await syncOrgMembership(client, TEST_USER_ID, TEST_PROVIDER_TOKEN);
+
+      expect(result).toHaveLength(2);
+      expect(upsertSpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ org_id: 'org-personal', github_role: 'member' }),
+          expect.objectContaining({ org_id: 'org-1', github_role: 'admin' }),
+        ]),
+        expect.objectContaining({ onConflict: 'user_id,org_id' }),
+      );
+    });
+  });
 });
