@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
+| Version | 1.3 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-03 |
-| Last updated | 2026-03-27 |
+| Last updated | 2026-03-29 |
 
 ## Change Log
 
@@ -26,6 +26,7 @@
 | 1.0 | 2026-03-18 | LS / Claude | V2: added expanded assessment areas (test strategy, operational, security); added IP-rich feature concepts (comprehension decay, outcome correlation, AI vs human delta, bus factor map, artefact quality scoring, benchmark mode). |
 | 1.1 | 2026-03-27 | LS / Claude | Story 1.1: added technical mechanism note — webhook handler at `POST /api/webhooks/github` is the implementation mechanism for org/repo registration. |
 | 1.2 | 2026-03-29 | LS / Claude | Story 3.1: added post-creation UX AC (rubric_generation waiting state, rubric_failed error state with retry). Story 4.5: renamed status to `rubric_failed`; added admin retry AC and admin visibility AC. Story 5.1: added `repo` to required OAuth scopes (required for reading PR content). |
+| 1.3 | 2026-03-29 | LS / Claude | MVP Phase 2 dogfooding findings: Story 4.1 corrected world-to-program Naur layer definition (domain-to-code correspondence, not project history). Added observability requirement to Cross-Cutting Concerns (structured logging, LLM call tracing). Story 5.2 added participant linking AC. |
 
 ---
 
@@ -452,11 +453,11 @@ The core engine used by both PRCC and FCS. Handles question generation, rubric c
 **Acceptance Criteria:**
 
 - Given a set of artefacts (code diffs, full files, PR descriptions, linked issues, design documents), the system generates 3-5 questions (configurable) targeting Naur's three layers:
-  - **World-to-program mapping** (domain intent): "Why does this code exist? What real-world behaviour does it handle?"
+  - **World-to-program mapping** (domain-to-code correspondence): "Which domain concept does X represent in the code? How do the domain entities map to the data model? What aspects of the domain are deliberately not modelled?"
   - **Design justification** (structural decisions): "Why was this approach chosen? What are the trade-offs?"
   - **Modification capacity** (safe change paths): "What would break if we changed X? How would you extend this?"
 
-World-to-program mapping (domain intent): "Given the following requirements and test cases, generate five short-answer questions that test whether a developer understands which real-world domain behaviours this feature handles and which it deliberately excludes. Questions should require reasoning about intent, not code recall. For each question, output: the question text, a weight from 1–3 reflecting its importance to domain correctness, and a reference answer that a developer with full understanding of the artefacts should be able to give."
+World-to-program mapping (domain-to-code correspondence): "Given the following requirements and test cases, generate five short-answer questions that test whether a developer understands how real-world domain concepts are reflected in the program structure — which aspects of the domain the program handles, how domain entities map to code constructs (types, tables, modules), and which domain behaviours are deliberately excluded. Questions should require reasoning about domain-to-code correspondence, not code recall or project history. Do not ask about why a file was created, development process decisions, or session/issue history. For each question, output: the question text, a weight from 1–3 reflecting its importance to domain correctness, and a reference answer that a developer with full understanding of the artefacts should be able to give."
 
 Design justification (structural decisions): "Given the following design notes, ADRs, and pull request descriptions, generate five short-answer questions that test whether a developer understands why key structural decisions were made — module boundaries, data model choices, integration approach — not just what they are. For each question, output: the question text, a weight from 1–3 reflecting how central this decision is to the overall design, and a reference answer derived from the artefacts. Where the artefacts do not record a justification, note that explicitly in the reference answer rather than inferring one."
 
@@ -570,6 +571,7 @@ The Next.js web application hosted on GCP Cloud Run (ADR-0002). Handles authenti
 
 - Users can only see assessments for organisations they belong to (verified via GitHub API).
 - Assessment URLs for non-participants show access denied.
+- Participant linking: when a participant first visits an assessment URL, the system links their authenticated user identity to their enrolment record (which was created with only their GitHub user ID). This must use the participant's own authenticated session so the identity link is correct.
 - Org Admin access: determined by GitHub organisation admin role.
 - Assessment participation: listed as participant on the specific assessment.
 - All access checks enforce the simplified role model: Org Admin, User, Author (contextual), Reviewer (contextual).
@@ -892,6 +894,7 @@ Aggregate anonymised FCS scores across participating organisations by feature ty
 | **Performance** | Question generation < 30 seconds. Answer scoring < 10 seconds per answer. Targets, not hard gates. |
 | **British English** | All user-facing text uses British English spelling. |
 | **Accessibility** | WCAG 2.1 AA for the question answering interface. |
+| **Observability** | Structured JSON logging to stdout (compatible with Cloud Run / GCP Logging). All API routes log with request context (request ID, user ID). LLM calls log: assembled artefact summary, full prompt, full response, latency. Log levels: `error` for failures, `warn` for degraded paths, `info` for lifecycle events and LLM calls. Design for future OpenTelemetry integration. |
 | **Error states** | Every user-facing error includes clear message and suggested action. |
 | **Data retention** | Assessment data retained indefinitely in V1. Retention policy is V2. |
 
