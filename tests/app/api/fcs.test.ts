@@ -250,6 +250,19 @@ describe('POST /api/fcs', () => {
     });
   });
 
+  describe('given a repository whose github_repo_name includes the org prefix', () => {
+    it('strips the org prefix when calling the GitHub API', async () => {
+      repoResult = {
+        data: { github_repo_name: 'test-org/test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org' } },
+        error: null,
+      };
+      await callPost(VALID_BODY);
+      expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: 'test-org', repo: 'test-repo' }),
+      );
+    });
+  });
+
   describe('given valid input', () => {
     it('returns 201 with assessment_id, status rubric_generation, and participant_count', async () => {
       const { status, json } = await callPost(VALID_BODY);

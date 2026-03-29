@@ -120,9 +120,11 @@ async function assertOrgAdmin(supabase: UserClient, userId: UserId, orgId: OrgId
 // The LLD §2.4 Private helpers list omits the repo+config fetch step entirely; these helpers
 // implement that implicit step. The LLD should be updated to include them.
 function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: OrgId): RepoInfo {
+  const storedName = repo.github_repo_name;
+  const repoName = storedName.includes('/') ? storedName.split('/')[1]! : storedName;
   return {
     orgName: repo.organisations.github_org_name,
-    repoName: repo.github_repo_name,
+    repoName,
     orgId,
     questionCount: cfg.fcs_question_count,
     enforcementMode: cfg.enforcement_mode,
