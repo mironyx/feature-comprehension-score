@@ -2,7 +2,7 @@
 // Auth enforcement is delegated to the (authenticated) layout; this page only
 // guards for a missing orgId (defensive fallback).
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issue: #62
+// Issues: #62, #121
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -28,6 +28,13 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn(),
 }));
 
+vi.mock('next/link', () => ({
+  default: ({ href, children }: { href: string; children: unknown }) => ({
+    type: 'a',
+    props: { href, children },
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -47,18 +54,34 @@ const mockCookies = vi.mocked(cookies);
 // ---------------------------------------------------------------------------
 
 const ORG_ID = 'org-001';
+const USER_ID = 'user-001';
 const mockCookieStore = {};
 
-function makeClient(assessments: unknown[]) {
+function makeClient(assessments: unknown[], githubRole: string | null = 'member') {
   return {
-    from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
+    },
+    from: vi.fn().mockImplementation((table: string) => {
+      if (table === 'user_organisations') {
+        const rows = githubRole ? [{ github_role: githubRole }] : [];
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ data: rows, error: null }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
+            }),
           }),
         }),
-      }),
+      };
     }),
   };
 }
@@ -114,6 +137,32 @@ describe('Assessments landing page', () => {
 
       const result = await AssessmentsPage();
       expect(JSON.stringify(result)).toContain('Assessments');
+    });
+  });
+
+  describe('Given the user is an org admin', () => {
+    it('then a "New Assessment" link is shown', async () => {
+      mockCreateServer.mockResolvedValue(makeClient([], 'admin') as never);
+
+      const { default: AssessmentsPage } = await import(
+        '@/app/(authenticated)/assessments/page'
+      );
+
+      const result = await AssessmentsPage();
+      expect(JSON.stringify(result)).toContain('/assessments/new');
+    });
+  });
+
+  describe('Given the user is not an org admin', () => {
+    it('then no "New Assessment" link is shown', async () => {
+      mockCreateServer.mockResolvedValue(makeClient([], 'member') as never);
+
+      const { default: AssessmentsPage } = await import(
+        '@/app/(authenticated)/assessments/page'
+      );
+
+      const result = await AssessmentsPage();
+      expect(JSON.stringify(result)).not.toContain('/assessments/new');
     });
   });
 });
