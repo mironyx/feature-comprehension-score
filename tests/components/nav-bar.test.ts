@@ -77,6 +77,15 @@ describe('NavBar', () => {
     });
   });
 
+  describe('Given any user', () => {
+    it('then a sign-out form POSTing to /auth/sign-out is present', () => {
+      const jsx = NavBar({ username: 'alice', isAdmin: false, currentOrg, allOrgs: [] });
+      const html = JSON.stringify(jsx);
+      expect(html).toContain('/auth/sign-out');
+      expect(html).toContain('POST');
+    });
+  });
+
   describe('Given I am a regular user', () => {
     it('then I do not see admin-only links', () => {
       const jsx = NavBar({ username: 'bob', isAdmin: false, currentOrg, allOrgs: [] });
