@@ -345,7 +345,7 @@ src/app/auth/sign-in/
 
 `SignInButton` calls `supabase.auth.signInWithOAuth({ provider: 'github' })` with the callback URL set to `/auth/callback`. PKCE is enabled by default in `@supabase/ssr`.
 
-**OAuth scopes:** `user:email`, `read:user` — must be passed explicitly in `signInWithOAuth` client code (see correction below); dashboard configuration alone is insufficient.
+**OAuth scopes:** `user:email`, `read:user`, `read:org` — must be passed explicitly in `signInWithOAuth` client code (see correction below); dashboard configuration alone is insufficient.
 
 > **Post-implementation corrections (issue #82, smoke test):**
 >
@@ -357,8 +357,9 @@ src/app/auth/sign-in/
 >
 > 2. **OAuth scopes must also be passed in `signInWithOAuth` client code**, not only in the
 >    Supabase dashboard. GitHub returns 403 on `/user/emails` without the `user:email` scope
->    explicitly requested. Required scopes: `user:email read:user`. The dashboard configuration
->    alone is insufficient.
+>    explicitly requested. Required scopes: `user:email read:user read:org`. The `read:org`
+>    scope is required for `GET /user/orgs` used in `syncOrgMembership`. The dashboard
+>    configuration alone is insufficient.
 >
 > 3. **pgsodium limitation (resolved in issue #84):** `store_github_token` originally used
 >    `pgsodium.crypto_aead_det_encrypt`. On Supabase cloud, the `postgres` role cannot execute
@@ -450,6 +451,8 @@ export async function syncOrgMembership(
 | Per-org membership fetch returns 404 | Confirmed non-member; treat as removed |
 
 `syncOrgMembership` is **no-throw** by design. All failure modes return existing rows rather than deleting memberships incorrectly. The auth callback does not wrap it in try/catch.
+
+> **Known limitation:** `syncOrgMembership` only matches GitHub organisations returned by `GET /user/orgs`. Personal account installations (where the app is installed on a user account rather than an org) are stored in the `organisations` table by the webhook handler but are never surfaced in the org-select UI because personal accounts do not appear in `/user/orgs`. See issue tracker for the fix.
 
 > **Implementation note (issue #54):** The spec contained no error handling. Post-review analysis identified that unhandled throws from the initial GitHub fetch would silently swallow errors in the callback. All error paths now preserve existing memberships rather than risking false deletions.
 

@@ -96,7 +96,7 @@ async function upsertRepos(supabase: Db, orgId: string, repos: GithubRepo[], now
   if (repos.length === 0) return;
   const { error } = await supabase
     .from('repositories')
-    .upsert(buildRepoRows(orgId, repos, now), { onConflict: 'github_repo_id' });
+    .upsert(buildRepoRows(orgId, repos, now), { onConflict: 'org_id,github_repo_id' });
   if (error) {
     console.error('upsertRepos failed:', error);
     throw error;
