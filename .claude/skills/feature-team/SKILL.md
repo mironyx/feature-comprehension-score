@@ -60,7 +60,11 @@ Create one task per issue:
 
 ### Step 4: Spawn teammates
 
-Spawn one teammate per issue in a **single parallel operation**.
+Create the entire team in **one instruction** so all teammates start simultaneously.
+Do not spawn them one at a time — that defeats the purpose of parallel execution.
+
+Tell the agent teams system something like:
+> "Create a team with N teammates. Teammate 1: [prompt]. Teammate 2: [prompt]. ..."
 
 Each teammate receives this self-contained prompt (fill in the placeholders):
 
