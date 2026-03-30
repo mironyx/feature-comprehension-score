@@ -98,6 +98,10 @@ describe('handle_installation_created', () => {
 
     const { data: org } = await svc.from('organisations').select('github_org_name').eq('id', firstId as string).single();
     expect(org?.github_org_name).toBe('updated-name');
+
+    const { data: repos } = await svc.from('repositories').select('github_repo_name').eq('org_id', firstId as string);
+    expect(repos).toHaveLength(1);
+    expect(repos?.[0]?.github_repo_name).toBe('acme/new-repo');
   });
 });
 
