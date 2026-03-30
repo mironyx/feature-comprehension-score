@@ -89,8 +89,7 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 > 5. Implement with strict TDD (Red-Green-Refactor, one test at a time).
 > 6. Run full verification: `npx vitest run`, `npx tsc --noEmit`, `npm run lint`,
 >    `npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5`
-> 7. Run `/diag` on all changed files. Fix all findings before proceeding.
-> 8. Commit: `git add <files> && git commit -m "feat: <description> #<N>"`
+> 7. Commit: `git add <files> && git commit -m "feat: <description> #<N>"`
 > 9. Push and create PR targeting `main`.
 > 10. Run `/pr-review-v2 <pr-number>` and fix any blockers.
 > 11. Report back with the PR URL.
