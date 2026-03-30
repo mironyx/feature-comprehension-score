@@ -571,6 +571,48 @@ export interface Database {
         Args: { p_user_id: string };
         Returns: string | null;
       };
+      handle_installation_created: {
+        Args: {
+          p_github_org_id: number;
+          p_github_org_name: string;
+          p_installation_id: number;
+          p_repos?: Json;
+        };
+        Returns: string;
+      };
+      handle_repositories_added: {
+        Args: { p_installation_id: number; p_repos: Json };
+        Returns: void;
+      };
+      create_fcs_assessment: {
+        Args: {
+          p_id: string;
+          p_org_id: string;
+          p_repository_id: string;
+          p_feature_name: string;
+          p_feature_description: string;
+          p_config_enforcement_mode: string;
+          p_config_score_threshold: number;
+          p_config_question_count: number;
+          p_config_min_pr_size: number;
+          p_merged_prs: Json;
+          p_participants: Json;
+        };
+        Returns: string;
+      };
+      finalise_rubric: {
+        Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
+        Returns: void;
+      };
+      persist_scoring_results: {
+        Args: {
+          p_assessment_id: string;
+          p_aggregate_score: number;
+          p_scoring_incomplete: boolean;
+          p_scored: Json;
+        };
+        Returns: void;
+      };
     };
   };
 }

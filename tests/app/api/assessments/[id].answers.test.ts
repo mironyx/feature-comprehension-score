@@ -93,7 +93,7 @@ const mockServiceClient = {
     if (table === 'assessments') return makeChain(() => assessmentResult);
     return makeChain(() => SUCCESS);
   }),
-  rpc: vi.fn(),
+  rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
 };
 
 // ---------------------------------------------------------------------------

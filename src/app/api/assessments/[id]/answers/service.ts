@@ -309,24 +309,20 @@ async function persistScoringResults(
   params: ScoringResultsParams,
 ): Promise<void> {
   const { assessmentId, overallScore, scoringIncomplete, scored, questions } = params;
-  const { error } = await adminSupabase
-    .from('assessments')
-    .update({ aggregate_score: overallScore, scoring_incomplete: scoringIncomplete, status: 'completed' })
-    .eq('id', assessmentId);
-  if (error) throw new Error('Failed to persist aggregate score');
-
-  await Promise.all(
-    scored.map(s => {
+  const scoredJson = scored
+    .map(s => {
       const q = questions[s.questionIndex];
-      if (!q) return Promise.resolve();
-      return adminSupabase
-        .from('participant_answers')
-        .update({ score: s.score, score_rationale: s.rationale })
-        .eq('participant_id', s.participantId)
-        .eq('question_id', q.id)
-        .eq('is_reassessment', false);
-    }),
-  );
+      if (!q) return null;
+      return { participant_id: s.participantId, question_id: q.id, score: s.score, rationale: s.rationale };
+    })
+    .filter(Boolean);
+  const { error } = await adminSupabase.rpc('persist_scoring_results', {
+    p_assessment_id: assessmentId,
+    p_aggregate_score: overallScore,
+    p_scoring_incomplete: scoringIncomplete,
+    p_scored: scoredJson,
+  });
+  if (error) throw new Error('Failed to persist scoring results');
 }
 
 /** Trigger assessment scoring synchronously. Wraps internal errors as ApiError(500). */

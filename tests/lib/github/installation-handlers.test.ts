@@ -52,27 +52,22 @@ const reposRemovedPayload = {
 // Mock Supabase client
 // ---------------------------------------------------------------------------
 
-/** Builds a Supabase-like chainable mock that resolves to success for all operations. */
 function makeMockSupabase(): SupabaseClient<Database> {
-  // maybeSingle returns a plain object; direct await (via then) returns an array
-  const orgSingleResult = { data: { id: 'org-uuid' }, error: null };
-  const orgListResult = { data: [{ id: 'org-uuid' }], error: null };
   const okResult = { error: null };
 
-  // Each call returns a real Promise extended with chainable builder methods.
-  // Using Object.assign on a real Promise avoids the "Do not add then to an object" lint rule.
   const chain = (result: unknown): unknown =>
     Object.assign(Promise.resolve(result), {
-      select: vi.fn(() => chain(orgListResult)),
+      select: vi.fn(() => chain(result)),
       eq: vi.fn(() => chain(result)),
       in: vi.fn(() => Promise.resolve(result)),
       upsert: vi.fn(() => chain(okResult)),
       update: vi.fn(() => chain(okResult)),
-      maybeSingle: vi.fn(() => Promise.resolve(orgSingleResult)),
+      maybeSingle: vi.fn(() => Promise.resolve({ data: { id: 'org-uuid' }, error: null })),
     });
 
   return {
     from: vi.fn(() => chain(okResult)),
+    rpc: vi.fn(() => Promise.resolve({ data: 'org-uuid', error: null })),
   } as unknown as SupabaseClient<Database>;
 }
 
@@ -82,43 +77,44 @@ function makeMockSupabase(): SupabaseClient<Database> {
 
 describe('handleInstallationCreated', () => {
   describe('Given a valid installation.created payload', () => {
-    it('then upserts the organisation record', async () => {
+    it('then calls the handle_installation_created RPC with correct params', async () => {
       const supabase = makeMockSupabase();
       await handleInstallationCreated(installationCreatedPayload, supabase);
 
-      const fromCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls as [string][];
-      const orgCall = fromCalls.find(([t]) => t === 'organisations');
-      expect(orgCall).toBeDefined();
-    });
-
-    it('then upserts org_config with defaults', async () => {
-      const supabase = makeMockSupabase();
-      await handleInstallationCreated(installationCreatedPayload, supabase);
-
-      const fromCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls as [string][];
-      const configCall = fromCalls.find(([t]) => t === 'org_config');
-      expect(configCall).toBeDefined();
-    });
-
-    it('then upserts repositories for each repo in the payload', async () => {
-      const supabase = makeMockSupabase();
-      await handleInstallationCreated(installationCreatedPayload, supabase);
-
-      const fromCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls as [string][];
-      const repoCalls = fromCalls.filter(([t]) => t === 'repositories');
-      expect(repoCalls.length).toBeGreaterThan(0);
+      expect(supabase.rpc).toHaveBeenCalledWith('handle_installation_created', {
+        p_github_org_id: ORG_ID,
+        p_github_org_name: ORG_LOGIN,
+        p_installation_id: INSTALLATION_ID,
+        p_repos: [
+          { id: REPO_A.id, full_name: REPO_A.full_name },
+          { id: REPO_B.id, full_name: REPO_B.full_name },
+        ],
+      });
     });
   });
 
   describe('Given a payload with no repositories', () => {
-    it('then does not upsert any repository records', async () => {
+    it('then passes an empty repos array to the RPC', async () => {
       const supabase = makeMockSupabase();
       const payload = { ...installationCreatedPayload, repositories: undefined };
       await handleInstallationCreated(payload, supabase);
 
-      const fromCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls as [string][];
-      const repoCalls = fromCalls.filter(([t]) => t === 'repositories');
-      expect(repoCalls.length).toBe(0);
+      expect(supabase.rpc).toHaveBeenCalledWith('handle_installation_created', expect.objectContaining({
+        p_repos: [],
+      }));
+    });
+  });
+
+  describe('Given the RPC returns an error', () => {
+    it('then throws the error', async () => {
+      const supabase = makeMockSupabase();
+      (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        data: null,
+        error: { message: 'DB error', code: '42P01' },
+      });
+
+      await expect(handleInstallationCreated(installationCreatedPayload, supabase))
+        .rejects.toEqual(expect.objectContaining({ message: 'DB error' }));
     });
   });
 });
@@ -138,13 +134,24 @@ describe('handleInstallationDeleted', () => {
 
 describe('handleRepositoriesAdded', () => {
   describe('Given an installation_repositories.added payload', () => {
-    it('then upserts each added repository', async () => {
+    it('then calls the handle_repositories_added RPC', async () => {
       const supabase = makeMockSupabase();
       await handleRepositoriesAdded(reposAddedPayload, supabase);
 
-      const fromCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls as [string][];
-      const repoCalls = fromCalls.filter(([t]) => t === 'repositories');
-      expect(repoCalls.length).toBeGreaterThan(0);
+      expect(supabase.rpc).toHaveBeenCalledWith('handle_repositories_added', {
+        p_installation_id: INSTALLATION_ID,
+        p_repos: [{ id: REPO_A.id, full_name: REPO_A.full_name }],
+      });
+    });
+  });
+
+  describe('Given an empty repositories_added array', () => {
+    it('then does not call the RPC', async () => {
+      const supabase = makeMockSupabase();
+      const payload = { ...reposAddedPayload, repositories_added: [] };
+      await handleRepositoriesAdded(payload, supabase);
+
+      expect(supabase.rpc).not.toHaveBeenCalled();
     });
   });
 });
