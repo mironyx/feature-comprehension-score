@@ -180,7 +180,7 @@ body = body.replace('- **Tokens:** TBD', token_line)
 body = body.replace('- **Time to PR:** TBD', time_line)
 print(body, end='')
 ")
-gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
+gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH -f body="$UPDATED_BODY" > /dev/null
 ```
 
 ### Step 8b: CI probe (background)
