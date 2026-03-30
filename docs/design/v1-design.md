@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.8 |
+| Version | 0.9 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-04 |
-| Last updated | 2026-03-16 |
+| Last updated | 2026-03-30 |
 
 ## Change Log
 
@@ -22,6 +22,7 @@
 | 0.6 | 2026-03-09 | Drift report fixes: corrected Naur layer names in L1 C4 table (W2); added L4 section 4.8 PR Metadata Export contract (W1); added trivial commit heuristic contract to section 4.2 (I3) |
 | 0.7 | 2026-03-09 | Story 2.9 decision revised: PR metadata export uses Check Run only (not Commit Status API). Section 4.8 rewritten. L3 inline note updated. |
 | 0.8 | 2026-03-16 | ADR-0005 revision (Option 4): self-directed private view for FCS participants. L1: added self-view and re-assessment capabilities to C3, C7. L3: updated FCS Phase 3 differences table with self-view and re-assessment rows. L4: added `score`, `score_rationale`, `is_reassessment` columns to `participant_answers`; updated RLS with score visibility enforcement notes; added `my_scores` to `GET /api/assessments/[id]` response; added `POST /api/assessments/[id]/reassess` endpoint contract. |
+| 0.9 | 2026-03-30 | Fix world-to-program Naur layer definition (#134): corrected from "domain intent / motivation" to "domain-to-code correspondence" per Naur's original framework. Added negative guidance (no project history questions). Added organisation context user prompt variable. Added question depth constraint. |
 
 ---
 
@@ -1976,9 +1977,11 @@ Generates the complete rubric (questions, weights, reference answers) from PR/fe
 
 **System prompt purpose:** Act as a software comprehension assessor using Peter Naur's Theory Building framework. Generate questions across three Naur layers, weighted by importance, with reference answers derived strictly from provided artefacts. Flag artefact quality. The three layers:
 
-1. **World-to-program mapping** — Does the developer understand which real-world behaviours this code handles and which it deliberately excludes? Questions test domain intent.
+1. **World-to-program mapping** — Does the developer understand how real-world affairs are reflected in the program structure — which aspects of the domain the program handles, and why others were left out? Questions test domain-to-code correspondence: how domain concepts map to data models, type systems, and module boundaries. Questions must NOT ask about project history, file creation motivation, or development process.
 2. **Design justification** — Does the developer understand why key structural decisions were made, not just what they are? Questions test reasoning about trade-offs.
 3. **Modification capacity** — Could the developer safely change or extend this code without breaking existing behaviour? Questions test awareness of dependencies and constraints.
+
+**Question depth constraint:** All questions across all three layers must test architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not low-level implementation recall. If a developer could answer a question by reading the code for 30 seconds, the question is too shallow.
 
 **User prompt variables:**
 
@@ -1991,6 +1994,7 @@ Generates the complete rubric (questions, weights, reference answers) from PR/fe
 | `pr_description` | PR body text or feature description |
 | `linked_issues` | Linked issue titles and bodies |
 | `test_files` | Test file contents included in the PR |
+| `organisation_context` | Optional `OrganisationContext` with domain vocabulary, focus areas, exclusions, and domain notes. Injected into user prompt before code diff. See `docs/requirements/v1-prompt-changes.md` Change 2 for schema. |
 
 **Response schema:**
 
