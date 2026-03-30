@@ -63,6 +63,17 @@ Per Naur's original framework (and the FCS article §"What gets tested"):
 
 Fix: sharpen example patterns to focus on domain-object-to-code-structure mapping. Add negative guidance: do not ask about project history, file creation motivation, or development process.
 
+### P1.5 — Question Quality (prompt improvements beyond drift fix)
+
+| # | Item | Issue | Design needed | Dependencies |
+|---|------|-------|---------------|--------------|
+| 12 | Add question depth constraint — reject shallow recall-level questions across all Naur layers | #139 | No — spec in `docs/requirements/v1-prompt-changes.md` Change 1 | None |
+| 13 | Organisation context — structured client customisation slots (domain vocabulary, focus areas, exclusions, domain notes) | #140 | No — spec in `docs/requirements/v1-prompt-changes.md` Change 2 | None |
+
+**Question depth (item 12):** New constraint bullet in `QUESTION_GENERATION_SYSTEM_PROMPT`. Rejects questions answerable by reading code for 30 seconds. Tests understanding that persists after a developer moves on — architectural reasoning, design intent, domain understanding, safe change judgement. Applies across all three Naur layers.
+
+**Organisation context (item 13):** Introduces `OrganisationContext` type with four structured slots (`domain_vocabulary`, `focus_areas`, `exclusions`, `domain_notes`). Injected into user prompt before code diff. Does not expose or compete with system prompt. Types in `artefact-types.ts`, formatting in `prompt-builder.ts`, exports from `index.ts`. UI surface is V1.x scope — backend schema only in Phase 2. See `docs/requirements/v1-prompt-changes.md` for full spec.
+
 ### P2 — Observability (can debug issues without guessing)
 
 | # | Item | Issue | Design needed | Dependencies |
@@ -99,11 +110,12 @@ Fix: sharpen example patterns to focus on domain-object-to-code-structure mappin
 ## Implementation order
 
 ```
-Phase 2a (unblock demo):     Items 1-2  — bug fix + housekeeping
-Phase 2b (happy path):       Items 3-5  — UI polish + prompt fix
-Phase 2c (observability):    Items 6-7  — structured logging
-Phase 2d (resilience):       Items 8-9  — error handling
-Phase 2e (testing):          Items 10-11 — smoke tests
+Phase 2a (unblock demo):     Items 1-2   — bug fix + housekeeping
+Phase 2b (happy path):       Items 3-5   — UI polish + prompt fix
+Phase 2b+ (question quality): Items 12-13 — depth constraint + org context
+Phase 2c (observability):    Items 6-7   — structured logging
+Phase 2d (resilience):       Items 8-9   — error handling
+Phase 2e (testing):          Items 10-11  — smoke tests
 ```
 
 Items within each sub-phase have no dependencies on each other and can be parallelised (once the `/architect` workflow is in place).
@@ -112,7 +124,7 @@ Items within each sub-phase have no dependencies on each other and can be parall
 
 ## Estimated effort
 
-~4-5 focused sessions. Items 1-2 are quick wins (< 1 session). Items 3-5 are ~1 session each but parallelisable. Items 6-7 are ~1 session. Items 8-11 are ~1-2 sessions.
+~5-6 focused sessions. Items 1-2 are quick wins (< 1 session). Items 3-5 are ~1 session each but parallelisable. Items 12-13 are ~1 session (12 is a one-liner, 13 is a small feature with types + formatting + tests). Items 6-7 are ~1 session. Items 8-11 are ~1-2 sessions.
 
 ---
 
@@ -122,6 +134,7 @@ Items within each sub-phase have no dependencies on each other and can be parall
 |----------|--------------|
 | `docs/requirements/v1-requirements.md` | Add observability/logging requirements (currently absent). Update story 3.1 acceptance criteria re: rubric_generation visibility. |
 | `docs/design/v1-design.md` §4 (Assessment Engine) | Update Naur layer definitions in prompt design. Add negative guidance for world-to-program. |
+| `docs/requirements/v1-prompt-changes.md` | Prompt change specs: question depth constraint + organisation context. Implementation-ready — no further design needed. |
 | New ADR | Structured logging: Pino, JSON stdout, log levels, OTel readiness. |
 
 ---
@@ -137,6 +150,8 @@ Items within each sub-phase have no dependencies on each other and can be parall
 
 1. A human can sign in, create an FCS assessment, answer questions as a participant, and view scores.
 2. Generated questions correctly map to Naur's three layers (no project-history questions in world-to-program).
-3. Server logs show structured JSON with request context and full LLM exchange.
-4. Manual smoke test checklist passes end-to-end.
-5. Automated Playwright smoke test passes in CI.
+3. Generated questions test architectural reasoning and design intent, not shallow code recall.
+4. Organisation context (when provided) influences question generation without exposing the system prompt.
+5. Server logs show structured JSON with request context and full LLM exchange.
+6. Manual smoke test checklist passes end-to-end.
+7. Automated Playwright smoke test passes in CI.

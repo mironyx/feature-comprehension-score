@@ -63,7 +63,7 @@ Derive the issue number from the git log and run the shared script:
 ```bash
 ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
 PR=$(gh pr view --json number --jq .number 2>/dev/null || echo "")
-COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --final)
+COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --final)
 echo "$COST_OUTPUT"
 ```
 
@@ -147,7 +147,7 @@ Ask: "Ready to merge PR #N into `<base-branch>`? (squash merge, delete remote br
 
 Wait for explicit approval. If denied, stop and report.
 
-Once approved, proceed immediately through Steps 5–7 without further confirmation. **Run from the primary worktree** (not from inside the feature worktree — `gh pr merge --delete-branch` attempts a local `git checkout <base>` which fails if `<base>` is already checked out in another worktree):
+Once approved, proceed immediately through Steps 5–7 without further confirmation:
 
 ```bash
 gh pr merge <number> --squash --delete-branch

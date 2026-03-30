@@ -77,6 +77,8 @@ All features follow five levels, completed in order. No code until Level 5.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
 - **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval). During review, check design adequacy: were the design contracts precise enough to implement from? If not, update `docs/design/` in the same PR.
 - **No git worktrees.** Work directly in the main repo directory. Do not use `git worktree add` or the `isolation: "worktree"` agent option — the developer needs to see changes live in the same editor instance. This applies to `/feature`, `/feature-end`, and all sub-agents they spawn.
+- **Future:** A parallel `/feature` mode using worktrees is planned for Claude CLI agent teams (no CodeScene dependency). Not yet implemented.
+- **Never invoke `/simplify` autonomously.** It is too costly for routine work and redundant with `/pr-review-v2` code quality checks. Only use it if the user explicitly types `/simplify`.
 - **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
 
 ## TDD Discipline
@@ -119,7 +121,7 @@ Not enforced ceremony — use judgement. Session boundaries are informal.
 
 - **Orientation:** Read the latest session log in `docs/sessions/` and check the project board.
 - **Per-task:** Move issue to In Progress, do the work, commit referencing issue number, close issue, unblock downstream issues (Blocked → Todo).
-- **Wrapping up:** Write a session log to `docs/sessions/YYYY-MM-DD-session-N.md` capturing completed work, decisions made, and next steps. Push to remote.
+- **Wrapping up:** Write a session log to `docs/sessions/YYYY-MM-DD-session-N-<issue-number>.md` capturing completed work, decisions made, and next steps. For non-feature sessions (retro, drift-scan): use `YYYY-MM-DD-session-N-<topic>.md` (e.g., `retro`, `drift`). Push to remote.
 
 ## Code Quality — Diagnostics Pipeline
 
@@ -212,15 +214,17 @@ Supabase uses a **declarative schema** approach. `supabase/schemas/` files are t
 
 ## Custom Skills
 
-- `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/diag`, commit, PR, `/pr-review`. Stops after review for human approval.
-- `/feature-cont` — Continue an in-progress feature in a new session when context was exhausted. Reconstructs state from git + issue body, registers the new session in the prom file (append, not overwrite), resumes TDD. Usage: `/feature-cont` (auto-detects from prom file) or `/feature-cont 123`.
+- `/architect` — Read a plan and produce all design artefacts in one pass (ADRs, LLDs, design doc updates, enriched issue bodies). Usage: `/architect` (most recent plan) or `/architect <path>`. Stops for human review before implementation.
+- `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/diag`, commit, PR, `/pr-review-v2`. Stops after review for human approval.
 - `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
-- `/diag` — Batch check VS Code extension diagnostics for changed files before committing
-- `/pr-review` — Review a PR for bugs, CLAUDE.md compliance, design contract adherence, and framework deprecations. Usage: `/pr-review <pr-number>` (posts PR comment) or `/pr-review` (local diff). Two parallel agents: correctness + framework freshness.
+- `/diag` — Batch check diagnostics-exporter output for changed files. Detects, fixes, and verifies resolution.
+- `/pr-review-v2` — Review a PR for bugs, CLAUDE.md compliance, design contract adherence, and framework best practices. Usage: `/pr-review-v2 <pr-number>` (posts PR comment) or `/pr-review-v2` (local diff). Adaptive: 1 agent for small diffs, 2 for large.
 - `/lld` — Generate Low-Level Design documents for a phase or section. Usage: `/lld phase2` (all sections) or `/lld 2.3` (single section). Produces LLDs with implementation detail, file paths, types, and task breakdowns.
 - `/lld-sync` — Sync the LLD back to the implementation after a feature is complete. Compares spec vs what was built, updates the LLD in-place. Run after implementation, before `/feature-end`. Called automatically by `/feature-end` Step 1.5.
+
+If context is exhausted mid-feature, compact will preserve state automatically. For large features, prefer breaking the issue into smaller sub-issues.
 
 ## Custom Commands
 

@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/open-in-windsurf.sh",
+            "command": ".claude/hooks/open-in-editor.sh",
             "timeout": 5
           },
           {
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py scripts/pre-compact-session-log.py",
+            "command": ".claude/hooks/run-python.sh scripts/pre-compact-session-log.py",
             "timeout": 15
           }
         ]

@@ -416,7 +416,7 @@ output. Do NOT apply labels and do NOT update the PR body — reporting only.
 
 ```bash
 # Step 5a: get the current session total
-py scripts/query-feature-cost.py "$(python3 - <<'PYEOF'
+.claude/hooks/run-python.sh scripts/query-feature-cost.py "$(.claude/hooks/run-python.sh - <<'PYEOF'
 import os, pathlib, json
 PROJECT_KEY = "c--projects-feature-comprehension-score"
 claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY

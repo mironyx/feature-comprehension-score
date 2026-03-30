@@ -33,30 +33,18 @@ If `$ARGUMENTS` contains an issue number, use that. Otherwise:
 Once the issue number is known, tag the session so it is identifiable in the IDE and in Grafana:
 
 ```bash
-py scripts/tag-session.py <issue-number>
+.claude/hooks/run-python.sh scripts/tag-session.py <issue-number>
 ```
 
-### Step 2: Set up the worktree and branch
-
-Each feature runs in an isolated git worktree so multiple `/feature` sessions can run in parallel without filesystem conflicts.
+### Step 2: Create feature branch
 
 1. Derive a short slug from the issue title (e.g., issue #123 "Add scoring engine" → `scoring-engine`).
-2. Compute the worktree path and store it — you will use this throughout all remaining steps:
-   ```bash
-   WDIR="$(git rev-parse --show-toplevel)/../fcs-feat-<issue-number>-<slug>"
-   echo "WDIR=$WDIR"
-   ```
-3. Fetch the integration branch and create the worktree + branch from it:
+2. Fetch latest main and create the branch:
    ```bash
    git fetch origin main
-   git worktree add "$WDIR" -b feat/<slug> origin/main
+   git checkout -b feat/<slug> origin/main
    ```
-4. Move the issue to In Progress: `./scripts/gh-project-status.sh <number> "in progress"`.
-
-**From this point forward, all operations target the worktree:**
-
-- All Bash commands: `(cd "$WDIR" && <command>)`
-- All Read/Write/Edit/Glob/Grep file paths: use the absolute `$WDIR`-rooted path (e.g., `$WDIR/src/lib/engine/scoring.ts`)
+3. Move the issue to In Progress: `./scripts/gh-project-status.sh <number> "in progress"`.
 
 ### Step 3: Read design context
 
@@ -68,18 +56,12 @@ Each feature runs in an isolated git worktree so multiple `/feature` sessions ca
 
 Follow strict Red-Green-Refactor. One test at a time.
 
-**Open each file in Windsurf the first time you create or edit it** so the diagnostics
-extension begins analysing immediately. One open per file is enough — subsequent edits to
-the same file are picked up automatically. If the hook fires with inline findings during
-the cycle, address them before moving to the next test.
-
-```bash
-windsurf --reuse-window <path-to-file>   # run once per file, on first create/edit
-```
+The PostToolUse hook opens edited files in the editor automatically for diagnostics analysis.
+If the hook fires with inline findings during the cycle, address them before moving to the next test.
 
 For each behaviour in the BDD spec from the issue:
 
-1. **RED** — Write a failing test. Run `(cd "$WDIR" && npx vitest run <test-file>)`. Confirm it fails for the right reason.
+1. **RED** — Write a failing test. Run `npx vitest run <test-file>`. Confirm it fails for the right reason.
 2. **GREEN** — Write the minimum code to make the test pass. Run tests again. Confirm green.
 3. **REFACTOR** — Clean up if needed. Tests must stay green.
 
@@ -90,10 +72,10 @@ Continue until all acceptance criteria are covered.
 Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
 
 ```bash
-(cd "$WDIR" && npx vitest run)                                   # all tests green (unit + integration)
-(cd "$WDIR" && npx tsc --noEmit)                                 # no type errors
-(cd "$WDIR" && npm run lint)                                     # no lint errors
-(cd "$WDIR" && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5)  # no markdown lint errors (catches pre-existing violations that will fail CI)
+npx vitest run                                   # all tests green (unit + integration)
+npx tsc --noEmit                                 # no type errors
+npm run lint                                     # no lint errors
+npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5   # no markdown lint errors
 ```
 
 **Integration test failures are not pre-existing — fix them.** If `npx vitest run` reports
@@ -103,10 +85,10 @@ dismiss integration failures as "unrelated to this PR" and proceed to create the
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
 ```bash
-(cd "$WDIR" && NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
+NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
   SUPABASE_SECRET_KEY=placeholder-secret-key \
-  npm run build && npx playwright test)
+  npm run build && npx playwright test
 ```
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
@@ -114,15 +96,6 @@ If any fail, fix and re-run. If stuck after 3 attempts on the same failure, paus
 ### Step 6: Diagnostics (blocking gate)
 
 Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
-
-**Files should already be open** from the Step 4 first-open protocol. If any changed file was
-not opened during Step 4 (e.g. it was modified indirectly), open it now before running `/diag`:
-
-```bash
-windsurf --reuse-window src/path/to/missed-file.ts    # only for files not yet opened
-windsurf --reuse-window tests/path/to/missed-file.ts  # test files too — CodeScene analyses them
-sleep 5                                                # wait for CodeScene to analyse if opened cold
-```
 
 **Both `src/` and `tests/` files must be checked.** CodeScene analyses test files and flags Code
 Duplication in them (repeated `it()` blocks, repeated arrange/render patterns). These warnings
@@ -132,7 +105,7 @@ Then:
 
 1. Run `/diag` on all changed files — including every modified test file under `tests/`.
 2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`) — CodeScene exclusions are configured but may not cover every generated file.
-3. After fixing, open the fixed files in Windsurf again and wait 5 s, then re-run `/diag` to confirm the findings are gone — do not assume a fix worked without seeing the updated diagnostics.
+3. After fixing, re-run `/diag` to confirm the findings are gone — do not assume a fix worked without seeing the updated diagnostics.
 4. Repeat until `/diag` reports zero findings on non-generated files.
 5. Re-run Step 5 (full verification) after any fixes.
 
@@ -143,8 +116,8 @@ Only proceed to Step 7 when `/diag` reports zero findings on non-generated files
 Stage and commit with a conventional commit message referencing the issue number:
 
 ```bash
-(cd "$WDIR" && git add <specific-files>)
-(cd "$WDIR" && git commit -m "feat: <description> #<issue-number>")
+git add <specific-files>
+git commit -m "feat: <description> #<issue-number>"
 ```
 
 One commit per issue. Do not batch multiple issues.
@@ -152,14 +125,14 @@ One commit per issue. Do not batch multiple issues.
 ### Step 8: Push and create PR
 
 ```bash
-(cd "$WDIR" && git push -u origin feat/<branch-name>)
+git push -u origin feat/<branch-name>
 ```
 
 Create the PR first with a placeholder Usage section, then run the cost script once after the PR
 exists so labels are applied to both issue and PR in a single call, and patch the body.
 
 ```bash
-PR_URL=$(cd "$WDIR" && gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
+PR_URL=$(gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points of what was implemented>
 
@@ -189,7 +162,7 @@ EOF
 PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
 
 # Single cost script call — applies labels to issue + PR and outputs cost summary
-COST_OUTPUT=$(py scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER)
+COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER)
 
 # Patch the PR body with the actual cost figures (replace TBD placeholders)
 COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
@@ -230,7 +203,7 @@ returns findings. Triage each finding:
 - **Non-blocking suggestion** — decide whether it is worth fixing now (quick win) or deferring. If deferring, note it in the Step 10 report.
 - **Style / minor** — fix if trivial; otherwise note and move on.
 
-After any fixes, re-run `/pr-review <pr-number>` to confirm no new issues were introduced.
+After any fixes, re-run `/pr-review-v2 <pr-number>` to confirm no new issues were introduced.
 
 ### Step 10: Report
 
@@ -243,7 +216,7 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
-**Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update, worktree removal) is handled by `/feature-end`.
+**Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update) is handled by `/feature-end`.
 
 **DO NOT** move the board item to `done`. Leave it at `in progress` — `/feature-end` handles that after merge.
 

@@ -117,37 +117,7 @@ If found:
 Also scan for silent catch blocks (error not passed to any logger) → **block**.
 
 ## Part 6: Known framework anti-patterns (always check, no web search)
-Scan the diff for these regardless of which frameworks are imported. A package can be
-current and non-deprecated while specific usage patterns within it are wrong.
-
-### Supabase
-- `supabaseAnonKey` or `SUPABASE_ANON_KEY` used in any server-side file (API routes,
-  server actions, middleware, `*.server.ts`, files under `src/lib/engine/`, `src/app/api/`).
-  The anon key is for client-side only. Server-side must use `SUPABASE_SERVICE_ROLE_KEY`.
-  Severity: **block** (security — anon key bypasses RLS on the server even when RLS
-  policies exist).
-- `createClient` called with anon key in a server context → **block** same reason.
-- `.from('table')` without `.select(...)` — returns all columns, exposes schema → **warn**.
-- `createClient` on the server without service role key and no evidence of RLS → **warn**.
-- Multiple `.from()` write calls (upsert/insert/update/delete) in a single function with no
-  transaction wrapping — if any step after the first fails, the DB is left partially written
-  → **warn**. Fix: move multi-step writes into a PostgreSQL function called via `.rpc()` so
-  all writes are atomic. Exception: if writes are genuinely independent (failure of one cannot
-  corrupt the other), note this in the finding.
-
-### Next.js
-- `cookies()`, `headers()` called outside an async server component or route handler → **block**.
-- `"use client"` directive on a file that imports server-only modules → **block**.
-- `process.env.NEXT_PUBLIC_*` accessed in server-only code (leaks to client bundle) → **warn**.
-- `getServerSideProps` in the App Router (Pages Router pattern, wrong paradigm) → **warn**.
-
-### General secrets / env
-- Any hardcoded secret, API key, or token string not referencing `process.env` → **block**.
-- `process.env.SOMETHING` used without a null check or fallback in production code → **warn**.
-
-### TypeScript
-- `as unknown as X` double cast — usually hiding a type error → **warn**.
-- Non-null assertion `!` on values that could genuinely be null → **warn**.
+Read `.claude/skills/shared/anti-patterns.md` and apply all checks from that file.
 
 ## What NOT to report
 - Pre-existing issues not made worse by this diff
@@ -239,37 +209,7 @@ Only check these:
 - Every commit uses conventional format AND references an issue (warn)
 
 ## Known framework anti-patterns (always check, no web search)
-Scan the diff for these regardless of which frameworks are imported. A package can be
-current and non-deprecated while specific usage patterns within it are wrong.
-
-### Supabase
-- `supabaseAnonKey` or `SUPABASE_ANON_KEY` used in any server-side file (API routes,
-  server actions, middleware, `*.server.ts`, files under `src/lib/engine/`, `src/app/api/`).
-  The anon key is for client-side only. Server-side must use `SUPABASE_SERVICE_ROLE_KEY`.
-  Severity: **block** (security — anon key bypasses RLS on the server even when RLS
-  policies exist).
-- `createClient` called with anon key in a server context → **block** same reason.
-- `.from('table')` without `.select(...)` → **warn** (returns all columns, exposes schema).
-- `createClient` on the server without service role key and no evidence of RLS → **warn**.
-- Multiple `.from()` write calls (upsert/insert/update/delete) in a single function with no
-  transaction wrapping — if any step after the first fails, the DB is left partially written
-  → **warn**. Fix: move multi-step writes into a PostgreSQL function called via `.rpc()` so
-  all writes are atomic. Exception: if writes are genuinely independent (failure of one cannot
-  corrupt the other), note this in the finding.
-
-### Next.js
-- `cookies()`, `headers()` called outside async server component or route handler → **block**.
-- `"use client"` on a file that imports server-only modules → **block**.
-- `process.env.NEXT_PUBLIC_*` accessed in server-only code → **warn**.
-- `getServerSideProps` in the App Router → **warn** (Pages Router pattern, wrong paradigm).
-
-### General secrets / env
-- Hardcoded secret, API key, or token string not referencing `process.env` → **block**.
-- `process.env.SOMETHING` without null check or fallback in production code → **warn**.
-
-### TypeScript
-- `as unknown as X` double cast → **warn**.
-- Non-null assertion `!` on values that could genuinely be null → **warn**.
+Read `.claude/skills/shared/anti-patterns.md` and apply all checks from that file.
 
 ## What NOT to report
 - Pre-existing issues not made worse by this diff
@@ -531,24 +471,7 @@ for the current session and append the result to the terminal output. Do NOT app
 reporting only.
 
 ```bash
-py scripts/query-feature-cost.py "$(python3 - <<'PYEOF'
-import os, pathlib, json
-
-PROJECT_KEY = "c--projects-feature-comprehension-score"
-claude_dir = pathlib.Path.home() / ".claude" / "projects" / PROJECT_KEY
-jsonl_files = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
-if jsonl_files:
-    for line in reversed(jsonl_files[0].read_text(encoding="utf-8").splitlines()):
-        try:
-            obj = json.loads(line)
-            if obj.get("type") == "custom-title":
-                print(obj["customTitle"])
-                raise SystemExit(0)
-        except (json.JSONDecodeError, KeyError):
-            continue
-print("pr-review")   # fallback if no feature tag found in this session
-PYEOF
-)"
+.claude/hooks/run-python.sh scripts/query-feature-cost.py "$(.claude/hooks/run-python.sh scripts/get-session-id.py)"
 ```
 
 If the script returns "Prometheus unreachable" or "No session data found", print the message
