@@ -19,6 +19,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 
 def git_root() -> pathlib.Path:
@@ -42,9 +43,28 @@ def derive_project_key(root: pathlib.Path) -> str:
     return path_str.replace("\\", "-").replace("/", "-").replace(":", "")
 
 
-def find_session_jsonl(claude_dir: pathlib.Path) -> pathlib.Path | None:
-    jsonl_files = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
-    return jsonl_files[0] if jsonl_files else None
+def find_session_jsonl(claude_dir: pathlib.Path, issue_hint: str | None = None) -> pathlib.Path | None:
+    all_jsonl = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+    if not all_jsonl:
+        return None
+    if not issue_hint or len(all_jsonl) == 1:
+        return all_jsonl[0]
+
+    # Parallel mode: each teammate's spawn prompt contains "issue #N" and "FCS-N" in the
+    # first user message. Search recently-modified JSONL files for our issue number so
+    # that simultaneous agent-team starts don't collide on the same file.
+    search_terms = [f"issue #{issue_hint}", f"FCS-{issue_hint}"]
+    cutoff = time.time() - 600  # only consider sessions started in the last 10 minutes
+    recent = [f for f in all_jsonl if os.path.getmtime(f) > cutoff]
+
+    for jsonl in recent:
+        try:
+            if any(t in jsonl.read_text(encoding="utf-8", errors="replace") for t in search_terms):
+                return jsonl
+        except OSError:
+            continue
+
+    return all_jsonl[0]  # fall back to newest
 
 
 def write_custom_title(jsonl_path: pathlib.Path, session_id: str, title: str) -> None:
@@ -98,7 +118,7 @@ def main() -> None:
     project_key = derive_project_key(root)
 
     claude_dir = pathlib.Path.home() / ".claude" / "projects" / project_key
-    jsonl_path = find_session_jsonl(claude_dir)
+    jsonl_path = find_session_jsonl(claude_dir, issue_hint=args.issue)
     if not jsonl_path:
         print("No session JSONL found — skipping session tagging")
         sys.exit(0)
