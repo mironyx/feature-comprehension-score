@@ -205,7 +205,7 @@ For each multi-step write:
 4. Write integration tests that verify atomicity (e.g. inject a failure after step 1, verify no partial writes).
 
 > **Constraint:** Each instance may be a separate PR if the total exceeds 200 lines. Start with `createAssessmentRecord` + `enrollParticipants` as these are on the critical path.
-
+>
 > **Constraint:** If two writes are genuinely independent (failure of one cannot corrupt the other), document this with an inline comment and leave them unwrapped. Do not wrap for wrapping's sake.
 
 ---
@@ -258,7 +258,7 @@ tests/helpers/
 ```
 
 > **Constraint:** All external APIs must be mocked. The test must pass in CI without real GitHub OAuth, real LLM, or real GitHub API access.
-
+>
 > **Constraint:** Depends on items 1-5 being complete. Do not implement until the happy path works manually.
 
 ---

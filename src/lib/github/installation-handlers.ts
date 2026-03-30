@@ -45,62 +45,10 @@ type Db = SupabaseClient<Database>;
 // Private helpers
 // ---------------------------------------------------------------------------
 
-function buildRepoRows(orgId: string, repos: GithubRepo[], now: string) {
-  return repos.map(r => ({
-    org_id: orgId,
-    github_repo_id: r.id,
-    github_repo_name: r.full_name,
-    status: 'active' as const,
-    updated_at: now,
-  }));
-}
-
-async function upsertOrg(
-  supabase: Db,
-  installation: InstallationCreatedPayload['installation'],
-  now: string,
-): Promise<string> {
-  const { data, error } = await supabase
-    .from('organisations')
-    .upsert(
-      {
-        github_org_id: installation.account.id,
-        github_org_name: installation.account.login,
-        installation_id: installation.id,
-        status: 'active',
-        updated_at: now,
-      },
-      { onConflict: 'github_org_id' },
-    )
-    .select('id')
-    .maybeSingle();
-  if (error) {
-    console.error('upsertOrg failed:', error);
-    throw error;
-  }
-  if (!data?.id) throw new Error('Could not resolve org ID after upsert');
-  return data.id;
-}
-
-async function upsertOrgConfig(supabase: Db, orgId: string, now: string): Promise<void> {
-  const { error } = await supabase
-    .from('org_config')
-    .upsert({ org_id: orgId, updated_at: now }, { onConflict: 'org_id' });
-  if (error) {
-    console.error('upsertOrgConfig failed:', error);
-    throw error;
-  }
-}
-
-async function upsertRepos(supabase: Db, orgId: string, repos: GithubRepo[], now: string): Promise<void> {
-  if (repos.length === 0) return;
-  const { error } = await supabase
-    .from('repositories')
-    .upsert(buildRepoRows(orgId, repos, now), { onConflict: 'org_id,github_repo_id' });
-  if (error) {
-    console.error('upsertRepos failed:', error);
-    throw error;
-  }
+// Justification: toRepoJson replaces buildRepoRows after the #118 transactional RPC refactor.
+// The RPC functions accept JSONB arrays directly, so we only need id + full_name projection.
+function toRepoJson(repos: GithubRepo[]) {
+  return repos.map(r => ({ id: r.id, full_name: r.full_name }));
 }
 
 // ---------------------------------------------------------------------------
@@ -130,12 +78,16 @@ export async function handleInstallationCreated(
   supabase: Db,
 ): Promise<void> {
   const { installation, repositories } = payload;
-  const now = new Date().toISOString();
-  const orgId = await upsertOrg(supabase, installation, now);
-  await Promise.all([
-    upsertOrgConfig(supabase, orgId, now),
-    upsertRepos(supabase, orgId, repositories ?? [], now),
-  ]);
+  const { error } = await supabase.rpc('handle_installation_created', {
+    p_github_org_id: installation.account.id,
+    p_github_org_name: installation.account.login,
+    p_installation_id: installation.id,
+    p_repos: toRepoJson(repositories ?? []),
+  });
+  if (error) {
+    console.error('handleInstallationCreated: rpc failed:', error);
+    throw error;
+  }
 }
 
 export async function handleInstallationDeleted(
@@ -158,21 +110,14 @@ export async function handleRepositoriesAdded(
   supabase: Db,
 ): Promise<void> {
   if (payload.repositories_added.length === 0) return;
-  const now = new Date().toISOString();
-  const { data: org, error: orgError } = await supabase
-    .from('organisations')
-    .select('id')
-    .eq('installation_id', payload.installation.id)
-    .maybeSingle();
-  if (orgError) {
-    console.error('handleRepositoriesAdded: org lookup failed:', orgError);
-    throw orgError;
+  const { error } = await supabase.rpc('handle_repositories_added', {
+    p_installation_id: payload.installation.id,
+    p_repos: toRepoJson(payload.repositories_added),
+  });
+  if (error) {
+    console.error('handleRepositoriesAdded: rpc failed:', error);
+    throw error;
   }
-  const orgId = org?.id;
-  if (!orgId) {
-    throw new Error(`No org found for installation ${payload.installation.id}`);
-  }
-  await upsertRepos(supabase, orgId, payload.repositories_added, now);
 }
 
 export async function handleRepositoriesRemoved(

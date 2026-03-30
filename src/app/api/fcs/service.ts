@@ -11,9 +11,8 @@ import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import { generateRubric } from '@/lib/engine/pipeline';
 import { buildLlmClient } from '@/lib/api/llm';
-import type { Database } from '@/lib/supabase/types';
+import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
-import type { Question } from '@/lib/engine/llm/schemas';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
@@ -188,76 +187,48 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
   }));
 }
 
-async function createAssessmentRecord(
+// Justification: CreateAssessmentParams bundles 4 fields to keep createAssessmentWithParticipants
+// under the CodeScene "Excess Number of Function Arguments" threshold (5). The LLD §2.4 specified
+// separate createAssessmentRecord + enrollParticipants; these were merged into a single RPC call
+// (create_fcs_assessment) as part of the #118 transactional refactor.
+interface CreateAssessmentParams {
+  body: FcsCreateInput;
+  repoInfo: RepoInfo;
+  validatedPRs: ValidatedPR[];
+  participants: ResolvedParticipant[];
+}
+
+async function createAssessmentWithParticipants(
   adminSupabase: ServiceClient,
-  body: FcsCreateInput,
-  repoInfo: RepoInfo,
-  validatedPRs: ValidatedPR[],
+  params: CreateAssessmentParams,
 ): Promise<AssessmentId> {
+  const { body, repoInfo, validatedPRs, participants } = params;
   const assessmentId = randomUUID() as AssessmentId;
-  const { error: aErr } = await adminSupabase.from('assessments').insert({
-    id: assessmentId,
-    org_id: body.org_id,
-    repository_id: body.repository_id,
-    type: 'fcs',
-    status: 'rubric_generation',
-    feature_name: body.feature_name,
-    feature_description: body.feature_description ?? null,
-    config_enforcement_mode: repoInfo.enforcementMode,
-    config_score_threshold: repoInfo.scoreThreshold,
-    config_question_count: repoInfo.questionCount,
-    config_min_pr_size: repoInfo.minPrSize,
+  const { error } = await adminSupabase.rpc('create_fcs_assessment', {
+    p_id: assessmentId,
+    p_org_id: body.org_id,
+    p_repository_id: body.repository_id,
+    p_feature_name: body.feature_name,
+    p_feature_description: body.feature_description ?? '',
+    p_config_enforcement_mode: repoInfo.enforcementMode,
+    p_config_score_threshold: repoInfo.scoreThreshold,
+    p_config_question_count: repoInfo.questionCount,
+    p_config_min_pr_size: repoInfo.minPrSize,
+    p_merged_prs: validatedPRs as unknown as Json,
+    p_participants: participants.map(p => ({
+      github_user_id: p.github_user_id,
+      github_username: p.github_username,
+    })) as unknown as Json,
   });
-  if (aErr) { console.error('createAssessmentRecord: insert failed:', aErr); throw new ApiError(500, 'Failed to create assessment'); }
-  const { error: pErr } = await adminSupabase.from('fcs_merged_prs').insert(
-    validatedPRs.map(pr => ({ org_id: body.org_id, assessment_id: assessmentId, pr_number: pr.pr_number, pr_title: pr.pr_title })),
-  );
-  if (pErr) { console.error('createAssessmentRecord: pr insert failed:', pErr); throw new ApiError(500, 'Failed to store merged PRs'); }
+  if (error) {
+    console.error('createAssessmentWithParticipants: rpc failed:', error);
+    throw new ApiError(500, 'Failed to create assessment');
+  }
   return assessmentId;
 }
 
-async function enrollParticipants(
-  adminSupabase: ServiceClient,
-  assessmentId: AssessmentId,
-  orgId: OrgId,
-  participants: ResolvedParticipant[],
-): Promise<void> {
-  const { error } = await adminSupabase.from('assessment_participants').insert(
-    participants.map(p => ({
-      org_id: orgId,
-      assessment_id: assessmentId,
-      github_user_id: p.github_user_id,
-      github_username: p.github_username,
-      contextual_role: 'participant' as const,
-    })),
-  );
-  if (error) { console.error('enrollParticipants: insert failed:', error); throw new ApiError(500, 'Failed to enrol participants'); }
-}
-
-// Justification: storeRubricQuestions, buildLlmClient, and finaliseRubric are not in the LLD
-// §2.4 internal decomposition. They decompose triggerRubricGeneration's implicit rubric-writing
-// step which the LLD left unspecified. Each is ≤ 20 lines as required by CLAUDE.md.
-async function storeRubricQuestions(
-  adminSupabase: ServiceClient,
-  assessmentId: AssessmentId,
-  orgId: OrgId,
-  questions: Question[],
-): Promise<void> {
-  const { error } = await adminSupabase.from('assessment_questions').insert(
-    questions.map(q => ({
-      org_id: orgId,
-      assessment_id: assessmentId,
-      question_number: q.question_number,
-      question_text: q.question_text,
-      naur_layer: q.naur_layer,
-      weight: q.weight,
-      reference_answer: q.reference_answer,
-    })),
-  );
-  if (error) { console.error('storeRubricQuestions: insert failed:', error); throw new Error('Failed to store assessment questions'); }
-}
-
-
+// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
+// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
 async function finaliseRubric(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
@@ -267,9 +238,12 @@ async function finaliseRubric(
   const llmClient = buildLlmClient();
   const result = await generateRubric({ artefacts, llmClient });
   if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
-  await storeRubricQuestions(adminSupabase, assessmentId, orgId, result.rubric.questions);
-  const { error } = await adminSupabase.from('assessments').update({ status: 'awaiting_responses' }).eq('id', assessmentId);
-  if (error) throw new Error('Failed to update assessment status to awaiting_responses');
+  const { error } = await adminSupabase.rpc('finalise_rubric', {
+    p_assessment_id: assessmentId,
+    p_org_id: orgId,
+    p_questions: result.rubric.questions,
+  });
+  if (error) throw new Error('Failed to finalise rubric');
 }
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
@@ -305,8 +279,7 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
     resolveParticipants(octokit, body.participants.map(p => p.github_username)),
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
-  const assessmentId = await createAssessmentRecord(adminSupabase, input, repoInfo, validatedPRs);
-  await enrollParticipants(adminSupabase, assessmentId, orgId, participants);
+  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, participants });
   void triggerRubricGeneration({ adminSupabase, userId, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }

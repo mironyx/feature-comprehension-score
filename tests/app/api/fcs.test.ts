@@ -294,11 +294,16 @@ describe('POST /api/fcs', () => {
       );
     });
 
-    it('stores assessment, merged PRs, and participants in the DB', async () => {
+    it('stores assessment, merged PRs, and participants atomically via RPC', async () => {
       await callPost(VALID_BODY);
-      expect(mockAdminClient.from).toHaveBeenCalledWith('assessments');
-      expect(mockAdminClient.from).toHaveBeenCalledWith('fcs_merged_prs');
-      expect(mockAdminClient.from).toHaveBeenCalledWith('assessment_participants');
+      expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+        'create_fcs_assessment',
+        expect.objectContaining({
+          p_org_id: VALID_BODY.org_id,
+          p_repository_id: VALID_BODY.repository_id,
+          p_feature_name: VALID_BODY.feature_name,
+        }),
+      );
     });
   });
 });
