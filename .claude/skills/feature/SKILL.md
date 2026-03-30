@@ -169,10 +169,17 @@ COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
 TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
 TIME_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Time to PR:')
 CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
-UPDATED_BODY=$(echo "$CURRENT_BODY" \
-  | sed "s|- \*\*Cost:\*\* TBD|$COST_LINE|" \
-  | sed "s|- \*\*Tokens:\*\* TBD|$TOKEN_LINE|" \
-  | sed "s|- \*\*Time to PR:\*\* TBD|$TIME_LINE|")
+UPDATED_BODY=$(echo "$CURRENT_BODY" | .claude/hooks/run-python.sh -c "
+import sys
+cost_line = '''$COST_LINE'''
+token_line = '''$TOKEN_LINE'''
+time_line = '''$TIME_LINE'''
+body = sys.stdin.read()
+body = body.replace('- **Cost:** TBD', cost_line)
+body = body.replace('- **Tokens:** TBD', token_line)
+body = body.replace('- **Time to PR:** TBD', time_line)
+print(body, end='')
+")
 gh pr edit $PR_NUMBER --body "$UPDATED_BODY"
 ```
 
