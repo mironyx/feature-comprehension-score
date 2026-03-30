@@ -28,6 +28,7 @@
 | Revised | 2026-03-29 (Issue #119) |
 | Revised | 2026-03-29 (Issue #121) |
 | Revised | 2026-03-29 (Issue #122) |
+| Revised | 2026-03-30 (Issue #118) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -898,7 +899,7 @@ Service (`answers/service.ts`):
   - `finaliseSubmission(adminSupabase, participantId, assessmentId, llmClient)` — sets participant to `submitted`; calls `triggerScoring()` synchronously if all participants done; returns `{ completed, total }`
   - `triggerScoring(adminSupabase, assessmentId, llmClient)` — fetches scoring data, calls `scoreAnswers()` + `calculateAssessmentAggregate()`, persists results; wraps errors as ApiError(500)
   - `fetchScoringData(adminSupabase, assessmentId)` — fetches questions and answers for scoring in parallel
-  - `persistScoringResults(adminSupabase, params)` — updates assessment aggregate and per-answer scores
+  - `persistScoringResults(adminSupabase, params)` — calls `persist_scoring_results` RPC to atomically update assessment aggregate and per-answer scores
 
 > **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
 >
@@ -977,8 +978,7 @@ Service (createFcs):
 5. assertOrgAdmin() — queries user_organisations; throws 403 if not admin
 6. fetchRepoInfo() + createGithubClient() — parallel fetch
 7. validateMergedPRs() + resolveParticipants() — parallel GitHub API calls
-8. createAssessmentRecord() — insert assessment row (status rubric_generation) + fcs_merged_prs rows; returns assessmentId
-9. enrollParticipants() — insert assessment_participants rows
+8. createAssessmentWithParticipants() — atomically insert assessment, fcs_merged_prs, and assessment_participants via `create_fcs_assessment` RPC; returns assessmentId
 10. (After returning) triggerRubricGeneration() — fire-and-forget
 ```
 
@@ -1002,12 +1002,10 @@ Service (`fcs/service.ts`):
   - `validateCfg(result): ConfigRow` — validates config query result; throws 500 if not found _(added issue #102 — extracted from fetchRepoInfo to stay below CC=9)_
   - `validateMergedPRs(octokit, owner, repo, prNumbers)` — GitHub API check per PR; 422 for any unmerged or not-found PR
   - `resolveParticipants(octokit, usernames)` — resolves GitHub user IDs via GitHub API; 422 for unknown username
-  - `createAssessmentRecord(adminSupabase, input: FcsCreateInput, repoInfo, validatedPRs): Promise<AssessmentId>` — generates UUID internally, inserts `assessments` row with status `rubric_generation` and `fcs_merged_prs` rows; returns `assessmentId`
-  - `enrollParticipants(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, participants)` — inserts `assessment_participants` rows
+  - `createAssessmentWithParticipants(adminSupabase, params: CreateAssessmentParams): Promise<AssessmentId>` — calls `create_fcs_assessment` RPC; atomically inserts assessment, merged PRs, and participants in a single transaction; generates UUID internally and returns `assessmentId`
   - `triggerRubricGeneration(params: RubricTriggerParams)` — fire-and-forget; fetches artefacts, generates rubric, updates status to `awaiting_responses`; on failure updates status to `rubric_failed` and logs (does not rethrow)
   - `toRepoInfo(repo, cfg, orgId: OrgId)` — pure mapper; strips org prefix from `github_repo_name` if stored as `owner/repo` (personal account installations store the full name)
-  - `storeRubricQuestions(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, questions)` — inserts `assessment_questions` rows
-  - `finaliseRubric(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, artefacts)` — calls LLM, stores questions, updates assessment status
+  - `finaliseRubric(adminSupabase, assessmentId: AssessmentId, orgId: OrgId, artefacts)` — calls LLM, then calls `finalise_rubric` RPC to atomically store questions and transition status to `awaiting_responses`
   - `buildLlmClient(): LLMClient` — factory; reads `OPENROUTER_API_KEY` (and optional `OPENROUTER_MODEL`), returns `OpenRouterClient`
 
 > **Implementation note (issue #102):** `createAssessmentRecord` takes 4 parameters (not 5) — `assessmentId` is generated internally and returned. This satisfies the CodeScene "Excess Number of Function Arguments" threshold. Branded ID types (`OrgId`, `UserId`, `RepositoryId`, `AssessmentId`) were added to eliminate Primitive Obsession diagnostics; casts happen once at the `createFcs` entry point. `FcsCreateInput` is `Pick<FcsCreateBody, ...>` rather than `= FcsCreateBody` (Sonar S6564 — redundant alias). `createGithubClient` (deferred from issue #59) was built in this issue at `src/lib/github/client.ts`.
@@ -1016,7 +1014,9 @@ Service (`fcs/service.ts`):
 >
 > **Constraint:** Rubric generation is always fire-and-forget. Failure does not roll back the assessment.
 >
-> **Constraint:** Map the validated request body to `FcsCreateInput` before passing to `createAssessmentRecord` — do not pass `body` directly.
+> **Constraint:** Map the validated request body to `FcsCreateInput` before passing to `createAssessmentWithParticipants` — do not pass `body` directly.
+>
+> **Implementation note (issue #118):** `createAssessmentRecord` + `enrollParticipants` were merged into `createAssessmentWithParticipants`, which calls the `create_fcs_assessment` PG function via `.rpc()` for atomicity. `storeRubricQuestions` was absorbed into `finaliseRubric`, which calls the `finalise_rubric` RPC. `CreateAssessmentParams` is a single-use parameter struct — normally prohibited, but justified to stay under the CodeScene "Excess Number of Function Arguments" threshold. The `as unknown as Json` double-casts on JSONB parameters are the documented Supabase workaround for TypeScript type incompatibility.
 
 Do NOT:
 - Validate PR existence via a DB lookup
@@ -1057,7 +1057,9 @@ Controller (`src/app/api/webhooks/github/route.ts`, ≤ 25 lines):
 Installation handlers (`src/lib/github/installation-handlers.ts`):
 - Exported: `handleWebhookEvent(event: string, payload: Record<string, unknown>, supabase: Db): Promise<void>` — dispatches by event + action using nested `if/else if`
 - Exported (for direct testing): `handleInstallationCreated`, `handleInstallationDeleted`, `handleRepositoriesAdded`, `handleRepositoriesRemoved`
-- Private helpers: `buildRepoRows`, `upsertOrg`, `upsertOrgConfig`, `upsertRepos`
+- Private helpers: `toRepoJson` — projects `GithubRepo[]` to the JSONB shape expected by the `handle_installation_created` and `handle_repositories_added` RPC functions
+
+> **Implementation note (issue #118):** `buildRepoRows`, `upsertOrg`, `upsertOrgConfig`, `upsertRepos` were replaced by a single `toRepoJson` helper. All multi-step writes are now atomic via PG functions (`handle_installation_created`, `handle_repositories_added`) called through `.rpc()`.
 
 `pull_request` handlers (`handlePullRequest`, `initiatePrcc`, `handleSync`, `addParticipant`, `removeParticipant`) _(deferred → PRCC feature)_
 
