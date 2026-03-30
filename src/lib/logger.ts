@@ -1,10 +1,8 @@
 // Structured Pino logger factory.
 // Design reference: docs/adr/0016-structured-logging-pino.md
 //
-// Usage:
-//   import { logger } from '@/lib/logger';
-//   logger.info({ requestId }, 'assessment created');
-//   const log = logger.child({ requestId, userId });
+// Usage: see ADR-0016 for examples.
+// Create child loggers in route handlers for request context.
 
 import pino from 'pino';
 
