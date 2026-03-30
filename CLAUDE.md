@@ -76,8 +76,8 @@ All features follow five levels, completed in order. No code until Level 5.
 - **Ask before assuming.** If a requirement is ambiguous, ask — don't infer.
 - **One commit per completed task.** Use conventional commit messages referencing the issue number.
 - **PR-based workflow.** Feature branches (`feat/`, `fix/`, `chore/`), PR targeting `main`, two-stage review (Claude agent first-pass, human final approval). During review, check design adequacy: were the design contracts precise enough to implement from? If not, update `docs/design/` in the same PR.
-- **No git worktrees.** Work directly in the main repo directory. Do not use `git worktree add` or the `isolation: "worktree"` agent option — the developer needs to see changes live in the same editor instance. This applies to `/feature`, `/feature-end`, and all sub-agents they spawn.
-- **Future:** A parallel `/feature` mode using worktrees is planned for Claude CLI agent teams (no CodeScene dependency). Not yet implemented.
+- **Sequential mode (default):** work directly in the main repo directory — no worktrees. This applies to `/feature`, `/feature-end`, and all sub-agents they spawn. The developer needs to see changes live in the same editor instance.
+- **Parallel CLI mode (`/feature-team`):** each teammate manages its own git isolation (branch + worktree). Teammates are separate Claude Code processes running via agent teams. Requires Claude Code CLI; not supported in VS Code.
 - **Never invoke `/simplify` autonomously.** It is too costly for routine work and redundant with `/pr-review-v2` code quality checks. Only use it if the user explicitly types `/simplify`.
 - **TDD/BDD-first.** See [TDD Discipline](#tdd-discipline) below.
 
@@ -217,6 +217,7 @@ Supabase uses a **declarative schema** approach. `supabase/schemas/` files are t
 - `/architect` — Read a plan and produce all design artefacts in one pass (ADRs, LLDs, design doc updates, enriched issue bodies). Usage: `/architect` (most recent plan) or `/architect <path>`. Stops for human review before implementation.
 - `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/diag`, commit, PR, `/pr-review-v2`. Stops after review for human approval.
 - `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
+- `/feature-team` — Parallel implementation using Claude Code agent teams (CLI only). Each teammate autonomously implements one issue in its own worktree. Usage: `/feature-team 101 102 103` or `/feature-team -n 3`.
 - `/create-adr` — Create Architecture Decision Records for significant technical decisions
 - `/create-plan` — Create detailed implementation plans for features or work phases
 - `/diag` — Batch check diagnostics-exporter output for changed files. Detects, fixes, and verifies resolution.
