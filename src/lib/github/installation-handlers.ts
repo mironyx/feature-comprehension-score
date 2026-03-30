@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
+import { logger } from '@/lib/logger';
 
 // ---------------------------------------------------------------------------
 // Payload types (§4.5 GitHub Webhook Payloads)
@@ -85,7 +86,7 @@ export async function handleInstallationCreated(
     p_repos: toRepoJson(repositories ?? []),
   });
   if (error) {
-    console.error('handleInstallationCreated: rpc failed:', error);
+    logger.error({ err: error }, 'handleInstallationCreated: rpc failed');
     throw error;
   }
 }
@@ -100,7 +101,7 @@ export async function handleInstallationDeleted(
     .update({ status: 'inactive', updated_at: now })
     .eq('installation_id', payload.installation.id);
   if (error) {
-    console.error('handleInstallationDeleted: org update failed:', error);
+    logger.error({ err: error }, 'handleInstallationDeleted: org update failed');
     throw error;
   }
 }
@@ -115,7 +116,7 @@ export async function handleRepositoriesAdded(
     p_repos: toRepoJson(payload.repositories_added),
   });
   if (error) {
-    console.error('handleRepositoriesAdded: rpc failed:', error);
+    logger.error({ err: error }, 'handleRepositoriesAdded: rpc failed');
     throw error;
   }
 }
@@ -132,7 +133,7 @@ export async function handleRepositoriesRemoved(
     .update({ status: 'inactive', updated_at: now })
     .in('github_repo_id', repoIds);
   if (error) {
-    console.error('handleRepositoriesRemoved: repos update failed:', error);
+    logger.error({ err: error }, 'handleRepositoriesRemoved: repos update failed');
     throw error;
   }
 }

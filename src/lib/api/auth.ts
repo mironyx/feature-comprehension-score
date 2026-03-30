@@ -4,6 +4,7 @@
 import type { NextRequest } from 'next/server';
 import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
 import { ApiError } from './errors';
+import { logger } from '@/lib/logger';
 
 export interface AuthUser {
   id: string;
@@ -18,7 +19,7 @@ export async function extractUser(request: NextRequest): Promise<AuthUser | null
   const { data: { user }, error } = await supabase.auth.getUser();
 
   if (error) {
-    console.error('extractUser: Supabase auth.getUser() failed:', error);
+    logger.error({ err: error }, 'extractUser: Supabase auth.getUser() failed');
     throw new ApiError(500, 'Internal server error');
   }
 
@@ -53,7 +54,7 @@ export async function requireOrgAdmin(request: NextRequest, orgId: string): Prom
     .eq('org_id', orgId);
 
   if (queryError) {
-    console.error('requireOrgAdmin: DB query failed:', queryError);
+    logger.error({ err: queryError }, 'requireOrgAdmin: DB query failed');
     throw new ApiError(500, 'Internal server error');
   }
 

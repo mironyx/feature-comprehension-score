@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { syncOrgMembership } from '@/lib/supabase/org-sync';
+import { logger } from '@/lib/logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       p_token: provider_token,
     });
     if (rpcError) {
-      console.error('Failed to store provider token:', rpcError);
+      logger.error({ err: rpcError }, 'Failed to store provider token');
       await supabase.auth.signOut();
       return NextResponse.redirect(`${origin}/auth/sign-in?error=token_storage_failed`);
     }
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // syncOrgMembership is no-throw: all GitHub/DB errors are handled internally.
     await syncOrgMembership(secretClient, user.id, provider_token);
   } else {
-    console.warn('No provider_token in session for user:', user.id);
+    logger.warn({ userId: user.id }, 'No provider_token in session');
   }
 
   return response;

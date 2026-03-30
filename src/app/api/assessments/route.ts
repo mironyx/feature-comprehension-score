@@ -3,6 +3,7 @@
 
 import type { NextRequest } from 'next/server';
 import { ApiError, handleApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 import { json } from '@/lib/api/response';
 import { createReadonlyRouteHandlerClient } from '@/lib/supabase/route-handler-readonly';
 import {
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('GET /api/assessments: DB query failed:', error);
+      logger.error({ err: error }, 'GET /api/assessments: DB query failed');
       throw new ApiError(500, 'Internal server error');
     }
 

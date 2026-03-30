@@ -4,6 +4,7 @@
 import type { NextRequest } from 'next/server';
 import { createApiContext, type ApiContext } from '@/lib/api/context';
 import { ApiError, handleApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 import { json } from '@/lib/api/response';
 import type { Database } from '@/lib/supabase/types';
 import { filterQuestionFields } from './helpers';
@@ -93,7 +94,7 @@ interface FetchContext {
 
 function assertNoDbError(error: unknown, label: string): void {
   if (!error) return;
-  console.error(`GET /api/assessments/[id]: ${label} query failed:`, error);
+  logger.error({ err: error, label }, 'GET /api/assessments/[id]: query failed');
   throw new ApiError(500, 'Internal server error');
 }
 
@@ -101,7 +102,7 @@ function assertNoDbError(error: unknown, label: string): void {
 function resolveAssessment(data: unknown, error: unknown): AssessmentWithRelations {
   if (error) {
     if ((error as unknown as Record<string, unknown>).code === 'PGRST116') throw new ApiError(404, 'Not found');
-    console.error('GET /api/assessments/[id]: assessment query failed:', error);
+    logger.error({ err: error }, 'GET /api/assessments/[id]: assessment query failed');
     throw new ApiError(500, 'Internal server error');
   }
   if (!data) throw new ApiError(404, 'Not found');
