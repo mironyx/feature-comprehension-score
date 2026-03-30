@@ -187,6 +187,10 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
   }));
 }
 
+// Justification: CreateAssessmentParams bundles 4 fields to keep createAssessmentWithParticipants
+// under the CodeScene "Excess Number of Function Arguments" threshold (5). The LLD §2.4 specified
+// separate createAssessmentRecord + enrollParticipants; these were merged into a single RPC call
+// (create_fcs_assessment) as part of the #118 transactional refactor.
 interface CreateAssessmentParams {
   body: FcsCreateInput;
   repoInfo: RepoInfo;
@@ -223,6 +227,8 @@ async function createAssessmentWithParticipants(
   return assessmentId;
 }
 
+// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
+// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
 async function finaliseRubric(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,

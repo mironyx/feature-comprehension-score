@@ -45,6 +45,8 @@ type Db = SupabaseClient<Database>;
 // Private helpers
 // ---------------------------------------------------------------------------
 
+// Justification: toRepoJson replaces buildRepoRows after the #118 transactional RPC refactor.
+// The RPC functions accept JSONB arrays directly, so we only need id + full_name projection.
 function toRepoJson(repos: GithubRepo[]) {
   return repos.map(r => ({ id: r.id, full_name: r.full_name }));
 }
