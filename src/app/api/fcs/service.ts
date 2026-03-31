@@ -228,8 +228,8 @@ async function createAssessmentWithParticipants(
   return assessmentId;
 }
 
-// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
-// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
+// Justification: logArtefactSummary extracted from finaliseRubric to log artefact metadata
+// before the LLM call (#136). Not in LLD §2.4 — added for observability.
 function logArtefactSummary(artefacts: AssembledArtefactSet): void {
   logger.info({
     fileCount: artefacts.file_contents.length,
@@ -240,6 +240,8 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
   }, 'Rubric generation: artefact summary');
 }
 
+// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
+// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
 async function finaliseRubric(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,

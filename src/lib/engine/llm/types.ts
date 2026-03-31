@@ -33,7 +33,10 @@ export interface LLMClient {
   }): Promise<LLMResult<z.infer<T>>>;
 }
 
-/** Port interface for structured logging at the LLM call boundary. */
+// Justification: LLMLogger is a port interface for structured logging at the LLM call
+// boundary. Not in the original LLD — added as part of #136 to inject logging without
+// coupling the engine layer to a concrete logger (Pino). Matches Pino's call signature
+// so the real logger can be passed directly without an adapter.
 export interface LLMLogger {
   info(obj: Record<string, unknown>, msg: string): void;
   error(obj: Record<string, unknown>, msg: string): void;
