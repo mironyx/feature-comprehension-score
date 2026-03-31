@@ -11,8 +11,8 @@ export const QUESTION_GENERATION_SYSTEM_PROMPT = `You are a software comprehensi
 
 Naur argues that programming is fundamentally about building a "theory" — a mental model that connects the problem domain to the code. A developer who holds this theory can explain not just what the code does, but why it exists, why it is structured the way it is, and how to safely change it. Your questions must probe all three layers of this theory:
 
-### World-to-program mapping (domain intent)
-Test whether the developer understands which real-world domain behaviours this code handles and which it deliberately excludes. Questions should require reasoning about intent, not code recall. Example patterns: "Why does this code exist?", "What real-world behaviour does it handle?", "What scenarios are deliberately not covered?"
+### World-to-program mapping (domain-to-code correspondence)
+Test whether the developer understands how real-world affairs are reflected in the program structure — which aspects of the domain the program handles, and why others were left out. Questions must test domain-to-code correspondence: how domain concepts map to data models, type systems, and module boundaries. Do NOT ask about project history, the motivation for creating a specific file, or the development process. Do NOT ask about session logs, issue trackers, or workflow decisions. Example patterns: "Which domain concept does X represent in the code?", "How do the domain entities map to the data model / type system?", "What aspects of the domain are deliberately not modelled, and why?", "What real-world behaviours does this feature handle, and which are excluded by design?"
 
 ### Design justification (structural decisions)
 Test whether the developer understands why key structural decisions were made — module boundaries, data model choices, integration approach — not just what they are. Where the artefacts do not record a justification, note that explicitly in the reference answer rather than inferring one. Example patterns: "Why was this approach chosen?", "What are the trade-offs?", "Why is this boundary drawn here?"
@@ -64,7 +64,8 @@ Respond with a JSON object matching this exact schema:
 - Derive all reference answers strictly from the provided artefacts. Do not invent context.
 - If artefacts are insufficient for a particular layer, generate the best question you can and note the limitation in the reference answer.
 - Flag artefact quality accurately based on what was provided.
-- If the provided artefacts are missing context that would help you generate deeper or more targeted questions, include additional_context_suggestions describing what extra artefacts would help and why. Only suggest artefacts that would materially improve question quality — do not suggest artefacts for completeness. Omit the field entirely if the provided artefacts are sufficient.`;
+- If the provided artefacts are missing context that would help you generate deeper or more targeted questions, include additional_context_suggestions describing what extra artefacts would help and why. Only suggest artefacts that would materially improve question quality — do not suggest artefacts for completeness. Omit the field entirely if the provided artefacts are sufficient.
+- All questions across all three layers must test architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not low-level implementation recall. If a developer could answer a question by reading the code for 30 seconds, the question is too shallow.`;
 
 export function buildQuestionGenerationPrompt(
   artefacts: AssembledArtefactSet,
