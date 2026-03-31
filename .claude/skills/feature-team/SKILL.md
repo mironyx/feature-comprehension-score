@@ -76,7 +76,7 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 > Design reference: PATH (extracted from issue body)
 >
 > Steps:
-> 1. Tag your session: `bash .claude/hooks/run-python.sh scripts/tag-session.py <N>`
+> 1. Tag your session: `.claude/hooks/run-python.sh scripts/tag-session.py <N>`
 > 2. Create your own branch and worktree:
 >    ```bash
 >    SLUG=<slug-from-title>
@@ -86,16 +86,19 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 >    ```
 > 3. Move issue to In Progress:
 >    ```bash
->    bash scripts/gh-project-status.sh <N> "in progress"
+>    bash scripts/gh-project-status.sh add <N> "in progress"
 >    ```
 > 4. Read the design reference and all related files.
 > 5. Implement with strict TDD (Red-Green-Refactor, one test at a time).
 > 6. Run full verification: `npx vitest run`, `npx tsc --noEmit`, `npm run lint`,
 >    `npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5`
 > 7. Commit: `git add <files> && git commit -m "feat: <description> #<N>"`
-> 9. Push and create PR targeting `main`.
-> 10. Run `/pr-review-v2 <pr-number>` and fix any blockers.
-> 11. Report back with the PR URL.
+> 8. Push and create PR targeting `main`.
+> 9. Run `/pr-review-v2 <pr-number>` and fix any blockers.
+> 10. Report back to the lead with the PR URL and wait — **do not exit**.
+> 11. When the user has reviewed the PR and runs `/feature-end` in this pane,
+>     the session will handle merge and cleanup. After `/feature-end` completes,
+>     send a final message to the lead: "Feature-end complete for #N — merged and cleaned up."
 >
 > Follow all coding principles in CLAUDE.md. Do not ask for confirmation between steps.
 
@@ -106,20 +109,27 @@ Teammates notify the lead automatically when idle (PR created or blocked).
 If a teammate reports a blocker: relay it to the user without interrupting other teammates.
 Do not shut down the team on a single failure.
 
-### Step 6: Report
+### Step 6: Report PRs and wait
 
-When all teammates are idle, summarise:
+When all teammates have reported their PR URLs, summarise:
 - Each issue → branch → PR URL
 - Any blockers or deferred findings per teammate
 
-**Do NOT send shutdown_request to teammates.** In tmux mode, each teammate is a live pane
-in the worktree. The user reviews each PR, then switches to the teammate's pane and runs
-`/feature-end` directly. The pane exits naturally after cleanup.
+**Do NOT send shutdown_request.** Teammates stay alive in their tmux panes, waiting.
 
-Remind the user:
-> "Review each PR, then switch to the teammate's tmux pane and run `/feature-end` there."
+Tell the user:
+> "Review each PR on GitHub, then switch to the teammate's tmux pane and run `/feature-end`
+> there. The pane will handle merge approval, cleanup, and report back here when done."
 
-**Stop here.** Do not move board items to Done — `/feature-end` handles that after merge.
+### Step 7: Final summary
+
+Wait for all teammates to send their "Feature-end complete for #N" messages.
+
+When all are received, summarise:
+- Each issue → PR merged → board/issue closed
+- Any notes from individual feature-ends (rebases, review fixes, etc.)
+
+**Only now** is the team fully done. Do not move board items — `/feature-end` handles that.
 
 ## Blocker policy
 
