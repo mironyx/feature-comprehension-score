@@ -115,6 +115,7 @@ async function runRubricGeneration(adminSupabase: ServiceClient, userId: string,
     const artefacts = await buildArtefacts(adminSupabase, userId, repo, prNumbers, assessment.config_question_count);
     await generateAndFinalise(adminSupabase, assessment.id, assessment.org_id, artefacts);
   } catch (err) {
+    // Caught: fire-and-forget — must not propagate. Set terminal status so admin can retry again.
     logger.error({ err, assessmentId: assessment.id }, 'runRubricGeneration: retry failed');
     const { error } = await adminSupabase.from('assessments').update({ status: 'rubric_failed' }).eq('id', assessment.id);
     if (error) logger.error({ err: error }, 'Failed to set rubric_failed on retry');
@@ -127,11 +128,26 @@ async function resetAndRetrigger(adminSupabase: ServiceClient, userId: string, a
   void runRubricGeneration(adminSupabase, userId, assessment);
 }
 
+async function assertOrgAdmin(supabase: ApiContext['supabase'], userId: string, orgId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('user_organisations')
+    .select('github_role')
+    .eq('user_id', userId)
+    .eq('org_id', orgId);
+  if (error) {
+    logger.error({ err: error }, 'assertOrgAdmin: query failed');
+    throw new ApiError(500, 'Internal server error');
+  }
+  const rows = (data ?? []) as { github_role: string }[];
+  if (!rows.length || rows[0]?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
+}
+
 export async function retryRubricGeneration(
   ctx: ApiContext,
   assessmentId: string,
 ): Promise<{ assessment_id: string; status: 'rubric_generation' }> {
   const assessment = await fetchAssessment(ctx.adminSupabase, assessmentId);
+  await assertOrgAdmin(ctx.supabase, ctx.user.id, assessment.org_id);
   if (assessment.status !== 'rubric_failed') {
     throw new ApiError(400, 'Assessment must be in rubric_failed status to retry');
   }

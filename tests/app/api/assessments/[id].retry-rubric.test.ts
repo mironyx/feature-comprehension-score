@@ -63,9 +63,8 @@ vi.mock('@/lib/api/llm', () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { requireAuth, requireOrgAdmin } from '@/lib/api/auth';
+import { requireAuth } from '@/lib/api/auth';
 import { createGithubClient } from '@/lib/github/client';
-import { ApiError } from '@/lib/api/errors';
 import { POST } from '@/app/api/assessments/[id]/retry-rubric/route';
 
 // ---------------------------------------------------------------------------
@@ -116,8 +115,13 @@ const mockOctokit = {
   },
 };
 
+let userOrgResult: { data: unknown; error: unknown };
+
 const mockUserClient = {
-  from: vi.fn(() => makeChain(() => ({ data: null, error: null }))),
+  from: vi.fn((table: string) => {
+    if (table === 'user_organisations') return makeChain(() => userOrgResult);
+    return makeChain(() => ({ data: null, error: null }));
+  }),
 };
 
 const mockAdminClient = {
@@ -139,8 +143,9 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  vi.mocked(requireOrgAdmin).mockResolvedValue(AUTH_USER);
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
+
+  userOrgResult = { data: [{ github_role: 'admin' }], error: null };
 
   assessmentResult = {
     data: {
@@ -209,9 +214,9 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
   });
 
   it('returns 403 for non-admin user', async () => {
-    vi.mocked(requireAuth).mockRejectedValue(new ApiError(401, 'Unauthenticated'));
+    userOrgResult = { data: [{ github_role: 'member' }], error: null };
     const { status } = await callPost();
-    expect(status).toBe(401);
+    expect(status).toBe(403);
   });
 
   it('returns 400 if assessment is not in rubric_failed status', async () => {
