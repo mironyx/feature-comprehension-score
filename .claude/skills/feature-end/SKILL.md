@@ -41,7 +41,7 @@ it in the session log.
      Use this data to populate the cost retrospective (Step 2.6) with actual numbers rather
      than estimates. The final session log filename should match the draft name minus `-draft`
      (e.g., `2026-03-26-session-3-draft.md` → `2026-03-26-session-3.md`).
-   - If no draft exists, determine the filename by incrementing N from the latest log for today.
+   - If no draft exists, determine the filename as `YYYY-MM-DD-session-N-<slug>.md` where N increments from the latest log for today and `<slug>` is a short kebab-case label derived from the issue title (e.g. issue #130 "show rubric_generation status" → `rubric-generation-status`).
 2. Write the session log capturing:
    - Work completed (reference issue number and PR)
    - Decisions made during the session
