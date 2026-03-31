@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Octokit } from '@octokit/rest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
@@ -107,7 +108,7 @@ async function assertOrgAdmin(supabase: UserClient, userId: UserId, orgId: OrgId
     .eq('user_id', userId)
     .eq('org_id', orgId);
   if (error) {
-    console.error('assertOrgAdmin: query failed:', error);
+    logger.error({ err: error }, 'assertOrgAdmin: query failed');
     throw new ApiError(500, 'Internal server error');
   }
   const rows = (data ?? []) as { github_role: string }[];
@@ -169,7 +170,7 @@ async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, 
       return { pr_number: prNumber, pr_title: data.title };
     } catch (err) {
       if (err instanceof ApiError) throw err;
-      console.error(`validateMergedPRs: GitHub API error for PR #${prNumber}:`, err);
+      logger.error({ err, prNumber }, 'validateMergedPRs: GitHub API error');
       throw new ApiError(422, `PR #${prNumber} not found`);
     }
   }));
@@ -181,7 +182,7 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
       const { data } = await octokit.rest.users.getByUsername({ username });
       return { github_username: data.login, github_user_id: data.id };
     } catch (err) {
-      console.error(`resolveParticipants: GitHub API error for username '${username}':`, err);
+      logger.error({ err, username }, 'resolveParticipants: GitHub API error');
       throw new ApiError(422, `Unknown GitHub username: ${username}`);
     }
   }));
@@ -221,7 +222,7 @@ async function createAssessmentWithParticipants(
     })) as unknown as Json,
   });
   if (error) {
-    console.error('createAssessmentWithParticipants: rpc failed:', error);
+    logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
     throw new ApiError(500, 'Failed to create assessment');
   }
   return assessmentId;
@@ -255,7 +256,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     // Swallowed: rubric generation failure must not affect the assessment creation response.
-    console.error('triggerRubricGeneration: failed for assessment', params.assessmentId, ':', err);
+    logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
   }
 }
 

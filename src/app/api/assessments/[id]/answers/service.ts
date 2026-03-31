@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 import type { ApiContext } from '@/lib/api/context';
 import { detectRelevance } from '@/lib/engine/relevance';
 import { scoreAnswers, calculateAssessmentAggregate, type ScoredAnswer } from '@/lib/engine/pipeline';
@@ -69,7 +70,7 @@ async function resolveParticipant(
     .maybeSingle();
 
   if (error) {
-    console.error('resolveParticipant: DB query failed:', error);
+    logger.error({ err: error }, 'resolveParticipant: DB query failed');
     throw new ApiError(500, 'Internal server error');
   }
   if (!data) throw new ApiError(403, 'Forbidden');
@@ -93,7 +94,7 @@ async function fetchQuestionsForValidation(
     .order('question_number', { ascending: true });
 
   if (error) {
-    console.error('fetchQuestionsForValidation: DB query failed:', error);
+    logger.error({ err: error }, 'fetchQuestionsForValidation: DB query failed');
     throw new ApiError(500, 'Internal server error');
   }
   return (data ?? []) as QuestionRow[];
@@ -176,7 +177,7 @@ async function storeAnswers(
 
   const { error } = await adminSupabase.from('participant_answers').insert(rows);
   if (error) {
-    console.error('storeAnswers: insert failed:', error);
+    logger.error({ err: error }, 'storeAnswers: insert failed');
     throw new ApiError(500, 'Failed to store answers');
   }
 }
@@ -207,7 +208,7 @@ async function runRelevanceChecks(
         });
 
         if (!result.success) {
-          console.error('runRelevanceChecks: detectRelevance failed:', result.error);
+          logger.error({ err: result.error }, 'runRelevanceChecks: detectRelevance failed');
           return { question_id: answer.question_id, is_relevant: false, explanation: null, attempts_remaining: 0 };
         }
 
@@ -218,7 +219,7 @@ async function runRelevanceChecks(
           attempts_remaining: result.data.is_relevant ? 0 : MAX_ATTEMPTS - 1,
         };
       } catch (err) {
-        console.error('runRelevanceChecks: unexpected error:', err);
+        logger.error({ err }, 'runRelevanceChecks: unexpected error');
         return { question_id: answer.question_id, is_relevant: false, explanation: null, attempts_remaining: 0 };
       }
     }),
@@ -248,7 +249,7 @@ async function finaliseSubmission(
     .eq('id', participantId);
 
   if (updateError) {
-    console.error('finaliseSubmission: update participant failed:', updateError);
+    logger.error({ err: updateError }, 'finaliseSubmission: update participant failed');
     throw new ApiError(500, 'Failed to update participant status');
   }
 
@@ -259,7 +260,7 @@ async function finaliseSubmission(
     .eq('assessment_id', assessmentId);
 
   if (fetchError) {
-    console.error('finaliseSubmission: fetch participants failed:', fetchError);
+    logger.error({ err: fetchError }, 'finaliseSubmission: fetch participants failed');
     throw new ApiError(500, 'Internal server error');
   }
 
@@ -359,7 +360,7 @@ async function triggerScoring(
       questions,
     });
   } catch (err) {
-    console.error('triggerScoring: scoring failed:', err);
+    logger.error({ err }, 'triggerScoring: scoring failed');
     throw new ApiError(500, 'Scoring failed');
   }
 }
@@ -388,7 +389,7 @@ export async function submitAnswers(
     .eq('is_reassessment', false);
 
   if (existingError) {
-    console.error('submitAnswers: fetch existing answers failed:', existingError);
+    logger.error({ err: existingError }, 'submitAnswers: fetch existing answers failed');
     throw new ApiError(500, 'Internal server error');
   }
 
@@ -430,7 +431,7 @@ export async function submitAnswers(
   relevanceUpdates.forEach((result, i) => {
     if (result.error) {
       // Non-fatal: answer is stored, only relevance flag is missing. Logged for ops visibility.
-      console.error(`submitAnswers: relevance update failed for question ${relevanceResults[i]?.question_id}:`, result.error);
+      logger.error({ err: result.error, questionId: relevanceResults[i]?.question_id }, 'submitAnswers: relevance update failed');
     }
   });
 

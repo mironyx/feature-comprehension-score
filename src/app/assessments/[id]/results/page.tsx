@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { shouldRevealReferenceAnswers } from '@/lib/engine/results';
 import type { Database } from '@/lib/supabase/types';
+import { logger } from '@/lib/logger';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -86,10 +87,10 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
     ]);
 
   if (orgMembershipResult.error) {
-    console.error('results page: org membership query failed:', orgMembershipResult.error);
+    logger.error({ err: orgMembershipResult.error }, 'results page: org membership query failed');
   }
   if (participationResult.error) {
-    console.error('results page: participation query failed:', participationResult.error);
+    logger.error({ err: participationResult.error }, 'results page: participation query failed');
   }
 
   const isAdmin = (orgMembershipResult.data as { github_role: string } | null)?.github_role === 'admin';

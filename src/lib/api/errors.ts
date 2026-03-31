@@ -2,6 +2,7 @@
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4
 
 import { NextResponse } from 'next/server';
+import { logger } from '@/lib/logger';
 
 export class ApiError extends Error {
   constructor(
@@ -24,7 +25,7 @@ export function handleApiError(error: unknown): NextResponse {
     return NextResponse.json(body, { status: error.statusCode });
   }
 
-  console.error('Unhandled error in API route:', error);
+  logger.error({ err: error }, 'Unhandled error in API route');
   return NextResponse.json(
     { error: 'Internal server error' },
     { status: 500 },

@@ -9,6 +9,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { Database } from '@/lib/supabase/types';
 import AnsweringForm from './answering-form';
+import { logger } from '@/lib/logger';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -125,7 +126,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   const [, assessment] = await Promise.all([
     githubUserId
       ? adminSupabase.rpc('link_participant', { p_assessment_id: assessmentId, p_github_user_id: githubUserId })
-          .then(({ error }) => { if (error) console.error('link_participant failed — participant linking is best-effort', error); })
+          .then(({ error }) => { if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort'); })
       : Promise.resolve(),
     fetchAssessment(adminSupabase, assessmentId),
   ]);

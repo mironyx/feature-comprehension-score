@@ -1,4 +1,5 @@
 import type { Octokit } from '@octokit/rest';
+import { logger } from '@/lib/logger';
 import type { ArtefactSource, PRExtractionParams } from '../engine/ports/artefact-source';
 import type {
   ArtefactFile,
@@ -214,7 +215,7 @@ export class GitHubArtefactSource implements ArtefactSource {
           const content = await this.fetchSingleFile(coords, file.filename, ref);
           return content === null ? null : { path: file.filename, content };
         } catch (err) {
-          console.error(`fetchFileContents: failed to fetch ${file.filename}`, err);
+          logger.error({ err, filename: file.filename }, 'fetchFileContents: failed to fetch file');
           return null;
         }
       }),
@@ -252,7 +253,7 @@ export class GitHubArtefactSource implements ArtefactSource {
           const content = await this.fetchSingleFile(coords, filePath, ref);
           return content === null ? null : { path: filePath, content };
         } catch (err) {
-          console.error(`fetchContextFiles: failed to fetch ${filePath}`, err);
+          logger.error({ err, filePath }, 'fetchContextFiles: failed to fetch file');
           return null;
         }
       }),

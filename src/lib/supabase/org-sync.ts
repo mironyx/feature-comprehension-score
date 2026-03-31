@@ -3,6 +3,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
+import { logger } from '@/lib/logger';
 
 type UserOrganisation = Database['public']['Tables']['user_organisations']['Row'];
 
@@ -65,7 +66,7 @@ export async function syncOrgMembership(
       githubFetch<GitHubOrg[]>(`${GITHUB_API}/user/orgs`, headers),
     ]);
   } catch {
-    console.error('syncOrgMembership: failed to fetch GitHub user/orgs — preserving existing memberships');
+    logger.error('syncOrgMembership: failed to fetch GitHub user/orgs — preserving existing memberships');
     const { data: existing } = await serviceClient
       .from('user_organisations')
       .select('*')
@@ -85,7 +86,7 @@ export async function syncOrgMembership(
 
   // A DB error here must not trigger deletion — preserve existing rows.
   if (installedOrgsResult.error) {
-    console.error('syncOrgMembership: DB query failed — preserving existing memberships', installedOrgsResult.error);
+    logger.error({ err: installedOrgsResult.error }, 'syncOrgMembership: DB query failed — preserving existing memberships');
     const { data: existing } = await serviceClient
       .from('user_organisations')
       .select('*')
@@ -126,7 +127,7 @@ export async function syncOrgMembership(
 
   // On any transient error, preserve existing rows — don't risk a false removal.
   if (membershipResults.some((r) => r.error)) {
-    console.error('syncOrgMembership: transient GitHub API error — preserving existing memberships');
+    logger.error('syncOrgMembership: transient GitHub API error — preserving existing memberships');
     const { data: existing } = await serviceClient
       .from('user_organisations')
       .select('*')

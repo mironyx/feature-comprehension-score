@@ -3,6 +3,7 @@
 import type { NextRequest } from 'next/server';
 import { requireOrgAdmin } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { Database } from '@/lib/supabase/types';
 
@@ -124,7 +125,7 @@ export async function fetchParticipantCounts(assessmentIds: string[]): Promise<P
     .in('assessment_id', assessmentIds);
 
   if (error) {
-    console.error('GET /api/assessments: participant counts query failed:', error);
+    logger.error({ err: error }, 'GET /api/assessments: participant counts query failed');
     throw new ApiError(500, 'Internal server error');
   }
 

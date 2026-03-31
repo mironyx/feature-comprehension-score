@@ -5,6 +5,7 @@ import { Octokit } from '@octokit/rest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import { ApiError } from '@/lib/api/errors';
+import { logger } from '@/lib/logger';
 
 type ServiceClient = SupabaseClient<Database>;
 
@@ -12,7 +13,7 @@ type ServiceClient = SupabaseClient<Database>;
 export async function createGithubClient(adminSupabase: ServiceClient, userId: string): Promise<Octokit> {
   const { data: token, error } = await adminSupabase.rpc('get_github_token', { p_user_id: userId });
   if (error) {
-    console.error('createGithubClient: get_github_token failed:', error);
+    logger.error({ err: error }, 'createGithubClient: get_github_token failed');
     throw new ApiError(500, 'Internal server error');
   }
   if (!token) throw new ApiError(401, 'GitHub account not connected');
