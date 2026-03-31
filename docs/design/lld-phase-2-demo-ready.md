@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-30 |
+| Revised | 2026-03-31 | Issue #130 |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [MVP Phase 2](../plans/2026-03-29-mvp-phase2-plan.md) |
 
@@ -49,16 +50,32 @@ src/app/(authenticated)/assessments/
 #### StatusBadge component
 
 ```typescript
-function StatusBadge({ status }: { status: string }): JSX.Element
+export function StatusBadge({ status }: { status: string }): JSX.Element
 ```
 
 | Status | Display | Style |
 |--------|---------|-------|
-| `rubric_generation` | "Generating..." | muted / spinner |
+| `rubric_generation` | "Generating..." | `opacity: 0.6` (muted) |
 | `awaiting_responses` | "Ready" | default |
 | `rubric_failed` | "Failed" | error (future — #132) |
+| _(unknown)_ | raw status value | default (fallback) |
+
+> **Implementation note (issue #130):** The spec mentioned "muted / spinner" for `rubric_generation`.
+> Only opacity muting (`opacity: 0.6`) was implemented — no animated spinner. A static muted label
+> is sufficient for MVP and avoids adding a client component. Unknown statuses fall back to the raw
+> status string rather than throwing.
+>
+> A module-level `STATUS_LABELS: Record<string, string>` lookup table was used instead of a
+> `switch` statement, making it easy to extend without modifying conditional logic.
 
 > **Constraint:** Do not add `rubric_failed` rendering in this issue. That belongs to #132 which adds the status to the database. Only handle statuses that currently exist in the enum.
+
+> **Implementation note (issue #130):** Tests were organised into two new files rather than only
+> updating the existing `assessments.test.ts`:
+> - `tests/app/(authenticated)/assessments/assessment-status.test.ts` — StatusBadge unit tests
+> - `tests/app/(authenticated)/assessments/page.test.ts` — page query and rendering tests
+>
+> The existing `assessments.test.ts` was also updated to reflect the new `.in()` mock chain.
 
 ---
 
