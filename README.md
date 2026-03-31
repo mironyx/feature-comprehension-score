@@ -47,6 +47,42 @@ App runs at <http://localhost:3000>.
 
 ---
 
+## Running Integration Tests
+
+Integration tests require a running local Supabase instance and a `.env.test.local` file with real JWT credentials.
+
+### 1. Start Supabase
+
+```bash
+npx supabase start
+```
+
+### 2. Create `.env.test.local`
+
+```bash
+cp .env.test.local.example .env.test.local
+```
+
+Fill in the JWT values from `npx supabase status --output json`:
+
+| Variable | Field in `supabase status` |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `API_URL` |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `ANON_KEY` |
+| `SUPABASE_SECRET_KEY` | `SERVICE_ROLE_KEY` |
+
+### 3. Run tests
+
+```bash
+npx vitest run          # all tests (unit + integration)
+```
+
+### Worktrees (parallel agents)
+
+Each worktree needs its own `.env.test.local`. The `/feature-team` skill creates a symlink automatically — no manual step needed.
+
+---
+
 ## Webhook Testing (GitHub App + ngrok)
 
 The GitHub App sends installation webhooks to `/api/webhooks/github`. To receive these locally you

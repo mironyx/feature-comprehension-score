@@ -83,6 +83,13 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 >    git worktree add ../fcs-feat-<N>-$SLUG -b feat/$SLUG origin/main
 >    cd ../fcs-feat-<N>-$SLUG
 >    ```
+> 1a. Symlink gitignored local files from the main repo so integration tests work:
+>    ```bash
+>    MAIN_REPO=$(git rev-parse --git-common-dir | python3 -c "import sys,os; print(os.path.dirname(sys.stdin.read().strip()))")
+>    for f in .env.test.local; do
+>      [ -f "$MAIN_REPO/$f" ] && ln -sf "$MAIN_REPO/$f" "$f"
+>    done
+>    ```
 > 2. Tag your session (must run AFTER worktree is set up so /proc detects the correct JSONL):
 >    ```bash
 >    .claude/hooks/run-python.sh scripts/tag-session.py <N>
