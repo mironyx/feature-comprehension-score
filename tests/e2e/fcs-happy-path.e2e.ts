@@ -18,6 +18,7 @@ import {
   createAdminClient,
   type E2EUser,
 } from '../helpers/e2e-auth';
+
 import {
   seedOrg,
   seedRepo,
@@ -33,7 +34,7 @@ import {
 const isPlaceholder =
   (process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? '').includes('placeholder');
 
-test.describe('FCS happy path', () => {
+test.describe.serial('FCS happy path', () => {
   test.skip(isPlaceholder, 'Skipped: no local Supabase instance');
 
   let user: E2EUser;
@@ -126,15 +127,16 @@ test.describe('FCS happy path', () => {
 
     await page.goto(`/assessments/${assessmentId}`);
 
-    // Fill all three answer text areas
-    const answerAreas = page.getByRole('textbox');
-    const count = await answerAreas.count();
-    for (let i = 0; i < count; i++) {
-      await answerAreas.nth(i).fill(
-        `This is a thoughtful answer to question ${i + 1} demonstrating understanding.`,
+    // Fill each answer textarea
+    for (let i = 1; i <= 3; i++) {
+      await page.getByLabel(`Answer to question ${i}`).fill(
+        `Answer ${i}: demonstrates understanding of the feature.`,
       );
     }
 
+    await expect(
+      page.getByRole('button', { name: 'Submit answers' }),
+    ).toBeEnabled({ timeout: 5000 });
     await page.getByRole('button', { name: 'Submit answers' }).click();
 
     await expect(
@@ -164,7 +166,7 @@ test.describe('FCS happy path', () => {
     await expect(
       page.getByRole('heading', { name: 'Comprehension Score' }),
     ).toBeVisible();
-    await expect(page.getByText('85%')).toBeVisible();
+    await expect(page.getByLabel('Aggregate comprehension score')).toHaveText('85%');
     await expect(
       page.getByRole('heading', { name: 'Question Breakdown' }),
     ).toBeVisible();

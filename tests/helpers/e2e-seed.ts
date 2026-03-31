@@ -175,13 +175,11 @@ export async function seedQuestions(
     weight: q.weight,
   }));
 
-  // Justification: Supabase's chained .order() after .insert().select() loses
-  // column type info; 'as never' is the standard workaround for untyped clients.
   const { data, error } = await client
     .from('assessment_questions')
     .insert(rows)
-    .select('id')
-    .order('question_number' as never, { ascending: true } as never);
+    .select('id, question_number')
+    .order('question_number', { ascending: true });
 
   if (error || !data) throw new Error(`seedQuestions: ${error?.message}`);
   return data.map((r: { id: string }) => r.id);
