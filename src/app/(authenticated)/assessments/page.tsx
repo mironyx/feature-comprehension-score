@@ -11,6 +11,7 @@ import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
 import type { Database } from '@/lib/supabase/types';
+import { StatusBadge } from './assessment-status';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 
@@ -49,7 +50,7 @@ export default async function AssessmentsPage(
       .from('assessments')
       .select('id, feature_name, status, created_at')
       .eq('org_id', orgId)
-      .eq('status', 'awaiting_responses')
+      .in('status', ['rubric_generation', 'awaiting_responses'])
       .order('created_at', { ascending: false }),
     supabase
       .from('user_organisations')
@@ -77,6 +78,7 @@ export default async function AssessmentsPage(
               <Link href={`/assessments/${a.id}`}>
                 {a.feature_name ?? `Assessment ${a.id}`}
               </Link>
+              {' '}<StatusBadge status={a.status} />
             </li>
           ))}
         </ul>
