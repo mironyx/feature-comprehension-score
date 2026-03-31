@@ -63,8 +63,11 @@ Create one task per issue:
 Create the entire team in **one instruction** so all teammates start simultaneously.
 Do not spawn them one at a time — that defeats the purpose of parallel execution.
 
+Each teammate **must** be spawned with `mode: "bypassPermissions"` so they run fully
+autonomously without prompting the user for tool-use confirmations.
+
 Tell the agent teams system something like:
-> "Create a team with N teammates. Teammate 1: [prompt]. Teammate 2: [prompt]. ..."
+> "Create a team with N teammates. Teammate 1: [prompt] (mode: bypassPermissions). Teammate 2: [prompt] (mode: bypassPermissions). ..."
 
 Each teammate receives this self-contained prompt (fill in the placeholders):
 
