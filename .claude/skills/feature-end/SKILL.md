@@ -8,7 +8,11 @@ allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, Tod
 
 Finalises a feature branch after the PR has been reviewed and approved. Handles session log, final commit, merge, and cleanup.
 
-**Pre-requisite:** A PR exists for the current branch and has been reviewed/approved.
+**Pre-requisite:** A PR exists for the current branch (or the given issue) and has been reviewed/approved.
+
+**Usage:**
+- `/feature-end` — detects the PR from the current branch (original behaviour)
+- `/feature-end <issue-number>` — looks up the PR for the given issue and checks out its branch (used by `/feature-team` lead when triggering remotely via message)
 
 ## Process
 
@@ -16,13 +20,26 @@ Execute these steps sequentially. Do not skip steps.
 
 ### Step 1: Gather context
 
+If an issue number argument was provided:
+1. Find the PR for the issue:
+   ```bash
+   gh pr list --search "closes #<issue-number>" --json number,title,baseRefName,state,url,headRefName --state open
+   ```
+   If no open PR is found, try `--state merged` in case it was already merged. If still none, stop and report.
+2. Check out the PR's head branch so subsequent git operations work correctly:
+   ```bash
+   gh pr checkout <pr-number>
+   ```
+
+If no argument was provided (original behaviour):
 1. Identify the current branch: `git branch --show-current`.
 2. Find the open PR for this branch: `gh pr view --json number,title,baseRefName,state,reviews,url`.
-   - Extract the **base branch** (this is the parent branch to return to — not necessarily `main`).
-   - Extract the **PR number** and **URL**.
    - If no PR exists, stop and report: "No open PR found for the current branch."
-3. Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
-4. Read the latest session log in `docs/sessions/` to understand what has been done this session.
+
+In both cases:
+- Extract the **base branch**, **PR number**, and **URL**.
+- Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
+- Read the latest session log in `docs/sessions/` to understand what has been done this session.
 
 ### Step 1.5: Sync the LLD
 

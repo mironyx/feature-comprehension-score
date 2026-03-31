@@ -76,13 +76,16 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 > Design reference: PATH (extracted from issue body)
 >
 > Steps:
-> 1. Tag your session: `.claude/hooks/run-python.sh scripts/tag-session.py <N>`
-> 2. Create your own branch and worktree:
+> 1. Create your own branch and worktree:
 >    ```bash
 >    SLUG=<slug-from-title>
 >    git fetch origin main
 >    git worktree add ../fcs-feat-<N>-$SLUG -b feat/$SLUG origin/main
 >    cd ../fcs-feat-<N>-$SLUG
+>    ```
+> 2. Tag your session (must run AFTER worktree is set up so /proc detects the correct JSONL):
+>    ```bash
+>    .claude/hooks/run-python.sh scripts/tag-session.py <N>
 >    ```
 > 3. Move issue to In Progress:
 >    ```bash
@@ -96,9 +99,7 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 > 8. Push and create PR targeting `main`.
 > 9. Run `/pr-review-v2 <pr-number>` and fix any blockers.
 > 10. Report back to the lead with the PR URL and wait — **do not exit**.
-> 11. When the user has reviewed the PR and runs `/feature-end` in this pane,
->     the session will handle merge and cleanup. After `/feature-end` completes,
->     send a final message to the lead: "Feature-end complete for #N — merged and cleaned up."
+> 11. When the lead sends you a feature-end message, run `/feature-end <N>`.
 >
 > Follow all coding principles in CLAUDE.md. Do not ask for confirmation between steps.
 
@@ -115,11 +116,10 @@ When all teammates have reported their PR URLs, summarise:
 - Each issue → branch → PR URL
 - Any blockers or deferred findings per teammate
 
-**Do NOT send shutdown_request.** Teammates stay alive in their tmux panes, waiting.
+**Do NOT send shutdown_request.** Teammates stay alive in their panes, waiting.
 
-Tell the user:
-> "Review each PR on GitHub, then switch to the teammate's tmux pane and run `/feature-end`
-> there. The pane will handle merge approval, cleanup, and report back here when done."
+When the user runs `/feature-end <N>` in the lead pane, forward it to the relevant teammate
+via SendMessage: "Please run `/feature-end <N>`."
 
 ### Step 7: Final summary
 

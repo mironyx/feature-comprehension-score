@@ -1,16 +1,32 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh api:*)",
-      "WebFetch(domain:docs.github.com)",
-      "Bash(npx vitest:*)",
-      "Bash(git fetch:*)",
-      "Bash(cat src/app/api/assessments/[id]/answers/service.ts)",
-      "Bash(grep \"resetModules\\\\|beforeEach\\\\|import\\(\" tests/app/api/assessments/[id].answers.test.ts)",
-      "Bash(grep \"\"\"zod\"\"\" package.json)",
-      "Bash(node -e \"const {z}=require\\(''zod''\\); console.log\\(z.string\\(\\).uuid\\(\\).safeParse\\(''00000000-0000-0000-0000-000000000001''\\)\\)\")",
-      "Bash(npx tsc:*)",
-      "Bash(npm run:*)"
+      "Bash(git*)",
+      "Bash(gh*)",
+      "Bash(npm*)",
+      "Bash(npx*)",
+      "Bash(node*)",
+      "Bash(python3*)",
+      "Bash(bash scripts/*)",
+      "Bash(.claude/hooks/*)",
+      "Bash(ls*)",
+      "Bash(grep*)",
+      "Bash(find*)",
+      "Bash(mkdir*)",
+      "Bash(cat*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(docker*)",
+      "Bash(pwd)",
+      "WebFetch(domain:docs.github.com)"
     ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "playwright-test"
+  ],
+  "prefersReducedMotion": true,
+  "hooks": {
+    "PostToolUse": []
   }
 }

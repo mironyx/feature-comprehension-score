@@ -46,6 +46,31 @@ def derive_project_key(root: pathlib.Path) -> str:
     return path_str.replace("\\", "-").replace("/", "-").replace(":", "")
 
 
+def find_session_jsonl_via_proc(claude_dir: pathlib.Path) -> pathlib.Path | None:
+    """Primary method: find the JSONL currently open by our parent Claude Code process.
+
+    Reliable in parallel agent-team mode — each teammate process has exactly one
+    session JSONL open for writing, so we can identify it without mtime races or
+    content searches that may match the lead's session instead.
+    """
+    try:
+        ppid = next(
+            line.split()[1]
+            for line in pathlib.Path("/proc/self/status").read_text().splitlines()
+            if line.startswith("PPid:")
+        )
+        for fd in pathlib.Path(f"/proc/{ppid}/fd").iterdir():
+            try:
+                target = fd.resolve()
+                if target.parent == claude_dir and target.suffix == ".jsonl":
+                    return target
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def find_session_jsonl(claude_dir: pathlib.Path, issue_hint: str | None = None) -> pathlib.Path | None:
     all_jsonl = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
     if not all_jsonl:
@@ -121,7 +146,10 @@ def main() -> None:
     project_key = derive_project_key(root)
 
     claude_dir = pathlib.Path.home() / ".claude" / "projects" / project_key
-    jsonl_path = find_session_jsonl(claude_dir, issue_hint=args.issue)
+    jsonl_path = (
+        find_session_jsonl_via_proc(claude_dir)
+        or find_session_jsonl(claude_dir, issue_hint=args.issue)
+    )
     if not jsonl_path:
         print("No session JSONL found — skipping session tagging")
         sys.exit(0)
