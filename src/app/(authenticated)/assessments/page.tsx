@@ -29,7 +29,13 @@ interface PendingAssessment {
 // Page
 // ---------------------------------------------------------------------------
 
-export default async function AssessmentsPage() {
+export default async function AssessmentsPage(
+  props: { searchParams?: Promise<{ created?: string }> } = {},
+) {
+  const { searchParams } = props;
+  const resolvedParams = await searchParams;
+  const created = resolvedParams?.created;
+
   const cookieStore = await cookies();
   const orgId = getSelectedOrgId(cookieStore);
   if (!orgId) redirect('/org-select');
@@ -57,6 +63,9 @@ export default async function AssessmentsPage() {
 
   return (
     <main>
+      {created && (
+        <p role="status">Assessment created successfully.</p>
+      )}
       <h1>My Assessments</h1>
       {admin && <Link href="/assessments/new">New Assessment</Link>}
       {assessments.length === 0 ? (

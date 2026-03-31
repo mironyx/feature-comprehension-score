@@ -165,4 +165,36 @@ describe('Assessments landing page', () => {
       expect(JSON.stringify(result)).not.toContain('/assessments/new');
     });
   });
+
+  describe('Given a created search param is present', () => {
+    it('then it renders a success banner', async () => {
+      mockCreateServer.mockResolvedValue(makeClient([], 'admin') as never);
+
+      const { default: AssessmentsPage } = await import(
+        '@/app/(authenticated)/assessments/page'
+      );
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({ created: 'assess-123' }),
+      });
+      const rendered = JSON.stringify(result);
+      expect(rendered).toContain('Assessment created');
+    });
+  });
+
+  describe('Given no created search param', () => {
+    it('then no success banner is rendered', async () => {
+      mockCreateServer.mockResolvedValue(makeClient([], 'admin') as never);
+
+      const { default: AssessmentsPage } = await import(
+        '@/app/(authenticated)/assessments/page'
+      );
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({}),
+      });
+      const rendered = JSON.stringify(result);
+      expect(rendered).not.toContain('Assessment created');
+    });
+  });
 });

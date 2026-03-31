@@ -74,7 +74,12 @@ function validate(form: FormState): string[] {
   return errors;
 }
 
-async function postAssessment(payload: AssessmentPayload): Promise<string | null> {
+interface PostResult {
+  error?: string;
+  assessmentId?: string;
+}
+
+async function postAssessment(payload: AssessmentPayload): Promise<PostResult> {
   const res = await fetch('/api/fcs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -82,9 +87,10 @@ async function postAssessment(payload: AssessmentPayload): Promise<string | null
   });
   if (!res.ok) {
     const body = await res.json().catch((err: unknown) => { console.error('postAssessment: failed to parse error response:', err); return {}; }) as { error?: string };
-    return body.error ?? 'Failed to create assessment. Please try again.';
+    return { error: body.error ?? 'Failed to create assessment. Please try again.' };
   }
-  return null;
+  const body = (await res.json()) as { assessment_id: string };
+  return { assessmentId: body.assessment_id };
 }
 
 export default function CreateAssessmentForm({ orgId, repositories }: CreateAssessmentFormProps) {
@@ -109,7 +115,7 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
       setSubmitting(true);
       setErrors([]);
       try {
-        const apiError = await postAssessment({
+        const result = await postAssessment({
           org_id: orgId,
           repository_id: form.repositoryId,
           feature_name: form.featureName.trim(),
@@ -117,8 +123,8 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
           merged_pr_numbers: parsePrNumbers(form.prNumbers),
           participants: parseParticipants(form.participants),
         });
-        if (apiError) { setErrors([apiError]); return; }
-        router.push('/assessments');
+        if (result.error) { setErrors([result.error]); return; }
+        router.push(`/assessments?created=${result.assessmentId}`);
       } catch (err) {
         console.error('CreateAssessmentForm: submit failed:', err);
         setErrors(['Network error. Please try again.']);
