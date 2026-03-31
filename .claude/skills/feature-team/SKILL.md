@@ -111,7 +111,13 @@ Do not shut down the team on a single failure.
 When all teammates are idle, summarise:
 - Each issue → branch → PR URL
 - Any blockers or deferred findings per teammate
-- Reminder: "Run `/feature-end` from inside each worktree after human PR review (e.g. `cd ../fcs-feat-N-slug` then `/feature-end`)."
+
+**Do NOT send shutdown_request to teammates.** In tmux mode, each teammate is a live pane
+in the worktree. The user reviews each PR, then switches to the teammate's pane and runs
+`/feature-end` directly. The pane exits naturally after cleanup.
+
+Remind the user:
+> "Review each PR, then switch to the teammate's tmux pane and run `/feature-end` there."
 
 **Stop here.** Do not move board items to Done — `/feature-end` handles that after merge.
 
