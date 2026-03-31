@@ -123,7 +123,8 @@ CREATE TABLE assessments (
   status                   text NOT NULL DEFAULT 'created'
                               CHECK (status IN (
                                 'created', 'rubric_generation',
-                                'generation_failed', 'awaiting_responses',
+                                'generation_failed', 'rubric_failed',
+                                'awaiting_responses',
                                 'scoring', 'completed',
                                 'invalidated', 'skipped'
                               )),

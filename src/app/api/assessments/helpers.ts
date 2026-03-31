@@ -41,6 +41,7 @@ export const VALID_STATUSES = new Set<string>([
   'created',
   'rubric_generation',
   'generation_failed',
+  'rubric_failed',
   'awaiting_responses',
   'scoring',
   'completed',

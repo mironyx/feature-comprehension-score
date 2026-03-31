@@ -260,6 +260,14 @@ async function finaliseRubric(
   if (error) throw new Error('Failed to finalise rubric');
 }
 
+async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId): Promise<void> {
+  const { error } = await adminSupabase
+    .from('assessments')
+    .update({ status: 'rubric_failed' })
+    .eq('id', assessmentId);
+  if (error) logger.error({ err: error, assessmentId }, 'markRubricFailed: update failed');
+}
+
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
   try {
     const octokit = await createGithubClient(params.adminSupabase, params.userId);
@@ -268,8 +276,8 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: 'code_only', token_budget_applied: false };
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
-    // Swallowed: rubric generation failure must not affect the assessment creation response.
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
+    await markRubricFailed(params.adminSupabase, params.assessmentId);
   }
 }
 

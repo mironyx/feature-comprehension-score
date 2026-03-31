@@ -38,6 +38,10 @@ vi.mock('next/link', () => ({
   default: ({ children }: { children: unknown }) => children,
 }));
 
+vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
+  RetryButton: () => 'RetryButton',
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -116,7 +120,7 @@ describe('Assessments page', () => {
   });
 
   describe('Given visible assessments', () => {
-    it('queries both rubric_generation and awaiting_responses', async () => {
+    it('queries rubric_generation, rubric_failed, and awaiting_responses', async () => {
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
@@ -124,7 +128,7 @@ describe('Assessments page', () => {
 
       expect(client._mockIn).toHaveBeenCalledWith(
         'status',
-        ['rubric_generation', 'awaiting_responses'],
+        ['rubric_generation', 'rubric_failed', 'awaiting_responses'],
       );
     });
 
@@ -144,6 +148,26 @@ describe('Assessments page', () => {
       const result = await AssessmentsPage();
 
       expect(result).toBeTruthy();
+    });
+
+    it('renders retry button for rubric_failed assessments when admin', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'a1',
+            feature_name: 'Failed Feature',
+            status: 'rubric_failed',
+            created_at: '2026-01-01',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+      mockIsOrgAdmin.mockReturnValue(true);
+
+      const result = await AssessmentsPage();
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('assessmentId');
     });
 
     it('shows empty message when no assessments', async () => {

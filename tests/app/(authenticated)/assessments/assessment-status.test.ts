@@ -16,6 +16,11 @@ describe('StatusBadge', () => {
     expect(JSON.stringify(result)).toContain('Ready');
   });
 
+  it('renders "Failed" for rubric_failed status', () => {
+    const result = StatusBadge({ status: 'rubric_failed' });
+    expect(JSON.stringify(result)).toContain('Failed');
+  });
+
   it('renders the raw status for unknown statuses', () => {
     const result = StatusBadge({ status: 'scoring' });
     expect(JSON.stringify(result)).toContain('scoring');
