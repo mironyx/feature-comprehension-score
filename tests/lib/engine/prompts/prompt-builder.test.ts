@@ -140,6 +140,44 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('Modification capacity');
   });
 
+  describe('world-to-program layer focuses on domain-to-code mapping', () => {
+    it('includes domain-object-to-code-structure example patterns', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'Which domain concept does',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'How do the domain entities map to the data model',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'What aspects of the domain are deliberately not modelled',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'What real-world behaviours does this feature handle',
+      );
+    });
+
+    it('does not contain motivation-focused example patterns', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).not.toContain(
+        'Why does this code exist?',
+      );
+    });
+
+    it('includes negative guidance against project history questions', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'Do NOT ask about project history',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'Do NOT ask about session logs',
+      );
+    });
+
+    it('includes question depth constraint', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'reading the code for 30 seconds',
+      );
+    });
+  });
+
   it('contains JSON output format instructions', () => {
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('JSON');
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('questions');
