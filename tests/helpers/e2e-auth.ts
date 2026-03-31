@@ -20,8 +20,7 @@ const SERVER_SUPABASE_URL =
   process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? SUPABASE_URL;
 
 const CHUNK_SIZE = 3180;
-// Justification: S2068 — test-only credential for local Supabase E2E users; never used in production.
-const E2E_PASSWORD = 'e2e-test-password-123'; // NOSONAR
+const E2E_PASSWORD = 'e2e-test-password-123';
 
 export interface E2EUser {
   userId: string;

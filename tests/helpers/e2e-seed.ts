@@ -30,7 +30,7 @@ export async function seedOrg(
     .single();
   if (error || !data) throw new Error(`seedOrg: ${error?.message}`);
 
-  await client.from('org_config').insert({
+  const { error: configErr } = await client.from('org_config').insert({
     org_id: data.id,
     prcc_enabled: true,
     fcs_enabled: true,
@@ -42,6 +42,7 @@ export async function seedOrg(
     trivial_commit_threshold: 5,
     exempt_file_patterns: [],
   });
+  if (configErr) throw new Error(`seedOrg config: ${configErr.message}`);
 
   return data.id;
 }
@@ -174,6 +175,8 @@ export async function seedQuestions(
     weight: q.weight,
   }));
 
+  // Justification: Supabase's chained .order() after .insert().select() loses
+  // column type info; 'as never' is the standard workaround for untyped clients.
   const { data, error } = await client
     .from('assessment_questions')
     .insert(rows)
