@@ -23,11 +23,14 @@ import time
 
 
 def git_root() -> pathlib.Path:
+    # Use --git-common-dir so this works correctly from linked worktrees:
+    # in a worktree, --show-toplevel returns the worktree root (wrong),
+    # but --git-common-dir returns the main .git dir, whose parent is the main repo.
     result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        ["git", "rev-parse", "--git-common-dir"],
         capture_output=True, text=True, check=True,
     )
-    return pathlib.Path(result.stdout.strip())
+    return pathlib.Path(result.stdout.strip()).parent.resolve()
 
 
 def derive_project_key(root: pathlib.Path) -> str:

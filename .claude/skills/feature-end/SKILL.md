@@ -159,13 +159,30 @@ gh pr merge <number> --squash --delete-branch
 Read the issue state from the earlier `gh pr view` output (merged PRs close the issue automatically).
 Chain **all** of cleanup + board update into a **single Bash call** to minimise approval prompts:
 
+**Worktree detection:** If running inside a linked worktree (parallel mode), the cleanup must
+happen from the main repo — you cannot remove a worktree from within itself. Detect and handle:
+
 ```bash
-git checkout <base-branch> && git pull && git branch -d <feature-branch> 2>&1; true \
-  && ./scripts/gh-project-status.sh <issue-number> done 2>&1; true \
+WORKTREE_PATH=$(pwd)
+MAIN_REPO=$(dirname "$(git rev-parse --git-common-dir)")
+IS_WORKTREE=$([ "$WORKTREE_PATH" != "$MAIN_REPO" ] && echo "yes" || echo "no")
+```
+
+Then chain all cleanup in a **single Bash call**:
+
+```bash
+# If in a worktree: cd to main repo first, then clean up worktree + branch
+# If in main repo: standard cleanup (git branch -d works directly)
+
+cd "$MAIN_REPO" && git pull \
+  && [ "$IS_WORKTREE" = "yes" ] && git worktree remove "$WORKTREE_PATH" --force 2>&1; true \
+  && git branch -d <feature-branch> 2>&1; true \
+  && bash scripts/gh-project-status.sh <issue-number> done 2>&1; true \
   && gh issue close <issue-number> 2>&1; true
 ```
 
 The `2>&1; true` on each segment ensures:
+- Not in a worktree — `git worktree remove` skipped cleanly.
 - A missing local branch does not abort the chain.
 - A board item already at Done (script exits 0 with no-op) continues cleanly.
 - An already-closed issue (`gh issue close` 422) is silently ignored.

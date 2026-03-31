@@ -108,7 +108,7 @@ Do not shut down the team on a single failure.
 When all teammates are idle, summarise:
 - Each issue → branch → PR URL
 - Any blockers or deferred findings per teammate
-- Reminder: "Run `/feature-end` on each branch after human PR review."
+- Reminder: "Run `/feature-end` from inside each worktree after human PR review (e.g. `cd ../fcs-feat-N-slug` then `/feature-end`)."
 
 **Stop here.** Do not move board items to Done — `/feature-end` handles that after merge.
 
