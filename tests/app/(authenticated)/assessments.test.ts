@@ -35,6 +35,10 @@ vi.mock('next/link', () => ({
   }),
 }));
 
+vi.mock('@/app/(authenticated)/assessments/assessment-status', () => ({
+  StatusBadge: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -76,7 +80,7 @@ function makeClient(assessments: unknown[], githubRole: string | null = 'member'
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockReturnValue({
               order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
             }),
           }),
