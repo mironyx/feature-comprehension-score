@@ -93,6 +93,16 @@ NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
+### Step 5b: Silent-swallow check (blocking gate)
+
+Before proceeding, grep for catch blocks that swallow errors without logging or user feedback:
+
+```bash
+grep -rn "catch" src/ --include="*.ts" | grep -v "logger\.\|console\.\|setError\|throw\|// fire-and-forget"
+```
+
+Any match must be resolved — add logging, surface the error, or add a `// fire-and-forget` justification comment. Do not proceed to Step 6 with unguarded catch blocks.
+
 ### Step 6: Diagnostics (blocking gate)
 
 Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.

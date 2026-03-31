@@ -41,16 +41,18 @@ In both cases:
 - Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
 - Read the latest session log in `docs/sessions/` to understand what has been done this session.
 
-### Step 1.5: Sync the LLD
+### Step 1.5: Sync the LLD — MANDATORY
 
-Run `/lld-sync <issue-number>` to update the Low-Level Design document with implementation learnings
-before writing the session log. The sync report output feeds directly into the session log's
-"Decisions made" section.
+**Do not skip.** Run `/lld-sync <issue-number>` to update the Low-Level Design document with
+implementation learnings before writing the session log. The sync report feeds directly into the
+session log's "Decisions made" section.
 
-If no LLD covers this issue (e.g., it is a chore or infrastructure task), skip this step and note
-it in the session log.
+Only skip if no LLD covers this issue (chore or infrastructure task) — note the skip in the
+session log.
 
-### Step 2: Write session log
+### Step 2: Write session log — MANDATORY
+
+**Do not skip.** A session log must always be written, even for small changes.
 
 1. Check for a compact draft: `ls docs/sessions/*-draft.md 2>/dev/null | tail -1`.
    - If a draft exists, read it — it contains pre-compact snapshots with tool counts, files

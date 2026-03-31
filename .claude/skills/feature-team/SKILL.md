@@ -107,6 +107,7 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 > 9. Run `/pr-review-v2 <pr-number>` and fix any blockers.
 > 10. Report back to the lead with the PR URL and wait — **do not exit**.
 > 11. When the lead sends you a feature-end message, run `/feature-end <N>`.
+>     **Follow every step in `/feature-end` without skipping — especially lld-sync (Step 1.5) and session log (Step 2). These are mandatory.**
 >
 > Follow all coding principles in CLAUDE.md. Do not ask for confirmation between steps.
 
