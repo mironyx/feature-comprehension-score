@@ -57,7 +57,7 @@ export function StatusBadge({ status }: { status: string }): JSX.Element
 |--------|---------|-------|
 | `rubric_generation` | "Generating..." | `opacity: 0.6` (muted) |
 | `awaiting_responses` | "Ready" | default |
-| `rubric_failed` | "Failed" | error (future — #132) |
+| `rubric_failed` | "Failed" | `opacity: 0.6` (muted) — #132 |
 | _(unknown)_ | raw status value | default (fallback) |
 
 > **Implementation note (issue #130):** The spec mentioned "muted / spinner" for `rubric_generation`.
@@ -68,7 +68,7 @@ export function StatusBadge({ status }: { status: string }): JSX.Element
 > A module-level `STATUS_LABELS: Record<string, string>` lookup table was used instead of a
 > `switch` statement, making it easy to extend without modifying conditional logic.
 
-> **Constraint:** Do not add `rubric_failed` rendering in this issue. That belongs to #132 which adds the status to the database. Only handle statuses that currently exist in the enum.
+> **Constraint (resolved):** `rubric_failed` rendering added in #132. StatusBadge shows "Failed" with muted opacity. RetryButton client component shown for admin users.
 
 > **Implementation note (issue #130):** Tests were organised into two new files rather than only
 > updating the existing `assessments.test.ts`:
@@ -158,26 +158,38 @@ await params.adminSupabase
 ```
 src/app/api/assessments/[id]/retry-rubric/
   route.ts     — controller (≤ 25 lines per CLAUDE.md)
-  service.ts   — retryRubricGeneration service function
+  service.ts   — thin service delegating to fcs/service.ts exports
 ```
 
 #### Internal decomposition — POST /api/assessments/[id]/retry-rubric
 
 ```
-Controller (route.ts, ≤ 5 lines):
+Controller (route.ts):
 - const ctx = await createApiContext(request)
-- return json(await retryRubric(ctx, params.id))
+- const result = await retryRubricGeneration(ctx, id)
+- return json(body)
 
 Service (service.ts):
-- Exported: retryRubric(ctx: ApiContext, assessmentId: string): Promise<{ status: string }>
-  - Validates assessment exists and is in `rubric_failed` status
-  - Validates caller is org admin
-  - Resets status to `rubric_generation`
-  - Re-triggers triggerRubricGeneration with existing PR data
-  - Returns { status: 'rubric_generation' }
+- Exported: retryRubricGeneration(ctx: ApiContext, assessmentId: string): Promise<{ assessment_id, status }>
+  - Fetches assessment via ctx.adminSupabase
+  - Delegates org-admin check to assertOrgAdmin (re-exported from fcs/service.ts)
+  - Validates status === 'rubric_failed', throws ApiError(400) otherwise
+  - Delegates reset + re-trigger to retriggerRubricForAssessment (from fcs/service.ts)
+  - Returns { assessment_id, status: 'rubric_generation' }
+
+fcs/service.ts exports used:
+- assertOrgAdmin(supabase, userId, orgId) — org admin role check via user_organisations
+- retriggerRubricForAssessment(adminSupabase, userId, assessment) — resets status to
+  rubric_generation, fetches repo info + PR numbers, fire-and-forgets triggerRubricGeneration
 
 > **Constraint:** The service must not call createClient() or any infrastructure factory. ApiContext is injected by the controller.
 > **Constraint:** Return 400 if assessment is not in `rubric_failed` status. Do not allow retry from other statuses.
+
+> **Implementation note (#132):** The original design specified a standalone service with full
+> retry logic. During implementation, the retry logic was consolidated into `fcs/service.ts`
+> to reuse `fetchRepoInfo`, `triggerRubricGeneration`, and branded ID types. The route service
+> became a thin adapter. `assertOrgAdmin` was also exported from `fcs/service.ts` rather than
+> duplicated.
 ```
 
 ### Layer: Frontend

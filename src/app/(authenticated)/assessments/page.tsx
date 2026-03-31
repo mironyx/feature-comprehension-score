@@ -12,6 +12,7 @@ import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
 import type { Database } from '@/lib/supabase/types';
 import { StatusBadge } from './assessment-status';
+import { RetryButton } from './retry-button';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 
@@ -50,7 +51,7 @@ export default async function AssessmentsPage(
       .from('assessments')
       .select('id, feature_name, status, created_at')
       .eq('org_id', orgId)
-      .in('status', ['rubric_generation', 'awaiting_responses'])
+      .in('status', ['rubric_generation', 'rubric_failed', 'awaiting_responses'])
       .order('created_at', { ascending: false }),
     supabase
       .from('user_organisations')
@@ -79,6 +80,9 @@ export default async function AssessmentsPage(
                 {a.feature_name ?? `Assessment ${a.id}`}
               </Link>
               {' '}<StatusBadge status={a.status} />
+              {admin && a.status === 'rubric_failed' && (
+                <>{' '}<RetryButton assessmentId={a.id} /></>
+              )}
             </li>
           ))}
         </ul>

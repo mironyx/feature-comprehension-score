@@ -4,12 +4,13 @@
 
 const STATUS_LABELS: Record<string, string> = {
   rubric_generation: 'Generating...',
+  rubric_failed: 'Failed',
   awaiting_responses: 'Ready',
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const label = STATUS_LABELS[status] ?? status;
-  const muted = status === 'rubric_generation';
+  const muted = status === 'rubric_generation' || status === 'rubric_failed';
 
   return <span style={{ opacity: muted ? 0.6 : 1 }}>{label}</span>;
 }
