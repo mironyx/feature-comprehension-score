@@ -171,9 +171,30 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
       );
     });
 
-    it('includes question depth constraint', () => {
+    it('includes question depth constraint rejecting shallow recall questions', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'Focus questions on architectural reasoning',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'not on low-level implementation details',
+      );
+    });
+
+    it('constraint text references all three Naur layers', () => {
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'This applies across all three Naur layers',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'modification capacity',
+      );
+    });
+
+    it('constraint references the 30-second test for shallowness', () => {
       expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
         'reading the code for 30 seconds',
+      );
+      expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+        'variable names, default values, specific syntax, line-level logic',
       );
     });
   });
