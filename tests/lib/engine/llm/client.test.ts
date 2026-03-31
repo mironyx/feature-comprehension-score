@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { OpenRouterClient, DEFAULT_MODEL } from '@/lib/engine/llm/client';
+import type { LLMLogger } from '@/lib/engine/llm/types';
 
 const TestSchema = z.object({
   answer: z.string(),
@@ -189,6 +190,109 @@ describe('LLM client wrapper', () => {
       expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'anthropic/claude-opus-4-6' }),
       );
+    });
+  });
+
+  describe('LLM call logging', () => {
+    let mockLogger: LLMLogger;
+
+    beforeEach(() => {
+      mockLogger = { info: vi.fn(), error: vi.fn() };
+      client = new OpenRouterClient({
+        apiKey: 'test-key',
+        openAIClient: mockOpenAI as unknown as OpenAI,
+        retryConfig: { maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100 },
+        logger: mockLogger,
+      });
+    });
+
+    describe('Given a successful LLM call with logger', () => {
+      it('then it logs the prompt before the call', async () => {
+        mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
+
+        await client.generateStructured(TEST_REQUEST);
+
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            systemPrompt: 'Test system',
+            userPrompt: 'Test prompt',
+            model: DEFAULT_MODEL,
+          }),
+          'LLM request',
+        );
+      });
+    });
+
+    describe('Given a successful LLM call', () => {
+      it('then it logs the response with timing', async () => {
+        mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
+
+        await client.generateStructured(TEST_REQUEST);
+
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            durationMs: expect.any(Number),
+            response: expect.any(String),
+          }),
+          'LLM response',
+        );
+      });
+    });
+
+    describe('Given a failed LLM call with all retries exhausted', () => {
+      it('then it logs the error with timing', async () => {
+        mockOpenAI.chat.completions.create.mockResolvedValue(
+          makeTextResponse('invalid json'),
+        );
+
+        await client.generateStructured(TEST_REQUEST);
+
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            durationMs: expect.any(Number),
+            error: expect.objectContaining({ code: 'malformed_response' }),
+          }),
+          'LLM call failed',
+        );
+      });
+    });
+
+    describe('Given an LLM call that throws an exception', () => {
+      it('then it logs the error with HTTP status', async () => {
+        const serverError = Object.assign(
+          new Error('Internal server error'),
+          { status: 500 },
+        );
+        mockOpenAI.chat.completions.create.mockRejectedValue(serverError);
+
+        await client.generateStructured(TEST_REQUEST);
+
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            durationMs: expect.any(Number),
+            error: expect.objectContaining({
+              code: 'server_error',
+              context: expect.objectContaining({ status: 500 }),
+            }),
+          }),
+          'LLM call failed',
+        );
+      });
+    });
+
+    describe('Given no logger is provided', () => {
+      it('then it works without errors', async () => {
+        const noLoggerClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 0, baseDelayMs: 10, maxDelayMs: 100 },
+        });
+        mockOpenAI.chat.completions.create.mockResolvedValueOnce(makeValidResponse());
+
+        const result = await noLoggerClient.generateStructured(TEST_REQUEST);
+
+        expect(result.success).toBe(true);
+      });
     });
   });
 });
