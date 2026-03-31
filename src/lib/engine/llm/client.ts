@@ -6,6 +6,7 @@ import {
   type LLMClient,
   type LLMError,
   type LLMErrorCode,
+  type LLMLogger,
   type LLMResult,
   type RetryConfig,
 } from './types';
@@ -17,6 +18,7 @@ export interface OpenRouterClientConfig {
   defaultModel?: string;
   openAIClient?: OpenAI;
   retryConfig?: Partial<RetryConfig>;
+  logger?: LLMLogger;
 }
 
 export interface GenerateStructuredRequest<T extends z.ZodType> {
@@ -31,6 +33,7 @@ export class OpenRouterClient implements LLMClient {
   private readonly client: OpenAI;
   private readonly defaultModel: string;
   private readonly retryConfig: RetryConfig;
+  private readonly logger?: LLMLogger;
 
   constructor(config: OpenRouterClientConfig) {
     this.client =
@@ -41,17 +44,36 @@ export class OpenRouterClient implements LLMClient {
       });
     this.defaultModel = config.defaultModel ?? DEFAULT_MODEL;
     this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig };
+    this.logger = config.logger;
   }
 
   async generateStructured<T extends z.ZodType>(
     request: GenerateStructuredRequest<T>,
   ): Promise<LLMResult<z.infer<T>>> {
     const { prompt, systemPrompt, schema, model: modelOverride, maxTokens } = request;
+    const model = modelOverride ?? this.defaultModel;
+    const resolvedMaxTokens = maxTokens ?? 4096;
 
+    this.logRequest(systemPrompt, prompt, model, resolvedMaxTokens);
+    const startMs = Date.now();
+
+    const result = await this.callLlm(prompt, systemPrompt, schema, model, resolvedMaxTokens);
+
+    this.logResult(result, startMs);
+    return result;
+  }
+
+  private async callLlm<T extends z.ZodType>(
+    prompt: string,
+    systemPrompt: string,
+    schema: T,
+    model: string,
+    maxTokens: number,
+  ): Promise<LLMResult<z.infer<T>>> {
     return this.withRetry(async () => {
       const response = await this.client.chat.completions.create({
-        model: modelOverride ?? this.defaultModel,
-        max_tokens: maxTokens ?? 4096,
+        model,
+        max_tokens: maxTokens,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt },
@@ -63,34 +85,64 @@ export class OpenRouterClient implements LLMClient {
         return failure(makeError('malformed_response', 'No text content in response', true));
       }
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (err) {
-        return failure(
-          makeError(
-            'malformed_response',
-            `Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`,
-            true,
-            { responseText: content.slice(0, 200) },
-          ),
-        );
-      }
-
-      const validation = schema.safeParse(parsed);
-      if (!validation.success) {
-        return failure(
-          makeError(
-            'validation_failed',
-            `Schema validation failed: ${validation.error.message}`,
-            true,
-            { zodErrors: validation.error.issues },
-          ),
-        );
-      }
-
-      return { success: true, data: validation.data };
+      return this.parseAndValidate(content, schema);
     });
+  }
+
+  private parseAndValidate<T extends z.ZodType>(
+    content: string,
+    schema: T,
+  ): LLMResult<z.infer<T>> {
+    const parseResult = this.parseJson(content);
+    if (!parseResult.success) return parseResult as LLMResult<z.infer<T>>;
+
+    const validation = schema.safeParse(parseResult.data);
+    if (!validation.success) {
+      return failure(makeError(
+        'validation_failed',
+        `Schema validation failed: ${validation.error.message}`,
+        true,
+        { zodErrors: validation.error.issues },
+      ));
+    }
+    return { success: true, data: validation.data };
+  }
+
+  private parseJson(content: string): LLMResult<unknown> {
+    try {
+      return { success: true, data: JSON.parse(content) };
+    } catch (err) {
+      return failure(makeError(
+        'malformed_response',
+        `Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`,
+        true,
+        { responseText: content.slice(0, 200) },
+      ));
+    }
+  }
+
+  private logRequest(
+    systemPrompt: string,
+    userPrompt: string,
+    model: string,
+    maxTokens: number,
+  ): void {
+    this.logger?.info({ systemPrompt, userPrompt, model, maxTokens }, 'LLM request');
+  }
+
+  private logResult<T>(result: LLMResult<T>, startMs: number): void {
+    const durationMs = Date.now() - startMs;
+    if (result.success) {
+      this.logger?.info(
+        { durationMs, response: JSON.stringify(result.data) },
+        'LLM response',
+      );
+    } else {
+      this.logger?.error(
+        { durationMs, error: result.error },
+        'LLM call failed',
+      );
+    }
   }
 
   private async withRetry<T>(

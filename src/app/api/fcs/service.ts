@@ -230,13 +230,24 @@ async function createAssessmentWithParticipants(
 
 // Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
 // transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
+function logArtefactSummary(artefacts: AssembledArtefactSet): void {
+  logger.info({
+    fileCount: artefacts.file_contents.length,
+    testFileCount: artefacts.test_files?.length ?? 0,
+    artefactQuality: artefacts.artefact_quality,
+    questionCount: artefacts.question_count,
+    tokenBudgetApplied: artefacts.token_budget_applied,
+  }, 'Rubric generation: artefact summary');
+}
+
 async function finaliseRubric(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
   orgId: OrgId,
   artefacts: AssembledArtefactSet,
 ): Promise<void> {
-  const llmClient = buildLlmClient();
+  logArtefactSummary(artefacts);
+  const llmClient = buildLlmClient(logger);
   const result = await generateRubric({ artefacts, llmClient });
   if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
   const { error } = await adminSupabase.rpc('finalise_rubric', {

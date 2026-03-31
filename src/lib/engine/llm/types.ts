@@ -33,6 +33,12 @@ export interface LLMClient {
   }): Promise<LLMResult<z.infer<T>>>;
 }
 
+/** Port interface for structured logging at the LLM call boundary. */
+export interface LLMLogger {
+  info(obj: Record<string, unknown>, msg: string): void;
+  error(obj: Record<string, unknown>, msg: string): void;
+}
+
 export interface RetryConfig {
   maxRetries: number;
   baseDelayMs: number;
