@@ -99,6 +99,7 @@ Rules:
 
 ## Coding Principles
 
+- **Read before writing** — Before implementing anything, grep the codebase for existing helpers, patterns, and utilities that solve the same problem. Never re-implement what already exists. This applies to auth helpers, service functions, DB queries, UI components — everything.
 - **SOLID** — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion. Apply during refactoring, not as upfront ceremony.
 - **Clean Architecture** — `src/lib/engine/` is pure domain logic: no framework imports, no I/O, no Supabase/Next.js dependencies. Depend inward, never outward.
 - **Dependency Inversion at boundaries** — Engine depends on interfaces (ports). Adapters (`github/`, `supabase/`) implement them. Inject dependencies, don't import concrete implementations into domain code.
