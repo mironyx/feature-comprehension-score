@@ -101,7 +101,7 @@ interface RubricTriggerParams {
 // under 20 lines. The LLD places the org-admin check in the controller; createApiContext does
 // not yet include adminSupabase + role-check together, so the check lives here until §2.4
 // controller refactor consolidates it into requireOrgAdmin().
-async function assertOrgAdmin(supabase: UserClient, userId: UserId, orgId: OrgId): Promise<void> {
+export async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: string): Promise<void> {
   const { data, error } = await supabase
     .from('user_organisations')
     .select('github_role')
@@ -282,8 +282,34 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
-// Exported service function
+// Exported service functions
 // ---------------------------------------------------------------------------
+
+interface AssessmentRetryRow {
+  id: string;
+  org_id: string;
+  repository_id: string;
+  status: string;
+  config_question_count: number;
+}
+
+// Resets a rubric_failed assessment to rubric_generation and re-runs generation
+// against the already-stored PR records. Called by the retry-rubric route.
+export async function retriggerRubricForAssessment(
+  adminSupabase: ServiceClient,
+  userId: string,
+  assessment: AssessmentRetryRow,
+): Promise<void> {
+  const assessmentId = assessment.id as AssessmentId;
+  const orgId = assessment.org_id as OrgId;
+  const repositoryId = assessment.repository_id as RepositoryId;
+  const { error } = await adminSupabase.from('assessments').update({ status: 'rubric_generation' }).eq('id', assessmentId);
+  if (error) throw new ApiError(500, 'Failed to reset assessment status');
+  const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
+  const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);
+  const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
+  void triggerRubricGeneration({ adminSupabase, userId: userId as UserId, assessmentId, repoInfo, prNumbers });
+}
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
   const { supabase, adminSupabase, user } = ctx;
