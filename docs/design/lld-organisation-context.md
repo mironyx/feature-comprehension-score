@@ -4,11 +4,12 @@
 
 | Field   | Value                                                             |
 | ------- | ----------------------------------------------------------------- |
-| Version | 0.2                                                               |
+| Version | 0.3                                                               |
 | Status  | Revised                                                           |
 | Author  | LS / Claude                                                       |
 | Created | 2026-04-01                                                        |
 | Revised | 2026-04-01 — Issue #140 implementation sync                       |
+| Revised | 2026-04-01 — Issue #157 API write path added                      |
 | Parent  | [v1-design.md](v1-design.md) §4.3                                 |
 | Issues  | #140 (backend), #157 (API), #158 (UI)                             |
 | ADR     | [ADR-0017](../adr/0017-organisation-contexts-separate-table.md)   |
@@ -29,8 +30,8 @@ LLM user prompt at rubric-generation time.
 | API write path   | #157  | `PATCH /api/organisations/[id]/context`            |
 | Settings UI      | #158  | Admin panel to view and edit context               |
 
-This document covers §1–§2 (issue #140). §3 and §4 will be added when #157 and #158 are
-architected.
+§1–§4 cover issue #140 (DB + engine). §5 covers issue #157 (API write path).
+§6 (settings UI, issue #158) will be added when architected.
 
 ---
 
@@ -309,7 +310,82 @@ API write path (#157) uses the user client (RLS enforced by `is_org_admin`).
 
 ---
 
-## 5. BDD Specifications (#140)
+## 5. API Write Path (#157)
+
+### 5.1 Route handler
+
+**File:** `src/app/api/organisations/[id]/context/route.ts`
+
+Follows the standard controller/service pattern (ADR-0014, `createApiContext` composition root):
+
+```typescript
+export async function PATCH(request: NextRequest, { params }: RouteContext) {
+  try {
+    const { id: orgId } = await params;
+    const ctx = await createApiContext(request);
+    const body = await validateBody(request, OrganisationContextSchema);
+    const row: OrgContextRow = await upsertContext(ctx, orgId, body);
+    return json(row);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+```
+
+Route handler body: 7 lines (limit: 25).
+
+### 5.2 Service
+
+**File:** `src/app/api/organisations/[id]/context/service.ts`
+
+> **Implementation note (issue #157):** The issue specified the upsert helper should
+> live in `src/lib/supabase/`. During review, this was corrected to follow the
+> established `createApiContext` + co-located `service.ts` pattern. The service
+> receives `ApiContext` (DI) and never creates its own clients.
+
+#### Internal decomposition
+
+```
+Controller (route.ts, 7 lines):
+- const ctx = await createApiContext(request)
+- return json(await upsertContext(ctx, orgId, body))
+
+Service (service.ts):
+- Exported: `upsertContext(ctx: ApiContext, orgId: string, context: OrganisationContext): Promise<OrgContextRow>`
+- Receives ApiContext (DI) — never calls createClient() or any infrastructure factory
+
+  Private helpers:
+  - `assertOrgAdmin(supabase, userId, orgId): Promise<void>` — checks user_organisations via ctx.supabase (RLS-enforced); throws ApiError(403)
+
+> **Constraint:** The service uses ctx.supabase (user client) for auth checks and
+> ctx.adminSupabase (service-role) for the upsert. The admin client is needed because
+> the organisation_contexts table is not in the generated Database types — an untyped
+> SupabaseClient cast is required.
+```
+
+### 5.3 Shared type
+
+**File:** `src/lib/supabase/org-prompt-context.ts`
+
+`OrgContextRow` interface was added here (co-located with `loadOrgPromptContext`) so
+both the read path (#140) and write path (#157) share the same row type.
+
+```typescript
+export interface OrgContextRow {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  context: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+---
+
+## 6. BDD Specifications (#140, #157)
+
+### API write path (#157)
 
 ```
 describe('OrganisationContextSchema')
@@ -343,11 +419,19 @@ describe('loadOrgPromptContext')
 describe('triggerRubricGeneration with organisation context')
   it('passes organisation_context into AssembledArtefactSet when a row exists')
   it('passes undefined organisation_context when no row exists')
+
+describe('PATCH /api/organisations/[id]/context')
+  it('returns 403 when caller is not an admin')
+  it('returns 401 when caller is unauthenticated')
+  it('returns 422 when focus_areas exceeds max 5')
+  it('returns 422 when domain_notes exceeds 500 chars')
+  it('upserts and returns 200 with the context row')
+  it('passes the full context to upsertContext')
 ```
 
 ---
 
-## 6. Tasks
+## 7. Tasks
 
 | # | Task | Files | Size estimate |
 | - | ---- | ----- | ------------- |
@@ -356,5 +440,10 @@ describe('triggerRubricGeneration with organisation context')
 | 6.3 | Prompt builder | `src/lib/engine/prompts/prompt-builder.ts` | ~45 lines |
 | 6.4 | Supabase query helper + assembler injection | `src/lib/supabase/org-prompt-context.ts`, `src/app/api/fcs/service.ts` | ~30 lines |
 
-All four tasks can be implemented in a single `/feature` cycle (total ~140 lines). Issue
-Issue #140 maps to one PR covering all four tasks.
+Tasks 7.1–7.4 were implemented in issue #140. Task 7.5 was implemented in issue #157.
+
+### 7.5 API write path
+
+| Files | Size |
+| ----- | ---- |
+| `src/app/api/organisations/[id]/context/route.ts`, `src/app/api/organisations/[id]/context/service.ts`, `tests/app/api/organisations/[id].context.test.ts` | ~200 lines |
