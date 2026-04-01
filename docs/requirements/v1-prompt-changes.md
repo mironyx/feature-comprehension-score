@@ -20,6 +20,29 @@
 
 This change introduces structured, additive customisation slots that clients can fill — without exposing or competing with the core system prompt.
 
+### Persistence model
+
+Organisation context is stored in a dedicated `organisation_contexts` table (not a column on `organisations`). This keeps the schema extensible: when V2 adds projects, a `project_id` FK can be added to this table without migrating data.
+
+```sql
+CREATE TABLE organisation_contexts (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  project_id  UUID REFERENCES projects(id) ON DELETE CASCADE, -- NULL in Phase 2
+  context     JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, project_id)
+);
+```
+
+**Phase 2 lookup:** `WHERE org_id = $1 AND project_id IS NULL`
+**V2 lookup:** `WHERE org_id = $1 AND project_id = $2`
+
+Context is loaded by the artefact assembler (Supabase adapter layer) at rubric-generation time and injected into `AssembledArtefactSet.organisation_context`. The engine remains pure — it receives the assembled context and formats it; it does not query the DB.
+
+**Separate issue:** A `PATCH /api/organisations/[id]/context` endpoint is tracked separately and allows admin users to create or update the org-level context row.
+
 ### 2a. New type: `OrganisationContext`
 
 **File:** `src/lib/engine/prompts/artefact-types.ts`
