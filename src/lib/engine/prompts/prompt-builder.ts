@@ -76,9 +76,57 @@ export function buildQuestionGenerationPrompt(
   };
 }
 
+export function formatOrganisationContext(
+  artefacts: AssembledArtefactSet,
+): string | undefined {
+  const ctx = artefacts.organisation_context;
+  if (!ctx) return undefined;
+
+  const sections: string[] = [];
+
+  if (ctx.domain_vocabulary?.length) {
+    const terms = ctx.domain_vocabulary
+      .map(v => `- **${v.term}**: ${v.definition}`)
+      .join('\n');
+    sections.push(
+      `### Domain Vocabulary\n\n`
+      + `The following terms have specific meaning `
+      + `in this codebase:\n\n${terms}`,
+    );
+  }
+
+  if (ctx.focus_areas?.length) {
+    const areas = ctx.focus_areas.map(a => `- ${a}`).join('\n');
+    sections.push(
+      `### Focus Areas\n\n`
+      + `The organisation has asked that questions `
+      + `emphasise these areas where possible:\n\n${areas}`,
+    );
+  }
+
+  if (ctx.exclusions?.length) {
+    const excl = ctx.exclusions.map(e => `- ${e}`).join('\n');
+    sections.push(
+      `### Exclusions\n\n`
+      + `Do not generate questions about the following `
+      + `areas (they are being decommissioned or are `
+      + `out of scope):\n\n${excl}`,
+    );
+  }
+
+  if (ctx.domain_notes?.trim()) {
+    sections.push(`### Additional Context\n\n${ctx.domain_notes}`);
+  }
+
+  if (!sections.length) return undefined;
+
+  return `## Organisation Context\n\n${sections.join('\n\n')}`;
+}
+
 function formatUserPrompt(artefacts: AssembledArtefactSet): string {
   const sections: (string | undefined)[] = [
     formatAssessmentContext(artefacts),
+    formatOrganisationContext(artefacts),
     formatPrDescription(artefacts),
     formatLinkedIssues(artefacts),
     formatFileListingTable(artefacts),

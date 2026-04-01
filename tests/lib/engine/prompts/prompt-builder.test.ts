@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildQuestionGenerationPrompt,
   QUESTION_GENERATION_SYSTEM_PROMPT,
+  formatOrganisationContext,
 } from '@/lib/engine/prompts/prompt-builder';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 
@@ -130,6 +131,129 @@ describe('buildQuestionGenerationPrompt', () => {
     const { userPrompt } = buildQuestionGenerationPrompt(fullArtefacts);
 
     expect(userPrompt).not.toContain('## Truncation Notice');
+  });
+});
+
+describe('formatOrganisationContext', () => {
+  const baseArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_diff: 'diff',
+    file_listing: [{ path: 'f.ts', additions: 1, deletions: 0, status: 'added' }],
+    file_contents: [{ path: 'f.ts', content: 'code' }],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  it('returns undefined when no organisation_context provided', () => {
+    expect(formatOrganisationContext(baseArtefacts)).toBeUndefined();
+  });
+
+  it('returns undefined when organisation_context is empty object', () => {
+    const artefacts = { ...baseArtefacts, organisation_context: {} };
+    expect(formatOrganisationContext(artefacts)).toBeUndefined();
+  });
+
+  it('formats domain_vocabulary as term-definition list', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        domain_vocabulary: [
+          { term: 'saga', definition: 'Long-running process coordinator' },
+        ],
+      },
+    };
+    const result = formatOrganisationContext(artefacts);
+    expect(result).toContain('### Domain Vocabulary');
+    expect(result).toContain('**saga**: Long-running process coordinator');
+  });
+
+  it('formats focus_areas as bulleted list', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        focus_areas: ['event-driven message flow', 'API stability'],
+      },
+    };
+    const result = formatOrganisationContext(artefacts);
+    expect(result).toContain('### Focus Areas');
+    expect(result).toContain('- event-driven message flow');
+    expect(result).toContain('- API stability');
+  });
+
+  it('formats exclusions as bulleted list', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        exclusions: ['legacy payment module'],
+      },
+    };
+    const result = formatOrganisationContext(artefacts);
+    expect(result).toContain('### Exclusions');
+    expect(result).toContain('- legacy payment module');
+  });
+
+  it('formats domain_notes as plain text', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        domain_notes: 'This team uses CQRS with event sourcing.',
+      },
+    };
+    const result = formatOrganisationContext(artefacts);
+    expect(result).toContain('### Additional Context');
+    expect(result).toContain('This team uses CQRS with event sourcing.');
+  });
+
+  it('combines multiple sections with correct headings', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        domain_vocabulary: [
+          { term: 'projection', definition: 'Read model built from events' },
+        ],
+        focus_areas: ['data consistency'],
+        exclusions: ['deprecated v1 endpoints'],
+        domain_notes: 'Event sourcing architecture.',
+      },
+    };
+    const result = formatOrganisationContext(artefacts)!;
+    expect(result).toContain('## Organisation Context');
+    expect(result).toContain('### Domain Vocabulary');
+    expect(result).toContain('### Focus Areas');
+    expect(result).toContain('### Exclusions');
+    expect(result).toContain('### Additional Context');
+  });
+});
+
+describe('formatUserPrompt with organisation context', () => {
+  const baseArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_diff: 'diff content here',
+    file_listing: [{ path: 'f.ts', additions: 1, deletions: 0, status: 'added' }],
+    file_contents: [{ path: 'f.ts', content: 'code' }],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  it('includes organisation context before code diff', () => {
+    const artefacts = {
+      ...baseArtefacts,
+      organisation_context: {
+        focus_areas: ['API stability'],
+      },
+    };
+    const { userPrompt } = buildQuestionGenerationPrompt(artefacts);
+    const orgIdx = userPrompt.indexOf('## Organisation Context');
+    const diffIdx = userPrompt.indexOf('## Code Diff');
+    expect(orgIdx).toBeGreaterThan(-1);
+    expect(diffIdx).toBeGreaterThan(orgIdx);
+  });
+
+  it('omits organisation context section when not provided', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt(baseArtefacts);
+    expect(userPrompt).not.toContain('## Organisation Context');
   });
 });
 

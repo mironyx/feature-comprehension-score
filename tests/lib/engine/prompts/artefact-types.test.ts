@@ -5,6 +5,7 @@ import {
   LinkedIssueSchema,
   RawArtefactSetSchema,
   AssembledArtefactSetSchema,
+  OrganisationContextSchema,
 } from '@/lib/engine/prompts/artefact-types';
 
 describe('Artefact input types', () => {
@@ -158,6 +159,46 @@ describe('Artefact input types', () => {
         expect(result.data).not.toHaveProperty('question_count');
         expect(result.data).not.toHaveProperty('artefact_quality');
       }
+    });
+  });
+
+  describe('OrganisationContextSchema', () => {
+    it('accepts valid context with all fields', () => {
+      const result = OrganisationContextSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'saga', definition: 'Long-running process coordinator' },
+        ],
+        focus_areas: ['event-driven message flow'],
+        exclusions: ['legacy payment module'],
+        domain_notes: 'This team uses CQRS with event sourcing.',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts empty context (all fields optional)', () => {
+      const result = OrganisationContextSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects focus_areas with more than 5 items', () => {
+      const result = OrganisationContextSchema.safeParse({
+        focus_areas: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects exclusions with more than 5 items', () => {
+      const result = OrganisationContextSchema.safeParse({
+        exclusions: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects domain_notes longer than 500 characters', () => {
+      const result = OrganisationContextSchema.safeParse({
+        domain_notes: 'x'.repeat(501),
+      });
+      expect(result.success).toBe(false);
     });
   });
 

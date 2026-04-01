@@ -33,10 +33,29 @@ export const RawArtefactSetSchema = z.object({
 });
 export type RawArtefactSet = z.infer<typeof RawArtefactSetSchema>;
 
+export const OrganisationContextSchema = z.object({
+  /** Domain-specific terms the LLM should understand in this codebase's context */
+  domain_vocabulary: z.array(z.object({
+    term: z.string().min(1),
+    definition: z.string().min(1),
+  })).optional(),
+
+  /** Areas the client wants questions to emphasise */
+  focus_areas: z.array(z.string().min(1)).max(5).optional(),
+
+  /** Areas or modules the client wants excluded from assessment */
+  exclusions: z.array(z.string().min(1)).max(5).optional(),
+
+  /** Free-text domain context (capped length — context, not instructions) */
+  domain_notes: z.string().max(500).optional(),
+});
+export type OrganisationContext = z.infer<typeof OrganisationContextSchema>;
+
 export const AssembledArtefactSetSchema = RawArtefactSetSchema.extend({
   question_count: z.number().int().min(3).max(5),
   artefact_quality: ArtefactQualitySchema,
   token_budget_applied: z.boolean(),
   truncation_notes: z.array(z.string()).optional(),
+  organisation_context: OrganisationContextSchema.optional(),
 });
 export type AssembledArtefactSet = z.infer<typeof AssembledArtefactSetSchema>;
