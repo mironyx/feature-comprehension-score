@@ -123,9 +123,11 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   // link_participant runs concurrently with fetchAssessment — it has no dependency on
   // assessment data. fetchParticipant runs after because it queries by user_id which the
   // RPC may have just written.
+  // Uses the user's client (not adminSupabase) so auth.uid() resolves inside the
+  // SECURITY DEFINER function — see #133.
   const [, assessment] = await Promise.all([
     githubUserId
-      ? adminSupabase.rpc('link_participant', { p_assessment_id: assessmentId, p_github_user_id: githubUserId })
+      ? supabase.rpc('link_participant', { p_assessment_id: assessmentId, p_github_user_id: githubUserId })
           .then(({ error }) => { if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort'); })
       : Promise.resolve(),
     fetchAssessment(adminSupabase, assessmentId),
