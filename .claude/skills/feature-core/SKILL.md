@@ -148,7 +148,7 @@ EOF
 PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
 
 # Single cost script call — applies labels to issue + PR and outputs cost summary
-COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER)
+COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER --stage pr)
 
 # Patch the PR body with the actual cost figures (replace TBD placeholders)
 COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')

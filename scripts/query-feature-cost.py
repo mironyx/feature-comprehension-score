@@ -1,13 +1,15 @@
 """Query Prometheus for feature cost/tokens and optionally tag the GitHub issue.
 
 Usage:
-  py scripts/query-feature-cost.py <feature_id> [--issue N] [--pr N] [--final]
+  py scripts/query-feature-cost.py <feature_id> [--issue N] [--pr N] [--stage pr|final]
 
 Arguments:
-  feature_id   Feature ID to look up, e.g. FCS-55
-  --issue N    GitHub issue number; if given, applies an ai-cost:<value> label
-  --pr N       GitHub PR number; if given, also applies labels to PR and outputs time-to-PR
-  --final      Prefix output heading with "Final" (used by feature-end)
+  feature_id     Feature ID to look up, e.g. FCS-55
+  --issue N      GitHub issue number; if given, applies stage-namespaced cost labels
+  --pr N         GitHub PR number; if given, also applies labels to PR and outputs time-to-PR
+  --stage        Label stage: 'pr' (at PR creation) or 'final' (post-merge). Default: pr.
+                 Labels are named ai-cost-<stage>:X, input-tokens-<stage>:X, etc.
+                 Two stages per PR let external tools (e.g. Monocle) measure rework overhead.
 """
 
 import argparse
@@ -136,6 +138,22 @@ def build_time_line(feature_id: str, pr: int) -> str:
     return f"\n- **Time to PR:** {format_duration(elapsed)}"
 
 
+def _fetch_existing_labels(issue: int) -> list[dict]:
+    result = subprocess.run(
+        ["gh", "issue", "view", str(issue), "--json", "labels"],
+        capture_output=True, text=True,
+    )
+    return json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
+
+
+def _fetch_pr_labels(pr: int) -> list[dict]:
+    result = subprocess.run(
+        ["gh", "pr", "view", str(pr), "--json", "labels"],
+        capture_output=True, text=True,
+    )
+    return json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
+
+
 def _remove_stale_labels(issue: int, existing: list[dict], prefix: str, new_label: str) -> None:
     for lbl in existing:
         if lbl["name"].startswith(f"{prefix}:") and lbl["name"] != new_label:
@@ -145,29 +163,42 @@ def _remove_stale_labels(issue: int, existing: list[dict], prefix: str, new_labe
             )
 
 
-def _fetch_existing_labels(issue: int) -> list[dict]:
-    result = subprocess.run(
-        ["gh", "issue", "view", str(issue), "--json", "labels"],
-        capture_output=True, text=True,
+def _remove_stale_pr_labels(pr: int, existing: list[dict], prefix: str, new_label: str) -> None:
+    for lbl in existing:
+        if lbl["name"].startswith(f"{prefix}:") and lbl["name"] != new_label:
+            encoded = urllib.parse.quote(lbl["name"], safe="")
+            subprocess.run(
+                ["gh", "api", f"repos/{{owner}}/{{repo}}/issues/{pr}/labels/{encoded}",
+                 "--method", "DELETE"],
+                capture_output=True,
+            )
+
+
+def _add_pr_label(pr: int, label: str) -> None:
+    subprocess.run(
+        ["gh", "api", f"repos/{{owner}}/{{repo}}/issues/{pr}/labels",
+         "--method", "POST", "-f", f"labels[]={label}"],
+        capture_output=True,
     )
-    return json.loads(result.stdout).get("labels", []) if result.returncode == 0 else []
 
 
-def apply_labels(issue: int, metrics: UsageMetrics, pr: int | None = None) -> None:
+def apply_labels(issue: int, metrics: UsageMetrics, stage: str, pr: int | None = None) -> None:
     labels = [
-        ("ai-cost", f"ai-cost:{metrics.cost:.4f}"),
-        ("input-tokens", f"input-tokens:{int(metrics.inp)}"),
-        ("output-tokens", f"output-tokens:{int(metrics.out)}"),
+        (f"ai-cost-{stage}",       f"ai-cost-{stage}:{metrics.cost:.4f}"),
+        (f"input-tokens-{stage}",  f"input-tokens-{stage}:{int(metrics.inp)}"),
+        (f"output-tokens-{stage}", f"output-tokens-{stage}:{int(metrics.out)}"),
     ]
-    existing = _fetch_existing_labels(issue)
+    existing_issue = _fetch_existing_labels(issue)
+    existing_pr = _fetch_pr_labels(pr) if pr is not None else []
     targets = f"issue #{issue}" + (f", PR #{pr}" if pr is not None else "")
 
     for prefix, label in labels:
         subprocess.run(["gh", "label", "create", label, "--color", "0075ca", "--force"], capture_output=True)
-        _remove_stale_labels(issue, existing, prefix, label)
+        _remove_stale_labels(issue, existing_issue, prefix, label)
         subprocess.run(["gh", "issue", "edit", str(issue), "--add-label", label], capture_output=True)
         if pr is not None:
-            subprocess.run(["gh", "pr", "edit", str(pr), "--add-label", label], capture_output=True)
+            _remove_stale_pr_labels(pr, existing_pr, prefix, label)
+            _add_pr_label(pr, label)
         print(f"Label applied: {label} -> {targets}")
 
 
@@ -176,12 +207,13 @@ def main() -> None:
     parser.add_argument("feature_id", help="e.g. FCS-55")
     parser.add_argument("--issue", type=int, help="GitHub issue number for cost label")
     parser.add_argument("--pr", type=int, help="GitHub PR number to also apply cost labels to")
-    parser.add_argument("--final", action="store_true", help="Mark output as final snapshot")
+    parser.add_argument("--stage", choices=["pr", "final"], default="pr",
+                        help="Label stage suffix: 'pr' at PR creation, 'final' post-merge")
     args = parser.parse_args()
 
     session_ids = read_session_ids(args.feature_id)
     sessions_note = f" ({len(session_ids)} sessions)" if len(session_ids) > 1 else ""
-    heading = "Final " if args.final else ""
+    heading = "Final " if args.stage == "final" else ""
 
     if not session_ids:
         print(f"## {heading}Usage\n- No session data found for {args.feature_id} — session tagging may not have run")
@@ -201,11 +233,11 @@ def main() -> None:
         f" / {int(metrics.cr):,} cache-read / {int(metrics.cc):,} cache-write"
         f"{time_line}"
     )
-    if args.final:
+    if args.stage == "final":
         print("_Compare to PR-creation cost in the PR body to see post-PR rework overhead._")
 
     if args.issue is not None:
-        apply_labels(args.issue, metrics, pr=args.pr)
+        apply_labels(args.issue, metrics, args.stage, pr=args.pr)
 
 
 if __name__ == "__main__":

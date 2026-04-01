@@ -75,14 +75,14 @@ session log.
 Query Prometheus for the full feature total (all sessions since `/feature` started — same
 session IDs registered in the textfile). This is the **final** cost snapshot; comparing it
 to the cost recorded in the PR body at creation time shows how much effort was spent
-post-PR (review fixes, re-runs, etc.). Also updates the `ai-cost:*` label on the issue.
+post-PR (review fixes, re-runs, etc.). Applies `ai-cost-final:*`, `input-tokens-final:*`, and `output-tokens-final:*` labels to the issue and PR (complementing the `*-pr` labels written at PR creation).
 
 Derive the issue number from the git log and run the shared script:
 
 ```bash
 ISSUE=$(git log --oneline -10 | grep -o '#[0-9]*' | head -1 | tr -d '#')
 PR=$(gh pr view --json number --jq .number 2>/dev/null || echo "")
-COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --final)
+COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-$ISSUE --issue $ISSUE ${PR:+--pr $PR} --stage final)
 echo "$COST_OUTPUT"
 ```
 
