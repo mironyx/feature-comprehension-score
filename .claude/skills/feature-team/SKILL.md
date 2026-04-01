@@ -140,7 +140,7 @@ When all teammates have reported their PR URLs, summarise:
 - Each issue → branch → PR URL
 - Any blockers or deferred findings per teammate
 
-**Do NOT send shutdown_request.** Teammates stay alive in their panes, waiting.
+**Do NOT send shutdown_request yet.** Teammates stay alive in their panes, waiting for feature-end.
 
 When the user runs `/feature-end <N>` in the lead pane, forward it to the relevant teammate
 via SendMessage: "Please run `/feature-end <N>`."
@@ -154,6 +154,13 @@ When all are received, summarise:
 - Any notes from individual feature-ends (rebases, review fixes, etc.)
 
 **Only now** is the team fully done. Do not move board items — `/feature-end` handles that.
+
+**Immediately after summarising**, send a shutdown_request to every teammate:
+```
+SendMessage(to="teammate-<N>", message={"type": "shutdown_request", "reason": "Feature-end complete."})
+```
+Send all shutdowns in a single message (parallel tool calls). Do not skip this step — teammates
+left running consume resources and clutter the user's pane.
 
 ## Blocker policy
 
