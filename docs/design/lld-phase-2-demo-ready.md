@@ -8,7 +8,7 @@
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-30 |
-| Revised | 2026-03-31 | Issue #130 |
+| Revised | 2026-03-31 (Issue #130) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [MVP Phase 2](../plans/2026-03-29-mvp-phase2-plan.md) |
 
@@ -67,9 +67,9 @@ export function StatusBadge({ status }: { status: string }): JSX.Element
 >
 > A module-level `STATUS_LABELS: Record<string, string>` lookup table was used instead of a
 > `switch` statement, making it easy to extend without modifying conditional logic.
-
+>
 > **Constraint (resolved):** `rubric_failed` rendering added in #132. StatusBadge shows "Failed" with muted opacity. RetryButton client component shown for admin users.
-
+>
 > **Implementation note (issue #130):** Tests were organised into two new files rather than only
 > updating the existing `assessments.test.ts`:
 > - `tests/app/(authenticated)/assessments/assessment-status.test.ts` — StatusBadge unit tests
