@@ -63,17 +63,23 @@ Create one task per issue:
 Create the entire team in **one instruction** so all teammates start simultaneously.
 Do not spawn them one at a time — that defeats the purpose of parallel execution.
 
-Each teammate **must** be spawned with `mode: "bypassPermissions"` so they run fully
-autonomously without prompting the user for tool-use confirmations.
+**Pre-requisite:** Teammates inherit the lead's permission mode — there is no per-teammate
+override at spawn time. For teammates to run fully autonomously without prompting, the lead
+session **must** have been started with `--dangerously-skip-permissions`:
+
+```bash
+claude --dangerously-skip-permissions
+```
+
+If the lead was not started this way, teammates will prompt for every tool use and parallel
+execution breaks down. Stop, restart the lead with the flag, and re-run `/feature-team`.
 
 Tell the agent teams system something like:
-> "Create a team with N teammates. Teammate 1: [prompt] (mode: bypassPermissions). Teammate 2: [prompt] (mode: bypassPermissions). ..."
+> "Create a team with N teammates. Teammate 1: [prompt]. Teammate 2: [prompt]. ..."
 
 Each teammate receives this self-contained prompt (fill in the placeholders):
 
 > You are implementing issue #N: TITLE
->
-> Design reference: PATH (extracted from issue body)
 >
 > Steps:
 > 1. Create your own branch and worktree:
@@ -98,18 +104,13 @@ Each teammate receives this self-contained prompt (fill in the placeholders):
 >    ```bash
 >    bash scripts/gh-project-status.sh add <N> "in progress"
 >    ```
-> 4. Read the design reference and all related files.
-> 5. Implement with strict TDD (Red-Green-Refactor, one test at a time).
-> 6. Run full verification: `npx vitest run`, `npx tsc --noEmit`, `npm run lint`,
->    `npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5`
-> 7. Commit: `git add <files> && git commit -m "feat: <description> #<N>"`
-> 8. Push and create PR targeting `main`.
-> 9. Run `/pr-review-v2 <pr-number>` and fix any blockers.
-> 10. Report back to the lead with the PR URL and wait — **do not exit**.
-> 11. When the lead sends you a feature-end message, run `/feature-end <N>`.
->     **Follow every step in `/feature-end` without skipping — especially lld-sync (Step 1.5) and session log (Step 2). These are mandatory.**
->
-> Follow all coding principles in CLAUDE.md. Do not ask for confirmation between steps.
+> 4. Run `/feature-core <N>`. This covers everything from reading the design through PR
+>    creation and review. Follow all coding principles in CLAUDE.md. Do not ask for
+>    confirmation between steps.
+> 5. Report back to the lead with the PR URL and wait — **do not exit**.
+> 6. When the lead sends you a feature-end message, run `/feature-end <N>`.
+>    **Follow every step in `/feature-end` without skipping — especially lld-sync (Step 1.5)
+>    and session log (Step 2). These are mandatory.**
 
 ### Step 5: Monitor
 
