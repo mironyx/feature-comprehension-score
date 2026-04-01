@@ -14,6 +14,66 @@ Reads a plan file and produces the design artefacts needed for each item, so `/f
 
 - `/architect` — reads the most recent plan in `docs/plans/`
 - `/architect docs/plans/2026-03-29-mvp-phase2-plan.md` — reads a specific plan
+- `/architect review <issue-number>` — reviews existing design for an issue (see Review mode below)
+
+## Review Mode
+
+If `$ARGUMENTS` starts with `review`, extract the issue number and run the review process instead of the creation process.
+
+**Purpose:** Audit an existing design before handing off to `/feature`. Catches stale references, gaps in contract detail, and contradictions introduced since the design was written.
+
+### Review Step 1: Read the issue and its design artefacts
+
+Run `gh issue view <number>` to get the issue body. Then read all linked artefacts:
+
+- LLD sections referenced in the issue body (`docs/design/`)
+- ADRs referenced (`docs/adr/`)
+- Requirements (`docs/requirements/`)
+- Relevant source files in `src/` — compare actual file paths and patterns against what the LLD specifies
+
+### Review Step 2: Assess design health
+
+Check each of the following and note findings:
+
+| Check | What to look for |
+|-------|-----------------|
+| **Stale file paths** | LLD references files that have been moved, renamed, or deleted |
+| **Pattern drift** | Codebase has adopted new patterns (e.g. `ApiContext`, new auth helpers) that the LLD predates |
+| **ADR conflicts** | Design contradicts a decision recorded in `docs/adr/` after the design was written |
+| **Thin contracts** | Function signatures, types, or internal decomposition are vague or missing — would block a `/feature` agent |
+| **Missing BDD specs** | No `describe`/`it` blocks for an agent to implement against |
+| **Uncovered acceptance criteria** | Acceptance criteria in the issue have no corresponding design detail |
+
+### Review Step 3: Report and optionally patch
+
+Present a concise health report:
+
+```
+## Design health — #<issue>: <title>
+
+### Findings
+| # | Severity | Check | Detail |
+|---|----------|-------|--------|
+| 1 | High/Med/Low | <check> | <what's wrong and where> |
+
+### Verdict
+Ready for /feature | Needs patches before /feature
+```
+
+Severity guide: **High** = would cause a `/feature` agent to implement incorrectly or get stuck. **Med** = gap or ambiguity that needs resolving. **Low** = minor stale reference, cosmetic.
+
+If there are High or Med findings, offer to patch the affected docs in place. **Wait for user confirmation before making any changes.**
+
+After patching, commit:
+
+```bash
+git add <specific-files>
+git commit -m "docs: design health patch for #<issue> — <summary>"
+```
+
+**Stop after the report (and any approved patches).** Do not proceed to the creation process.
+
+---
 
 ## Decision Logic
 
