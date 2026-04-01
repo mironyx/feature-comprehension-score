@@ -305,7 +305,7 @@ playwright.config.ts         — loads .env.test.local, configures standalone we
 > forms render as inert HTML. A `postbuild` script in `package.json` copies static assets.
 > Additionally, `NEXT_PUBLIC_*` vars are baked at build time (including in middleware), so
 > the build must use local Supabase env vars for E2E tests to authenticate correctly.
-
+>
 > **Constraint:** All external APIs must be mocked. The test must pass in CI without real GitHub OAuth, real LLM, or real GitHub API access.
 >
 > **Constraint:** Depends on items 1-5 being complete. Do not implement until the happy path works manually.
