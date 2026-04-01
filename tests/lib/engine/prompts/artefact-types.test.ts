@@ -5,6 +5,7 @@ import {
   LinkedIssueSchema,
   RawArtefactSetSchema,
   AssembledArtefactSetSchema,
+  OrganisationContextSchema,
 } from '@/lib/engine/prompts/artefact-types';
 
 describe('Artefact input types', () => {
@@ -161,6 +162,55 @@ describe('Artefact input types', () => {
     });
   });
 
+  describe('OrganisationContextSchema', () => {
+    it('accepts a valid context with all four fields', () => {
+      const result = OrganisationContextSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'FCS', definition: 'Feature Comprehension Score' },
+        ],
+        focus_areas: ['security', 'performance'],
+        exclusions: ['legacy-module'],
+        domain_notes: 'We use event sourcing throughout.',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts an empty object — all fields are optional', () => {
+      const result = OrganisationContextSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects focus_areas with more than 5 items', () => {
+      const result = OrganisationContextSchema.safeParse({
+        focus_areas: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects exclusions with more than 5 items', () => {
+      const result = OrganisationContextSchema.safeParse({
+        exclusions: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects domain_notes longer than 500 characters', () => {
+      const result = OrganisationContextSchema.safeParse({
+        domain_notes: 'x'.repeat(501),
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects a domain_vocabulary entry missing term or definition', () => {
+      expect(OrganisationContextSchema.safeParse({
+        domain_vocabulary: [{ definition: 'only def' }],
+      }).success).toBe(false);
+      expect(OrganisationContextSchema.safeParse({
+        domain_vocabulary: [{ term: 'only term' }],
+      }).success).toBe(false);
+    });
+  });
+
   describe('AssembledArtefactSetSchema', () => {
     const rawBase = {
       artefact_type: 'pull_request' as const,
@@ -249,6 +299,23 @@ describe('Artefact input types', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.truncation_notes).toBeUndefined();
+      }
+    });
+
+    it('accepts optional organisation_context', () => {
+      const result = AssembledArtefactSetSchema.safeParse({
+        ...rawBase,
+        question_count: 3,
+        artefact_quality: 'code_only',
+        token_budget_applied: false,
+        organisation_context: {
+          focus_areas: ['security'],
+          domain_notes: 'Event sourcing codebase.',
+        },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.organisation_context?.focus_areas).toEqual(['security']);
       }
     });
   });

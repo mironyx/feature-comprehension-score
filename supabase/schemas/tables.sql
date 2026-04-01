@@ -280,6 +280,23 @@ CREATE TABLE fcs_merged_prs (
 
 CREATE INDEX idx_fcs_prs_assessment ON fcs_merged_prs (assessment_id);
 
+-- organisation_contexts: per-org (Phase 2) or per-project (V2) prompt customisation.
+-- project_id is NULL in Phase 2. V2 adds project-level rows without a data migration.
+-- Design reference: docs/design/lld-organisation-context.md §2
+-- ADR: docs/adr/0017-organisation-contexts-separate-table.md
+-- Issue: #140
+CREATE TABLE organisation_contexts (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  project_id  uuid,  -- NULL in Phase 2; FK to projects(id) added in V2
+  context     jsonb NOT NULL DEFAULT '{}',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (org_id, project_id)
+);
+
+CREATE INDEX idx_org_contexts_org ON organisation_contexts (org_id);
+
 -- sync_debounce: tracks pending synchronize webhook events during the 60-second debounce window
 -- (Story 2.8). Partial unique index ensures only one active record exists per PR.
 CREATE TABLE sync_debounce (

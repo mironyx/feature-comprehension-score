@@ -133,6 +133,114 @@ describe('buildQuestionGenerationPrompt', () => {
   });
 });
 
+describe('formatOrganisationContext in user prompt', () => {
+  const baseArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_description: 'Some PR',
+    pr_diff: 'diff',
+    file_listing: [{ path: 'f.ts', additions: 1, deletions: 0, status: 'added' }],
+    file_contents: [{ path: 'f.ts', content: 'code' }],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  it('returns no Organisation Context section when organisation_context is not present', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt(baseArtefacts);
+    expect(userPrompt).not.toContain('## Organisation Context');
+  });
+
+  it('returns no Organisation Context section when organisation_context is an empty object', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: {},
+    });
+    expect(userPrompt).not.toContain('## Organisation Context');
+  });
+
+  it('formats domain_vocabulary as a term-definition list', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: {
+        domain_vocabulary: [
+          { term: 'FCS', definition: 'Feature Comprehension Score' },
+          { term: 'PRCC', definition: 'PR Comprehension Check' },
+        ],
+      },
+    });
+    expect(userPrompt).toContain('### Domain Vocabulary');
+    expect(userPrompt).toContain('- **FCS**: Feature Comprehension Score');
+    expect(userPrompt).toContain('- **PRCC**: PR Comprehension Check');
+  });
+
+  it('formats focus_areas as a bulleted list under the correct heading', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: { focus_areas: ['security', 'performance'] },
+    });
+    expect(userPrompt).toContain('### Focus Areas');
+    expect(userPrompt).toContain('- security');
+    expect(userPrompt).toContain('- performance');
+  });
+
+  it('formats exclusions as a bulleted list under the correct heading', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: { exclusions: ['legacy-module'] },
+    });
+    expect(userPrompt).toContain('### Exclusions');
+    expect(userPrompt).toContain('- legacy-module');
+  });
+
+  it('formats domain_notes as plain text under Additional Context', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: { domain_notes: 'We use event sourcing.' },
+    });
+    expect(userPrompt).toContain('### Additional Context');
+    expect(userPrompt).toContain('We use event sourcing.');
+  });
+
+  it('combines multiple sections with correct headings and spacing', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: {
+        focus_areas: ['security'],
+        exclusions: ['legacy'],
+        domain_notes: 'Notes here.',
+      },
+    });
+    expect(userPrompt).toContain('## Organisation Context');
+    expect(userPrompt).toContain('### Focus Areas');
+    expect(userPrompt).toContain('### Exclusions');
+    expect(userPrompt).toContain('### Additional Context');
+  });
+
+  it('omits a section whose array is empty', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: {
+        focus_areas: [],
+        exclusions: ['legacy'],
+      },
+    });
+    expect(userPrompt).not.toContain('### Focus Areas');
+    expect(userPrompt).toContain('### Exclusions');
+  });
+
+  it('includes Organisation Context before PR description', () => {
+    const { userPrompt } = buildQuestionGenerationPrompt({
+      ...baseArtefacts,
+      organisation_context: { focus_areas: ['security'] },
+    });
+    const orgIdx = userPrompt.indexOf('## Organisation Context');
+    const prIdx = userPrompt.indexOf('## PR Description');
+    expect(orgIdx).toBeGreaterThan(-1);
+    expect(prIdx).toBeGreaterThan(-1);
+    expect(orgIdx).toBeLessThan(prIdx);
+  });
+});
+
 describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
   it('contains all three Naur layer definitions', () => {
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('World-to-program mapping');
