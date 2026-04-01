@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { OrganisationContextSchema } from '@/lib/engine/prompts';
 import type { OrganisationContext } from '@/lib/engine/prompts';
-import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { logger } from '@/lib/logger';
 
 export interface OrgContextRow {
@@ -38,26 +37,4 @@ export async function loadOrgPromptContext(
   }
 
   return parsed.data;
-}
-
-/**
- * Upsert the org-level prompt context row (project_id IS NULL).
- * Uses the service-role client to bypass RLS for the insert/update.
- */
-export async function upsertOrgContext(
-  orgId: string,
-  context: OrganisationContext,
-): Promise<OrgContextRow> {
-  const supabase: SupabaseClient = createSecretSupabaseClient();
-  const { data, error } = await supabase
-    .from('organisation_contexts')
-    .upsert(
-      { org_id: orgId, project_id: null, context, updated_at: new Date().toISOString() },
-      { onConflict: 'org_id,project_id' },
-    )
-    .select()
-    .single();
-
-  if (error) throw new Error(`upsertOrgContext: ${error.message}`);
-  return data as OrgContextRow;
 }

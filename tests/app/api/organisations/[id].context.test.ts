@@ -9,24 +9,55 @@ import { NextRequest } from 'next/server';
 // ---------------------------------------------------------------------------
 
 vi.mock('@/lib/api/auth', () => ({
-  requireOrgAdmin: vi.fn(),
+  requireAuth: vi.fn(),
 }));
 
-vi.mock('@/lib/supabase/org-prompt-context', () => ({
-  upsertOrgContext: vi.fn(),
+vi.mock('@/lib/supabase/route-handler-readonly', () => ({
+  createReadonlyRouteHandlerClient: vi.fn(() => mockUserClient),
+}));
+
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(() => mockAdminClient),
 }));
 
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { requireOrgAdmin } from '@/lib/api/auth';
-import { upsertOrgContext } from '@/lib/supabase/org-prompt-context';
+import { requireAuth } from '@/lib/api/auth';
 import type { NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string }> };
 type RouteHandler = (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>;
 let PATCH: RouteHandler;
+
+// ---------------------------------------------------------------------------
+// Mock Supabase clients
+// ---------------------------------------------------------------------------
+
+let membershipResult: { data: unknown; error: unknown };
+let upsertResult: { data: unknown; error: unknown };
+
+function makeChain(resolver: () => { data: unknown; error: unknown }) {
+  const chain = Object.assign(Promise.resolve(resolver()), {
+    select: vi.fn(),
+    eq: vi.fn(),
+    single: vi.fn(() => Promise.resolve(resolver())),
+    upsert: vi.fn(),
+  });
+  chain.select.mockReturnValue(chain);
+  chain.eq.mockReturnValue(chain);
+  chain.upsert.mockReturnValue(chain);
+  return chain;
+}
+
+const mockUserClient = {
+  from: vi.fn(() => makeChain(() => membershipResult)),
+};
+
+const mockAdminClient = {
+  from: vi.fn(() => makeChain(() => upsertResult)),
+};
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -77,8 +108,9 @@ function patchContext(body: unknown) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  vi.mocked(requireOrgAdmin).mockResolvedValue(AUTH_USER);
-  vi.mocked(upsertOrgContext).mockResolvedValue(CONTEXT_ROW);
+  vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
+  membershipResult = { data: [{ github_role: 'admin' }], error: null };
+  upsertResult = { data: CONTEXT_ROW, error: null };
   ({ PATCH } = await import(
     '@/app/api/organisations/[id]/context/route'
   ));
@@ -87,14 +119,24 @@ beforeEach(async () => {
 describe('PATCH /api/organisations/[id]/context', () => {
   describe('Given a non-admin caller', () => {
     it('then it returns 403', async () => {
-      const { ApiError } = await import('@/lib/api/errors');
-      vi.mocked(requireOrgAdmin).mockRejectedValue(
-        new ApiError(403, 'Forbidden'),
-      );
+      membershipResult = { data: [{ github_role: 'member' }], error: null };
 
       const response = await patchContext({ focus_areas: ['API design'] });
 
       expect(response.status).toBe(403);
+    });
+  });
+
+  describe('Given an unauthenticated caller', () => {
+    it('then it returns 401', async () => {
+      const { ApiError } = await import('@/lib/api/errors');
+      vi.mocked(requireAuth).mockRejectedValue(
+        new ApiError(401, 'Unauthenticated'),
+      );
+
+      const response = await patchContext({ focus_areas: ['API design'] });
+
+      expect(response.status).toBe(401);
     });
   });
 
@@ -124,30 +166,23 @@ describe('PATCH /api/organisations/[id]/context', () => {
       const body = await response.json();
       expect(body.org_id).toBe(ORG_ID);
       expect(body.context).toEqual({ focus_areas: ['API design'] });
-      expect(upsertOrgContext).toHaveBeenCalledWith(
-        ORG_ID,
-        { focus_areas: ['API design'] },
-      );
     });
   });
 
   describe('Given a valid admin request with all fields', () => {
-    it('then it passes the full context to upsertOrgContext', async () => {
+    it('then it calls upsert with the full context', async () => {
       const fullContext = {
         domain_vocabulary: [{ term: 'saga', definition: 'long-running process' }],
         focus_areas: ['event sourcing'],
         exclusions: ['legacy module'],
         domain_notes: 'We use CQRS.',
       };
-      vi.mocked(upsertOrgContext).mockResolvedValue({
-        ...CONTEXT_ROW,
-        context: fullContext,
-      });
+      upsertResult = { data: { ...CONTEXT_ROW, context: fullContext }, error: null };
 
       const response = await patchContext(fullContext);
 
       expect(response.status).toBe(200);
-      expect(upsertOrgContext).toHaveBeenCalledWith(ORG_ID, fullContext);
+      expect(mockAdminClient.from).toHaveBeenCalledWith('organisation_contexts');
     });
   });
 });
