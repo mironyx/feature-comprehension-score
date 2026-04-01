@@ -89,10 +89,15 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
   const chain = Object.assign(Promise.resolve(resolver()), {
     select: vi.fn(),
     eq: vi.fn(),
+    is: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
+    maybeSingle: vi.fn(() => Promise.resolve(resolver())),
+    update: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
+  chain.is.mockReturnValue(chain);
+  chain.update.mockReturnValue(chain);
   return chain;
 }
 

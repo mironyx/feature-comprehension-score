@@ -124,6 +124,23 @@ ALTER TABLE fcs_merged_prs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fcs_prs_select_member ON fcs_merged_prs
   FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
 
+-- organisation_contexts: members can read their org's context; only admins can write.
+-- Design reference: docs/design/lld-organisation-context.md §2.2
+-- Issue: #140
+ALTER TABLE organisation_contexts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY org_contexts_select_member ON organisation_contexts
+  FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
+
+CREATE POLICY org_contexts_insert_admin ON organisation_contexts
+  FOR INSERT WITH CHECK (is_org_admin(org_id));
+
+CREATE POLICY org_contexts_update_admin ON organisation_contexts
+  FOR UPDATE USING (is_org_admin(org_id));
+
+CREATE POLICY org_contexts_delete_admin ON organisation_contexts
+  FOR DELETE USING (is_org_admin(org_id));
+
 -- sync_debounce: no user-facing policies. Accessed exclusively via the webhook handler
 -- (service role).
 ALTER TABLE sync_debounce ENABLE ROW LEVEL SECURITY;

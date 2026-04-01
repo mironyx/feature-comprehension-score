@@ -79,6 +79,7 @@ export function buildQuestionGenerationPrompt(
 function formatUserPrompt(artefacts: AssembledArtefactSet): string {
   const sections: (string | undefined)[] = [
     formatAssessmentContext(artefacts),
+    formatOrganisationContext(artefacts),
     formatPrDescription(artefacts),
     formatLinkedIssues(artefacts),
     formatFileListingTable(artefacts),
@@ -94,6 +95,56 @@ function formatUserPrompt(artefacts: AssembledArtefactSet): string {
 
 function formatAssessmentContext(artefacts: AssembledArtefactSet): string {
   return `## Assessment Context\n\n- Type: ${artefacts.artefact_type}\n- Question count: ${artefacts.question_count}`;
+}
+
+function formatBulletList(items: string[]): string {
+  return items.map(i => `- ${i}`).join('\n');
+}
+
+function formatVocabulary(
+  ctx: NonNullable<AssembledArtefactSet['organisation_context']>,
+): string | undefined {
+  if (!ctx.domain_vocabulary?.length) return undefined;
+  const terms = ctx.domain_vocabulary.map(v => `- **${v.term}**: ${v.definition}`).join('\n');
+  return `### Domain Vocabulary\n\nThe following terms have specific meaning in this codebase:\n\n${terms}`;
+}
+
+function formatFocusAreas(
+  ctx: NonNullable<AssembledArtefactSet['organisation_context']>,
+): string | undefined {
+  if (!ctx.focus_areas?.length) return undefined;
+  return `### Focus Areas\n\nThe organisation has asked that questions emphasise these areas where possible:\n\n${formatBulletList(ctx.focus_areas)}`;
+}
+
+function formatExclusions(
+  ctx: NonNullable<AssembledArtefactSet['organisation_context']>,
+): string | undefined {
+  if (!ctx.exclusions?.length) return undefined;
+  return `### Exclusions\n\nDo not generate questions about the following areas:\n\n${formatBulletList(ctx.exclusions)}`;
+}
+
+function formatDomainNotes(
+  ctx: NonNullable<AssembledArtefactSet['organisation_context']>,
+): string | undefined {
+  if (!ctx.domain_notes?.trim()) return undefined;
+  return `### Additional Context\n\n${ctx.domain_notes}`;
+}
+
+function formatOrganisationContext(
+  artefacts: AssembledArtefactSet,
+): string | undefined {
+  const ctx = artefacts.organisation_context;
+  if (!ctx) return undefined;
+
+  const sections = [
+    formatVocabulary(ctx),
+    formatFocusAreas(ctx),
+    formatExclusions(ctx),
+    formatDomainNotes(ctx),
+  ].filter(Boolean);
+
+  if (!sections.length) return undefined;
+  return `## Organisation Context\n\n${sections.join('\n\n')}`;
 }
 
 function formatPrDescription(artefacts: AssembledArtefactSet): string | undefined {
