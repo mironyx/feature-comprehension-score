@@ -6,6 +6,7 @@
 |-------|-------|
 | Version | 0.1 |
 | Status | Draft — awaiting human approval |
+| Issue | [#171](https://github.com/leonids2005/feature-comprehension-score/issues/171) |
 | Author | LS / Claude |
 | Created | 2026-04-01 |
 | Applies to | All pages under `src/app/` |

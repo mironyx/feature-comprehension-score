@@ -207,14 +207,14 @@ src/lib/supabase/
   server.ts            — server component client (new)
   route-handler.ts     — route handler client (new)
   middleware.ts        — middleware client (new)
-  service-role.ts      — service role client (new)
+  secret.ts            — service role client (new)
 ```
 
 > **Implementation note (issue #52):** `env.ts` was added as a shared module to eliminate
 > copy-pasted env var validation across all four client files. It exports `supabaseUrl` and
 > `supabasePublishableKey` using a `?? IIFE` pattern that narrows the type to `string` (TypeScript
 > does not narrow across conditional throws without the IIFE). The service role key is
-> intentionally **not** exported from `env.ts` — it is consumed only in `service-role.ts` to
+> intentionally **not** exported from `env.ts` — it is consumed only in `secret.ts` to
 > prevent accidental use elsewhere.
 >
 > **Post-implementation correction (issue #82, smoke test):** The original `env.ts` used
@@ -274,7 +274,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 **Provider token capture:** The provider token is only available during the initial OAuth callback — Supabase does not store it. The RPC call is made directly from the GET handler:
 
 ```typescript
-const serviceClient = createServiceRoleSupabaseClient();
+const serviceClient = createSecretSupabaseClient();
 await serviceClient.rpc('store_github_token', {
   p_user_id: user.id,
   p_token: provider_token,
@@ -1470,7 +1470,7 @@ describe('Supabase service role client')
 - `src/lib/supabase/server.ts` — server component client
 - `src/lib/supabase/route-handler.ts` — route handler client
 - `src/lib/supabase/middleware.ts` — middleware client
-- `src/lib/supabase/service-role.ts` — service role client (uses `@supabase/supabase-js`, not `@supabase/ssr`)
+- `src/lib/supabase/secret.ts` — service role client (uses `@supabase/supabase-js`, not `@supabase/ssr`)
 - `src/lib/supabase/client.ts` — updated to import from `env.ts`
 - `tests/setup.ts` — env var fallbacks required so module-level validation in `env.ts` does not throw during unit test import
 

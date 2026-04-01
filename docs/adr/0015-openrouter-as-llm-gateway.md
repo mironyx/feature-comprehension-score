@@ -79,10 +79,10 @@ The `generateStructured` method implementation remains structurally identical �
 - **Easier:** Fallback routing (e.g. if Anthropic is degraded) can be configured in OpenRouter without code changes.
 - **Harder:** OpenRouter becomes a new infrastructure dependency. If OpenRouter is unavailable, all LLM calls fail even if Anthropic is healthy.
 - **Harder:** Debugging requires checking both OpenRouter and the underlying provider's status.
-- **Follow-up:** Remove `@anthropic-ai/sdk` from `package.json`; add `openai` package if not already present.
-- **Follow-up:** Update `.env.example`, deployment docs, and CI secrets to replace `ANTHROPIC_API_KEY` with `OPENROUTER_API_KEY`.
-- **Follow-up:** Update `src/lib/engine/llm/client.ts` — replace `AnthropicClient` with `OpenRouterClient`.
-- **Follow-up:** Update integration tests and fixtures to reflect OpenRouter response shapes (which mirror OpenAI format, not Anthropic's native format).
+- **Done:** Removed `@anthropic-ai/sdk` from `package.json`; `openai` package added.
+- **Done:** Updated `.env.example`, deployment docs, and CI secrets to use `OPENROUTER_API_KEY`.
+- **Done:** Replaced `AnthropicClient` with `OpenRouterClient` in `src/lib/engine/llm/client.ts`.
+- **Done:** Updated integration tests and fixtures to reflect OpenRouter (OpenAI-compatible) response shapes.
 - **Not doing:** We are not building a multi-provider fallback within the application. OpenRouter handles this at the gateway level.
 - **Supersedes:** ADR-0012 in so far as the concrete adapter implementation is concerned. The `LLMClient` interface contract defined in ADR-0012 remains valid and unchanged.
 
@@ -90,6 +90,6 @@ The `generateStructured` method implementation remains structurally identical �
 
 - ADR-0012: LLM Client Interface Design and Model Default (interface contract unchanged; adapter replaced)
 - ADR-0010: LLM Response Validation Strategy (Zod validation unchanged)
-- `src/lib/engine/llm/client.ts` — `AnthropicClient` to be replaced by `OpenRouterClient`
+- `src/lib/engine/llm/client.ts` — `OpenRouterClient` (replacement complete)
 - `src/lib/engine/llm/types.ts` — `LLMClient` interface (unchanged)
 - <https://openrouter.ai/docs> — OpenRouter API documentation

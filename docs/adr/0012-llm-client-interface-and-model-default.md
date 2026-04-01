@@ -73,13 +73,15 @@ This aligns with ADR-0010's decision to use Zod as the single source of truth fo
 
 ### V1 default model
 
-The `AnthropicClient` adapter defaults to `claude-sonnet-4-5-20250514` (line 43 of `src/lib/engine/llm/client.ts`). This is the V1 production model, selected for:
+> **Superseded:** The concrete adapter is now `OpenRouterClient` (see [ADR-0015](0015-openrouter-as-llm-gateway.md)). The default model is `anthropic/claude-sonnet-4-6` (OpenRouter format). The interface contract and model-default rationale below remain valid.
 
-- **Cost/quality balance** — Sonnet 4.5 provides strong reasoning for scoring and question generation at lower cost than Opus-class.
+The adapter defaults to a specific Claude Sonnet model. This is the V1 production model, selected for:
+
+- **Cost/quality balance** — Sonnet provides strong reasoning for scoring and question generation at lower cost than Opus-class.
 - **Structured output reliability** — tested against all three response schemas (question generation, scoring, relevance) with acceptable first-attempt success rates.
-- **Availability** — generally available Anthropic model with predictable latency.
+- **Availability** — generally available model with predictable latency.
 
-When this model identifier becomes stale (new Claude model versions), update the default in `AnthropicClient` and re-run the engine test suite to verify schema compliance. The model string is intentionally not externalised to environment configuration in V1 — it is a tested, validated default, not an arbitrary setting.
+When this model identifier becomes stale (new Claude model versions), update the default in `OpenRouterClient` and re-run the engine test suite to verify schema compliance. The model string is intentionally not externalised to environment configuration in V1 — it is a tested, validated default, not an arbitrary setting.
 
 ## Consequences
 
@@ -94,5 +96,5 @@ When this model identifier becomes stale (new Claude model versions), update the
 
 - ADR-0010: LLM Response Validation Strategy (Zod as source of truth)
 - `src/lib/engine/llm/types.ts` — `LLMClient` interface, `LLMResult<T>`
-- `src/lib/engine/llm/client.ts` — `AnthropicClient` adapter
+- `src/lib/engine/llm/client.ts` — `OpenRouterClient` adapter (formerly `AnthropicClient`, replaced per ADR-0015)
 - Requirements: Story 4.1 (question generation), Story 4.2 (answer scoring)

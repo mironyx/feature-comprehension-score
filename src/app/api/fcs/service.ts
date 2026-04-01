@@ -15,6 +15,7 @@ import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
@@ -277,7 +278,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
       source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
-    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: 'code_only', token_budget_applied: false, organisation_context };
+    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context };
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');

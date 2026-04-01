@@ -1,7 +1,6 @@
 // PATCH /api/organisations/[id]/context — upsert service.
 // Design reference: docs/requirements/v1-prompt-changes.md §Change 2
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ApiContext } from '@/lib/api/context';
 import type { OrganisationContext } from '@/lib/engine/prompts';
 import { ApiError } from '@/lib/api/errors';
@@ -29,7 +28,7 @@ export async function upsertContext(
 ): Promise<OrgContextRow> {
   await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
 
-  const supabase: SupabaseClient = ctx.adminSupabase;
+  const supabase = ctx.adminSupabase;
   const { data, error } = await supabase
     .from('organisation_contexts')
     .upsert(

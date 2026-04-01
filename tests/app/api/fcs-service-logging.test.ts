@@ -190,7 +190,7 @@ describe('FCS service LLM logging', () => {
         expect.objectContaining({
           fileCount: 2,
           testFileCount: 1,
-          artefactQuality: 'code_only',
+          artefactQuality: 'code_and_tests',
           questionCount: 5,
           tokenBudgetApplied: false,
         }),

@@ -914,6 +914,7 @@ Links to ADRs that informed these requirements:
 | ADR-0006 | Soft/Hard enforcement modes |
 | ADR-0007 | PR size threshold criteria (lines vs files vs combination) |
 | ADR-0008 | Data model & multi-tenancy approach |
+| ADR-0016 | Structured logging with Pino (observability cross-cutting concern) |
 
 ---
 

@@ -170,9 +170,9 @@ Backend-as-a-service providing three sub-components:
 
 We do NOT use Supabase Realtime or Storage in V1.
 
-### Component 4: Anthropic Claude API
+### Component 4: OpenRouter (LLM Gateway)
 
-External LLM service. Three distinct call patterns:
+External LLM gateway proxying to Anthropic Claude and other models (see [ADR-0015](../adr/0015-openrouter-as-llm-gateway.md)). Three distinct call patterns:
 
 | Call type | Input | Output | When |
 |-----------|-------|--------|------|
@@ -225,6 +225,8 @@ V1 approach TBD — could be Supabase Edge Functions + Resend, or a simple trans
 ```
 
 **Key point:** The Assessment Engine is a shared library *within* the Next.js app, not a separate service. It is called by both the webhook handler (PRCC) and the API routes (FCS). No microservices.
+
+**Observability:** Structured logging uses Pino (`src/lib/logger.ts`) with JSON output, per [ADR-0016](../adr/0016-structured-logging-pino.md). All LLM calls and service-layer operations are logged with structured context (assessment ID, org ID, duration).
 
 **Status:** Approved.
 
@@ -875,7 +877,8 @@ CREATE TABLE assessments (
   status                   text NOT NULL DEFAULT 'created'
                               CHECK (status IN (
                                 'created', 'rubric_generation',
-                                'generation_failed', 'awaiting_responses',
+                                'generation_failed', 'rubric_failed',
+                                'awaiting_responses',
                                 'scoring', 'completed',
                                 'invalidated', 'skipped'
                               )),
@@ -1421,7 +1424,7 @@ All API routes use Next.js App Router route handlers (`app/api/.../route.ts`). A
 
 ```typescript
 type AssessmentStatus =
-  | 'created' | 'rubric_generation' | 'generation_failed'
+  | 'created' | 'rubric_generation' | 'generation_failed' | 'rubric_failed'
   | 'awaiting_responses' | 'scoring' | 'completed'
   | 'invalidated' | 'skipped'
 

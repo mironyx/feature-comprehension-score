@@ -91,6 +91,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      organisation_contexts: {
+        Row: {
+          id: string;
+          org_id: string;
+          project_id: string | null;
+          context: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          project_id?: string | null;
+          context?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          project_id?: string | null;
+          context?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       repositories: {
         Row: {
           id: string;

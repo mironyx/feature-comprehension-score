@@ -31,7 +31,7 @@ LLM user prompt at rubric-generation time.
 | Settings UI      | #158  | Admin panel to view and edit context               |
 
 §1–§4 cover issue #140 (DB + engine). §5 covers issue #157 (API write path).
-§6 (settings UI, issue #158) will be added when architected.
+§6 (settings UI, issue #158) is **intentionally deferred** — design will be written when #158 is scheduled for implementation. Not in scope for the current phase.
 
 ---
 

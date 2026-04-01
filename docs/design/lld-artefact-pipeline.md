@@ -696,21 +696,10 @@ audience in mind.
    docs during repo setup. These are included as `context_files` in the artefact
    set and elevate quality classification to `code_requirements_and_design`.
 
-3. **FCS multi-PR token budget** — With multiple PRs, the total artefact size grows
-   linearly. Global truncation across all merged PRs (not per-PR budgets) is the
-   current approach. Is this sufficient?
+3. ~~**FCS multi-PR token budget**~~ — **Resolved.** Global truncation across all merged PRs (not per-PR budgets) is the accepted V1 approach. The generous token budget (100k of 200k) and the truncation utility (`truncate.ts`) handle multi-PR scenarios adequately. No per-PR budgets needed for V1.
 
 4. **Top N file count** — Default `maxFiles: 10` for full content fetching. Is this
    the right number? Too few and the LLM lacks context; too many and we waste tokens
    on low-value files. Configurable per org, or fixed for V1?
 
-7. **Cross-section file deduplication** — A file that matches a context pattern (§2.5)
-   and is also one of the top-N changed files will appear in both `context_files`
-   (under `## Context Documents`) and `file_contents` (under `## Changed Files Selected`)
-   in the assembled prompt. No cross-section deduplication exists today. The duplication
-   wastes tokens and may confuse question generation. Options: (a) exclude from
-   `file_contents` any path already present in `context_files`; (b) exclude from
-   `context_files` any path already in `file_contents` (context version still wins
-   because it may carry the baseline version); (c) accept the duplication — the
-   file appears once as a design doc and once as changed source, which may add signal.
-   Decision needed before the FCS flow is built end-to-end.
+7. ~~**Cross-section file deduplication**~~ — **Resolved (accepted as-is).** The FCS flow is live with no cross-section deduplication. In practice, the overlap is rare (context files are typically design docs, not changed source files) and the generous token budget absorbs any duplication without hitting limits. Accepted as a known limitation for V1; revisit if token budget issues arise.
