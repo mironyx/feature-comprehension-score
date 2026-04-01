@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: #0d0f14;
+  --color-surface: #141720;
+  --color-surface-raised: #1d2232;
+  --color-border: #252b3b;
+  --color-text-primary: #e8eaf0;
+  --color-text-secondary: #7a8499;
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+  --color-accent-muted: #92400e;
+  --color-destructive: #ef4444;
+  --color-destructive-muted: #450a0a;
+  --color-success: #22c55e;
+}
