@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { OrganisationContextSchema } from '@/lib/engine/prompts';
 import type { OrganisationContext } from '@/lib/engine/prompts';
+import { logger } from '@/lib/logger';
 
 /**
  * Loads the org-level prompt context for rubric generation.
@@ -21,7 +22,10 @@ export async function loadOrgPromptContext(
   if (!data) return undefined;
 
   const parsed = OrganisationContextSchema.safeParse(data.context);
-  if (!parsed.success) return undefined;
+  if (!parsed.success) {
+    logger.warn({ orgId, issues: parsed.error.issues }, 'loadOrgPromptContext: invalid context shape, skipping');
+    return undefined;
+  }
 
   return parsed.data;
 }

@@ -1,7 +1,12 @@
 // Tests for loadOrgPromptContext — loads organisation prompt context for rubric generation.
 // Design reference: docs/design/lld-organisation-context.md §4.1
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/logger', () => ({
+  logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 
 // ---------------------------------------------------------------------------

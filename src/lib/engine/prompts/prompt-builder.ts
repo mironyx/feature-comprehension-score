@@ -97,6 +97,9 @@ function formatAssessmentContext(artefacts: AssembledArtefactSet): string {
   return `## Assessment Context\n\n- Type: ${artefacts.artefact_type}\n- Question count: ${artefacts.question_count}`;
 }
 
+// Justification: formatBulletList and the four section formatters below decompose
+// formatOrganisationContext (LLD §3.2) to keep cyclomatic complexity under the
+// CodeScene threshold (cc ≤ 9). Each formats one optional context slot.
 function formatBulletList(items: string[]): string {
   return items.map(i => `- ${i}`).join('\n');
 }
