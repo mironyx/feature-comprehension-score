@@ -1,7 +1,7 @@
 // Authenticated layout — wraps all authenticated pages with navigation bar.
 // Redirects unauthenticated users and those without an org selected.
-// Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issue: #62
+// Design reference: docs/design/frontend-system.md § Layout Shell
+// Issue: #62, #165
 
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
@@ -88,7 +88,7 @@ export default async function AuthenticatedLayout({ children }: AuthenticatedLay
         currentOrg={currentOrg}
         allOrgs={allOrgs}
       />
-      <main>{children}</main>
+      <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap">{children}</main>
     </div>
   );
 }
