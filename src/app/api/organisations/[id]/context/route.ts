@@ -42,12 +42,15 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+/** Response shape when no context row exists yet. */
+const EMPTY_CONTEXT_RESPONSE = { context: {} };
+
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { id: orgId } = await params;
     const ctx = await createApiContext(request);
     const row = await loadContext(ctx, orgId);
-    return json(row);
+    return json(row ?? EMPTY_CONTEXT_RESPONSE);
   } catch (error) {
     return handleApiError(error);
   }

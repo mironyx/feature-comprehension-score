@@ -22,19 +22,20 @@ function validateVocabulary(
 function validateTagList(
   items: string[],
   max: number,
-  label: string,
+  plural: string,
+  singular: string,
 ): string[] {
   const errors: string[] = [];
-  if (items.length > max) errors.push(`Maximum ${max} ${label} allowed.`);
-  if (items.some((a) => !a.trim())) errors.push(`Each ${label.slice(0, -1)} must not be blank.`);
+  if (items.length > max) errors.push(`Maximum ${max} ${plural} allowed.`);
+  if (items.some((a) => !a.trim())) errors.push(`Each ${singular} must not be blank.`);
   return errors;
 }
 
 export function validateOrgContext(ctx: OrganisationContext): string[] {
   return [
     ...(ctx.domain_vocabulary ? validateVocabulary(ctx.domain_vocabulary) : []),
-    ...(ctx.focus_areas ? validateTagList(ctx.focus_areas, MAX_FOCUS_AREAS, 'focus areas') : []),
-    ...(ctx.exclusions ? validateTagList(ctx.exclusions, MAX_EXCLUSIONS, 'exclusions') : []),
+    ...(ctx.focus_areas ? validateTagList(ctx.focus_areas, MAX_FOCUS_AREAS, 'focus areas', 'focus area') : []),
+    ...(ctx.exclusions ? validateTagList(ctx.exclusions, MAX_EXCLUSIONS, 'exclusions', 'exclusion') : []),
     ...(ctx.domain_notes && ctx.domain_notes.length > MAX_DOMAIN_NOTES
       ? [`Domain notes must be ${MAX_DOMAIN_NOTES} characters or fewer.`]
       : []),
