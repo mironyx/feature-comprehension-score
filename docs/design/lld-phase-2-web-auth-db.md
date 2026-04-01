@@ -29,6 +29,7 @@
 | Revised | 2026-03-29 (Issue #121) |
 | Revised | 2026-03-29 (Issue #122) |
 | Revised | 2026-03-30 (Issue #118) |
+| Revised | 2026-04-01 (Issue #133) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -1108,7 +1109,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
 > **Implementation note (issue #61):** The spec described `SubmittedPage` as using a "client-side redirect after submission". In practice it is a server-rendered page — `router.push()` in `AnsweringForm` navigates to it, but the page itself is a standard async server component that fetches directly from Supabase. The participant auth check (guards against non-participant URL access) was added post-review.
 >
-> **Implementation note (issue #122):** `AssessmentPage` calls `adminSupabase.rpc('link_participant', { p_assessment_id, p_github_user_id })` before `fetchParticipant`. This is required because `assessment_participants.user_id` is NULL at enrolment time (only `github_user_id` is set); `fetchParticipant` queries by `user_id` and returns `null` until the link is made. The RPC runs concurrently with `fetchAssessment` (no dependency on assessment data); `fetchParticipant` runs after both settle. Link failures are logged but non-fatal (best-effort).
+> **Implementation note (issue #122, corrected #133):** `AssessmentPage` calls `supabase.rpc('link_participant', { p_assessment_id, p_github_user_id })` (the user's authenticated client) before `fetchParticipant`. This is required because `assessment_participants.user_id` is NULL at enrolment time (only `github_user_id` is set); `fetchParticipant` queries by `user_id` and returns `null` until the link is made. The RPC runs concurrently with `fetchAssessment` (no dependency on assessment data); `fetchParticipant` runs after both settle. Link failures are logged but non-fatal (best-effort). The user client (not `adminSupabase`) must be used so that `auth.uid()` resolves inside the `SECURITY DEFINER` function — the service-role client has no user session.
 
 #### Component tree
 
