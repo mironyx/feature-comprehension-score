@@ -32,11 +32,11 @@ interface PendingAssessment {
 // ---------------------------------------------------------------------------
 
 export default async function AssessmentsPage(
-  props: { searchParams?: Promise<{ created?: string }> } = {},
+  props: { searchParams: Promise<{ created?: string }> },
 ) {
   const { searchParams } = props;
   const resolvedParams = await searchParams;
-  const created = resolvedParams?.created;
+  const created = resolvedParams.created;
 
   const cookieStore = await cookies();
   const orgId = getSelectedOrgId(cookieStore);
