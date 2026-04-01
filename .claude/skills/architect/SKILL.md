@@ -50,15 +50,29 @@ For each item, determine:
 1. **Artefact type** — which row in the decision logic table applies.
 2. **Input sources** — what files, issues, or design docs to read.
 3. **Output** — what artefact will be produced and where.
+4. **Decomposition** — see Step 2b below.
 
 Present a summary table to the user:
 
 ```
-| # | Item | Artefact type | Output path |
-|---|------|---------------|-------------|
+| # | Item | Artefact type | Output path | Split? |
+|---|------|---------------|-------------|--------|
 ```
 
-**Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, or redirect artefact types.
+**Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, redirect artefact types, or reject a proposed split.
+
+### Step 2b: Decomposition assessment
+
+For each item, assess whether it should be split into sub-issues. The bar is high — splitting has overhead (extra issues, PRs, dependency tracking) and should only happen when there is clear rational.
+
+**Split if and only if both conditions hold:**
+
+1. **Size** — estimated implementation exceeds 200 lines.
+2. **Natural seam** — there is an independently testable or independently deployable unit that does not share files with the remainder.
+
+If only one condition holds (large but no clean seam, or clean seam but small), do **not** split.
+
+When a split is warranted, propose the sub-issues with explicit dependency order (A completes → B starts) and note which files each sub-issue touches. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
 
 ### Step 3: Read all input sources
 
