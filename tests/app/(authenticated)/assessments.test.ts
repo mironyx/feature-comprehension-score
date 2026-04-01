@@ -111,7 +111,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      await expect(AssessmentsPage()).rejects.toThrow(
+      await expect(AssessmentsPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
         'NEXT_REDIRECT:/org-select',
       );
       expect(mockRedirect).toHaveBeenCalledWith('/org-select');
@@ -126,7 +126,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
       expect(mockRedirect).not.toHaveBeenCalled();
       expect(result).toBeTruthy();
@@ -139,7 +139,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).toContain('Assessments');
     });
   });
@@ -152,7 +152,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).toContain('/assessments/new');
     });
   });
@@ -165,7 +165,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).not.toContain('/assessments/new');
     });
   });

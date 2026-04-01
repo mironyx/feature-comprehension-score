@@ -133,13 +133,18 @@ function makeSecretClient(opts: SecretClientOptions) {
 }
 
 function makeServerClient(user: { id: string; user_metadata?: Record<string, unknown> } | null) {
+  const rpcSpy = vi.fn().mockResolvedValue({ data: null, error: null });
   return {
-    auth: {
-      getUser: vi.fn().mockResolvedValue({
-        data: { user },
-        error: user ? null : new Error('no session'),
-      }),
+    client: {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user },
+          error: user ? null : new Error('no session'),
+        }),
+      },
+      rpc: rpcSpy,
     },
+    rpcSpy,
   };
 }
 
@@ -150,11 +155,12 @@ function makeParams(id = ASSESSMENT_ID) {
 const AUTHED_USER = { id: USER_ID, user_metadata: { provider_id: GITHUB_PROVIDER_ID } };
 
 async function arrange(opts: SecretClientOptions, user: { id: string; user_metadata?: Record<string, unknown> } | null = AUTHED_USER) {
-  mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
-  const { client, rpcSpy } = makeSecretClient(opts);
-  mockCreateSecret.mockReturnValue(client as never);
+  const { client: serverClient, rpcSpy: serverRpcSpy } = makeServerClient(user);
+  mockCreateServer.mockResolvedValue(serverClient as never);
+  const { client: secretClient, rpcSpy: secretRpcSpy } = makeSecretClient(opts);
+  mockCreateSecret.mockReturnValue(secretClient as never);
   const { default: AssessmentPage } = await import('@/app/assessments/[id]/page');
-  return { AssessmentPage, rpcSpy };
+  return { AssessmentPage, serverRpcSpy, secretRpcSpy };
 }
 
 const defaultOpts: SecretClientOptions = {
@@ -219,15 +225,19 @@ describe('Assessment answering page', () => {
   });
 
   describe('Given an authenticated participant visiting their assessment', () => {
-    it('then link_participant RPC is called with their GitHub provider_id', async () => {
+    it('then link_participant RPC is called on the user client (not admin) so auth.uid() resolves', async () => {
       const opts = {
         assessment: makeAssessment(),
         participant: makeParticipant('pending'),
         questions: [makeQuestion(1)],
       };
-      const { AssessmentPage, rpcSpy } = await arrange(opts);
+      const { AssessmentPage, serverRpcSpy, secretRpcSpy } = await arrange(opts);
       await AssessmentPage({ params: makeParams() });
-      expect(rpcSpy).toHaveBeenCalledWith('link_participant', { p_assessment_id: ASSESSMENT_ID, p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10) });
+      expect(serverRpcSpy).toHaveBeenCalledWith('link_participant', {
+        p_assessment_id: ASSESSMENT_ID,
+        p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10),
+      });
+      expect(secretRpcSpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -89,7 +89,8 @@ jobs:
           docker build -t fcs-app:ci . \
             --build-arg NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
             --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
-            --build-arg SUPABASE_SECRET_KEY=placeholder-secret-key
+            --build-arg SUPABASE_SECRET_KEY=placeholder-secret-key \
+            --build-arg GITHUB_WEBHOOK_SECRET=placeholder-webhook-secret
 
   e2e:
     name: E2E tests (Playwright)
@@ -114,6 +115,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder-publishable-key
           SUPABASE_SECRET_KEY: placeholder-secret-key
+          GITHUB_WEBHOOK_SECRET: placeholder-webhook-secret
 
       - name: Run E2E tests
         run: npx playwright test
@@ -121,6 +123,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder-publishable-key
           SUPABASE_SECRET_KEY: placeholder-secret-key
+          GITHUB_WEBHOOK_SECRET: placeholder-webhook-secret
 
   # hadolint:
   #   name: Dockerfile lint (Hadolint)

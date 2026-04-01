@@ -124,7 +124,7 @@ describe('Assessments page', () => {
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
-      await AssessmentsPage();
+      await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
       expect(client._mockIn).toHaveBeenCalledWith(
         'status',
@@ -145,7 +145,7 @@ describe('Assessments page', () => {
       });
       mockCreateServer.mockResolvedValue(client as never);
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
       expect(result).toBeTruthy();
     });
@@ -164,7 +164,7 @@ describe('Assessments page', () => {
       mockCreateServer.mockResolvedValue(client as never);
       mockIsOrgAdmin.mockReturnValue(true);
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       const rendered = JSON.stringify(result);
 
       expect(rendered).toContain('assessmentId');
@@ -174,7 +174,7 @@ describe('Assessments page', () => {
       const client = makeClient({ assessments: [] });
       mockCreateServer.mockResolvedValue(client as never);
 
-      const result = await AssessmentsPage();
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       const rendered = JSON.stringify(result);
 
       expect(rendered).toContain('No pending assessments');
