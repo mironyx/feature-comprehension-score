@@ -1,4 +1,4 @@
-// Tests for PATCH /api/organisations/[id]/context — upsert org prompt context.
+// Tests for GET/PATCH /api/organisations/[id]/context — org prompt context.
 // Design reference: docs/requirements/v1-prompt-changes.md §Change 2
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -30,6 +30,7 @@ import type { NextResponse } from 'next/server';
 type RouteContext = { params: Promise<{ id: string }> };
 type RouteHandler = (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>;
 let PATCH: RouteHandler;
+let GET: RouteHandler;
 
 // ---------------------------------------------------------------------------
 // Mock Supabase clients
@@ -37,22 +38,29 @@ let PATCH: RouteHandler;
 
 let membershipResult: { data: unknown; error: unknown };
 let upsertResult: { data: unknown; error: unknown };
+let selectResult: { data: unknown; error: unknown };
 
 function makeChain(resolver: () => { data: unknown; error: unknown }) {
   const chain = Object.assign(Promise.resolve(resolver()), {
     select: vi.fn(),
     eq: vi.fn(),
+    is: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
+    maybeSingle: vi.fn(() => Promise.resolve(resolver())),
     upsert: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
+  chain.is.mockReturnValue(chain);
   chain.upsert.mockReturnValue(chain);
   return chain;
 }
 
 const mockUserClient = {
-  from: vi.fn(() => makeChain(() => membershipResult)),
+  from: vi.fn((table: string) => {
+    if (table === 'organisation_contexts') return makeChain(() => selectResult);
+    return makeChain(() => membershipResult);
+  }),
 };
 
 const mockAdminClient = {
@@ -111,7 +119,8 @@ beforeEach(async () => {
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   membershipResult = { data: [{ github_role: 'admin' }], error: null };
   upsertResult = { data: CONTEXT_ROW, error: null };
-  ({ PATCH } = await import(
+  selectResult = { data: CONTEXT_ROW, error: null };
+  ({ PATCH, GET } = await import(
     '@/app/api/organisations/[id]/context/route'
   ));
 });
@@ -183,6 +192,71 @@ describe('PATCH /api/organisations/[id]/context', () => {
 
       expect(response.status).toBe(200);
       expect(mockAdminClient.from).toHaveBeenCalledWith('organisation_contexts');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/organisations/[id]/context
+// ---------------------------------------------------------------------------
+
+function makeGetRequest(): NextRequest {
+  return new NextRequest(
+    `http://localhost/api/organisations/${ORG_ID}/context`,
+    { method: 'GET' },
+  );
+}
+
+function getContext() {
+  return GET(
+    makeGetRequest(),
+    { params: Promise.resolve({ id: ORG_ID }) },
+  );
+}
+
+describe('GET /api/organisations/[id]/context', () => {
+  describe('Given an unauthenticated caller', () => {
+    it('then it returns 401', async () => {
+      const { ApiError } = await import('@/lib/api/errors');
+      vi.mocked(requireAuth).mockRejectedValue(
+        new ApiError(401, 'Unauthenticated'),
+      );
+
+      const response = await getContext();
+
+      expect(response.status).toBe(401);
+    });
+  });
+
+  describe('Given a non-admin caller', () => {
+    it('then it returns 403', async () => {
+      membershipResult = { data: [{ github_role: 'member' }], error: null };
+
+      const response = await getContext();
+
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe('Given no context row exists', () => {
+    it('then it returns 200 with empty context', async () => {
+      selectResult = { data: null, error: null };
+
+      const response = await getContext();
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.context).toEqual({});
+    });
+  });
+
+  describe('Given a context row exists', () => {
+    it('then it returns 200 with the context', async () => {
+      const response = await getContext();
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.context).toEqual({ focus_areas: ['API design'] });
     });
   });
 });
