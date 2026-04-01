@@ -4,10 +4,11 @@
 
 | Field   | Value                                                             |
 | ------- | ----------------------------------------------------------------- |
-| Version | 0.1                                                               |
-| Status  | Draft                                                             |
+| Version | 0.2                                                               |
+| Status  | Revised                                                           |
 | Author  | LS / Claude                                                       |
 | Created | 2026-04-01                                                        |
+| Revised | 2026-04-01 — Issue #140 implementation sync                       |
 | Parent  | [v1-design.md](v1-design.md) §4.3                                 |
 | Issues  | #140 (backend), #157 (API), #158 (UI)                             |
 | ADR     | [ADR-0017](../adr/0017-organisation-contexts-separate-table.md)   |
@@ -48,31 +49,20 @@ architected.
 CREATE TABLE organisation_contexts (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
-  project_id  uuid REFERENCES projects(id) ON DELETE CASCADE,
+  project_id  uuid,  -- NULL in Phase 2; FK to projects(id) added in V2
   context     jsonb NOT NULL DEFAULT '{}',
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (org_id, project_id)
+  UNIQUE NULLS NOT DISTINCT (org_id, project_id)
 );
 
 CREATE INDEX idx_org_contexts_org ON organisation_contexts (org_id);
 ```
 
-**Notes:**
-
-- `context` stores the serialised `OrganisationContext` object (validated by Zod at the
-  application layer before write; read back and re-validated before injection).
-- `UNIQUE (org_id, project_id)` — PostgreSQL treats two NULLs as distinct in unique
-  constraints, so multiple rows with `project_id IS NULL` for the same org are **not**
-  possible (the constraint still enforces one row per org when `project_id` is NULL,
-  because the pair `(org_id, NULL)` is treated as equal by this constraint using
-  `NULLS NOT DISTINCT` — add that clause explicitly).
-
-Revised DDL with explicit null handling:
-
-```sql
-  UNIQUE NULLS NOT DISTINCT (org_id, project_id)
-```
+> **Implementation note (issue #140):** The `project_id` FK to `projects(id)` was removed
+> because the `projects` table does not exist yet. The column is kept as a bare `uuid` with
+> a comment noting the FK will be added in V2. The `UNIQUE NULLS NOT DISTINCT` clause is
+> used directly (the earlier prose about adding it separately was consolidated).
 
 ### 2.2 RLS Policies
 
@@ -154,44 +144,35 @@ export const AssembledArtefactSetSchema = RawArtefactSetSchema.extend({
 
 Add after `formatAssessmentContext`:
 
+> **Implementation note (issue #140):** The monolithic `formatOrganisationContext` was
+> decomposed into 5 private helpers (`formatBulletList`, `formatVocabulary`,
+> `formatFocusAreas`, `formatExclusions`, `formatDomainNotes`) to keep cyclomatic
+> complexity under the CodeScene threshold (cc ≤ 9).
+
 ```typescript
+function formatBulletList(items: string[]): string {
+  return items.map(i => `- ${i}`).join('\n');
+}
+
+function formatVocabulary(ctx: NonNullable<AssembledArtefactSet['organisation_context']>): string | undefined { ... }
+function formatFocusAreas(ctx: ...): string | undefined { ... }
+function formatExclusions(ctx: ...): string | undefined { ... }
+function formatDomainNotes(ctx: ...): string | undefined { ... }
+
 function formatOrganisationContext(
   artefacts: AssembledArtefactSet,
 ): string | undefined {
   const ctx = artefacts.organisation_context;
   if (!ctx) return undefined;
 
-  const sections: string[] = [];
-
-  if (ctx.domain_vocabulary?.length) {
-    const terms = ctx.domain_vocabulary
-      .map(v => `- **${v.term}**: ${v.definition}`)
-      .join('\n');
-    sections.push(
-      `### Domain Vocabulary\n\nThe following terms have specific meaning in this codebase:\n\n${terms}`,
-    );
-  }
-
-  if (ctx.focus_areas?.length) {
-    const areas = ctx.focus_areas.map(a => `- ${a}`).join('\n');
-    sections.push(
-      `### Focus Areas\n\nThe organisation has asked that questions emphasise these areas where possible:\n\n${areas}`,
-    );
-  }
-
-  if (ctx.exclusions?.length) {
-    const excl = ctx.exclusions.map(e => `- ${e}`).join('\n');
-    sections.push(
-      `### Exclusions\n\nDo not generate questions about the following areas:\n\n${excl}`,
-    );
-  }
-
-  if (ctx.domain_notes?.trim()) {
-    sections.push(`### Additional Context\n\n${ctx.domain_notes}`);
-  }
+  const sections = [
+    formatVocabulary(ctx),
+    formatFocusAreas(ctx),
+    formatExclusions(ctx),
+    formatDomainNotes(ctx),
+  ].filter(Boolean);
 
   if (!sections.length) return undefined;
-
   return `## Organisation Context\n\n${sections.join('\n\n')}`;
 }
 ```
@@ -247,10 +228,11 @@ export {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { OrganisationContextSchema } from '@/lib/engine/prompts';
 import type { OrganisationContext } from '@/lib/engine/prompts';
+import { logger } from '@/lib/logger';
 
 /**
  * Loads the org-level prompt context for rubric generation.
- * Returns undefined if no context row exists (empty context → no prompt section).
+ * Returns undefined if no context row exists (empty context = no prompt section).
  */
 export async function loadOrgPromptContext(
   supabase: SupabaseClient,
@@ -267,14 +249,22 @@ export async function loadOrgPromptContext(
   if (!data) return undefined;
 
   const parsed = OrganisationContextSchema.safeParse(data.context);
-  if (!parsed.success) return undefined;  // malformed row → skip silently
+  if (!parsed.success) {
+    logger.warn({ orgId, issues: parsed.error.issues },
+      'loadOrgPromptContext: invalid context shape, skipping');
+    return undefined;
+  }
 
   return parsed.data;
 }
 ```
 
+> **Implementation note (issue #140):** The original spec had `return undefined` silently on
+> malformed rows. PR review flagged this as a silent-swallow violation. A `logger.warn` was
+> added with `orgId` and Zod `issues` for observability.
+
 **Error handling:** A missing row is valid (new orgs have no context). A malformed row is
-skipped silently — a corrupt context row must never break rubric generation.
+logged as a warning and skipped — a corrupt context row must never break rubric generation.
 
 ### 4.2 Injection point
 
@@ -291,13 +281,18 @@ const artefacts: AssembledArtefactSet = {
 };
 ```
 
-After this change:
+After this change (uses `Promise.all` for parallel fetch):
+
+> **Implementation note (issue #140):** The two async calls (`extractFromPRs` and
+> `loadOrgPromptContext`) are independent and run in parallel via `Promise.all`,
+> rather than sequentially as the original spec implied.
 
 ```typescript
-const organisation_context = await loadOrgPromptContext(
-  params.adminSupabase,
-  params.repoInfo.orgId,
-);
+const [raw, organisation_context] = await Promise.all([
+  source.extractFromPRs({ owner: params.repoInfo.orgName,
+    repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
+  loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
+]);
 const artefacts: AssembledArtefactSet = {
   ...raw,
   question_count:       params.repoInfo.questionCount,
@@ -343,6 +338,7 @@ describe('loadOrgPromptContext')
   it('returns undefined when no row exists for the org')
   it('returns the parsed OrganisationContext when a valid row exists')
   it('returns undefined when the stored JSONB fails schema validation')
+  it('throws when Supabase returns an error')
 
 describe('triggerRubricGeneration with organisation context')
   it('passes organisation_context into AssembledArtefactSet when a row exists')
