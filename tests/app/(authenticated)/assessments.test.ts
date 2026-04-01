@@ -39,6 +39,10 @@ vi.mock('@/app/(authenticated)/assessments/assessment-status', () => ({
   StatusBadge: () => null,
 }));
 
+vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
+  RetryButton: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
