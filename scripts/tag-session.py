@@ -146,10 +146,8 @@ def main() -> None:
     project_key = derive_project_key(root)
 
     claude_dir = pathlib.Path.home() / ".claude" / "projects" / project_key
-    env_override = os.environ.get("CLAUDE_SESSION_JSONL")
     jsonl_path = (
-        pathlib.Path(env_override) if env_override
-        else find_session_jsonl_via_proc(claude_dir)
+        find_session_jsonl_via_proc(claude_dir)
         or find_session_jsonl(claude_dir, issue_hint=args.issue)
     )
     if not jsonl_path:
@@ -163,7 +161,10 @@ def main() -> None:
     write_custom_title(jsonl_path, session_id, title)
 
     # 2. Update Prometheus textfile
-    textfile_dir = root / "monitoring" / "textfile_collector"
+    # FCS_FEATURE_PROM_DIR overrides the default path — set this in WSL to point to
+    # the Windows-accessible folder that node exporter reads from, e.g.:
+    # export FCS_FEATURE_PROM_DIR=/mnt/c/projects/feature-comprehension-score/monitoring/textfile_collector
+    textfile_dir = pathlib.Path(os.environ.get("FCS_FEATURE_PROM_DIR") or root / "monitoring" / "textfile_collector")
     textfile_dir.mkdir(parents=True, exist_ok=True)
     update_prom_file(textfile_dir / "session_feature.prom", session_id, feature_id)
 
