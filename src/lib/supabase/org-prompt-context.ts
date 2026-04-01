@@ -3,6 +3,15 @@ import { OrganisationContextSchema } from '@/lib/engine/prompts';
 import type { OrganisationContext } from '@/lib/engine/prompts';
 import { logger } from '@/lib/logger';
 
+export interface OrgContextRow {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  context: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Loads the org-level prompt context for rubric generation.
  * Returns undefined if no context row exists (empty context = no prompt section).

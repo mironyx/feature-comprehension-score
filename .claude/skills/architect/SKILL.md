@@ -87,7 +87,12 @@ Follow the LLD template from `/lld`:
 - Identify layers (DB / BE / FE)
 - Reference HLD sections — do not duplicate
 - Add implementation-level detail: file paths, internal types, function signatures
-- Include internal decomposition for non-trivial routes/components
+- **API route internal decomposition is mandatory** — every API route LLD must include an explicit internal decomposition section specifying the controller/service split. The pattern is:
+  - Controller (route.ts, ≤ 5 lines): calls `createApiContext(request)`, validates body, delegates to service
+  - Service (service.ts): receives `ApiContext`, performs auth checks via `ctx.supabase`, writes via `ctx.adminSupabase`
+  - Constraint: service never calls `createClient()` or any infrastructure factory — `ApiContext` is injected by the controller
+  - See the LLD template's "Internal decomposition" section for the full pattern
+- Include internal decomposition for non-trivial components
 - Write BDD specs and acceptance criteria
 - Append tasks sized for single `/feature` cycles (< 200 lines)
 
@@ -146,3 +151,4 @@ After all items are processed, summarise:
 - **Respect existing decisions.** Read ADRs before proposing new ones — the decision may already be recorded.
 - **Repo docs are source of truth.** GitHub issue bodies are convenient but not version-controlled. Every item that `/feature` will implement must have its design detail (fix approach, BDD specs, acceptance criteria) traceable to a file in `docs/`. Issue bodies reference these docs — they do not replace them.
 - **Check before creating.** Always check for existing issues and design docs before creating new ones. Duplicate artefacts cause confusion.
+- **API route items always get internal decomposition.** If a plan item involves an API route, the LLD section must include an explicit internal decomposition (controller/service split with `createApiContext` + `ApiContext` injection). Without this, `/feature` agents miss the established pattern and produce routes that call auth helpers and infrastructure factories directly. See `src/lib/api/context.ts` for the composition root and any existing `service.ts` file under `src/app/api/` for the pattern.
