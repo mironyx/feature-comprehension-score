@@ -35,6 +35,14 @@ vi.mock('next/link', () => ({
   }),
 }));
 
+vi.mock('@/app/(authenticated)/assessments/assessment-status', () => ({
+  StatusBadge: () => null,
+}));
+
+vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
+  RetryButton: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -76,7 +84,7 @@ function makeClient(assessments: unknown[], githubRole: string | null = 'member'
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockReturnValue({
               order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
             }),
           }),
@@ -107,7 +115,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      await expect(AssessmentsPage({})).rejects.toThrow(
+      await expect(AssessmentsPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
         'NEXT_REDIRECT:/org-select',
       );
       expect(mockRedirect).toHaveBeenCalledWith('/org-select');
@@ -122,7 +130,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage({});
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
       expect(mockRedirect).not.toHaveBeenCalled();
       expect(result).toBeTruthy();
@@ -135,7 +143,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage({});
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).toContain('Assessments');
     });
   });
@@ -148,7 +156,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage({});
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).toContain('/assessments/new');
     });
   });
@@ -161,7 +169,7 @@ describe('Assessments landing page', () => {
         '@/app/(authenticated)/assessments/page'
       );
 
-      const result = await AssessmentsPage({});
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       expect(JSON.stringify(result)).not.toContain('/assessments/new');
     });
   });

@@ -9,6 +9,7 @@
 | Author | LS / Claude |
 | Created | 2026-03-30 |
 | Revised | 2026-03-31 (Issue #130) |
+| Revised | 2026-04-01 (Issue #138) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [MVP Phase 2](../plans/2026-03-29-mvp-phase2-plan.md) |
 
@@ -254,37 +255,56 @@ For each multi-step write:
 
 #### Test structure
 
+> **Implementation note (issue #138):** The spec proposed a single monolithic test. Implementation
+> uses `test.describe.serial` with 4 independent BDD scenarios sharing seeded state via
+> `beforeAll`. Serial execution is required because tests share mutable DB state (participant
+> status changes between tests).
+
 ```typescript
-test.describe('FCS happy path', () => {
-  test('admin creates assessment, participant answers, scores display', async ({ page }) => {
-    // 1. Sign in (Supabase test user, bypass GitHub OAuth)
-    // 2. Select test org
-    // 3. Create assessment (fill form, submit)
-    // 4. Verify assessment appears in list (status: rubric_generation → awaiting_responses)
-    // 5. Answer questions as participant
-    // 6. View scores
-  });
+test.describe.serial('FCS happy path', () => {
+  // beforeAll: create user, seed org/repo/assessment/questions/participant
+  // afterAll: cleanup org, delete user
+
+  test('Given an authenticated admin, when they view assessments, ...');
+  test('Given a participant with a pending assessment, when they navigate to it, ...');
+  test('Given a participant with filled answers, when they submit, ...');
+  test('Given a completed assessment with scores, when the user views results, ...');
 });
 ```
 
 #### Technical approach
 
-- **Auth:** Use Supabase test user with pre-seeded session. Bypass real GitHub OAuth via direct session cookie injection. See `tests/helpers/` for existing auth patterns.
-- **LLM mock:** MSW handler returns fixture from `tests/fixtures/` for question generation and scoring. Deterministic questions and scores.
-- **GitHub API mock:** MSW handler returns fixture PR data (diff, files, description).
-- **Database:** Supabase local instance with `supabase/seed.sql` data.
+- **Auth:** Supabase test user created via admin API (`createE2EUser`), session cookies injected directly into Playwright browser context (`setE2EAuthCookies`). Cookie name derived from `NEXT_PUBLIC_SUPABASE_URL` hostname to match `@supabase/ssr` convention.
+- **LLM/GitHub mock:** No MSW handlers needed. All data is pre-seeded via direct DB inserts (admin client bypasses RLS). The answers POST is intercepted via `page.route()` (browser-level), returning a mock `accepted` response and updating participant status directly.
+- **Database:** Standalone E2E seed helpers in `tests/helpers/e2e-seed.ts` (no `@/` imports — Playwright cannot resolve them). Supabase local instance required; test skips when `NEXT_PUBLIC_SUPABASE_URL` contains `placeholder`.
+
+> **Implementation note (issue #138):** MSW was not used. `page.route()` intercepts
+> browser-to-server requests directly, which is simpler and avoids needing MSW installed
+> in the Playwright process. Server-side API calls (e.g., `link_participant` RPC) are
+> avoided because the E2E user is created via email/password, not GitHub OAuth.
 
 #### Files
 
 ```
 tests/e2e/
-  fcs-happy-path.e2e.ts     — main E2E test
-tests/fixtures/
-  rubric-response.json       — LLM question generation fixture (if not existing)
-  scoring-response.json      — LLM scoring fixture (if not existing)
+  fcs-happy-path.e2e.ts     — main E2E test (4 serial BDD scenarios)
 tests/helpers/
-  auth.ts                    — Supabase test session helper (extend if needed)
+  e2e-auth.ts               — Supabase test user creation + session cookie injection
+  e2e-seed.ts               — Standalone DB seeding (org, repo, assessment, questions, etc.)
+playwright.config.ts         — loads .env.test.local, configures standalone webServer
+.env.test.local              — local Supabase URLs and demo keys (gitignored)
 ```
+
+> **Implementation note (issue #138):** `tests/fixtures/` and `tests/mocks/` were not needed.
+> Direct DB seeding + `page.route()` interception replaced the MSW + fixture approach.
+
+#### Build prerequisite
+
+> **Implementation note (issue #138):** Next.js `output: 'standalone'` does not copy
+> `.next/static/` into the standalone output. Without client JS, React never hydrates —
+> forms render as inert HTML. A `postbuild` script in `package.json` copies static assets.
+> Additionally, `NEXT_PUBLIC_*` vars are baked at build time (including in middleware), so
+> the build must use local Supabase env vars for E2E tests to authenticate correctly.
 
 > **Constraint:** All external APIs must be mocked. The test must pass in CI without real GitHub OAuth, real LLM, or real GitHub API access.
 >
