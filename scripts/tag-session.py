@@ -146,8 +146,10 @@ def main() -> None:
     project_key = derive_project_key(root)
 
     claude_dir = pathlib.Path.home() / ".claude" / "projects" / project_key
+    env_override = os.environ.get("CLAUDE_SESSION_JSONL")
     jsonl_path = (
-        find_session_jsonl_via_proc(claude_dir)
+        pathlib.Path(env_override) if env_override
+        else find_session_jsonl_via_proc(claude_dir)
         or find_session_jsonl(claude_dir, issue_hint=args.issue)
     )
     if not jsonl_path:

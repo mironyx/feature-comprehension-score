@@ -60,8 +60,26 @@ Create one task per issue:
 
 ### Step 4: Spawn teammates
 
-Create the entire team in **one instruction** so all teammates start simultaneously.
-Do not spawn them one at a time — that defeats the purpose of parallel execution.
+**Two-step pattern — always follow this exact sequence:**
+
+1. Call `TeamCreate` to create the team record:
+   ```
+   TeamCreate(team_name="feature-team-<issues>", description="...")
+   ```
+   If `TeamCreate` returns "already leading team", read
+   `~/.claude/teams/<name>/config.json`. If `members` contains only the lead (no
+   teammates), the team was created but teammates were never spawned — proceed directly
+   to step 2. If teammates are already present, do not recreate.
+
+2. Call `Agent` once per teammate, **all in the same message**, with `team_name` and
+   `name` set:
+   ```
+   Agent(team_name="feature-team-<issues>", name="teammate-<N>", run_in_background=true, prompt="...")
+   Agent(team_name="feature-team-<issues>", name="teammate-<M>", run_in_background=true, prompt="...")
+   ```
+
+Do **not** pass "Create a team with N teammates" as prose to the `Agent` tool — that
+syntax is not supported and will be echoed back as text rather than spawning teammates.
 
 **Pre-requisite:** Teammates inherit the lead's permission mode — there is no per-teammate
 override at spawn time. For teammates to run fully autonomously without prompting, the lead
@@ -73,9 +91,6 @@ claude --dangerously-skip-permissions
 
 If the lead was not started this way, teammates will prompt for every tool use and parallel
 execution breaks down. Stop, restart the lead with the flag, and re-run `/feature-team`.
-
-Tell the agent teams system something like:
-> "Create a team with N teammates. Teammate 1: [prompt]. Teammate 2: [prompt]. ..."
 
 Each teammate receives this self-contained prompt (fill in the placeholders):
 
