@@ -1,13 +1,16 @@
-// Organisation overview page — admin-only.
+// Organisation settings page — admin-only.
 // Non-admins see a 403 Forbidden response inline.
 // Auth and orgId are enforced by the (authenticated) layout before this page renders.
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issue: #62
+// Issue: #62, #158
 
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { PageHeader } from '@/components/ui/page-header';
+import OrgContextForm from './org-context-form';
 import type { Database } from '@/lib/supabase/types';
 
 type MembershipRow = Pick<Database['public']['Tables']['user_organisations']['Row'], 'org_id' | 'github_role'>;
@@ -18,9 +21,6 @@ type MembershipRow = Pick<Database['public']['Tables']['user_organisations']['Ro
 
 export default async function OrganisationPage() {
   const supabase = await createServerSupabaseClient();
-  // getUser() needed for user.id in the admin check query.
-  // Auth redirect is already handled by the (authenticated) layout;
-  // the guard below is a defensive fallback only.
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
@@ -39,9 +39,15 @@ export default async function OrganisationPage() {
 
   if (!isAdmin) forbidden();
 
+  const context = await loadOrgPromptContext(supabase, orgId);
+
   return (
-    <main>
-      <h1>Organisation</h1>
-    </main>
+    <div className="space-y-section-gap">
+      <PageHeader
+        title="Organisation"
+        subtitle="Manage assessment context settings"
+      />
+      <OrgContextForm orgId={orgId} initial={context ?? {}} />
+    </div>
   );
 }

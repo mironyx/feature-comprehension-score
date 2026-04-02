@@ -21,6 +21,24 @@ async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: strin
   }
 }
 
+export async function loadContext(
+  ctx: ApiContext,
+  orgId: string,
+): Promise<OrgContextRow | null> {
+  await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
+
+  const { data, error } = await ctx.supabase
+    .from('organisation_contexts')
+    .select('*')
+    .eq('org_id', orgId)
+    .is('project_id', null)
+    .maybeSingle();
+
+  if (error) throw new ApiError(500, `loadContext: ${error.message}`);
+
+  return (data as OrgContextRow) ?? null;
+}
+
 export async function upsertContext(
   ctx: ApiContext,
   orgId: string,

@@ -1,4 +1,4 @@
-// PATCH /api/organisations/[id]/context — upsert org prompt context.
+// GET/PATCH /api/organisations/[id]/context — org prompt context.
 // Design reference: docs/requirements/v1-prompt-changes.md §Change 2
 
 import type { NextRequest } from 'next/server';
@@ -7,12 +7,21 @@ import { handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
 import { validateBody } from '@/lib/api/validation';
 import { OrganisationContextSchema } from '@/lib/engine/prompts';
-import { upsertContext } from './service';
+import { loadContext, upsertContext } from './service';
 import type { OrgContextRow } from '@/lib/supabase/org-prompt-context';
 
 // ---------------------------------------------------------------------------
 // Contract types — ADR-0014
 // ---------------------------------------------------------------------------
+
+/**
+ * GET /api/organisations/{id}/context
+ *
+ * Path parameters:
+ *   id  (string, required) — organisation UUID
+ *
+ * Returns 200 OrgContextRow | 401 | 403
+ */
 
 /**
  * PATCH /api/organisations/{id}/context
@@ -31,6 +40,20 @@ import type { OrgContextRow } from '@/lib/supabase/org-prompt-context';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
+}
+
+/** Response shape when no context row exists yet. */
+const EMPTY_CONTEXT_RESPONSE = { context: {} };
+
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  try {
+    const { id: orgId } = await params;
+    const ctx = await createApiContext(request);
+    const row = await loadContext(ctx, orgId);
+    return json(row ?? EMPTY_CONTEXT_RESPONSE);
+  } catch (error) {
+    return handleApiError(error);
+  }
 }
 
 export async function PATCH(request: NextRequest, { params }: RouteContext) {

@@ -1,6 +1,6 @@
-// Tests for /organisation page — admin-only route protection (403).
+// Tests for /organisation page — admin-only route protection + context panel.
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issue: #62
+// Issue: #62, #158
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -14,6 +14,10 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/supabase/org-context', () => ({
   getSelectedOrgId: vi.fn(),
+}));
+
+vi.mock('@/lib/supabase/org-prompt-context', () => ({
+  loadOrgPromptContext: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -35,11 +39,13 @@ vi.mock('next/headers', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
+const mockLoadContext = vi.mocked(loadOrgPromptContext);
 const mockRedirect = vi.mocked(redirect);
 const mockForbidden = vi.mocked(forbidden);
 const mockCookies = vi.mocked(cookies);
@@ -83,6 +89,7 @@ describe('Organisation page', () => {
     vi.resetModules();
     mockCookies.mockResolvedValue(mockCookieStore as never);
     mockGetOrgId.mockReturnValue(ORG_ID);
+    mockLoadContext.mockResolvedValue(undefined);
   });
 
   describe('Given I am a regular user visiting /organisation', () => {
@@ -99,8 +106,9 @@ describe('Organisation page', () => {
   });
 
   describe('Given I am an org admin visiting /organisation', () => {
-    it('then I see the org overview', async () => {
+    it('then I see the org overview with context form', async () => {
       mockCreateServer.mockResolvedValue(makeClient('admin') as never);
+      mockLoadContext.mockResolvedValue({ focus_areas: ['API design'] });
 
       const { default: OrganisationPage } = await import(
         '@/app/(authenticated)/organisation/page'
@@ -109,7 +117,8 @@ describe('Organisation page', () => {
       const result = await OrganisationPage();
       expect(mockRedirect).not.toHaveBeenCalled();
       expect(result).toBeTruthy();
-      expect(JSON.stringify(result)).not.toContain('403');
+      // Verify loadOrgPromptContext was called with the org ID
+      expect(mockLoadContext).toHaveBeenCalledWith(expect.anything(), ORG_ID);
     });
   });
 
