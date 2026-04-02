@@ -4,7 +4,7 @@
 // Design reference: docs/requirements/v1-prompt-changes.md §Change 2 (UI Surface)
 // Issue: #158
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -131,7 +131,11 @@ async function submitContext(orgId: string, ctx: OrganisationContext): Promise<s
 // ---------------------------------------------------------------------------
 
 export default function OrgContextForm({ orgId, initial }: OrgContextFormProps) {
-  const [vocabulary, setVocabulary] = useState(initial.domain_vocabulary ?? []);
+  const nextVocabId = useRef(0);
+  const makeVocabRows = (rows: { term: string; definition: string }[]) =>
+    rows.map((r) => ({ ...r, _id: nextVocabId.current++ }));
+
+  const [vocabulary, setVocabulary] = useState(() => makeVocabRows(initial.domain_vocabulary ?? []));
   const [focusAreas, setFocusAreas] = useState(initial.focus_areas ?? []);
   const [exclusions, setExclusions] = useState(initial.exclusions ?? []);
   const [domainNotes, setDomainNotes] = useState(initial.domain_notes ?? '');
@@ -140,7 +144,8 @@ export default function OrgContextForm({ orgId, initial }: OrgContextFormProps) 
   const [success, setSuccess] = useState(false);
 
   const addVocabRow = useCallback(() => {
-    setVocabulary((prev) => [...prev, { term: '', definition: '' }]);
+    const id = nextVocabId.current++;
+    setVocabulary((prev) => [...prev, { term: '', definition: '', _id: id }]);
   }, []);
 
   const updateVocabRow = useCallback(
@@ -157,8 +162,9 @@ export default function OrgContextForm({ orgId, initial }: OrgContextFormProps) 
       e.preventDefault();
       setSuccess(false);
 
+      const strippedVocab = vocabulary.map(({ term, definition }) => ({ term, definition }));
       const ctx: OrganisationContext = {
-        domain_vocabulary: vocabulary.length > 0 ? vocabulary : undefined,
+        domain_vocabulary: strippedVocab.length > 0 ? strippedVocab : undefined,
         focus_areas: focusAreas.length > 0 ? focusAreas : undefined,
         exclusions: exclusions.length > 0 ? exclusions : undefined,
         domain_notes: domainNotes.trim() || undefined,
@@ -207,7 +213,7 @@ export default function OrgContextForm({ orgId, initial }: OrgContextFormProps) 
           <legend className="text-label text-text-secondary">Domain vocabulary</legend>
           {vocabulary.map((row, i) => (
             <VocabRow
-              key={`${row.term}-${i}`}
+              key={row._id}
               term={row.term}
               definition={row.definition}
               onChange={(field, value) => updateVocabRow(i, field, value)}
