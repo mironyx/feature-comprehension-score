@@ -14,7 +14,92 @@ Reads a plan file and produces the design artefacts needed for each item, so `/f
 
 - `/architect` — reads the most recent plan in `docs/plans/`
 - `/architect docs/plans/2026-03-29-mvp-phase2-plan.md` — reads a specific plan
+- `/architect epic <issue-number>` — reads an epic issue, produces per-task LLDs (see Epic mode below)
 - `/architect review <issue-number>` — reviews existing design for an issue (see Review mode below)
+
+## Epic Mode
+
+If `$ARGUMENTS` starts with `epic`, extract the issue number and run the epic design process instead of the plan-based process.
+
+**Purpose:** Read an epic issue, break it into tasks (if not already broken down), and produce one LLD per task.
+
+### Epic Step 1: Read the epic
+
+Run `gh issue view <number>` to get the epic body. Verify it has the `epic` label. Extract:
+
+- **Scope** — what the epic delivers
+- **Success criteria** — how to know it is done
+- **Task checklist** — child issue links (may be empty if tasks have not been created yet)
+
+Read all referenced design docs, ADRs, requirements, and relevant source files.
+
+### Epic Step 2: Break into tasks (if needed)
+
+If the epic body already has a task checklist with linked issues, use those. Otherwise:
+
+1. Analyse the epic scope and propose a task breakdown.
+2. Each task should be implementable in a single `/feature` cycle (< 200 lines).
+3. Present the proposed tasks with dependency order and **wait for user confirmation**.
+4. After confirmation, create the task issues:
+   ```bash
+   gh issue create --title "<task title>" --body "$(cat <<'EOF'
+   ## Parent epic
+   #<epic-number>
+
+   ## Design reference
+   docs/design/lld-<epic-slug>-<task-slug>.md
+
+   ## Acceptance criteria
+   - [ ] ...
+
+   ## BDD specs
+   ```
+   describe('...')
+     it('...')
+   ```
+   EOF
+   )" --label L5-implementation
+   ```
+5. Add each task to the project board: `./scripts/gh-project-status.sh add <task-number> todo`
+6. Update the epic body with the task checklist linking all created issues.
+
+### Epic Step 3: Produce LLDs
+
+For each task, produce an LLD following the template from `/lld`. File naming:
+
+```
+docs/design/lld-<epic-slug>-<task-slug>.md
+```
+
+Each LLD is a standalone file (not a section in a phase file). Include:
+
+- Document control with parent epic reference
+- Layers (DB / BE / FE) as applicable
+- HLD coverage assessment — reference, do not duplicate
+- Implementation detail: file paths, internal types, function signatures
+- Internal decomposition for API routes (mandatory per existing guidelines)
+- BDD specs and acceptance criteria
+- Single task at the bottom (the task this LLD covers)
+
+Commit each LLD individually:
+
+```bash
+git add docs/design/lld-<epic-slug>-<task-slug>.md
+git commit -m "docs: LLD for #<task-issue> — <summary>"
+```
+
+### Epic Step 4: Report
+
+Summarise:
+
+- Epic issue number and scope
+- Tasks created (or existing) with their issue numbers
+- LLD files produced
+- Any open questions or ambiguities
+
+**Stop here.** The user reviews all artefacts before implementation begins.
+
+---
 
 ## Review Mode
 
@@ -170,7 +255,11 @@ Follow the LLD template from `/lld`:
 - Write BDD specs and acceptance criteria
 - Append tasks sized for single `/feature` cycles (< 200 lines)
 
-Write into the appropriate phase LLD file: `docs/design/lld-phase-<N>-<short-name>.md`. If the file exists, add or update sections. If not, create it.
+**File naming:**
+- If the item belongs to an epic: `docs/design/lld-<epic-slug>-<task-slug>.md` (one file per task).
+- Legacy/cross-cutting items without an epic: `docs/design/lld-phase-<N>-<short-name>.md` (one file per phase).
+
+If the file exists, add or update sections. If not, create it.
 
 #### Design doc update
 

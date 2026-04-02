@@ -24,6 +24,23 @@ See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for f
 - **Flow:** Issue created → added to board → agent works with local plan file → updates board status → closes issue on completion.
 - **No work without an issue.** If a task has no GitHub issue, create one before starting work.
 
+### Epic and Task Organisation
+
+Work is organised into **epics** and **tasks** (see [ADR-0018](docs/adr/0018-epic-task-organisation.md)):
+
+- **Epic** — a container that groups related tasks into a deliverable feature. GitHub issue with the `epic` label. Body contains: scope, success criteria, and a checklist linking child task issues.
+- **Task** — a single unit of implementation work. GitHub issue (typically `L5-implementation`). References its parent epic in the body.
+
+Flow: Epic created → tasks broken out as separate issues → tasks added to board → `/feature` implements one task at a time.
+
+**LLD naming:** `docs/design/lld-<epic-slug>-<task-slug>.md` — one LLD per task, anchored to its epic.
+
+**Rules:**
+- Every task issue must reference its parent epic.
+- L1–L5 labels remain orthogonal — they describe design level, not hierarchy.
+- The main HLD (`docs/design/v1-design.md`) stays as the top-level design document. Epics reference sections of it.
+- Existing phase-based LLDs (`lld-phase-*`) are not retroactively renamed.
+
 ### Project Board IDs (stable — do not re-query)
 
 | Entity       | ID                               |

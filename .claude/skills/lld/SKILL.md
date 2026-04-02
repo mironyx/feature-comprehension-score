@@ -12,13 +12,26 @@ Generates implementation-ready Low-Level Design documents from the implementatio
 
 `$ARGUMENTS` determines the scope:
 
-- **Phase mode** (e.g., `phase2`, `phase 2`): Generate LLDs for ALL sections in the phase. This is the primary mode — produces the full picture with cross-cutting concerns and task breakdowns.
+- **Epic mode** (e.g., `epic 45`, `epic <number>`): Generate one LLD per task in the epic. This is the primary mode for new work. Reads the epic issue, identifies tasks, and produces `lld-<epic-slug>-<task-slug>.md` per task.
+- **Phase mode** (e.g., `phase2`, `phase 2`): Generate LLDs for ALL sections in the phase. Legacy mode for existing phase-based work.
 - **Section mode** (e.g., `2.3`, `2.1`): Regenerate or refine a single section's LLD. Use after reviewing phase output.
-- **No arguments**: Ask the user which phase or section to target.
+- **No arguments**: Ask the user which epic, phase, or section to target.
 
 ## Process
 
 ### Step 0: Read context
+
+**Epic mode:**
+
+1. Read the epic issue: `gh issue view <number>`. Extract the task list and scope.
+2. For each task issue, read the issue body: `gh issue view <task-number>`.
+3. Read the high-level design: `docs/design/v1-design.md`. Identify relevant sections.
+4. Read existing LLDs in `docs/design/` to understand the established format and avoid duplication.
+5. Read relevant ADRs from `docs/adr/`.
+6. Read relevant requirements from `docs/requirements/v1-requirements.md`.
+7. Read existing source code in `src/` to understand what already exists.
+
+**Phase mode:**
 
 1. Read the implementation plan: `docs/plans/2026-03-09-v1-implementation-plan.md`. Extract all sections for the target phase.
 2. Read the high-level design: `docs/design/v1-design.md`. Identify which L4 contract sections are relevant.
@@ -27,7 +40,7 @@ Generates implementation-ready Low-Level Design documents from the implementatio
 5. Read relevant requirements from `docs/requirements/v1-requirements.md` for the stories referenced.
 6. Read existing source code in `src/` to understand what already exists.
 
-### Step 1: Phase overview (phase mode only)
+### Step 1: Overview (epic mode or phase mode)
 
 Before generating individual LLDs, produce a brief analysis for the user:
 
@@ -41,7 +54,9 @@ Present this overview and **wait for user confirmation** before generating the L
 
 ### Step 2: Generate LLD
 
-Generate a **single file per phase** containing all sections. Each implementation plan section becomes a top-level heading within the file. This keeps cross-references co-located and gives a full picture of the phase.
+**Epic mode:** Generate **one file per task** in the epic. Each task gets its own standalone LLD. File naming: `docs/design/lld-<epic-slug>-<task-slug>.md`.
+
+**Phase mode:** Generate a **single file per phase** containing all sections. Each implementation plan section becomes a top-level heading within the file. File naming: `docs/design/lld-phase-<N>-<short-name>.md`.
 
 **Layer inference rules** — determine which layers a section needs by examining its content:
 - **DB**: Mentions tables, migrations, RLS, schema, database functions, seed data
@@ -51,9 +66,6 @@ Generate a **single file per phase** containing all sections. Each implementatio
 **DRY principle** — do NOT duplicate content from the HLD. Instead:
 - Reference HLD sections by link: `See [v1-design.md §4.2](v1-design.md#42-database-schema---l4-contracts)`
 - Only add implementation-level detail the HLD does not contain: file paths, internal function signatures, component trees, state machines, error handling strategies, internal types not in the public contract
-
-**File naming**: `docs/design/lld-phase-<N>-<short-name>.md`
-Example: `docs/design/lld-phase-2-web-auth-db.md`
 
 **Section mode** (`/lld 2.3`): Update the relevant section within the existing phase LLD file rather than creating a new file.
 
@@ -95,7 +107,7 @@ describe('[context]')
 - `src/path/to/file.ts` — [what this file does]
 ```
 
-### Step 4: Cross-references (phase mode only)
+### Step 4: Cross-references (epic mode and phase mode)
 
 Add a `## Cross-References` section at the end of the phase LLD (before Tasks) noting:
 - **Internal dependencies** between sections within this phase (as anchor links)

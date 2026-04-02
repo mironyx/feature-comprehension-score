@@ -21,9 +21,10 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 ### Step 3: Read design context
 
 1. Read the issue body: `gh issue view <issue-number>`.
-2. Read all files referenced in the issue body (design docs, LLDs, type files, related source).
-3. Read any existing source files in the target directory.
-4. Understand the contract: inputs, outputs, types, error cases.
+2. **Epic guard:** Check the issue labels. If the issue has the `epic` label, stop: "Issue #N is an epic, not a task. Use `/feature epic <N>` to pick a task within it."
+3. Read all files referenced in the issue body (design docs, LLDs, type files, related source).
+4. Read any existing source files in the target directory.
+5. Understand the contract: inputs, outputs, types, error cases.
 
 ### Step 4: Implement with TDD
 

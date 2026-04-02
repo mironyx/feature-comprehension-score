@@ -14,16 +14,23 @@ TDD implementation, and PR creation.
 Not supported in VS Code.
 
 **Usage:**
-- `/feature-team 101 102 103` — implement three specific issues in parallel
-- `/feature-team -n 3` — implement the top 3 Todo items from the project board
+- `/feature-team 101 102 103` — implement three specific task issues in parallel
+- `/feature-team -n 3` — implement the top 3 Todo task items from the project board
+- `/feature-team epic 45` — implement all tasks from epic #45 in parallel
 
-For a single issue, use `/feature` instead.
+For a single issue, use `/feature` instead. Epic issues (label `epic`) cannot be implemented directly — pass task issues or use `epic <N>` mode.
 
 ## Lead Process
 
 Execute these steps sequentially without pausing for confirmation.
 
 ### Step 1: Parse arguments and collect issues
+
+If `epic <N>` is given:
+1. Read the epic issue: `gh issue view <N> --json title,body,labels`.
+2. Verify it has the `epic` label. If not, stop: "Issue #N is not an epic."
+3. Parse the task checklist from the body. Extract all unchecked task issue numbers.
+4. If no unchecked tasks, stop: "Epic #N has no remaining tasks."
 
 If `-n N` is given:
 ```bash
@@ -39,9 +46,11 @@ for i in todo[:N]:
 
 If explicit issue numbers are given: use them directly.
 
+**Epic guard:** For all modes, check each collected issue for the `epic` label. If any issue is an epic, stop: "Issue #N is an epic, not a task. Use `/feature-team epic <N>` to implement its tasks."
+
 For each issue number, read the title and design reference:
 ```bash
-gh issue view <N> --json title,body
+gh issue view <N> --json title,body,labels
 ```
 
 ### Step 2: Validate each issue

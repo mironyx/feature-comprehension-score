@@ -10,10 +10,11 @@ Implements a single feature end-to-end without user intervention unless blocked.
 
 **Usage:**
 
-- `/feature` — picks the top Todo item from the project board
-- `/feature 123` — works on issue #123 specifically
+- `/feature` — picks the top Todo task from the project board
+- `/feature 123` — works on task issue #123 specifically
+- `/feature epic 45` — picks the next unchecked task from epic #45
 
-**Pre-requisite:** The issue's design document (LLD, design doc section, or ADR) must be complete. If not, stop and tell the user.
+**Pre-requisite:** The issue's design document (LLD, design doc section, or ADR) must be complete. If not, stop and tell the user. Epic issues (label `epic`) cannot be implemented directly — pick a task within the epic instead.
 
 ## Process
 
@@ -21,11 +22,18 @@ Execute these steps sequentially. Do not skip steps. Do not ask for confirmation
 
 ### Step 1: Pick the work item and tag the session
 
-If `$ARGUMENTS` contains an issue number, use that. Otherwise:
+**Determine the target issue:**
 
-1. Run `gh issue list --label L5-implementation --state open --limit 1` and use the first result.
-2. Read the issue body: `gh issue view <number>`.
-3. **Validate the issue has enough context:**
+- If `$ARGUMENTS` starts with `epic <N>`: read epic issue #N with `gh issue view <N>`. Parse the task checklist from the body. Pick the first unchecked task issue number. If all tasks are checked or no tasks exist, stop: "Epic #N has no remaining tasks."
+- If `$ARGUMENTS` contains an issue number (not prefixed with `epic`): use that issue directly.
+- If no arguments: run `gh issue list --label L5-implementation --state open --limit 1` and use the first result.
+
+**Guard:** Check whether the selected issue has the `epic` label (`gh issue view <number> --json labels`). If it does, stop: "Issue #N is an epic. Use `/feature epic <N>` to pick a task within it, or `/feature <task-number>` for a specific task."
+
+**Validate the issue has enough context:**
+
+1. Read the issue body: `gh issue view <number>`.
+2. Check for:
    - Design doc or LLD section reference
    - BDD test specs or acceptance criteria
    - If missing, stop and report: "Issue #N lacks [missing item]. Cannot proceed autonomously."
