@@ -15,7 +15,7 @@ See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for f
 
 ## Task Tracking
 
-- **Project board** — Check `gh project item-list 1 --owner leonids2005` for current task statuses and priorities.
+- **Project board** — Check `gh project item-list 2 --owner mironyx` for current task statuses and priorities.
 - **GitHub Issues** — source of truth for what needs doing. Use `gh issue` to create, update, close.
 - **Plan files** (`docs/plans/`) — execution context for how work gets done. Agents read/write these locally.
 - **Labels:** `L1-capabilities` through `L5-implementation` map to design-down levels.
@@ -45,12 +45,13 @@ Flow: Epic created → tasks broken out as separate issues → tasks added to bo
 
 | Entity       | ID                               |
 | ------------ | -------------------------------- |
-| Project      | `PVT_kwHOAOSb584BQzxy`           |
-| Status field | `PVTSSF_lAHOAOSb584BQzxyzg-0mow` |
-| Todo         | `8ecf3a65`                       |
-| Blocked      | `942c7ae6`                       |
-| In Progress  | `b4f43653`                       |
-| Done         | `38eaf939`                       |
+| Project      | `PVT_kwDOEEi_vs4BToGD`           |
+| Project #    | `2`                              |
+| Status field | `PVTSSF_lADOEEi_vs4BToGDzhA10G4` |
+| Todo         | `8d4368d4`                       |
+| Blocked      | `3aacb396`                       |
+| In Progress  | `3317982f`                       |
+| Done         | `8c0ec0d7`                       |
 
 **Status helper** — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh):
 

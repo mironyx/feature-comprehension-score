@@ -11,21 +11,22 @@
 #
 # Status values: todo | blocked | "in progress" | done (case-insensitive)
 #
-# Cached IDs from: gh project field-list 1 --owner leonids2005
+# Cached IDs from: gh project field-list 2 --owner mironyx
 # These are stable and do not change between sessions.
 
 set -euo pipefail
 
-REPO="leonids2005/feature-comprehension-score"
-OWNER="leonids2005"
-PROJECT_ID="PVT_kwHOAOSb584BQzxy"
-FIELD_ID="PVTSSF_lAHOAOSb584BQzxyzg-0mow"
+REPO="mironyx/feature-comprehension-score"
+OWNER="mironyx"
+PROJECT_NUMBER=2
+PROJECT_ID="PVT_kwDOEEi_vs4BToGD"
+FIELD_ID="PVTSSF_lADOEEi_vs4BToGDzhA10G4"
 
 declare -A STATUS_IDS=(
-  [todo]="8ecf3a65"
-  [blocked]="942c7ae6"
-  [in progress]="b4f43653"
-  [done]="38eaf939"
+  [todo]="8d4368d4"
+  [blocked]="3aacb396"
+  [in progress]="3317982f"
+  [done]="8c0ec0d7"
 )
 
 # Find a real Python, skipping the Windows Store stub in WindowsApps.
@@ -108,7 +109,7 @@ if [[ "${1:-}" == "add" ]]; then
   STATUS="${3:-todo}"
   OPTION_ID=$(resolve_status "$STATUS")
 
-  ITEM_ID=$(gh project item-add 1 --owner "$OWNER" \
+  ITEM_ID=$(gh project item-add "$PROJECT_NUMBER" --owner "$OWNER" \
     --url "https://github.com/${REPO}/issues/${ISSUE_NUMBER}" \
     --format json | "$PYTHON" -c "import json,sys; print(json.load(sys.stdin)['id'])")
 

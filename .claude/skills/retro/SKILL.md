@@ -15,7 +15,7 @@ Analyses the development process since the last retro (or project start) and pro
 - **Session logs** — Read all files in `docs/sessions/` since the last retro (or all if this is the first retro). These capture completed work, decisions, and conversation summaries.
 - **Git history** — Run `git log --oneline` to see commit frequency, message quality, and whether atomic commits per task are happening.
 - **GitHub Issues** — Run `gh issue list --state all --json number,title,state,labels` to assess backlog health.
-- **Project board** — Run `gh project item-list 1 --owner leonids2005` to check priority ordering and status accuracy.
+- **Project board** — Run `gh project item-list 2 --owner mironyx` to check priority ordering and status accuracy.
 - **Drift reports** — Read any drift reports in `docs/reports/` generated since the last retro. Note whether any design↔code drift findings (Critical/Warning) were raised and whether they were resolved within the same or next session.
 - **Previous retro** — Read the most recent `docs/reports/YYYY-MM-DD-process-retro.md` if one exists, to check whether previous actions were implemented.
 

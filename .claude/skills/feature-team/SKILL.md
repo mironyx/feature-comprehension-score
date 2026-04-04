@@ -34,7 +34,7 @@ If `epic <N>` is given:
 
 If `-n N` is given:
 ```bash
-gh project item-list 1 --owner leonids2005 --format json \
+gh project item-list 2 --owner mironyx --format json \
   | python3 -c "
 import json, sys
 items = json.load(sys.stdin)['items']
