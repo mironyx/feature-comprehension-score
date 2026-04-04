@@ -96,7 +96,29 @@ Then:
 4. Repeat until `/diag` reports zero findings on non-generated files.
 5. Re-run Step 5 (full verification) after any fixes.
 
-Only proceed to Step 7 when `/diag` reports zero findings on non-generated files.
+Only proceed to Step 6b when `/diag` reports zero findings on non-generated files.
+
+### Step 6b: Evaluate (blocking gate)
+
+Launch the `feature-evaluator` agent as a sub-agent. Pass it:
+
+- `lld_path` — the LLD file read in Step 3 (or the issue number if no LLD exists)
+- `issue_number` — the current issue number
+- `changed_files` — all `src/` files created or modified in this cycle
+- `test_files` — all `tests/` files created or modified in this cycle
+
+```
+Launch Agent: feature-evaluator
+Input: lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
+```
+
+**Triage the verdict:**
+
+- **PASS** — proceed to Step 7.
+- **PASS WITH WARNINGS** — review warnings. Fix quick wins; note the rest in the PR body. Proceed to Step 7.
+- **FAIL** — read the failed adversarial tests and silent failure risks. Fix the implementation to address each finding. After fixing, re-run Step 5 (full verification) and Step 6 (`/diag`). Do NOT re-run the evaluator — proceed to Step 7 after verification passes.
+
+The evaluator writes tests to `tests/evaluation/<slug>.eval.test.ts`. These files are committed alongside the feature code in Step 7 — they serve as ongoing regression protection.
 
 ### Step 7: Commit
 
