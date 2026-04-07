@@ -3,8 +3,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from './types';
-import { resolveUserOrgsViaApp, type ResolveUserOrgsInput } from './org-membership';
+import type { Database } from '@/lib/supabase/types';
+import { resolveUserOrgsViaApp, type ResolveUserOrgsInput } from '@/lib/supabase/org-membership';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
 type UserOrgRow = Database['public']['Tables']['user_organisations']['Row'];

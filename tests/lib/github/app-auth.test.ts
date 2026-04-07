@@ -8,7 +8,7 @@ import {
   createInstallationToken,
   getInstallationToken,
   __resetInstallationTokenCache,
-} from './app-auth';
+} from '@/lib/github/app-auth';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
