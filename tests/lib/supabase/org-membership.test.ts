@@ -2,93 +2,14 @@
 // Design reference: docs/design/lld-onboarding-auth-resolver.md §7
 
 import { describe, it, expect, vi } from 'vitest';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/supabase/types';
-import { resolveUserOrgsViaApp, type ResolveUserOrgsInput } from '@/lib/supabase/org-membership';
-
-type OrgRow = Database['public']['Tables']['organisations']['Row'];
-type UserOrgRow = Database['public']['Tables']['user_organisations']['Row'];
-
-const INPUT: ResolveUserOrgsInput = {
-  userId: 'user-1',
-  githubUserId: 42,
-  githubLogin: 'alice',
-};
-
-function makeOrg(overrides: Partial<OrgRow> = {}): OrgRow {
-  return {
-    id: 'org-1',
-    github_org_id: 1001,
-    github_org_name: 'acme',
-    installation_id: 9001,
-    status: 'active',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-function makeUserOrg(overrides: Partial<UserOrgRow> = {}): UserOrgRow {
-  return {
-    id: 'uo-1',
-    user_id: INPUT.userId,
-    org_id: 'org-1',
-    github_user_id: INPUT.githubUserId,
-    github_username: INPUT.githubLogin,
-    github_role: 'member',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-interface MockClientOptions {
-  installedOrgs: OrgRow[];
-  finalUserOrgs: UserOrgRow[];
-  orgQueryError?: { message: string };
-  upsertError?: { message: string };
-}
-
-function buildMockClient(opts: MockClientOptions) {
-  const upsertSpy = vi.fn().mockResolvedValue({ data: null, error: opts.upsertError ?? null });
-
-  const notSpy = vi.fn().mockResolvedValue({ data: null, error: null });
-  const eqDelete = Object.assign(Promise.resolve({ data: null, error: null }), { not: notSpy });
-  const deleteChain = { eq: vi.fn().mockReturnValue(eqDelete) };
-  const deleteSpy = vi.fn().mockReturnValue(deleteChain);
-
-  const selectFinal = {
-    eq: vi.fn().mockResolvedValue({ data: opts.finalUserOrgs, error: null }),
-  };
-
-  const orgsSelectChain = {
-    eq: vi.fn().mockResolvedValue({
-      data: opts.orgQueryError ? null : opts.installedOrgs,
-      error: opts.orgQueryError ?? null,
-    }),
-  };
-
-  const fromSpy = vi.fn((table: string) => {
-    if (table === 'organisations') {
-      return { select: vi.fn().mockReturnValue(orgsSelectChain) };
-    }
-    if (table === 'user_organisations') {
-      return {
-        upsert: upsertSpy,
-        delete: deleteSpy,
-        select: vi.fn().mockReturnValue(selectFinal),
-      };
-    }
-    throw new Error(`Unexpected table: ${table}`);
-  });
-
-  const client = { from: fromSpy } as unknown as SupabaseClient<Database>;
-  return { client, upsertSpy, deleteSpy, notSpy };
-}
-
-function membershipResponse(role: 'admin' | 'member'): Response {
-  return new Response(JSON.stringify({ role }), { status: 200 });
-}
+import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
+import {
+  INPUT,
+  buildMockClient,
+  makeOrg,
+  makeUserOrg,
+  membershipResponse,
+} from '../../fixtures/org-membership-mocks';
 
 describe('resolveUserOrgsViaApp', () => {
   it('returns matching orgs when the user is a member of one installed org', async () => {

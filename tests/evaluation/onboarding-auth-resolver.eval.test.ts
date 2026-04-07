@@ -10,10 +10,12 @@ import {
   createAppJwt,
   getInstallationToken,
   __resetInstallationTokenCache,
-} from '../../src/lib/github/app-auth';
-import { resolveUserOrgsViaApp, type ResolveUserOrgsInput } from '../../src/lib/supabase/org-membership';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../../src/lib/supabase/types';
+} from '@/lib/github/app-auth';
+import {
+  resolveUserOrgsViaApp,
+  type ResolveUserOrgsInput,
+} from '@/lib/supabase/org-membership';
+import { INPUT, buildMockClient, makeOrg } from '../fixtures/org-membership-mocks';
 
 // ---------------------------------------------------------------------------
 // Shared test key material
@@ -23,69 +25,6 @@ const { privateKey } = generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-type OrgRow = Database['public']['Tables']['organisations']['Row'];
-type UserOrgRow = Database['public']['Tables']['user_organisations']['Row'];
-
-const INPUT: ResolveUserOrgsInput = {
-  userId: 'user-1',
-  githubUserId: 42,
-  githubLogin: 'alice',
-};
-
-function makeOrg(overrides: Partial<OrgRow> = {}): OrgRow {
-  return {
-    id: 'org-1',
-    github_org_id: 1001,
-    github_org_name: 'acme',
-    installation_id: 9001,
-    status: 'active',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-interface MockClientOptions {
-  installedOrgs: OrgRow[];
-  finalUserOrgs: UserOrgRow[];
-  orgQueryError?: { message: string };
-  upsertError?: { message: string };
-  deleteError?: { message: string };
-}
-
-function buildMockClient(opts: MockClientOptions) {
-  const upsertSpy = vi.fn().mockResolvedValue({ data: null, error: opts.upsertError ?? null });
-  const notSpy = vi.fn().mockResolvedValue({ data: null, error: opts.deleteError ?? null });
-  const eqDelete = Object.assign(Promise.resolve({ data: null, error: opts.deleteError ?? null }), {
-    not: notSpy,
-  });
-  const deleteChain = { eq: vi.fn().mockReturnValue(eqDelete) };
-  const deleteSpy = vi.fn().mockReturnValue(deleteChain);
-  const selectFinal = {
-    eq: vi.fn().mockResolvedValue({ data: opts.finalUserOrgs, error: null }),
-  };
-  const orgsSelectChain = {
-    eq: vi.fn().mockResolvedValue({
-      data: opts.orgQueryError ? null : opts.installedOrgs,
-      error: opts.orgQueryError ?? null,
-    }),
-  };
-  const fromSpy = vi.fn((table: string) => {
-    if (table === 'organisations') {
-      return { select: vi.fn().mockReturnValue(orgsSelectChain) };
-    }
-    if (table === 'user_organisations') {
-      return { upsert: upsertSpy, delete: deleteSpy, select: vi.fn().mockReturnValue(selectFinal) };
-    }
-    throw new Error(`Unexpected table: ${table}`);
-  });
-  const client = { from: fromSpy } as unknown as SupabaseClient<Database>;
-  return { client, upsertSpy, deleteSpy, notSpy };
-}
 
 // ---------------------------------------------------------------------------
 // §8 AC-1 / §7 createAppJwt — GITHUB_APP_ID missing throws

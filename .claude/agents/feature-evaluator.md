@@ -87,6 +87,25 @@ Write these tests in a new file: `tests/evaluation/<feature-slug>.eval.test.ts`
 Use the same testing patterns as the existing test files (vitest, describe/it blocks,
 existing test helpers and factories). Read one existing test file to match the style.
 
+**Reuse, do not duplicate, test boilerplate.** Before writing any mock setup, factory,
+or fixture in the eval file:
+
+1. **Read the feature's own test files** (the ones passed in `test_files`) and note every
+   helper: mock client builders, `makeX` factories, shared input constants, response
+   helpers, etc.
+2. **Check `tests/fixtures/` and `tests/helpers/`** for anything already extracted.
+3. **If a helper you need already exists, import it** — do not copy-paste it into the
+   eval file.
+4. **If a helper is duplicated between the eval file and the feature's unit test file,
+   extract it into `tests/fixtures/<feature-slug>-mocks.ts`** and update both files to
+   import from there. The eval file is part of the repo's long-term test surface, so
+   duplication here is real technical debt, not throwaway code.
+5. Only write a new helper in the eval file when the behaviour being probed genuinely
+   needs a different mock shape than what already exists.
+
+When in doubt, err on the side of importing. A 10-line eval file that reuses existing
+fixtures is worth more than a 200-line one that re-declares them.
+
 Keep tests focused — one assertion per test where possible.
 
 ### Step 5: Run all tests
