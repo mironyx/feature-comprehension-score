@@ -38,7 +38,7 @@ Produced by grepping `src/` for `octokit`, `github.com`, `Authorization.*Bearer`
 | 3 | [src/app/api/fcs/service.ts:328](../../src/app/api/fcs/service.ts#L328) | `createFcs` | **User OAuth** (via #1) | Uses the Octokit for `validateMergedPRs` and `resolveParticipants`. | `pulls.get`, `users.getByUsername`. |
 | 4 | [src/lib/github/artefact-source.ts](../../src/lib/github/artefact-source.ts) | `GitHubArtefactSource` (class) | Inherits from whichever Octokit is injected — **currently user OAuth**. | Constructor injection. | See #2. |
 | 5 | [src/lib/github/app-auth.ts](../../src/lib/github/app-auth.ts) | `createAppJwt`, `createInstallationToken`, `getInstallationToken` | **App JWT → installation token** | RS256-signs a JWT with `GITHUB_APP_PRIVATE_KEY` (env), then `POST /app/installations/{id}/access_tokens`. In-memory cache keyed by `installationId`, 5-minute refresh margin. | `POST /app/installations/{id}/access_tokens`. |
-| 6 | [src/lib/supabase/org-membership.ts](../../src/lib/supabase/org-membership.ts) | `resolveUserOrgsViaApp` | **Installation token** (via #5) | `getInstallationToken(org.installation_id)` per installed org. | `GET /orgs/{org}/memberships/{user}`. **Not yet wired into `/auth/callback`.** |
+| 6 | [src/lib/supabase/org-membership.ts](../../src/lib/supabase/org-membership.ts) | `resolveUserOrgsViaApp` | **Installation token** (via #5) | `getInstallationToken(org.installation_id)` per installed org. | `GET /orgs/{org}/memberships/{user}`. **Not yet wired into `/auth/callback`.** Requires the App to hold `Organisation members (read)` — see M1.5. |
 | 7 | [src/lib/supabase/org-sync.ts](../../src/lib/supabase/org-sync.ts) | `syncOrgMembership` | **User OAuth provider token** (passed in by caller) | Called from `/auth/callback` with `session.provider_token`. | `GET /user`, `GET /user/orgs`, `GET /orgs/{org}/memberships/{user}`. **Legacy path to be removed by ADR-0020 cutover.** |
 | 8 | [src/lib/github/installation-handlers.ts](../../src/lib/github/installation-handlers.ts) | `handleWebhookEvent` and siblings | **No GitHub API call.** Pure DB mutation in response to webhook payloads. | — | — |
 | 9 | [src/app/api/webhooks/github/route.ts](../../src/app/api/webhooks/github/route.ts) | `POST /api/webhooks/github` | **HMAC-SHA256 of shared webhook secret.** Not a bearer token; proves the sender is GitHub. | `GITHUB_WEBHOOK_SECRET` env. | — |
@@ -79,7 +79,7 @@ One principle: **server-to-server GitHub API calls always use an installation to
 | Metadata | Read | Implicit with any install. | — |
 | Checks | Write | PRCC (future) | Not yet used, but pre-authorised at install time. |
 | Issues | Read | `GitHubArtefactSource.fetchLinkedIssues` | Reads linked issue title/body. |
-| Organisation members | Read | `resolveUserOrgsViaApp` | Added by ADR-0020. Requires re-consent on existing installs. |
+| Organisation members | Read | `resolveUserOrgsViaApp` | Added by ADR-0020. Requires re-consent on existing installs. **Sequencing:** must land in M1.5 before M2 wires the resolver into `/auth/callback`; otherwise the resolver 403s. |
 
 No `repo`, `read:org`, or `read:user` scope is ever requested from the user — the OAuth grant drops to `user:email` (identity minimum).
 
@@ -108,6 +108,10 @@ The concrete expression of this principle is:
 3. **Trust-by-construction via denormalisation on work rows.** Rows representing deferred work (`assessments`, future PRCC state tables) carry `installation_id` as a column. The row is *written* under RLS — meaning the user who created it proved membership of the org at write time. Background jobs, retries, and async workers then read `installation_id` straight off the row without re-authorising. The authz happened at the door; the middle of the pipeline is algebraic.
 
 4. **No service-role free-form `installation_id` lookup.** `adminSupabase` (service role, bypasses RLS) is never used to look up `installation_id` from an arbitrary `org_id`. If a code path believes it needs this, it is wrong — either the value should have been persisted on a work row at creation time, or the path should be expressed as E1 (webhook) or E3 (user session).
+
+#### Deferred belt-and-braces (known risk, accepted for V1)
+
+The §4.3 guarantee relies on developer discipline to keep service-role code away from the `installation_id` column. The CLAUDE.md rule and code review catch this, but they are human checks. A stronger mechanical guard would be a database-level wrapper — e.g. revoking `SELECT (installation_id)` from the service role on the `organisations` table and exposing installation tokens only through a set of whitelisted `SECURITY DEFINER` functions that log every access. This pushes the boundary into the database itself, so a future refactor that adds a naive `adminSupabase.from('organisations').select('installation_id')` would fail at runtime, not at code review. **Deferred for V1** — the single-digit number of call sites makes human review tractable, and the whitelisted-function pattern adds friction to every new legitimate use. Revisit when the codebase has more than ~5 distinct `installation_id` consumers or when a second team contributes.
 
 #### Why this works
 
@@ -300,7 +304,7 @@ Implemented in [src/lib/github/app-auth.ts:64-85](../../src/lib/github/app-auth.
 | Scope | Module-level `Map` in the Node process. | Cloud Run runs N container instances; each has its own cache. Accepted because GitHub tokens are cheap to re-mint (one signed JWT + one POST) and 1 h TTL means steady-state mint rate is ≤1/h/installation/instance. |
 | TTL | `expires_at` from GitHub (nominally 1 h). | Authoritative — don't guess. |
 | Refresh margin | 5 min before expiry. | Avoids using a token within GitHub's clock-skew window and avoids mid-request expiry. |
-| In-flight dedup | **No.** Two concurrent cache-miss calls for the same `installationId` will each mint a token. | Acceptable: GitHub allows multiple valid tokens per installation, the extra mint is rare (only on cold start or near expiry), and adding a promise-keyed mutex adds complexity with marginal benefit at V1 scale. Revisit if we ever see rate-limit pressure on `POST /app/installations/*/access_tokens`. |
+| In-flight dedup | **No.** Two concurrent cache-miss calls for the same `installationId` will each mint a token. | Acceptable: GitHub allows multiple valid tokens per installation, the extra mint is rare (only on cold start or near expiry), and adding a promise-keyed mutex adds complexity with marginal benefit at V1 scale. The realistic worst case is a cold-start deploy that immediately receives a burst of queued assessment requests for the same org — N concurrent mints for one `installationId` instead of one. GitHub's rate limit for `POST /app/installations/*/access_tokens` (currently effectively unlimited for normal App usage) absorbs this comfortably. Revisit if we ever see 429s on that endpoint. |
 | Cross-request behaviour | Shared within one Node process, not across instances. | Serverless / autoscaled. Per-instance warm cache is the pragmatic sweet spot — no Redis, no distributed lock. |
 | Persistence across deploys | **None.** New revision = cold cache. | Fine — cold-start cost is one extra mint per installation touched in the first minute. |
 | Test reset | `__resetInstallationTokenCache()` exported for Vitest. | Needed to isolate tests. |
@@ -335,14 +339,25 @@ This step operationalises the §4.3 principle. It is the first place in the code
   - Add a unit test on `retriggerRubricForAssessment` verifying it uses `assessment.installation_id` and never touches `organisations` for a fresh lookup.
 - **Risk:** requires every active `organisations` row to have an `installation_id`. Verified in prod (single row: mironyx, installation present). The new column is `not null`, so any `organisations` row with a null `installation_id` would block assessment creation — intentional; such a row is already broken.
 - **Reversibility:** revert the two call sites and drop the column (`ALTER TABLE assessments DROP COLUMN installation_id` generated via the declarative workflow). `user_github_tokens` is still populated throughout this step.
+- **Error path — uninstalled between creation and retrigger.** If an org uninstalls the App between assessment creation and rubric generation (or between creation and a later retrigger), the background worker will fail to mint an installation token for the stored `installation_id` (GitHub 404). The worker catches this in the existing `markRubricFailed` path and the assessment transitions to `rubric_failed`. The user-facing surface in the assessments list must show a specific, actionable message — "This organisation's GitHub App installation is no longer active. Ask an owner to reinstall it, then retrigger." — rather than the generic "Rubric generation failed" text. Tracked as a small UI task under M1; implementation is a check on whether the org's row is `status='inactive'` at the point of rendering the failure.
+
+### Step M1.5 — GitHub App permission upgrade (`members:read`)
+
+**Sequencing correction from an earlier draft of this HLD:** the `members:read` permission must be added to the App manifest **before** M2 wires `resolveUserOrgsViaApp` into `/auth/callback`. The resolver calls `GET /orgs/{org}/memberships/{login}` with an installation token; that endpoint requires the **Organisation members (read)** permission. Without it, the resolver returns 403 for every org whose owner has not yet re-consented.
+
+- Add `Organisation members (read)` to the App manifest in the GitHub App settings UI.
+- GitHub automatically emails all existing installation owners asking them to approve the new permission.
+- **Verification gate before proceeding to M2:** confirm that every active row in the `organisations` table corresponds to an installation that has approved the new permission. At current production scale this is a single org (`mironyx`) — trivial to check manually via a dry-run call to `GET /orgs/mironyx/memberships/{known-user}` using the installation token. Add an operator script `scripts/check-members-read-consent.ts` that iterates every active installation and reports consent status.
+- **Open pre-check:** before writing the script, verify whether the App manifest already has `members:read`. `resolveUserOrgsViaApp` landed in #185 — if its tests were mock-only, the permission may not yet exist on the real App. If it does not, the first step of M1.5 is literally "click the checkbox in the App settings." If it does, M1.5 is already done and this step collapses to the verification script.
 
 ### Step M2 — ADR-0020 sign-in cutover (already scoped as #179)
 
 - Wire `resolveUserOrgsViaApp` into `/auth/callback`; delete the `syncOrgMembership` call.
 - Drop `read:org` and `repo` scopes from `SignInButton.tsx` (keep `user:email`).
 - Do **not** read `session.provider_token` anymore; identity comes from `user.user_metadata`.
+- **Session invalidation / cached tokens.** The scope reduction affects only *new* sign-ins. Users who already have an active Supabase session retain whatever `provider_token` was captured under the old scopes, and that token continues to sit in `user_github_tokens` with its original `repo`/`read:org` scopes until the session expires or M3 drops the table. This is not a security regression — post-M1, FCS no longer reads the stored token at all, so its elevated scope is unused. After M3, the table is gone regardless of session state. We do **not** force a global sign-out; natural session expiry plus the M3 table drop is sufficient.
 
-Unblocked by M1. Before M1, M2 would break FCS.
+Unblocked by M1 **and M1.5**. Before M1, M2 would break FCS. Before M1.5, M2 would break sign-in itself.
 
 ### Step M3 — Delete the user-token storage path
 
@@ -351,14 +366,11 @@ Unblocked by M1. Before M1, M2 would break FCS.
 - Update `v1-design.md` §4.1 to remove the `user_github_tokens` section and point readers at this HLD for the token model.
 - CodeScene sweep: the `get_github_token` RPC function in `supabase/schemas/functions.sql` is removed too.
 
-### Step M4 — Add `members:read` to the App manifest
+### Step M4 — (removed)
 
-- GitHub App settings UI: add the permission.
-- GitHub auto-emails existing org owners to re-consent.
-- Document in `docs/runbooks/github-app-permission-upgrade.md` (follow-up).
-- No code change — existing installation tokens automatically gain the new permission once owners approve.
+The permission upgrade that was originally scoped as M4 is now **M1.5** — it must run before M2, not after. See the sequencing correction in M1.5 above.
 
-Order: **M1 → M2 → M3 → M4.** M4 can slip before M2 if timing works but must not precede M1.
+Order: **M1 → M1.5 → M2 → M3.** M1.5 and M1 are independent and can overlap, but both must complete before M2.
 
 ### Step M5 — Hardening follow-ups (post-cutover, not blockers for #186)
 
@@ -366,10 +378,12 @@ Order: **M1 → M2 → M3 → M4.** M4 can slip before M2 if timing works but mu
 - `X-GitHub-Delivery` replay detection on the webhook route.
 - Runbooks for rotation (§6.3) and permission upgrade.
 - Revisit cache dedup if GitHub App rate-limit pressure appears.
+- **Observability for installation-token minting.** Structured log every successful mint with `{ installation_id, expires_at, latency_ms }` and every failure with `{ installation_id, http_status }`. Prometheus counter `github_installation_token_mints_total{installation_id,outcome}`. Alert rule: `rate(github_installation_token_mints_total[5m]) > N_per_installation_per_hour` — firing indicates either the cache is broken or a runaway loop is re-minting. Separate alert on `github_installation_token_mints_total{outcome="failed"}` spike — firing indicates permission revocation, key rotation mid-deploy, or GitHub outage. Ties the §6.4 revocation playbook to a detection mechanism rather than relying on a customer to tell us something is wrong.
+- **Whitelisted-function pattern for `installation_id` reads** (the deferred belt-and-braces from §4.3). Revisit trigger: codebase grows past ~5 consumers, or a second team contributes.
 
 ## 9. Open Questions
 
-1. **Should the M1 helper construct a fresh Octokit per call, or cache Octokit instances?** Installation tokens change hourly, so the natural grain is per-request. Recommend: per-request Octokit, relying on the token cache behind it. Cheap allocation, clean ownership.
+1. **Should the M1 helper construct a fresh Octokit per call, or cache Octokit instances?** Installation tokens change hourly, so the natural grain is per-request. Recommend: per-request Octokit, relying on the token cache behind it. Cheap allocation, clean ownership. **Clarification:** "per-request" here means "once per FCS assessment request / per webhook delivery", not "once per GitHub API call". A single `triggerRubricGeneration` that makes diff + files + contents + issues calls creates one Octokit at the top and reuses it across all of them — the Octokit is a vehicle for the token, and the token is already cached.
 2. **How do we keep `installation_id` in sync when an org uninstalls and reinstalls?** Current webhook handler sets `status='inactive'` on delete. On a fresh `installation.created` with the same `github_org_id`, `handle_installation_created` must update the existing row's `installation_id` and reactivate it. Verified in [handle_installation_created](../../supabase/schemas/functions.sql) — out-of-scope to re-audit here but worth calling out for the drift scan. **Interaction with the denormalised `assessments.installation_id`:** existing assessments created under the old installation still carry the old id. When the background rubric worker tries to mint a token for a deactivated installation, it will fail cleanly (GitHub returns 404). Acceptable — the assessment transitions to `rubric_failed` and can be retriggered after reinstall. A migration to rewrite stale `installation_id` values on reinstall is *not* needed at V1 scale.
 3. **PRCC webhook route is not yet implemented.** When it is, it will share the same installation-token cache and receive `installation_id` via edge **E1** (verified webhook payload), consistent with §4.3. No design gap — just a forward-looking note.
 4. **Should we promote the §4.3 principle to its own ADR?** It is significant enough to deserve one ("Installation-ID handling — three entry points and trust-by-construction") but also tightly coupled to ADR-0020. Recommendation: extract to a standalone ADR if and only if a second use case (beyond FCS + PRCC) appears that needs the same discipline. For now, the HLD is the reference.
@@ -380,3 +394,4 @@ Order: **M1 → M2 → M3 → M4.** M4 can slip before M2 if timing works but mu
 |---|---|---|
 | 2026-04-07 | LS / Claude | Initial draft (issue #186). |
 | 2026-04-07 | LS / Claude | Added §4.3 cross-org isolation principle (three entry points, trust-by-construction). Updated §8 M1 to include `assessments.installation_id` denormalisation, user-scoped `fetchRepoInfo`, adversarial test, and CLAUDE.md rule. Added open question on the principle's potential ADR promotion. |
+| 2026-04-07 | LS / Claude | Review pass: added §4.3 deferred whitelisted-function risk; §7 cold-start burst note; §8 M1 error-path UX for uninstall-between-creation-and-retrigger; **corrected migration ordering — `members:read` is now M1.5 and must land before M2, not after** (previously M4); M2 session-invalidation note for cached tokens; §9 Q1 clarification that "per-request" is per-assessment; §M5 observability bullet for installation-token mint rate. |
