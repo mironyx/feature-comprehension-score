@@ -79,7 +79,7 @@ One principle: **server-to-server GitHub API calls always use an installation to
 | Metadata | Read | Implicit with any install. | — |
 | Checks | Write | PRCC (future) | Not yet used, but pre-authorised at install time. |
 | Issues | Read | `GitHubArtefactSource.fetchLinkedIssues` | Reads linked issue title/body. |
-| Organisation members | Read | `resolveUserOrgsViaApp` | Added by ADR-0020. Requires re-consent on existing installs. **Sequencing:** must land in M1.5 before M2 wires the resolver into `/auth/callback`; otherwise the resolver 403s. |
+| Organisation members | Read | `resolveUserOrgsViaApp` | Added by ADR-0020 and **already present on the `mironyx` App manifest** (landed with #185). M1.5 is a verification step, not a manifest edit. |
 
 No `repo`, `read:org`, or `read:user` scope is ever requested from the user — the OAuth grant drops to `user:email` (identity minimum).
 
@@ -341,14 +341,16 @@ This step operationalises the §4.3 principle. It is the first place in the code
 - **Reversibility:** revert the two call sites and drop the column (`ALTER TABLE assessments DROP COLUMN installation_id` generated via the declarative workflow). `user_github_tokens` is still populated throughout this step.
 - **Error path — uninstalled between creation and retrigger.** If an org uninstalls the App between assessment creation and rubric generation (or between creation and a later retrigger), the background worker will fail to mint an installation token for the stored `installation_id` (GitHub 404). The worker catches this in the existing `markRubricFailed` path and the assessment transitions to `rubric_failed`. The user-facing surface in the assessments list must show a specific, actionable message — "This organisation's GitHub App installation is no longer active. Ask an owner to reinstall it, then retrigger." — rather than the generic "Rubric generation failed" text. Tracked as a small UI task under M1; implementation is a check on whether the org's row is `status='inactive'` at the point of rendering the failure.
 
-### Step M1.5 — GitHub App permission upgrade (`members:read`)
+### Step M1.5 — Verify `members:read` consent on active installations
 
-**Sequencing correction from an earlier draft of this HLD:** the `members:read` permission must be added to the App manifest **before** M2 wires `resolveUserOrgsViaApp` into `/auth/callback`. The resolver calls `GET /orgs/{org}/memberships/{login}` with an installation token; that endpoint requires the **Organisation members (read)** permission. Without it, the resolver returns 403 for every org whose owner has not yet re-consented.
+**Sequencing:** the `Organisation members (read)` permission must be held by every active installation **before** M2 wires `resolveUserOrgsViaApp` into `/auth/callback`. The resolver calls `GET /orgs/{org}/memberships/{login}` with an installation token; that endpoint requires the permission. Without it, the resolver returns 403.
 
-- Add `Organisation members (read)` to the App manifest in the GitHub App settings UI.
-- GitHub automatically emails all existing installation owners asking them to approve the new permission.
-- **Verification gate before proceeding to M2:** confirm that every active row in the `organisations` table corresponds to an installation that has approved the new permission. At current production scale this is a single org (`mironyx`) — trivial to check manually via a dry-run call to `GET /orgs/mironyx/memberships/{known-user}` using the installation token. Add an operator script `scripts/check-members-read-consent.ts` that iterates every active installation and reports consent status.
-- **Open pre-check:** before writing the script, verify whether the App manifest already has `members:read`. `resolveUserOrgsViaApp` landed in #185 — if its tests were mock-only, the permission may not yet exist on the real App. If it does not, the first step of M1.5 is literally "click the checkbox in the App settings." If it does, M1.5 is already done and this step collapses to the verification script.
+**Current state (confirmed 2026-04-07):** the `mironyx` GitHub App manifest **already has** `Organisation members (read)`. The permission was added as part of #185. This step therefore reduces to a runtime verification and an operator script — no manifest edit, no re-consent email, no waiting.
+
+- Add an operator script `scripts/check-members-read-consent.ts` that iterates every active row in `organisations`, mints an installation token, and performs a dry-run `GET /orgs/{login}/memberships/{known-user}` call. Report per-install: `ok`, `403 (needs re-consent)`, or `404 (known user not a member — still ok, permission is held)`. Exit non-zero if any row reports `403`.
+- Run the script against production before M2 is merged. Expected output at current scale: one row (`mironyx`), `ok`.
+- If a new customer installs the App between M1.5 and M2, they inherit the permission from the manifest automatically — no special handling needed. The script is rerun as part of M2's pre-merge checklist.
+- **Not needed:** manifest edit, re-consent email workflow, customer communication. All of that would have applied if `members:read` had been missing from the manifest; it isn't.
 
 ### Step M2 — ADR-0020 sign-in cutover (already scoped as #179)
 
@@ -395,3 +397,4 @@ Order: **M1 → M1.5 → M2 → M3.** M1.5 and M1 are independent and can overla
 | 2026-04-07 | LS / Claude | Initial draft (issue #186). |
 | 2026-04-07 | LS / Claude | Added §4.3 cross-org isolation principle (three entry points, trust-by-construction). Updated §8 M1 to include `assessments.installation_id` denormalisation, user-scoped `fetchRepoInfo`, adversarial test, and CLAUDE.md rule. Added open question on the principle's potential ADR promotion. |
 | 2026-04-07 | LS / Claude | Review pass: added §4.3 deferred whitelisted-function risk; §7 cold-start burst note; §8 M1 error-path UX for uninstall-between-creation-and-retrigger; **corrected migration ordering — `members:read` is now M1.5 and must land before M2, not after** (previously M4); M2 session-invalidation note for cached tokens; §9 Q1 clarification that "per-request" is per-assessment; §M5 observability bullet for installation-token mint rate. |
+| 2026-04-07 | LS / Claude | Confirmed by project owner that the `mironyx` App manifest already holds `Organisation members (read)` (landed with #185). M1.5 simplified to a verification script — no manifest edit, no re-consent email. §4.2 permissions table updated accordingly. |
