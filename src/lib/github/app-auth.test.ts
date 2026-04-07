@@ -64,9 +64,15 @@ describe('createAppJwt', () => {
 });
 
 describe('createInstallationToken', () => {
+  const originalEnv = { ...process.env };
+
   beforeEach(() => {
     process.env.GITHUB_APP_ID = '123456';
     process.env.GITHUB_APP_PRIVATE_KEY = privateKey;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
   });
 
   it('POSTs to /app/installations/:id/access_tokens and returns token/expiry', async () => {
