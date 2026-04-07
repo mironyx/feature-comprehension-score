@@ -33,6 +33,20 @@ Follow strict Red-Green-Refactor. One test at a time.
 The PostToolUse hook opens edited files in the editor automatically for diagnostics analysis.
 If the hook fires with inline findings during the cycle, address them before moving to the next test.
 
+**Before writing the first test**, scan for reusable fixtures:
+
+1. Grep existing `tests/` files in the same area (e.g. the neighbouring unit test for the
+   module you're replacing or extending) for mock client builders, `makeX` factories,
+   shared input constants, and response helpers.
+2. Check `tests/fixtures/` and `tests/helpers/` for anything already extracted.
+3. **If the pattern you need already exists, import it** — never copy-paste boilerplate.
+4. **If you are about to write a helper that looks similar to one in a neighbouring test
+   file, extract both into `tests/fixtures/<topic>-mocks.ts` first**, then import from
+   both places. Do this in the same commit as the new tests.
+
+Duplicated mock setup is tech debt the moment it's written — cheaper to extract up front
+than after the evaluator or a reviewer catches it.
+
 For each behaviour in the BDD spec from the issue:
 
 1. **RED** — Write a failing test. Run `npx vitest run <test-file>`. Confirm it fails for the right reason.

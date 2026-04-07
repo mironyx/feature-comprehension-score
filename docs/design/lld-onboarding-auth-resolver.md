@@ -3,8 +3,9 @@
 **Parent epic:** #176 — Onboarding & Auth — installation-token org membership
 **Plan:** [docs/plans/2026-04-07-onboarding-auth-epic.md](../plans/2026-04-07-onboarding-auth-epic.md) Task 2
 **Related:** ADR-0020 §Decision point 3, ADR-0001, [lld-onboarding-auth-app-permission.md](lld-onboarding-auth-app-permission.md) (prerequisite)
-**Status:** Draft
+**Status:** Revised (post-implementation sync, issue #178)
 **Date:** 2026-04-07
+**Revised:** 2026-04-07 — synced to implementation (PR #185)
 
 ## 1. Purpose
 
@@ -44,10 +45,18 @@ Relevant columns on `user_organisations`:
 |---|---|
 | `src/lib/github/app-auth.ts` | Mint App JWT and exchange it for an installation access token. New helper. |
 | `src/lib/supabase/org-membership.ts` | `resolveUserOrgsViaApp` — the service this task delivers. |
-| `src/lib/github/app-auth.test.ts` | Unit tests for JWT generation and token caching. |
-| `src/lib/supabase/org-membership.test.ts` | Unit tests for the resolver. |
+| `tests/lib/github/app-auth.test.ts` | Unit tests for JWT generation and token caching. |
+| `tests/lib/supabase/org-membership.test.ts` | Unit tests for the resolver. |
+| `tests/fixtures/org-membership-mocks.ts` | Shared mock Supabase client + factories reused across the unit test and the evaluator suite. |
+| `tests/evaluation/onboarding-auth-resolver.eval.test.ts` | Adversarial regression suite written by the feature-evaluator agent. |
 
 Rationale for the split: the JWT/installation-token helper is generically useful and belongs under `src/lib/github/`; the resolver is a Supabase + domain concern and belongs under `src/lib/supabase/`. The resolver depends on the helper via an injected `getInstallationToken` function so tests can substitute a stub without touching `fetch`.
+
+> **Implementation note (issue #178):** Test files live under `tests/lib/**` (not co-located with the source as originally drafted) to match the rest of the repo — every other test in the codebase lives in `tests/`. The `vitest.config.ts` include pattern supports both, but the LLD's original `src/lib/**/*.test.ts` paths were inconsistent with existing convention and were corrected during implementation.
+>
+> **Implementation note (issue #178):** A shared fixture at `tests/fixtures/org-membership-mocks.ts` was extracted to eliminate 80+ lines of duplicated mock Supabase client setup between the unit test and the evaluator's adversarial suite. Not in the original spec; added during review.
+>
+> **Implementation note (issue #178):** An adversarial evaluation suite at `tests/evaluation/onboarding-auth-resolver.eval.test.ts` was written by the feature-evaluator agent and committed alongside the feature. Not in the original spec; introduced by ADR-0019 (feature evaluator agent).
 
 ### 4.3 Backend — deletions
 
@@ -73,12 +82,21 @@ export function createAppJwt(now?: () => number): string;
 export async function createInstallationToken(
   installationId: number,
   appJwt?: string,
+  fetchImpl?: typeof fetch,
 ): Promise<{ token: string; expiresAt: string }>;
 
 /** Cached variant: reuses a previously minted token until ~5 minutes before expiry.
  *  Cache key is installationId. In-memory only. */
-export async function getInstallationToken(installationId: number): Promise<string>;
+export async function getInstallationToken(
+  installationId: number,
+  deps?: { createToken?: typeof createInstallationToken; now?: () => number },
+): Promise<string>;
+
+/** Test-only: clear the in-memory installation token cache between test runs. */
+export function __resetInstallationTokenCache(): void;
 ```
+
+> **Implementation note (issue #178):** Both `createInstallationToken` and `getInstallationToken` gained optional `fetchImpl`/`deps` parameters for dependency injection so unit tests can substitute stubs without monkey-patching `fetch` or clearing env vars. Production callers pass nothing and get the default behaviour. `__resetInstallationTokenCache()` was added purely for test isolation.
 
 **Env vars** (both required):
 
@@ -86,6 +104,8 @@ export async function getInstallationToken(installationId: number): Promise<stri
 - `GITHUB_APP_PRIVATE_KEY` — PEM string (PKCS#1 or PKCS#8). Newlines may arrive as literal `\n`; the helper replaces `\\n` with `\n` before signing.
 
 Implementation uses the `jose` package (already a transitive dep via `@supabase/ssr`) or adds `jsonwebtoken`. **Decision:** use `jose` — it is already available and has a smaller footprint than `jsonwebtoken`. Verify presence at implementation time; add only if missing.
+
+> **Implementation note (issue #178):** `jose` turned out not to be installed (not a transitive dep in this project's lockfile). Rather than add a new dependency for a 30-line JWT signer, the implementation uses Node's built-in `node:crypto.createSign('RSA-SHA256')` — same functional result, zero new deps. If future work needs richer JWT handling, consider adding `@octokit/auth-app` instead, which bundles the whole App auth dance.
 
 ### 5.2 `src/lib/supabase/org-membership.ts`
 
@@ -153,6 +173,18 @@ Not an API route — no controller/service split required. The single exported f
 
 Pre-allocating these keeps the top-level function under the 20-line budget.
 
+> **Implementation note (issue #178):** The two top-level helpers were split further to satisfy CodeScene's `CC ≤ 8` / `≤ 20 lines` budget. Actual internal decomposition:
+>
+> - `matchOrgsForUser` — loads installed orgs, fans out per-org membership checks.
+>   - `fetchMembershipRole(org, input, getToken, fetchImpl)` — per-org branch (personal-account shortcut + 200/404/other status handling).
+> - `writeUserOrgs` — pipeline of four steps:
+>   - `buildUpsertRows(input, matches)` — pure mapper.
+>   - `upsertMemberships(serviceClient, rows)` — early-returns on empty input.
+>   - `deleteStaleMemberships(serviceClient, userId, keepIds)` — scoped delete with `not.in` filter.
+>   - `reloadUserOrgs(serviceClient, userId)` — post-write `SELECT` so callers see the canonical state.
+>
+> This splitting is driven entirely by the complexity budget, not by the domain. A future refactor to `@octokit/auth-app` or to use `.throwOnError()` on Supabase queries could collapse several of these helpers back into their callers.
+
 ## 7. BDD specs
 
 ```ts
@@ -182,15 +214,15 @@ describe('getInstallationToken', () => {
 
 ## 8. Acceptance criteria
 
-- [ ] `src/lib/github/app-auth.ts` exports `createAppJwt`, `createInstallationToken`, `getInstallationToken`.
-- [ ] `src/lib/supabase/org-membership.ts` exports `resolveUserOrgsViaApp` with the signature in §5.2.
-- [ ] Unit tests cover every BDD spec in §7 and all pass.
-- [ ] Zero use of `provider_token` anywhere in the new code.
-- [ ] Zero use of `/user/orgs` anywhere in the new code.
-- [ ] Personal-account install path does not call `fetch` (asserted via mock).
-- [ ] 403 throws; 404 does not throw.
-- [ ] `npx tsc --noEmit` passes.
-- [ ] `npx vitest run src/lib/github/app-auth.test.ts src/lib/supabase/org-membership.test.ts` passes.
+- [x] `src/lib/github/app-auth.ts` exports `createAppJwt`, `createInstallationToken`, `getInstallationToken` (plus test-only `__resetInstallationTokenCache`).
+- [x] `src/lib/supabase/org-membership.ts` exports `resolveUserOrgsViaApp` with the signature in §5.2.
+- [x] Unit tests cover every BDD spec in §7 and all pass (16 unit tests + 10 adversarial evaluator tests).
+- [x] Zero use of `provider_token` anywhere in the new code.
+- [x] Zero use of `/user/orgs` anywhere in the new code.
+- [x] Personal-account install path does not call `fetch` (asserted via mock).
+- [x] 403 throws; 404 does not throw.
+- [x] `npx tsc --noEmit` passes.
+- [x] `npx vitest run tests/lib/github/app-auth.test.ts tests/lib/supabase/org-membership.test.ts` passes (path updated to match actual test locations).
 
 ## 9. Non-goals for this task
 
