@@ -11,12 +11,62 @@ manual validation.
 
 Before starting, ensure the following are in place:
 
-- [ ] Application is running (`npm run dev` locally or deployed to Cloud Run)
-- [ ] Supabase instance is running with latest migrations applied (`npx supabase db reset`)
+- [ ] Supabase cloud project is reachable and has the latest migrations applied (`npx supabase db push --linked`)
+- [ ] Environment variables are configured (`.env.local` with Supabase URL, keys, GitHub App credentials including `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`)
+- [ ] Application is running (`npm run dev` locally on `http://localhost:3000` or deployed to Cloud Run)
+- [ ] **For local testing:** ngrok tunnel is running and pointed at the local app — see [Local Testing Setup](#local-testing-setup) below
 - [ ] GitHub App is installed on the test organisation (see [Test Organisation Setup](#test-organisation-setup) below)
 - [ ] At least two GitHub user accounts are available (one admin, one participant)
 - [ ] The test repository has at least one merged PR with meaningful code changes
-- [ ] Environment variables are configured (`.env.local` with Supabase URL, keys, GitHub App credentials)
+
+---
+
+## Local Testing Setup
+
+GitHub webhooks (for `installation`, `installation_repositories`, etc.) cannot reach
+`localhost`, so a public tunnel is required when running the app locally.
+
+1. **Confirm Supabase cloud connectivity** — `.env.local` should point at the cloud
+   project (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+   `SUPABASE_SECRET_KEY`). No local Supabase container is needed.
+
+2. **Start the app locally:**
+
+   ```bash
+   npm run dev
+   ```
+
+   Confirm it is reachable at `http://localhost:3000`.
+
+3. **Start an ngrok tunnel** in a separate terminal:
+
+   ```bash
+   ngrok http 3000
+   ```
+
+   Copy the HTTPS forwarding URL (e.g. `https://abcd-1234.ngrok-free.app`). This URL
+   changes every time ngrok restarts unless you have a reserved domain.
+
+4. **Update the GitHub App settings** at
+   `https://github.com/settings/apps/feature-comprehension-score-dev`:
+   - **Homepage URL:** `<ngrok-url>`
+   - **Callback URL:** `<ngrok-url>/auth/callback`
+   - **Webhook URL:** `<ngrok-url>/api/webhooks/github`
+   - Save changes.
+
+5. **Update `.env.local`** so OAuth redirects resolve correctly:
+
+   ```env
+   NEXT_PUBLIC_SITE_URL=<ngrok-url>
+   ```
+
+   Restart `npm run dev` after editing `.env.local`.
+
+6. **Verify the tunnel** by visiting `<ngrok-url>` in your browser — you should see the
+   app's sign-in page.
+
+> **Tip:** keep the ngrok web inspector open at `http://127.0.0.1:4040` to watch
+> incoming webhook deliveries in real time.
 
 ---
 
@@ -26,8 +76,15 @@ For realistic multi-participant testing, create a dedicated GitHub organisation:
 
 1. **Create a GitHub organisation** — use a name like `fcs-smoke-test` or similar.
 2. **Install the FCS GitHub App** on this organisation.
-   - Go to the GitHub App's public page and click "Install".
+   - The app is not listed in the Marketplace (still in development). Visit its public
+     install URL directly:
+     <https://github.com/apps/feature-comprehension-score-dev/installations/new>
+   - If only your personal account appears, open the app settings and set
+     **"Where can this GitHub App be installed?"** to **"Any account"**, then retry.
    - Select the test organisation and grant access to all repositories (or specific ones).
+   - **Local testing:** make sure the ngrok tunnel from [Local Testing Setup](#local-testing-setup)
+     is running *before* clicking Install, so the `installation` webhook reaches your
+     local app.
 3. **Add members** — invite at least one other GitHub user as a member.
    Each member needs their own GitHub account to test the participant flow.
 4. **Create a test repository** with real code:
