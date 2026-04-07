@@ -83,6 +83,46 @@ One principle: **server-to-server GitHub API calls always use an installation to
 
 No `repo`, `read:org`, or `read:user` scope is ever requested from the user — the OAuth grant drops to `user:email` (identity minimum).
 
+### 4.3 Cross-Org Isolation — The Core Security Concern
+
+Moving all server-to-server GitHub calls onto installation tokens removes a defense-in-depth layer we had with user OAuth. With user OAuth, GitHub refuses any call where the user is not a member of the target org — GitHub itself is a safety net against bugs in our authorisation code. With installation tokens, **the App holds a credential for every installed org simultaneously**, and GitHub will happily serve data for any org whose installation we point at. The entire cross-org isolation guarantee collapses onto **our** code picking the right `installation_id` for the current request.
+
+This is the single biggest risk introduced by this HLD. It must be addressed by design, not by vigilance.
+
+#### Principle
+
+> **Minimise the number of places in the codebase where a bug could cross org boundaries. Do not rely on every future developer remembering to call the right check in the right order.**
+
+The concrete expression of this principle is:
+
+1. **`installation_id` enters the system at a small, fixed set of edges.** Every entry is gated by an authorisation decision made *at that edge*. There are exactly three edges:
+
+    | # | Edge | Authorisation mechanism | Used by |
+    |---|---|---|---|
+    | E1 | **Verified GitHub webhook payload** | HMAC-SHA256 of `GITHUB_WEBHOOK_SECRET` proves the sender is GitHub. GitHub is telling us which installation the event belongs to — we do not choose. | Install lifecycle, `installation_repositories`, PRCC (future). |
+    | E2 | **Sign-in resolver** (`resolveUserOrgsViaApp`) | Deliberately iterates every active `organisations` row and calls `/orgs/{org}/memberships/{login}`. The authorisation *outcome* is what it computes — the set of orgs the user is allowed to see. | `/auth/callback` only. |
+    | E3 | **User-scoped DB read** | The `organisations` row (and any denormalised copy of `installation_id`) is readable only through Supabase RLS. The user's session JWT is the authorisation. If the user is not in `user_organisations` for that org, the read returns empty. | `createFcs`, future user-initiated GitHub calls. |
+
+2. **Downstream code never re-derives `installation_id`.** It receives it as a parameter from one of the three edges, or from a DB row that was itself written under one of them (see point 3). There is no middle-of-pipeline lookup that a refactor can quietly point at the wrong org.
+
+3. **Trust-by-construction via denormalisation on work rows.** Rows representing deferred work (`assessments`, future PRCC state tables) carry `installation_id` as a column. The row is *written* under RLS — meaning the user who created it proved membership of the org at write time. Background jobs, retries, and async workers then read `installation_id` straight off the row without re-authorising. The authz happened at the door; the middle of the pipeline is algebraic.
+
+4. **No service-role free-form `installation_id` lookup.** `adminSupabase` (service role, bypasses RLS) is never used to look up `installation_id` from an arbitrary `org_id`. If a code path believes it needs this, it is wrong — either the value should have been persisted on a work row at creation time, or the path should be expressed as E1 (webhook) or E3 (user session).
+
+#### Why this works
+
+The attack surface shrinks from "every GitHub call site in the codebase" to "the three edges where `installation_id` enters the system." Auditing the three edges is tractable and can be enforced by code review, tests, and a lint rule. Every call site downstream is safe by construction because it cannot obtain a wrong `installation_id` — the only value available is the one that was authorised at the edge.
+
+Belt-and-braces mitigations (explicit `assertOrgAdmin` calls at function entry, branded Octokit types, adversarial cross-org tests, audit logging of GitHub calls) remain useful and should be added, but they are **defense in depth on top of** the structural guarantee, not the primary line of defense. The primary line of defense is that a wrong `installation_id` is not a value you can obtain.
+
+#### Schema implication
+
+`assessments` gains an `installation_id bigint not null` column, populated from the joined `organisations` row at the moment of insert (which itself runs under RLS via the user's session). This is the denormalisation that makes rubric generation and retries safe without requiring them to re-authorise. Covered in §8 M1.
+
+#### CLAUDE.md rule (to be added as part of M1)
+
+> **Installation IDs have three entry points: verified webhook payloads, the sign-in resolver, and RLS-scoped DB reads on behalf of an authenticated user. Downstream code must receive `installation_id` as a parameter or from a persisted row written under one of those entry points. `adminSupabase` must never be used to translate an arbitrary `org_id` into an `installation_id`.**
+
 ## 5. Sequence Diagrams
 
 All diagrams render on GitHub (Mermaid `sequenceDiagram`).
@@ -273,14 +313,28 @@ Small, reversible steps. Each step leaves the system in a working state.
 
 ### Step M1 — FCS PR fetch moves to installation token (pre-cutover)
 
+This step operationalises the §4.3 principle. It is the first place in the codebase where we apply the "three entry points + trust-by-construction" discipline.
+
+- **Schema change (declarative, via the workflow in CLAUDE.md):**
+  - Add `installation_id bigint not null` to `assessments` in `supabase/schemas/tables.sql`.
+  - Populate on insert from the joined `organisations` row. The insert path in `createFcs` already runs under the user's session (user-scoped Supabase client), so RLS enforces that the user is a member of the org being inserted for — satisfying edge **E3** from §4.3.
+  - No RLS policy change needed: existing membership policies on `assessments` continue to cover the new column. The column is purely a denormalisation for downstream trust-by-construction.
+  - Generate the migration via `npx supabase db diff -f add_assessments_installation_id`.
 - **File changes:**
-  - `src/app/api/fcs/service.ts` — replace `createGithubClient(adminSupabase, userId)` with a new helper `createInstallationOctokit(installationId)` that wraps `getInstallationToken` and returns an authenticated `Octokit`. Location: new file `src/lib/github/installation-octokit.ts`.
-  - `fetchRepoInfo` selects `installation_id` alongside org/repo names.
-  - Both `createFcs` and `triggerRubricGeneration` accept `installationId` on their internal param types instead of `userId`.
-  - `createGithubClient` is **not yet deleted** — only its call sites.
-- **Tests:** update fcs service tests to mock `getInstallationToken` instead of `get_github_token` RPC.
-- **Risk:** requires every active `organisations` row to have an `installation_id`. Verified in prod (single row: mironyx, installation present).
-- **Reversibility:** revert the two call sites; `user_github_tokens` is still populated.
+  - New file `src/lib/github/installation-octokit.ts` exporting `createInstallationOctokit(installationId): Promise<Octokit>` — thin wrapper around `getInstallationToken` that returns an authenticated `Octokit`. This is the **only** place that turns an `installation_id` into a usable GitHub client on the user-initiated path.
+  - `src/app/api/fcs/service.ts`:
+    - `fetchRepoInfo` selects `installation_id` alongside org/repo names (via the user-scoped Supabase client — **not** `adminSupabase` — to preserve edge E3).
+    - `createFcs` reads `installation_id` from `repoInfo` and passes it through `createAssessmentWithParticipants` so the new column is populated at insert time.
+    - `triggerRubricGeneration` accepts `installationId` on its param type and calls `createInstallationOctokit(installationId)` instead of `createGithubClient(adminSupabase, userId)`.
+    - `retriggerRubricForAssessment` reads `installation_id` from the `assessments` row it already loads (trust-by-construction — the row exists, therefore a member of the org created it). The `userId` parameter is retained only for logging/attribution, not authorisation.
+  - `createGithubClient` is **not yet deleted** in this step — only its call sites in `fcs/service.ts`. Deletion happens in M3 alongside `user_github_tokens`.
+- **CLAUDE.md:** add the rule from §4.3 ("Installation IDs have three entry points…") in the Coding Principles section.
+- **Tests:**
+  - Update FCS service tests to mock `getInstallationToken` instead of `get_github_token` RPC.
+  - Add an adversarial test: user who is not a member of org B attempts to create an FCS assessment targeting a repository in org B. Expected: `assertOrgAdmin` rejects; if that check were bypassed, the user-scoped `fetchRepoInfo` would return an empty row and `installation_id` would be undefined — two independent failures, not one.
+  - Add a unit test on `retriggerRubricForAssessment` verifying it uses `assessment.installation_id` and never touches `organisations` for a fresh lookup.
+- **Risk:** requires every active `organisations` row to have an `installation_id`. Verified in prod (single row: mironyx, installation present). The new column is `not null`, so any `organisations` row with a null `installation_id` would block assessment creation — intentional; such a row is already broken.
+- **Reversibility:** revert the two call sites and drop the column (`ALTER TABLE assessments DROP COLUMN installation_id` generated via the declarative workflow). `user_github_tokens` is still populated throughout this step.
 
 ### Step M2 — ADR-0020 sign-in cutover (already scoped as #179)
 
@@ -316,11 +370,13 @@ Order: **M1 → M2 → M3 → M4.** M4 can slip before M2 if timing works but mu
 ## 9. Open Questions
 
 1. **Should the M1 helper construct a fresh Octokit per call, or cache Octokit instances?** Installation tokens change hourly, so the natural grain is per-request. Recommend: per-request Octokit, relying on the token cache behind it. Cheap allocation, clean ownership.
-2. **How do we keep `installation_id` in sync when an org uninstalls and reinstalls?** Current webhook handler sets `status='inactive'` on delete. On a fresh `installation.created` with the same `github_org_id`, `handle_installation_created` must update the existing row's `installation_id` and reactivate it. Verified in [handle_installation_created](../../supabase/schemas/functions.sql) — out-of-scope to re-audit here but worth calling out for the drift scan.
-3. **PRCC webhook route is not yet implemented.** When it is, it will share the same installation-token cache. No design gap — just a forward-looking note.
+2. **How do we keep `installation_id` in sync when an org uninstalls and reinstalls?** Current webhook handler sets `status='inactive'` on delete. On a fresh `installation.created` with the same `github_org_id`, `handle_installation_created` must update the existing row's `installation_id` and reactivate it. Verified in [handle_installation_created](../../supabase/schemas/functions.sql) — out-of-scope to re-audit here but worth calling out for the drift scan. **Interaction with the denormalised `assessments.installation_id`:** existing assessments created under the old installation still carry the old id. When the background rubric worker tries to mint a token for a deactivated installation, it will fail cleanly (GitHub returns 404). Acceptable — the assessment transitions to `rubric_failed` and can be retriggered after reinstall. A migration to rewrite stale `installation_id` values on reinstall is *not* needed at V1 scale.
+3. **PRCC webhook route is not yet implemented.** When it is, it will share the same installation-token cache and receive `installation_id` via edge **E1** (verified webhook payload), consistent with §4.3. No design gap — just a forward-looking note.
+4. **Should we promote the §4.3 principle to its own ADR?** It is significant enough to deserve one ("Installation-ID handling — three entry points and trust-by-construction") but also tightly coupled to ADR-0020. Recommendation: extract to a standalone ADR if and only if a second use case (beyond FCS + PRCC) appears that needs the same discipline. For now, the HLD is the reference.
 
 ## 10. Change Log
 
 | Date | Author | Change |
 |---|---|---|
 | 2026-04-07 | LS / Claude | Initial draft (issue #186). |
+| 2026-04-07 | LS / Claude | Added §4.3 cross-org isolation principle (three entry points, trust-by-construction). Updated §8 M1 to include `assessments.installation_id` denormalisation, user-scoped `fetchRepoInfo`, adversarial test, and CLAUDE.md rule. Added open question on the principle's potential ADR promotion. |
