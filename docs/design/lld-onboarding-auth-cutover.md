@@ -22,18 +22,40 @@ Covered by ADR-0020 §Decision points 3 & 4 and its "Implementation Outline" ste
 
 Schema-file changes in `supabase/schemas/`:
 
-- **`tables.sql`** — drop `CREATE TABLE user_github_tokens` (lines ~101–112).
-- **`functions.sql`** — drop `store_github_token` and `get_github_token` RPCs (search for `store_github_token`, `get_github_token`). Also drop any Vault helper that only exists to support these two RPCs.
+- **`tables.sql`** — drop `CREATE TABLE user_github_tokens` (lines ~101–112). Also drop the top-of-file comment block referencing Vault.
+- **`functions.sql`** — drop `store_github_token` and `get_github_token` RPCs and the "Supabase Vault is used for GitHub token encryption" preamble at the top of the file. Neither RPC has any other caller; removing them leaves no Vault references in `functions.sql`.
 - **`policies.sql`** — drop any policies on `user_github_tokens`.
+- **`supabase/config.toml`** — no change (the `[db.vault]` block is already commented out).
 
-Generated migration: `supabase/migrations/<timestamp>_drop_user_github_tokens.sql` via `npx supabase db diff -f drop_user_github_tokens`. Header comment references this task's issue number and ADR-0020.
+**Vault is fully retired by this task.** Audit confirmation before generating the migration:
+
+```bash
+grep -rn "vault\." supabase/schemas/
+grep -rn "store_github_token\|get_github_token\|vault\." src/
+```
+
+Both greps must return **zero matches** in the modified tree. If anything else references Vault, surface it and re-scope; the current audit shows only the two RPCs and `src/lib/github/client.ts`, which Task 3 is already deleting/refactoring (§3.2).
+
+Generated migration: `supabase/migrations/<timestamp>_drop_user_github_tokens_and_vault.sql` via `npx supabase db diff -f drop_user_github_tokens_and_vault`. The generated migration must:
+
+1. `DROP FUNCTION store_github_token` and `DROP FUNCTION get_github_token` (both `CASCADE` to remove any lingering grants).
+2. Proactively delete Vault secret rows **before** dropping the table, so no orphaned secrets remain in `vault.secrets`:
+   ```sql
+   DELETE FROM vault.secrets
+   WHERE id IN (SELECT token_secret_id FROM user_github_tokens);
+   ```
+   (Required because `vault.secrets` has no FK back to `user_github_tokens` — `ON DELETE CASCADE` on the app table does **not** clean up Vault.)
+3. `DROP TABLE user_github_tokens`.
+
+Add the header comment referencing this task's issue number and ADR-0020. Review the generated diff and hand-edit in the `DELETE FROM vault.secrets` step — `db diff` will not generate it automatically.
 
 Post-generation verification:
 
 1. `npx supabase db reset` — applies cleanly.
 2. `npx supabase db diff` — **must** print "No schema changes found".
+3. Manual check in local DB: `SELECT COUNT(*) FROM vault.secrets;` — should be the same count as before minus the number of dropped rows (or 0 if this was the only caller, which it is).
 
-**Vault key:** the Vault secret rows (one per user) are cascaded away automatically when the table is dropped (`ON DELETE CASCADE` from `auth.users`). The Vault *key* (if a dedicated key exists for this table — confirm with `SELECT * FROM vault.decrypted_secrets LIMIT 1` in the migration review) is dropped in the same migration.
+**No Vault-specific extension or key to drop:** Vault is a built-in Supabase extension; we do not own a dedicated Vault encryption key (the default Supabase-managed key is used). There is nothing to uninstall. After this migration, the Vault extension remains installed (it ships with Supabase) but we have zero rows and zero callers.
 
 ### 3.2 Backend
 
@@ -172,6 +194,8 @@ describe('first-install race', () => {
 
 - [ ] Zero references to `provider_token` under `src/` (`grep -rn "provider_token" src/` returns nothing).
 - [ ] Zero references to `user_github_tokens` under `src/` and `supabase/` except the drop migration itself.
+- [ ] Zero references to `vault.` under `src/` and `supabase/schemas/` (the drop migration is the only remaining `vault.` reference anywhere).
+- [ ] `SELECT COUNT(*) FROM vault.secrets WHERE id IN (previous token_secret_ids)` returns 0 after migration.
 - [ ] Zero references to `/user/orgs` under `src/`.
 - [ ] `org-sync.ts` is deleted.
 - [ ] OAuth scope string is exactly `'read:user'`.
