@@ -49,20 +49,6 @@ function makeOrg(overrides: Partial<OrgRow> = {}): OrgRow {
   };
 }
 
-function makeUserOrg(overrides: Partial<UserOrgRow> = {}): UserOrgRow {
-  return {
-    id: 'uo-1',
-    user_id: INPUT.userId,
-    org_id: 'org-1',
-    github_user_id: INPUT.githubUserId,
-    github_username: INPUT.githubLogin,
-    github_role: 'member',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
 interface MockClientOptions {
   installedOrgs: OrgRow[];
   finalUserOrgs: UserOrgRow[];
@@ -147,7 +133,8 @@ describe('createAppJwt — exp claim matches LLD specification (now + 540 second
   it('sets exp to exactly now+540 seconds as required by the LLD', () => {
     const nowMs = 2_000_000_000_000;
     const jwt = createAppJwt(() => nowMs);
-    const [, p] = jwt.split('.');
+    const parts = jwt.split('.');
+    const p = parts[1] ?? '';
     const pad = (s: string) => s + '='.repeat((4 - (s.length % 4)) % 4);
     const payload = JSON.parse(
       Buffer.from(pad(p).replaceAll('-', '+').replaceAll('_', '/'), 'base64').toString(),
