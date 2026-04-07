@@ -65,6 +65,16 @@ export async function syncOrgMembership(
       githubFetch<GitHubUser>(`${GITHUB_API}/user`, headers),
       githubFetch<GitHubOrg[]>(`${GITHUB_API}/user/orgs`, headers),
     ]);
+    logger.info(
+      {
+        userId,
+        githubLogin: githubUser.login,
+        githubUserId: githubUser.id,
+        githubOrgs: githubOrgs.map((o) => ({ id: o.id, login: o.login })),
+        orgCount: githubOrgs.length,
+      },
+      'syncOrgMembership: fetched GitHub user/orgs',
+    );
   } catch {
     logger.error('syncOrgMembership: failed to fetch GitHub user/orgs — preserving existing memberships');
     const { data: existing } = await serviceClient
@@ -95,6 +105,20 @@ export async function syncOrgMembership(
   }
 
   const installedOrgs = installedOrgsResult.data;
+
+  logger.info(
+    {
+      userId,
+      githubAccountIds,
+      installedOrgs: installedOrgs.map((o) => ({
+        id: o.id,
+        github_org_id: o.github_org_id,
+        github_org_name: o.github_org_name,
+      })),
+      matchCount: installedOrgs.length,
+    },
+    'syncOrgMembership: matched installed orgs',
+  );
 
   if (installedOrgs.length === 0) {
     await serviceClient.from('user_organisations').delete().eq('user_id', userId);

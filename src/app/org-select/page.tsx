@@ -52,6 +52,9 @@ export default async function OrgSelectPage() {
       <main>
         <h1>Select Organisation</h1>
         <p>No organisations found. Ask your organisation admin to install the app.</p>
+        <form action="/auth/sign-out" method="post">
+          <button type="submit">Sign out</button>
+        </form>
       </main>
     );
   }
