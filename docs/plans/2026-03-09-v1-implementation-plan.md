@@ -1,5 +1,15 @@
 # V1 Implementation Plan — TDD/BDD Development
 
+> **Superseded in part by epic [#176](https://github.com/mironyx/feature-comprehension-score/issues/176) / [ADR-0020](../adr/0020-org-membership-via-installation-token.md).**
+> The Phase 2 auth steps in this plan — provisioning `user_github_tokens`, capturing
+> `provider_token` at callback, and requesting the `read:org` / `repo` OAuth scopes —
+> describe the original OAuth-user-token design that has since been removed. The
+> current design resolves organisation membership server-side via the GitHub App
+> installation token; see [github-auth-hld](../design/github-auth-hld.md) and
+> [lld-onboarding-auth-cutover](../design/lld-onboarding-auth-cutover.md). Task steps
+> below are retained as a historical record and are not updated to reflect the new
+> model.
+
 ## Overview
 
 This plan covers the full implementation of the Feature Comprehension Score Tool from first line of code to deployable product. It builds on the completed Phase 0 foundation (requirements v0.6, design v0.7, 8 ADRs) and adds a dedicated scaffolding phase for test infrastructure and architecture guardrails before any feature code is written.

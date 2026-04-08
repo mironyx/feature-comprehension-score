@@ -555,7 +555,7 @@ The Next.js web application hosted on GCP Cloud Run (ADR-0002). Handles authenti
 - Unauthenticated users see a "Sign in with GitHub" button.
 - Authentication uses Supabase Auth with GitHub as the OAuth provider. Supabase manages sessions and token refresh; GitHub provides identity.
 - OAuth flow redirects to GitHub, then back to the app on authorisation.
-- Minimum OAuth scopes: `read:user`, `read:org`, `repo`. The `repo` scope is required to read PR content (titles, merge status, diffs) for artefact extraction and rubric generation.
+- Minimum OAuth scopes: `user:email`, `read:user`. Organisation membership and repository content are accessed server-side via the GitHub App installation token — the user OAuth token is **not** used for `/user/orgs` or for reading PRs (see [ADR-0020](../adr/0020-org-membership-via-installation-token.md) and [github-auth-hld](../design/github-auth-hld.md)).
 - Expired sessions prompt re-authentication via Supabase token refresh.
 - Sign-out invalidates the Supabase session.
 

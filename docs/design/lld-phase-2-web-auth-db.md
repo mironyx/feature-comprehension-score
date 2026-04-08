@@ -1,5 +1,15 @@
 # Low-Level Design: Phase 2 — Web App + Auth + Database
 
+> **Superseded in part by epic [#176](https://github.com/mironyx/feature-comprehension-score/issues/176) / [ADR-0020](../adr/0020-org-membership-via-installation-token.md).**
+> The auth/token sections of this LLD — `user_github_tokens`, `provider_token` capture,
+> `get_github_token`, `syncOrgMembership`, `/user/orgs`, and the `read:org` / `repo` OAuth
+> scopes — describe the original OAuth-user-token design. That path has been removed.
+> Organisation membership is now resolved server-side via the GitHub App installation
+> token (`resolveUserOrgsViaApp`); see [github-auth-hld](github-auth-hld.md) and
+> [lld-onboarding-auth-cutover](lld-onboarding-auth-cutover.md) for the current design.
+> This LLD is retained as a historical phase record and is not updated to reflect the
+> new model.
+
 ## Document Control
 
 | Field | Value |

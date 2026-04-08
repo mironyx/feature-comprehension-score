@@ -1,5 +1,13 @@
 # Research Spike #4: Supabase Auth + GitHub OAuth
 
+> **Superseded in part by epic [#176](https://github.com/mironyx/feature-comprehension-score/issues/176) / [ADR-0020](../adr/0020-org-membership-via-installation-token.md).**
+> This spike's conclusions around capturing the OAuth `provider_token`, storing it in
+> `user_github_tokens`, and calling `/user/orgs` with the `read:org` scope are
+> historical. The implemented design resolves org membership server-side via the
+> GitHub App installation token (`resolveUserOrgsViaApp`) and does not store user
+> OAuth tokens. See [github-auth-hld](github-auth-hld.md) and
+> [lld-onboarding-auth-cutover](lld-onboarding-auth-cutover.md) for the current model.
+
 ## Document Control
 
 | Field | Value |
