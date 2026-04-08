@@ -70,6 +70,20 @@ One principle: **server-to-server GitHub API calls always use an installation to
 
 `v1-design.md` §3's two-context table (Installation + "User OAuth — for FCS and org membership") is **superseded** by this section. The HLD is now the authoritative reference for GitHub auth contexts; v1-design.md gets a pointer in the change log.
 
+### 4.1a The Supabase session JWT (context D) — not a GitHub token, but critical
+
+A reader walking away from §4.1 with only three contexts would be missing the token that actually authenticates the human to *us* and makes edge **E3** of §4.3 work. It is not a GitHub credential — GitHub never sees it — but it is the trust root for every user-initiated GitHub call, so it belongs in this document.
+
+| Context | Authenticates as | How minted | Lifetime | Where stored | Used for |
+|---|---|---|---|---|---|
+| **D. Supabase session JWT** | A specific signed-in user | Issued by Supabase Auth after the OAuth round-trip completes at `/auth/callback`. Signed by Supabase with a key we do not possess. | Access token ~1 h; refresh token long-lived. Refresh handled automatically by `@supabase/ssr`. | HTTP-only cookie (`sb-<project>-auth-token`) set by `@supabase/ssr` on the browser. Never in application storage, never in our DB, never logged. | (a) Authenticating the user to our Next.js API routes. (b) Populating `auth.uid()` in Postgres so RLS policies on `organisations`, `user_organisations`, `assessments`, etc. fire. (c) **Proving authorisation at edge E3** — when user-scoped Supabase clients issue queries carrying this JWT as `Authorization: Bearer`, Postgres enforces row-level access on the authenticated user's behalf. |
+
+**What we do with it.** Nothing beyond handing it to `@supabase/ssr` via `createServerSupabaseClient` / the middleware helper. We do not parse its claims ourselves, do not validate signatures (Supabase's RLS does, implicitly), do not pass it to any external service, do not store it anywhere other than the cookie Supabase sets. Every server-side file that touches authenticated state does so through one of four helpers in `src/lib/supabase/` (`server.ts`, `middleware.ts`, `route-handler.ts`, `route-handler-readonly.ts`). That is the total surface area.
+
+**Why it matters to §4.3.** Edge E3 says "user-scoped DB read, authorised by the session JWT". The integrity of the entire cross-org isolation guarantee depends on that JWT being unforgeable: if an attacker could mint a valid JWT for a user who is a member of org Y, they could legitimately read org Y's `installation_id` through a user-scoped client and hand themselves a working GitHub token for the wrong org. This is not a theoretical concern — it is the threat model E3 is defending against. The defence is that Supabase signs the JWT with a key held only by the Supabase project, and the Postgres RLS engine validates that signature on every query. We trust Supabase for this; ADR-0003 owns the decision.
+
+**Non-goals for this HLD.** Supabase session signing keys, session cookie rotation, refresh token rotation, CSRF protection on cookie-based auth, and session revocation on sign-out are all owned by ADR-0003 and the Supabase platform. They are listed here only so a reader of §4 does not mistake their absence for an oversight.
+
 ### 4.2 Required GitHub App permissions
 
 | Permission | Access | Used by | Notes |
@@ -101,7 +115,7 @@ The concrete expression of this principle is:
     |---|---|---|---|
     | E1 | **Verified GitHub webhook payload** | HMAC-SHA256 of `GITHUB_WEBHOOK_SECRET` proves the sender is GitHub. GitHub is telling us which installation the event belongs to — we do not choose. | Install lifecycle, `installation_repositories`, PRCC (future). |
     | E2 | **Sign-in resolver** (`resolveUserOrgsViaApp`) | Deliberately iterates every active `organisations` row and calls `/orgs/{org}/memberships/{login}`. The authorisation *outcome* is what it computes — the set of orgs the user is allowed to see. | `/auth/callback` only. |
-    | E3 | **User-scoped DB read** | The `organisations` row (and any denormalised copy of `installation_id`) is readable only through Supabase RLS. The user's session JWT is the authorisation. If the user is not in `user_organisations` for that org, the read returns empty. | `createFcs`, future user-initiated GitHub calls. |
+    | E3 | **User-scoped DB read** | The `organisations` row (and any denormalised copy of `installation_id`) is readable only through Supabase RLS. The authorisation proof is the **Supabase session JWT (context D, §4.1a)** — transported as the `sb-*-auth-token` HTTP-only cookie, carried into Postgres via `@supabase/ssr`, and validated by RLS policies keyed on `auth.uid()`. If the user is not in `user_organisations` for that org, the read returns empty. | `createFcs`, future user-initiated GitHub calls. |
 
 2. **Downstream code never re-derives `installation_id`.** It receives it as a parameter from one of the three edges, or from a DB row that was itself written under one of them (see point 3). There is no middle-of-pipeline lookup that a refactor can quietly point at the wrong org.
 
@@ -398,3 +412,4 @@ Order: **M1 → M1.5 → M2 → M3.** M1.5 and M1 are independent and can overla
 | 2026-04-07 | LS / Claude | Added §4.3 cross-org isolation principle (three entry points, trust-by-construction). Updated §8 M1 to include `assessments.installation_id` denormalisation, user-scoped `fetchRepoInfo`, adversarial test, and CLAUDE.md rule. Added open question on the principle's potential ADR promotion. |
 | 2026-04-07 | LS / Claude | Review pass: added §4.3 deferred whitelisted-function risk; §7 cold-start burst note; §8 M1 error-path UX for uninstall-between-creation-and-retrigger; **corrected migration ordering — `members:read` is now M1.5 and must land before M2, not after** (previously M4); M2 session-invalidation note for cached tokens; §9 Q1 clarification that "per-request" is per-assessment; §M5 observability bullet for installation-token mint rate. |
 | 2026-04-07 | LS / Claude | Confirmed by project owner that the `mironyx` App manifest already holds `Organisation members (read)` (landed with #185). M1.5 simplified to a verification script — no manifest edit, no re-consent email. §4.2 permissions table updated accordingly. |
+| 2026-04-08 | LS / Claude | Added §4.1a naming the Supabase session JWT as context D — not a GitHub token, but the trust root for edge E3 and the only thing that makes RLS-scoped reads meaningful. §4.3 E3 updated to reference context D explicitly. Non-goals for session handling (signing keys, cookie rotation, CSRF) called out as owned by ADR-0003 and Supabase, so their absence from this HLD is deliberate. |
