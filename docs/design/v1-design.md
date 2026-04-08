@@ -236,12 +236,13 @@ V1 approach TBD — could be Supabase Edge Functions + Resend, or a simple trans
 
 Data flows between components for each major capability. Each flow identifies which component initiates, which responds, what data passes, and which authentication context is used.
 
-**Authentication context key:** Interactions with the GitHub API use one of two token types. Every GitHub API call below is annotated with which context it uses.
+**Authentication context key:** All GitHub API calls use a single context: the **GitHub App installation token**. The user's OAuth provider token is used only to complete the Supabase identity handshake at sign-in and is never stored. Every GitHub API call below is annotated with its context.
 
 | Context | Token type | Obtained by | Used for |
 |---------|-----------|-------------|----------|
-| **Installation** | Installation access token (1h TTL) | Webhook handler exchanges app JWT for token via `installation.id` | All GitHub API reads and writes (PR data, Check Runs) — server-to-server |
-| **User OAuth** | Stored GitHub provider token | Captured once at `/auth/callback`, encrypted in DB | User-initiated GitHub calls (org membership, FCS PR data fetch) and user data in our DB |
+| **Installation** | Installation access token (1h TTL) | App JWT (RS256 over `GITHUB_APP_PRIVATE_KEY`) exchanged per `installation_id` via `POST /app/installations/{id}/access_tokens`; cached in-memory with a 5-minute refresh margin | **All** server-to-server GitHub API reads and writes: PR diffs/files/contents, linked issues, Check Runs (future PRCC), and `GET /orgs/{org}/memberships/{user}` for sign-in membership resolution |
+
+> **Canonical reference:** [GitHub Auth & Token Handling HLD](github-auth-hld.md) §4.1 is the single source of truth for token contexts. The table above is a summary; see the HLD for the full model including the GitHub App JWT (context B) and the Supabase session JWT (context D, §4.1a) which authorises user-scoped DB reads.
 
 ### 3.0 Assessment Lifecycle
 
@@ -494,7 +495,7 @@ Org Admin        Next.js App          GitHub API        Claude API       Supabas
   │◄──────────────────│                    │                 │                │
 ```
 
-**Key difference from PRCC:** FCS uses the **user OAuth token** (stored encrypted) to fetch PR context from GitHub, not the installation token. This is because FCS creation is a user-initiated action via the Web UI, not a webhook-triggered server process.
+**Similarity to PRCC:** FCS uses the **installation token** to fetch PR context from GitHub — the same token context PRCC uses. FCS is user-initiated (not webhook-triggered), so the entry point is different: the API handler calls `assertOrgAdmin(userId, orgId)` first, reads `installation_id` from the `organisations` row via an RLS-scoped query (edge E3 in the [GitHub Auth HLD](github-auth-hld.md) §4.3), and mints an installation token from that. No user OAuth token ever reaches GitHub for PR data.
 
 **Participants:** Auto-suggested from the authors and reviewers of the selected merged PRs. The Org Admin can add or remove participants before confirming. This avoids manual username entry while keeping the Org Admin in control.
 
@@ -558,55 +559,43 @@ Single reminder only. No further follow-up after the reminder. The Org Admin can
 
 #### User OAuth sign-in (Stories 5.1, 5.2)
 
-```
-Browser              Next.js App          Supabase Auth         GitHub OAuth        Supabase DB
-  │                      │                     │                     │                  │
-  │ click "Sign in       │                     │                     │                  │
-  │  with GitHub"        │                     │                     │                  │
-  │─────────────────────►│                     │                     │                  │
-  │                      │ initiate PKCE flow  │                     │                  │
-  │                      │────────────────────►│                     │                  │
-  │                      │                     │ redirect to GitHub  │                  │
-  │◄───────────────────────────────────────────│────────────────────►│                  │
-  │                      │                     │                     │                  │
-  │ user authorises      │                     │                     │                  │
-  │─────────────────────────────────────────────────────────────────►│                  │
-  │                      │                     │                     │                  │
-  │                      │                     │ exchange auth code  │                  │
-  │                      │                     │◄────────────────────│                  │
-  │                      │                     │ (gets GitHub OAuth  │                  │
-  │                      │                     │  token, user profile)│                  │
-  │                      │                     │                     │                  │
-  │ redirect to          │                     │                     │                  │
-  │ /auth/callback       │                     │                     │                  │
-  │ (with Supabase code) │                     │                     │                  │
-  │─────────────────────►│                     │                     │                  │
-  │                      │ exchange code for:  │                     │                  │
-  │                      │ - access JWT (1h)   │                     │                  │
-  │                      │ - refresh token     │                     │                  │
-  │                      │ - provider token ◄──┤ ONE-TIME ONLY       │                  │
-  │                      │◄────────────────────│                     │                  │
-  │                      │                     │                     │                  │
-  │                      │ store provider token (encrypted)          │                  │
-  │                      │─────────────────────────────────────────────────────────────►│
-  │                      │                     │                     │                  │
-  │                      │ fetch org membership using provider token │                  │
-  │                      │─────────────────────────────────────────►│                  │
-  │                      │◄─────────────────────────────────────────│                  │
-  │                      │ (GET /user/orgs — requires read:org)     │                  │
-  │                      │                     │                     │                  │
-  │                      │ cache org membership + role                │                  │
-  │                      │─────────────────────────────────────────────────────────────►│
-  │                      │ (user_organisations table: org_id, github_role)              │
-  │                      │                     │                     │                  │
-  │ set session cookies  │                     │                     │                  │
-  │ redirect to dashboard│                     │                     │                  │
-  │◄─────────────────────│                     │                     │                  │
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App as Next.js /auth/callback
+    participant Supabase as Supabase Auth
+    participant Resolver as resolveUserOrgsViaApp
+    participant Cache as Installation Token Cache
+    participant GH as GitHub API
+    participant DB as Supabase DB
+
+    Browser->>App: Click "Sign in with GitHub"
+    App->>Supabase: Initiate PKCE OAuth (scope: user:email)
+    Supabase-->>Browser: Redirect to GitHub consent
+    Browser->>Supabase: Return with auth code
+    Supabase->>App: Redirect /auth/callback?code=...
+    App->>Supabase: Exchange code → session (access JWT, refresh, identity claims)
+    Note over App: Read github_user_id + github_login<br/>from user.user_metadata.<br/>Discard the GitHub OAuth token — DO NOT STORE.
+    App->>Resolver: resolveUserOrgsViaApp({ userId, githubUserId, githubLogin })
+    loop for each active org in organisations
+        Resolver->>Cache: getInstallationToken(org.installation_id)
+        Cache->>GH: POST /app/installations/{id}/access_tokens<br/>(App JWT, on cache miss)
+        GH-->>Cache: { token, expires_at }
+        Cache-->>Resolver: installation token
+        Resolver->>GH: GET /orgs/{org}/memberships/{login}<br/>Authorization: Bearer <installation token>
+        alt 200
+            GH-->>Resolver: { role }
+        else 404
+            GH-->>Resolver: not a member
+        end
+    end
+    Resolver->>DB: upsert user_organisations (org_id, github_role)
+    App-->>Browser: Set session cookies; redirect to /org-select or /assessments
 ```
 
-**Provider token is one-time** (ADR-0003): The GitHub OAuth token is passed through by Supabase only at the callback. If not captured and stored, it is lost. Stored encrypted in our database for later use (FCS PR context fetching, org membership refresh).
+**GitHub OAuth token is not stored** (ADR-0003, superseded by [GitHub Auth HLD](github-auth-hld.md) §4.1): Supabase returns the GitHub OAuth token once at the callback. We read identity claims (`github_user_id`, `github_login`) from `user.user_metadata` and **discard the OAuth token immediately**. No row is written to any token table; the OAuth token never leaves the callback handler.
 
-**OAuth scopes:** `user:email` (identity) + `read:org` (organisation membership). NOT `repo` — repository access is via the installation token, not the user token.
+**OAuth scopes:** `user:email` only. Organisation membership is resolved via the installation token against `GET /orgs/{org}/memberships/{user}` (see [GitHub Auth HLD](github-auth-hld.md) §5.2), so the organisation-read scope is no longer requested. Repository access is via the installation token, not the user token — no `repo` scope either.
 
 #### Session management
 
@@ -615,15 +604,16 @@ Browser              Next.js App          Supabase Auth         GitHub OAuth    
 - **RLS enforcement:** Supabase JWT claims (user ID) are used directly in Row-Level Security policies. Every database query is automatically scoped to the user's organisations via `user_organisations` table
 - **Org Admin detection:** Derived from `github_role` in `user_organisations` (`'admin'` or `'owner'`), cached at login from GitHub API (ADR-0004)
 
-#### Installation token flow (reference)
+#### Installation token flow (primary)
 
-Used by the webhook handler for server-to-server GitHub API calls. Detailed in `docs/design/spike-003-github-check-api.md`. Summary:
+The installation token is the single credential used for **all** server-to-server GitHub API calls in FCS — sign-in org resolution, FCS rubric generation, PRCC (future), and Check Runs. Canonical treatment: [GitHub Auth HLD](github-auth-hld.md) §4.1 (context C) and §5. Summary:
 
-1. Webhook payload includes `installation.id`
-2. App generates JWT from private key + app ID
-3. JWT exchanged for installation access token (1-hour TTL)
-4. Token used for: reading PR data, creating/updating Check Runs
-5. Octokit SDK manages token lifecycle automatically
+1. `installation_id` is obtained from one of three authorised edges (HLD §4.3): (E1) a verified webhook payload, (E2) the sign-in resolver iterating `organisations`, or (E3) an RLS-scoped DB read on behalf of the authenticated user.
+2. The app mints a 10-minute JWT by RS256-signing `{iss: GITHUB_APP_ID}` with `GITHUB_APP_PRIVATE_KEY` (env var).
+3. The JWT is exchanged for an installation access token via `POST /app/installations/{id}/access_tokens` (1-hour TTL).
+4. Tokens are cached in-memory keyed by `installation_id`, with a 5-minute refresh margin before expiry.
+5. The token is used for: PR diffs, file listings, file contents, linked issues, `/orgs/{org}/memberships/{user}`, and (future) Check Run writes.
+6. Octokit is instantiated per request with the cached token as its `auth` value.
 
 ### 3.4 Configuration Flow
 
@@ -672,7 +662,7 @@ Changes take effect on the next assessment only. In-progress assessments use the
 
 | Pattern | Where it applies | Detail |
 |---------|-----------------|--------|
-| **Two auth contexts** | All GitHub API calls | Installation token for webhooks; user OAuth for FCS and org membership |
+| **Single GitHub auth context** | All GitHub API calls | Installation token for every server-to-server call (webhook-triggered PRCC, user-initiated FCS, sign-in org resolution). User OAuth provider token is used only for the Supabase identity handshake and discarded — see [GitHub Auth HLD](github-auth-hld.md) §4.1 |
 | **Shared assessment engine** | PRCC Phase 2-3, FCS Phase 2-3 | Same answering, relevance, and scoring logic; differ only in trigger and gate resolution |
 | **Async boundaries** | Webhook processing, LLM calls, email | Webhook handler processes events asynchronously; LLM calls have retry logic; email sending is fire-and-forget |
 | **RLS enforcement** | All database access | Supabase RLS policies scope every query to the user's organisations; no application-level tenant filtering |
@@ -810,57 +800,6 @@ CREATE TABLE user_organisations (
 CREATE INDEX idx_user_orgs_user ON user_organisations (user_id);
 CREATE INDEX idx_user_orgs_org ON user_organisations (org_id);
 ```
-
-#### user_github_tokens
-
-Encrypted GitHub OAuth provider tokens (ADR-0003). Captured once at `/auth/callback`. Encrypted via Supabase Vault (`pgsodium`). Used for FCS PR context fetching and org membership refresh.
-
-```sql
-CREATE TABLE user_github_tokens (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         uuid NOT NULL UNIQUE
-                     REFERENCES auth.users(id) ON DELETE CASCADE,
-  encrypted_token text NOT NULL,
-  key_id          uuid NOT NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
-```
-
-`encrypted_token` is the pgsodium-encrypted GitHub provider token. `key_id` references the pgsodium key used for encryption. Decryption uses `pgsodium.crypto_aead_det_decrypt()`.
-
-**Key management:** The encryption key is created once during project setup via migration:
-
-```sql
-SELECT id INTO github_token_key_id
-FROM pgsodium.create_key(
-  name := 'github_token_key',
-  key_type := 'aead-det'
-);
-```
-
-The returned `key_id` is stored as a database configuration parameter or referenced by name via `pgsodium.find_key('github_token_key')`. The actual key material never leaves the database — pgsodium manages it internally. Encryption and decryption wrappers:
-
-```sql
--- Encrypt (called at /auth/callback when storing the token)
-pgsodium.crypto_aead_det_encrypt(
-  message    := convert_to(provider_token, 'utf8'),
-  additional := convert_to(user_id::text, 'utf8'),
-  key_id     := (SELECT id FROM pgsodium.find_key('github_token_key'))
-)
-
--- Decrypt (called when FCS needs the token for GitHub API calls)
-convert_from(
-  pgsodium.crypto_aead_det_decrypt(
-    ciphertext := encrypted_token::bytea,
-    additional := convert_to(user_id::text, 'utf8'),
-    key_id     := key_id
-  ),
-  'utf8'
-)
-```
-
-The `additional` parameter binds the ciphertext to the user ID — a token encrypted for one user cannot be decrypted with a different user's context.
 
 #### assessments
 
@@ -1288,21 +1227,6 @@ CREATE POLICY user_orgs_select_own ON user_organisations
 ```
 
 Users can only see their own org memberships. INSERT/UPDATE managed by the auth callback (service role).
-
-#### user_github_tokens
-
-```sql
-ALTER TABLE user_github_tokens ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY tokens_select_own ON user_github_tokens
-  FOR SELECT USING (user_id = auth.uid());
-
-CREATE POLICY tokens_insert_own ON user_github_tokens
-  FOR INSERT WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY tokens_update_own ON user_github_tokens
-  FOR UPDATE USING (user_id = auth.uid());
-```
 
 #### assessments
 
