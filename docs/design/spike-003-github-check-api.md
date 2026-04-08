@@ -1,5 +1,10 @@
 # Research Spike #3: GitHub Check API
 
+> **Superseded in part by epic [#176](https://github.com/mironyx/feature-comprehension-score/issues/176) / [ADR-0020](../adr/0020-org-membership-via-installation-token.md).**
+> Any references in this spike to the user OAuth `provider_token` / `read:org` path
+> for org membership are historical. Org membership is now resolved server-side via
+> the GitHub App installation token; see [github-auth-hld](github-auth-hld.md).
+
 ## Document Control
 
 | Field | Value |

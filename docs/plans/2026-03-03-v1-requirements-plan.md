@@ -1,5 +1,11 @@
 # Plan: Create V1 Requirements Document & Update Implementation Plan
 
+> **Superseded in part by epic [#176](https://github.com/mironyx/feature-comprehension-score/issues/176) / [ADR-0020](../adr/0020-org-membership-via-installation-token.md).**
+> OAuth scope notes in this plan (`read:org`, user-token-based org membership) are
+> historical. Current scopes and the installation-token-based org resolution are
+> described in [github-auth-hld](../design/github-auth-hld.md) and
+> [v1-requirements.md](../requirements/v1-requirements.md).
+
 ## Context
 
 The implementation plan (`feature-comprehension-tool-plan.md`) has been reviewed and annotated with LS comments. The next step is spec-driven: write a proper requirements document with user stories and acceptance criteria before implementation. The implementation plan also needs updating to reflect confirmed decisions.
