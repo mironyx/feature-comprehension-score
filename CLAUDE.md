@@ -74,6 +74,7 @@ Read when relevant, not every session. CLAUDE.md tells Claude **where to look**,
 | Design docs         | `docs/design/`                                      | Component and interaction design                      |
 | Drift reports       | `docs/reports/`                                     | Garbage collection output                             |
 | Session logs        | `docs/sessions/`                                    | Per-session record of work, decisions, and next steps |
+| Runbooks            | `docs/runbooks/`                                    | Ops procedures — e.g. `github-app-key.md` for `GITHUB_APP_PRIVATE_KEY` provisioning, rotation, and incident response |
 
 ## Design-Down Process
 
