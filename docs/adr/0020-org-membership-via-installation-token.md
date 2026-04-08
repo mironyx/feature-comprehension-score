@@ -36,6 +36,16 @@ ADR-0003 chose token (1) for both identity *and* org-membership lookup. This ADR
 
 ### What the user OAuth provider token is actually used for today
 
+> **Correction (2026-04-08):** the audit below was **aspirational, not current**. At the time this
+> ADR was first written, `src/lib/github/client.ts` still used the user OAuth provider token
+> (pulled from Supabase Vault) for PR reads and Check Run writes — installation tokens were not
+> yet wired up end-to-end. The "all repo reads and Check Run writes already use the installation
+> token" claim describes the **target state** delivered by the onboarding-auth epic, not the state
+> of `main` when the ADR was accepted. For the authoritative current-state audit of which token
+> flows where, see the GitHub auth & token handling HLD:
+> [`docs/design/github-auth-hld.md`](../design/github-auth-hld.md). The remainder of this section
+> is left in place unchanged as it correctly describes the intended end state of this ADR.
+
 To remove a common point of confusion: the user OAuth provider token is **not** used to fetch PR content, diffs, comments, or Check Runs. All repository reads and Check Run writes already use the GitHub App **installation token** (ADR-0001). A quick audit of `src/**/*.ts` confirms the user provider token has exactly two consumers:
 
 - `src/app/auth/callback/route.ts` — receives it from the Supabase OAuth callback and passes it onward.
@@ -135,6 +145,118 @@ Approximate work breakdown — to be formalised as tasks under the onboarding ep
 5. Install lifecycle webhook handlers (`installation.*`, `installation_repositories.*`) — keeps `organisations` and `repositories` tables in sync. Parallelisable with 2–3.
 6. Sign-in telemetry events (`signin.success`, `signin.no_access`, `signin.error`).
 7. Customer onboarding guide.
+
+## Security: GitHub App private key management
+
+Using the installation token model (Option B) shifts the root credential from the user's OAuth
+provider token to the GitHub App's **private key**. Every installation token we mint is produced
+by signing a short-lived JWT with that key and exchanging it at
+`POST /app/installations/{id}/access_tokens`. The key is therefore the single most sensitive
+secret in the system and its lifecycle must be explicit.
+
+### Storage tiers
+
+The private key is held in exactly one place per environment. It is never checked in, never
+written to logs or error messages, and never included in `.env.example` or any other committed
+artefact.
+
+| Environment       | Storage                                                   | Access                                                     |
+| ----------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
+| Local development | `.env.local` (gitignored), loaded as `GITHUB_APP_PRIVATE_KEY` | The individual developer only; `.env.local` is on `.gitignore` and never committed. |
+| CI (GitHub Actions) | Encrypted repository secret `GITHUB_APP_PRIVATE_KEY`     | Repo admins who can manage Actions secrets; surfaced only to workflows that explicitly reference it. |
+| Production (Cloud Run) | Google Secret Manager entry `github-app-private-key`, mounted into the Cloud Run service at deploy time as `GITHUB_APP_PRIVATE_KEY` | The Cloud Run service account (`secretmanager.secretAccessor`) and a named list of human operators. |
+
+Guarantees that apply to all tiers:
+
+- **Never in source.** No private key or key fragment lives in `src/`, `scripts/`, test fixtures,
+  ADRs, LLDs, or any other tracked file. `.env.example` documents the *name* of the variable
+  only, with a placeholder.
+- **Never in logs or errors.** Error messages around JWT signing and installation-token exchange
+  must not include the key material or a stack frame that quotes it. Any structured logger
+  fields that could incidentally capture environment dumps are redacted.
+- **Never printed to stdout.** No `console.log(process.env.GITHUB_APP_PRIVATE_KEY)`-class debug
+  aids, even temporarily. If a developer needs to verify the key is loaded, they check its
+  length or SHA-256 fingerprint, not its value.
+
+### Rotation
+
+GitHub allows a GitHub App to hold **multiple active private keys** at once. Rotation is
+therefore zero-downtime and does not require coordinated cutover:
+
+1. On `github.com/settings/apps/<app>`, generate a new private key. GitHub now accepts JWTs
+   signed with either the old or the new key.
+2. Update the Secret Manager entry (and the CI secret, and any developer `.env.local` files that
+   are still in active use) with the new key.
+3. Redeploy Cloud Run so the running service picks up the new value.
+4. Verify the deployed service is successfully minting installation tokens (telemetry:
+   `installation_token.mint.success` count remains flat through the deploy).
+5. On `github.com/settings/apps/<app>`, delete the old private key. From this point onwards,
+   JWTs signed with the old key are rejected by GitHub.
+
+**Rotation cadence:** at least annually, and immediately on any of the revocation triggers
+below. The procedure is cheap enough that there is no reason to delay a rotation once it is
+indicated.
+
+### Revocation (incident response)
+
+If the private key is believed to be compromised — e.g. accidentally committed, leaked in a
+log export, exfiltrated from a developer machine — the response is to **delete the key first,
+investigate second**:
+
+1. **Delete the compromised key** on `github.com/settings/apps/<app>`. This immediately invalidates
+   any JWTs signed with it; GitHub will reject further installation-token exchanges. Existing
+   installation tokens minted from it remain valid until their ~1h expiry — see blast radius.
+2. **Generate and deploy a replacement key** following steps 1–4 of the rotation procedure so the
+   service keeps minting new installation tokens.
+3. **Audit access logs.** Google Secret Manager access logs, GitHub Actions secret access logs,
+   and GitHub's App audit log (`github.com/organizations/<org>/settings/audit-log`) are the
+   three authoritative sources for "who touched this and when".
+4. **Rotate any downstream credentials** that could plausibly have been exposed alongside the
+   key (CI secrets, developer machines).
+5. **Record the incident** as a retro entry with timeline and the trigger that caused detection.
+
+### Blast radius if the key leaks
+
+An attacker holding the private key and the App ID can impersonate the GitHub App against every
+installation of the App, bounded by the App's declared permissions. Concretely:
+
+- **What they can do:** mint installation tokens for any org or user that has the App installed,
+  and then exercise the App's granted permissions (currently pull requests, checks, contents,
+  metadata; after this ADR, also `members:read`). This means they can read PR content, write
+  Check Runs, and list org members for installed orgs.
+- **What they cannot do:** read data from orgs or repos where the App is **not** installed;
+  read arbitrary user OAuth data (the user OAuth path is owned by Supabase Auth and is a
+  separate credential chain); act as a specific human user (tokens authenticate as the App, not
+  as a person); bypass repository permissions the App was not granted at install time.
+- **Time window per minted token:** installation tokens expire after ~1 hour and are not
+  refreshable. An attacker who minted tokens before the key was revoked retains those tokens
+  until their natural expiry — there is no GitHub-side API to revoke individual installation
+  tokens early. This sets the floor on incident-recovery time: assume ~1h of residual access
+  after key deletion even in the best case.
+- **Detection surface:** abnormal installation-token mint rate in our own telemetry; unexpected
+  entries in GitHub's App audit log; Check Runs we did not author appearing on customer PRs.
+
+The blast radius is materially smaller than the previous model (user OAuth token stored per user
+in Supabase Vault), where a DB compromise exposed every signed-in user's GitHub identity and
+org list. Under the installation-token model, a Supabase DB compromise exposes no GitHub
+credentials at all; the private key lives in Secret Manager, not in the application database.
+
+### Audit: who can read the Secret Manager entry
+
+Production access to `github-app-private-key` in Google Secret Manager is reviewed quarterly.
+The entry's IAM policy must at all times be a superset of:
+
+- The Cloud Run service account (`roles/secretmanager.secretAccessor`) — required to inject the
+  key as an environment variable at service start.
+- A named list of human operators with `roles/secretmanager.secretAccessor`, maintained in the
+  infrastructure repo alongside the Terraform that provisions the secret. Adding or removing an
+  operator is a reviewed PR.
+
+No other principals — no group, no `allAuthenticatedUsers`, no service account belonging to
+unrelated workloads — may hold `secretAccessor` or `secretVersionAccessor` on this entry.
+Quarterly review is an issue on the project board with a checklist that compares the live IAM
+policy against the Terraform-declared operators list; any drift is resolved before the issue
+closes.
 
 ## Open Questions
 
