@@ -1,8 +1,15 @@
 # 0003. Auth — Supabase Auth + GitHub OAuth
 
 **Date:** 2026-03-05
-**Status:** Accepted
+**Status:** Accepted (superseded in part)
 **Deciders:** LS, Claude
+
+> **Superseded in part by [ADR-0020](0020-org-membership-via-installation-token.md).**
+> The authorisation half of this ADR — using the user's GitHub OAuth `provider_token`
+> to call `/user/orgs` for organisation membership — has been superseded. Organisation
+> membership is now resolved server-side via the GitHub App installation token
+> (see ADR-0020). The identity-provider choice (Supabase Auth + GitHub OAuth for sign-in
+> and session management) remains in force.
 
 ## Context
 
