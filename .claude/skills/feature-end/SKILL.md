@@ -1,6 +1,6 @@
 ---
 name: feature-end
-description: Wrap up a completed feature after PR review. Writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up.
+description: Wrap up a completed feature after PR review. Writes session log, commits remaining changes, merges PR, switches to parent branch, cleans up. Invoking this skill IS the approval — no further confirmations.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -17,6 +17,8 @@ Finalises a feature branch after the PR has been reviewed and approved. Handles 
 ## Process
 
 Execute these steps sequentially. Do not skip steps.
+
+**Autonomy rule:** Invoking `/feature-end` IS the user's approval to merge and clean up. Do not stop to ask for merge confirmation, do not ask "ready to merge?", do not wait for "approved" — run all steps straight through. Only stop for the conditions listed under **Blocker policy** at the end of this file.
 
 ### Step 1: Gather context
 
@@ -148,31 +150,23 @@ git merge-base --is-ancestor "origin/$BASE" HEAD \
 - **Rebased cleanly** (`REBASED_AND_PUSHED`) → proceed to Step 4. CI will re-run on the rebased commit; wait for it to pass before merging (use `gh run watch`).
 - **Rebase conflict** (non-zero exit from `git rebase`) → run `git rebase --abort`, stop, and report the conflicting files to the user. Do not attempt to resolve conflicts automatically.
 
-### Step 4: Merge the PR — USER APPROVAL REQUIRED
-
+### Step 4: Merge the PR
 
 First check whether the PR is already merged (user may have merged via GitHub UI):
 ```bash
 gh pr view <number> --json state
 ```
-Parse the `state` field from the JSON output (no `jq` — read the raw output). If `"state":"MERGED"`, skip the merge command and proceed directly to Step 5.
+Parse the `state` field from the raw JSON output. If `"state":"MERGED"`, skip the merge command and proceed directly to Step 5.
 
-Otherwise, present the user with:
-- PR title and URL
-- Base branch the PR will merge into
-- Merge strategy: squash merge (default)
-
-Ask: "Ready to merge PR #N into `<base-branch>`? (squash merge, delete remote branch)"
-
-Wait for explicit approval. If denied, stop and report.
-
-Once approved, proceed immediately through Steps 5–7 without further confirmation:
+Otherwise merge immediately — **no user prompt**. Invoking `/feature-end` is itself the approval:
 
 ```bash
 gh pr merge <number> --squash --delete-branch
 ```
 
-**All steps below must be run automatically without user approval - unless there is a blocker.**
+If the merge fails (conflict, required checks missing, permission denied), stop and report per the Blocker policy.
+
+**All steps must run automatically without user approval — only stop for a real blocker.**
 ### Step 5 + 6: Clean up, sync, and update project board
 
 Read the issue state from the earlier `gh pr view` output (merged PRs close the issue automatically).
