@@ -162,7 +162,7 @@ beforeEach(() => {
     data: {
       github_repo_name: 'test-repo',
       org_id: ORG_ID,
-      organisations: { github_org_name: 'test-org' },
+      organisations: { github_org_name: 'test-org', installation_id: 42 },
     },
     error: null,
   };
