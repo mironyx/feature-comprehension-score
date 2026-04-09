@@ -287,20 +287,20 @@ Skills listed in the order they typically run during a project lifecycle.
 
 | Skill            | Purpose                                                              | SKILL.md                                                                 |
 | ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `/kickoff`       | Bootstrap: HLD + ADRs + plan + Phase 0 board items                   | [link](../../.claude/skills/kickoff/SKILL.md)                            |
-| `/create-adr`    | Produce an ADR for a load-bearing decision                           | [link](../../.claude/skills/create-adr/SKILL.md)                         |
-| `/create-plan`   | Implementation plan from an existing HLD                             | [link](../../.claude/skills/create-plan/SKILL.md)                        |
-| `/architect`     | Per-epic LLDs + enriched task issue bodies                           | [link](../../.claude/skills/architect/SKILL.md)                          |
-| `/lld`           | Generate LLDs for a phase or section                                 | [link](../../.claude/skills/lld/SKILL.md)                                |
-| `/feature`       | Autonomous implementation cycle for the top Todo task                | [link](../../.claude/skills/feature/SKILL.md)                            |
-| `/feature-core`  | Shared implementation pipeline called by `/feature` and `/feature-team` | [link](../../.claude/skills/feature-core/SKILL.md)                    |
-| `/feature-team`  | Parallel implementation via agent teams (CLI only)                   | [link](../../.claude/skills/feature-team/SKILL.md)                       |
-| `/diag`          | Batch diagnostics check across changed files                         | [link](../../.claude/skills/diag/SKILL.md)                               |
-| `/pr-review-v2`  | PR review (bugs, CLAUDE.md compliance, design adherence)             | [link](../../.claude/skills/pr-review-v2/SKILL.md)                       |
-| `/lld-sync`      | Sync LLD to the implementation after the feature is merged           | [link](../../.claude/skills/lld-sync/SKILL.md)                           |
-| `/feature-end`   | Post-merge wrap-up                                                   | [link](../../.claude/skills/feature-end/SKILL.md)                        |
-| `/drift-scan`    | Garbage collection scan                                              | [link](../../.claude/skills/drift-scan/SKILL.md)                         |
-| `/retro`         | Process retrospective                                                | [link](../../.claude/skills/retro/SKILL.md)                              |
+| `/kickoff`       | Bootstrap: HLD + ADRs + plan + Phase 0 board items                   | [kickoff SKILL](../../.claude/skills/kickoff/SKILL.md)                            |
+| `/create-adr`    | Produce an ADR for a load-bearing decision                           | [create-adr SKILL](../../.claude/skills/create-adr/SKILL.md)                         |
+| `/create-plan`   | Implementation plan from an existing HLD                             | [create-plan SKILL](../../.claude/skills/create-plan/SKILL.md)                        |
+| `/architect`     | Per-epic LLDs + enriched task issue bodies                           | [architect SKILL](../../.claude/skills/architect/SKILL.md)                          |
+| `/lld`           | Generate LLDs for a phase or section                                 | [lld SKILL](../../.claude/skills/lld/SKILL.md)                                |
+| `/feature`       | Autonomous implementation cycle for the top Todo task                | [feature SKILL](../../.claude/skills/feature/SKILL.md)                            |
+| `/feature-core`  | Shared implementation pipeline called by `/feature` and `/feature-team` | [feature-core SKILL](../../.claude/skills/feature-core/SKILL.md)                    |
+| `/feature-team`  | Parallel implementation via agent teams (CLI only)                   | [feature-team SKILL](../../.claude/skills/feature-team/SKILL.md)                       |
+| `/diag`          | Batch diagnostics check across changed files                         | [diag SKILL](../../.claude/skills/diag/SKILL.md)                               |
+| `/pr-review-v2`  | PR review (bugs, CLAUDE.md compliance, design adherence)             | [pr-review-v2 SKILL](../../.claude/skills/pr-review-v2/SKILL.md)                       |
+| `/lld-sync`      | Sync LLD to the implementation after the feature is merged           | [lld-sync SKILL](../../.claude/skills/lld-sync/SKILL.md)                           |
+| `/feature-end`   | Post-merge wrap-up                                                   | [feature-end SKILL](../../.claude/skills/feature-end/SKILL.md)                        |
+| `/drift-scan`    | Garbage collection scan                                              | [drift-scan SKILL](../../.claude/skills/drift-scan/SKILL.md)                         |
+| `/retro`         | Process retrospective                                                | [retro SKILL](../../.claude/skills/retro/SKILL.md)                              |
 
 ## ADR index (process-shaping)
 
