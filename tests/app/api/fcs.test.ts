@@ -141,7 +141,7 @@ beforeEach(() => {
 
   orgMemberResult = { data: [{ github_role: 'admin' }], error: null };
   repoResult = {
-    data: { github_repo_name: 'test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org' } },
+    data: { github_repo_name: 'test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org', installation_id: 42 } },
     error: null,
   };
   orgConfigResult = {
@@ -224,7 +224,7 @@ describe('POST /api/fcs', () => {
 
     it('returns 422 when repository belongs to a different org', async () => {
       repoResult = {
-        data: { github_repo_name: 'test-repo', org_id: 'other-org-id', organisations: { github_org_name: 'test-org' } },
+        data: { github_repo_name: 'test-repo', org_id: 'other-org-id', organisations: { github_org_name: 'test-org', installation_id: 42 } },
         error: null,
       };
       const { status } = await callPost(VALID_BODY);
@@ -253,7 +253,7 @@ describe('POST /api/fcs', () => {
   describe('given a repository whose github_repo_name includes the org prefix', () => {
     it('strips the org prefix when calling the GitHub API', async () => {
       repoResult = {
-        data: { github_repo_name: 'test-org/test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org' } },
+        data: { github_repo_name: 'test-org/test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org', installation_id: 42 } },
         error: null,
       };
       await callPost(VALID_BODY);

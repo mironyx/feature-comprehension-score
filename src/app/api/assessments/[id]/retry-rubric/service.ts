@@ -17,6 +17,6 @@ export async function retryRubricGeneration(
   if (error ?? !assessment) throw new ApiError(404, 'Assessment not found');
   await assertOrgAdmin(ctx.supabase, ctx.user.id, assessment.org_id);
   if (assessment.status !== 'rubric_failed') throw new ApiError(400, 'Assessment must be in rubric_failed status to retry');
-  await retriggerRubricForAssessment(ctx.adminSupabase, ctx.user.id, assessment);
+  await retriggerRubricForAssessment(ctx.adminSupabase, assessment);
   return { assessment_id: assessmentId, status: 'rubric_generation' };
 }

@@ -58,6 +58,7 @@ interface RepoInfo {
   orgName: string;
   repoName: string;
   orgId: OrgId;
+  installationId: number;
   questionCount: number;
   enforcementMode: string;
   scoreThreshold: number;
@@ -67,7 +68,7 @@ interface RepoInfo {
 interface RepoRow {
   github_repo_name: string;
   org_id: string;
-  organisations: { github_org_name: string };
+  organisations: { github_org_name: string; installation_id: number };
 }
 
 interface ConfigRow {
@@ -89,7 +90,6 @@ interface ResolvedParticipant {
 
 interface RubricTriggerParams {
   adminSupabase: ServiceClient;
-  userId: UserId;
   assessmentId: AssessmentId;
   repoInfo: RepoInfo;
   prNumbers: number[];
@@ -128,6 +128,7 @@ function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: OrgId): RepoInfo {
     orgName: repo.organisations.github_org_name,
     repoName,
     orgId,
+    installationId: repo.organisations.installation_id,
     questionCount: cfg.fcs_question_count,
     enforcementMode: cfg.enforcement_mode,
     scoreThreshold: cfg.score_threshold,
@@ -272,7 +273,7 @@ async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: Asse
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
   try {
-    const octokit = await createGithubClient(params.adminSupabase, params.userId);
+    const octokit = await createGithubClient(params.repoInfo.installationId);
     const source = new GitHubArtefactSource(octokit);
     const [raw, organisation_context] = await Promise.all([
       source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
@@ -302,7 +303,6 @@ interface AssessmentRetryRow {
 // against the already-stored PR records. Called by the retry-rubric route.
 export async function retriggerRubricForAssessment(
   adminSupabase: ServiceClient,
-  userId: string,
   assessment: AssessmentRetryRow,
 ): Promise<void> {
   const assessmentId = assessment.id as AssessmentId;
@@ -313,7 +313,7 @@ export async function retriggerRubricForAssessment(
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
-  void triggerRubricGeneration({ adminSupabase, userId: userId as UserId, assessmentId, repoInfo, prNumbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers });
 }
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
@@ -323,16 +323,14 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
   const orgId = body.org_id as OrgId;
   const repositoryId = body.repository_id as RepositoryId;
   await assertOrgAdmin(supabase, userId, orgId);
-  const [repoInfo, octokit] = await Promise.all([
-    fetchRepoInfo(adminSupabase, repositoryId, orgId),
-    createGithubClient(adminSupabase, userId),
-  ]);
+  const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
+  const octokit = await createGithubClient(repoInfo.installationId);
   const [validatedPRs, participants] = await Promise.all([
     validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, body.merged_pr_numbers),
-    resolveParticipants(octokit, body.participants.map(p => p.github_username)),
+    resolveParticipants(octokit, body.participants.map((p) => p.github_username)),
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
   const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, participants });
-  void triggerRubricGeneration({ adminSupabase, userId, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }
