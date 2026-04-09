@@ -157,6 +157,57 @@ Check Supabase (Table Editor → `organisations` / `repositories`) for the upser
 
 ---
 
+## Monitoring (Prometheus + Grafana + OTel)
+
+The `monitoring/` directory contains a Docker Compose stack for observability.
+
+### Central stack (main PC)
+
+```bash
+cd monitoring
+docker compose up -d
+```
+
+Services:
+
+- `otel-collector` — OTLP gRPC on `:4317`, Prometheus exporter on `:8889`
+- `node-exporter` — `:9100`
+- `prometheus` — `:9090`, scrapes both local services and a remote agent PC
+- `grafana` — `:3001` (admin/admin)
+
+### Remote agent stack (optional)
+
+When Claude Code agents run on a second machine, expose their metrics with the
+remote-only stack at [monitoring/remote/docker-compose.yml](monitoring/remote/docker-compose.yml):
+
+```bash
+cd monitoring/remote
+docker compose up -d
+```
+
+It runs only `otel-collector` and `node-exporter` — no Prometheus/Grafana. The
+central Prometheus on the main PC scrapes this box via the `otel-collector-remote`
+and `node-exporter-remote` jobs in [monitoring/prometheus.yml](monitoring/prometheus.yml).
+
+**Setup:**
+
+1. On the agent PC: open **8889** (otel-collector Prom exporter) and **9100**
+   (node-exporter) in the firewall so the main PC can reach them. Port 4317
+   only needs external access if agents push OTLP from another machine.
+2. On the main PC: ensure the hostname `remote` resolves to the agent PC. Add
+   an entry to your hosts file (e.g. `C:\Windows\System32\drivers\etc\hosts`):
+
+   ```
+   192.168.1.50   remote
+   ```
+
+3. Restart the central Prometheus container so it picks up the new target.
+
+Scraped series are labelled `host=local` or `host=remote` so Grafana queries
+can split or aggregate across machines.
+
+---
+
 ## Verification Commands
 
 ```bash

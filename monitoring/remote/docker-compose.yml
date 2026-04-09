@@ -1,0 +1,36 @@
+# Remote agent PC stack: exposes metrics for the central Prometheus
+# on the main PC to scrape. Run with: `docker compose up -d` from this dir.
+#
+# Ports exposed on the host (make sure firewall allows from the main PC):
+#   4317  - OTLP gRPC receiver (Claude Code on this PC pushes here)
+#   8889  - Prometheus exporter (scraped remotely)
+#   9100  - node_exporter (scraped remotely)
+
+networks:
+  monitoring:
+    driver: bridge
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - ../otel-collector-config.yaml:/etc/otel/config.yaml
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "8889:8889"
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile
+      - --collector.textfile.directory=/textfiles
+    volumes:
+      - ../textfile_collector:/textfiles:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring
