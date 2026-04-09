@@ -28,7 +28,9 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 
 ### Step 4: Implement with TDD
 
-Follow strict Red-Green-Refactor. One test at a time.
+Tests-first, grouped by acceptance criterion. Batch the test and its implementation in a single turn per criterion rather than running each test twice (once red, once green) — the literal Red-Green-Refactor cadence burns tokens on every round-trip without adding signal for LLM-driven work. The discipline remains: no implementation without a test written from the LLD spec, and every acceptance criterion must have covering tests before Step 5.
+
+A dedicated ADR on the TDD execution strategy under LLM cost constraints is planned; until it lands, default to batching per criterion.
 
 The PostToolUse hook opens edited files in the editor automatically for diagnostics analysis.
 If the hook fires with inline findings during the cycle, address them before moving to the next test.
@@ -47,13 +49,13 @@ If the hook fires with inline findings during the cycle, address them before mov
 Duplicated mock setup is tech debt the moment it's written — cheaper to extract up front
 than after the evaluator or a reviewer catches it.
 
-For each behaviour in the BDD spec from the issue:
+For each acceptance criterion in the LLD / issue:
 
-1. **RED** — Write a failing test. Run `npx vitest run <test-file>`. Confirm it fails for the right reason.
-2. **GREEN** — Write the minimum code to make the test pass. Run tests again. Confirm green.
-3. **REFACTOR** — Clean up if needed. Tests must stay green.
+1. **Write the test(s) and the implementation together**, derived from the BDD spec. Keep the test first in the edit order and make sure it would fail without the implementation.
+2. Run `npx vitest run <test-file>` once. If it fails, diagnose and fix. If it passes, move on.
+3. **Refactor** if anything is obviously cleanup-worthy. Tests must stay green.
 
-Continue until all acceptance criteria are covered.
+Continue until all acceptance criteria are covered. One acceptance criterion per iteration, not one assertion per iteration.
 
 ### Step 5: Full verification
 

@@ -1,6 +1,6 @@
 ---
 name: create-plan
-description: Create a detailed implementation plan for a feature or task. Use when the user wants to plan work, break down a feature, create an implementation spec, or mentions planning a phase of work.
+description: Create a detailed implementation plan for a feature, phase, or epic, derived from an existing HLD. Use when an HLD already exists and a phase or epic needs planning. Do NOT use for initial project bootstrap — use /kickoff instead, which owns HLD + plan together. See ADR-0021.
 allowed-tools: Read, Write, Bash, Glob, Grep
 ---
 

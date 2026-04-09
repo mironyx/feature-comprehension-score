@@ -13,6 +13,11 @@ Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS)
 Development approach: TDD/BDD-first, PR-based workflow, specialised role agents (Tester → Developer → Reviewer).
 See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for full details.
 
+## Engineering Process
+
+Pipeline: `requirements → /kickoff → /architect → /feature → /feature-end → /retro`.
+For the full lifecycle, stages, human gates, artefact map, skills index, and ADR index, see [docs/process/engineering-process.md](docs/process/engineering-process.md). Rationale for the bootstrap shape lives in [ADR-0021](docs/adr/0021-project-bootstrap-pipeline.md).
+
 ## Task Tracking
 
 - **Project board** — Check `gh project item-list 2 --owner mironyx` for current task statuses and priorities.
@@ -234,6 +239,7 @@ Supabase uses a **declarative schema** approach. `supabase/schemas/` files are t
 
 ## Custom Skills
 
+- `/kickoff` — Bootstrap a new project from a requirements document. Produces the HLD (Levels 1–3), load-bearing ADRs, and the implementation plan, with human gates after each. Use once per project/version before `/architect`. See [ADR-0021](docs/adr/0021-project-bootstrap-pipeline.md).
 - `/architect` — Read a plan and produce all design artefacts in one pass (ADRs, LLDs, design doc updates, enriched issue bodies). Usage: `/architect` (most recent plan) or `/architect <path>`. Stops for human review before implementation.
 - `/feature` — Autonomous implementation cycle: picks top Todo item (or specified issue), creates branch, TDD implementation, `/diag`, commit, PR, `/pr-review-v2`. Stops after review for human approval.
 - `/feature-end` — Post-review wrap-up: writes session log, commits remaining changes, merges PR (with approval), switches to parent branch, cleans up local branch, updates project board.
