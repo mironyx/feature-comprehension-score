@@ -1,21 +1,20 @@
-// GitHub client factory — builds an authenticated Octokit from the user's stored vault token.
-// Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4 (implementation note, issue #59)
+// GitHub client factory — builds an Octokit authenticated with a GitHub App installation token.
+// Design reference: docs/design/lld-onboarding-auth-client-migration.md (issue #192),
+// docs/design/github-auth-hld.md §5.4 (FCS user-initiated, target state).
 
 import { Octokit } from '@octokit/rest';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/supabase/types';
-import { ApiError } from '@/lib/api/errors';
-import { logger } from '@/lib/logger';
+import { getInstallationToken } from './app-auth';
 
-type ServiceClient = SupabaseClient<Database>;
+export interface CreateGithubClientDeps {
+  getToken?: (installationId: number) => Promise<string>;
+}
 
-/** Build an authenticated Octokit instance from the user's GitHub token stored in Supabase Vault. */
-export async function createGithubClient(adminSupabase: ServiceClient, userId: string): Promise<Octokit> {
-  const { data: token, error } = await adminSupabase.rpc('get_github_token', { p_user_id: userId });
-  if (error) {
-    logger.error({ err: error }, 'createGithubClient: get_github_token failed');
-    throw new ApiError(500, 'Internal server error');
-  }
-  if (!token) throw new ApiError(401, 'GitHub account not connected');
+/** Build an Octokit authenticated with an installation access token for the given installation. */
+export async function createGithubClient(
+  installationId: number,
+  deps: CreateGithubClientDeps = {},
+): Promise<Octokit> {
+  const getToken = deps.getToken ?? getInstallationToken;
+  const token = await getToken(installationId);
   return new Octokit({ auth: token });
 }
