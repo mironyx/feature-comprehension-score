@@ -1,6 +1,7 @@
 
 // GitHub App installation event handlers.
 // Design reference: docs/design/v1-design.md §4.4, §4.5
+// Extended by issue #180: docs/design/lld-onboarding-auth-webhooks.md
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
@@ -33,6 +34,11 @@ export interface InstallationDeletedPayload {
   installation: { id: number; account: GithubAccount; app_id: number };
 }
 
+export interface InstallationSuspendedPayload {
+  action: 'suspend' | 'unsuspend';
+  installation: { id: number };
+}
+
 export interface InstallationRepositoriesPayload {
   action: 'added' | 'removed';
   installation: { id: number };
@@ -41,6 +47,7 @@ export interface InstallationRepositoriesPayload {
 }
 
 type Db = SupabaseClient<Database>;
+type Handler = (payload: unknown, db: Db) => Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -53,8 +60,17 @@ function toRepoJson(repos: GithubRepo[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Handlers
+// Dispatch
 // ---------------------------------------------------------------------------
+
+const HANDLERS: Record<string, Handler> = {
+  'installation:created':    (p, db) => handleInstallationCreated(p as InstallationCreatedPayload, db),
+  'installation:deleted':    (p, db) => handleInstallationDeleted(p as InstallationDeletedPayload, db),
+  'installation:suspend':    (p, db) => handleInstallationSuspended(p as InstallationSuspendedPayload, db),
+  'installation:unsuspend':  (p, db) => handleInstallationSuspended(p as InstallationSuspendedPayload, db),
+  'installation_repositories:added':   (p, db) => handleRepositoriesAdded(p as InstallationRepositoriesPayload, db),
+  'installation_repositories:removed': (p, db) => handleRepositoriesRemoved(p as InstallationRepositoriesPayload, db),
+};
 
 export async function handleWebhookEvent(
   event: string,
@@ -62,17 +78,13 @@ export async function handleWebhookEvent(
   supabase: Db,
 ): Promise<void> {
   const action = typeof payload.action === 'string' ? payload.action : '';
-  if (event === 'installation' ) 
-    if (action === 'created') 
-        return handleInstallationCreated(payload as unknown as InstallationCreatedPayload, supabase);
-    else if (action === 'deleted') 
-        return handleInstallationDeleted(payload as unknown as InstallationDeletedPayload, supabase);
-  if (event === 'installation_repositories')
-    if (action === 'added') 
-        return handleRepositoriesAdded(payload as unknown as InstallationRepositoriesPayload, supabase);
-    else if (action === 'removed') 
-       return handleRepositoriesRemoved(payload as unknown as InstallationRepositoriesPayload, supabase);
+  const handler = HANDLERS[`${event}:${action}`];
+  if (handler) await handler(payload, supabase);
 }
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
 
 export async function handleInstallationCreated(
   payload: InstallationCreatedPayload,
@@ -95,13 +107,26 @@ export async function handleInstallationDeleted(
   payload: InstallationDeletedPayload,
   supabase: Db,
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const { error } = await supabase.rpc('handle_installation_deleted', {
+    p_installation_id: payload.installation.id,
+  });
+  if (error) {
+    logger.error({ err: error }, 'handleInstallationDeleted: rpc failed');
+    throw error;
+  }
+}
+
+export async function handleInstallationSuspended(
+  payload: InstallationSuspendedPayload,
+  supabase: Db,
+): Promise<void> {
+  const status = payload.action === 'suspend' ? 'inactive' : 'active';
   const { error } = await supabase
     .from('organisations')
-    .update({ status: 'inactive', updated_at: now })
+    .update({ status, updated_at: new Date().toISOString() })
     .eq('installation_id', payload.installation.id);
   if (error) {
-    logger.error({ err: error }, 'handleInstallationDeleted: org update failed');
+    logger.error({ err: error, action: payload.action }, 'handleInstallationSuspended: org update failed');
     throw error;
   }
 }
