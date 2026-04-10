@@ -3,8 +3,14 @@
 **Parent epic:** #176 — Onboarding & Auth — installation-token org membership
 **Plan:** [docs/plans/2026-04-07-onboarding-auth-epic.md](../plans/2026-04-07-onboarding-auth-epic.md) Task 6
 **Related:** [req-onboarding-and-auth.md](../requirements/req-onboarding-and-auth.md) §O.5, ADR-0016 (structured logging — Pino), [lld-onboarding-auth-cutover.md](lld-onboarding-auth-cutover.md) §4 (stub call site)
-**Status:** Draft
+**Status:** Revised
 **Date:** 2026-04-07
+**Revised:** 2026-04-10 | Issue #182
+
+| Version | Date | Notes |
+|---|---|---|
+| 0.1 | 2026-04-07 | Draft |
+| 0.2 | 2026-04-10 | Issue #182 — helper built; callback wiring deferred |
 
 ## 1. Purpose
 
@@ -63,6 +69,8 @@ Null-tolerance on `user_id` and `github_user_id` is deliberate: `signin.error` m
 
 ### 4.2 Call sites (modifications to `auth/callback/route.ts`)
 
+_(deferred → depends on #179 — callback route refactor)_
+
 Task 3 already left stubs for this. This task imports `emitSigninEvent` and replaces the stub:
 
 - On `missing_code`: `emitSigninEvent('error', { user_id: null, github_user_id: null, matched_org_count: 0 })`.
@@ -73,6 +81,8 @@ Task 3 already left stubs for this. This task imports `emitSigninEvent` and repl
 - On resolver throw: `emitSigninEvent('error', { user_id, github_user_id, matched_org_count: 0 })`.
 
 Exactly one event per request — enforced by the early-return structure of the callback.
+
+> **Implementation note (issue #182):** The callback wiring was deferred because #179 (callback route refactor) had not yet been merged. The `emitSigninEvent` helper is complete and tested; §4.2 will be applied in the issue that resolves the #179 dependency.
 
 ## 5. Tests
 
@@ -87,7 +97,7 @@ describe('emitSigninEvent', () => {
 });
 ```
 
-**Extend:** `src/app/auth/callback/route.test.ts` (create if it does not exist).
+**Extend:** `src/app/auth/callback/route.test.ts` (create if it does not exist). _(deferred → depends on #179)_
 
 ```ts
 describe('/auth/callback telemetry', () => {
@@ -103,12 +113,12 @@ These tests stub the logger (`vi.spyOn(logger, 'info')`) and assert call counts 
 
 ## 6. Acceptance criteria
 
-- [ ] `src/lib/observability/signin-events.ts` exports `emitSigninEvent` with the signature above.
-- [ ] Every branch of `/auth/callback/route.ts` emits exactly one event.
-- [ ] The `event` field on each log line is exactly one of `signin.success`, `signin.no_access`, `signin.error`.
-- [ ] Payload fields: `user_id` (string | null), `github_user_id` (number | null), `matched_org_count` (number).
-- [ ] Tests in §5 pass.
-- [ ] `npx tsc --noEmit` passes.
+- [x] `src/lib/observability/signin-events.ts` exports `emitSigninEvent` with the signature above.
+- [ ] Every branch of `/auth/callback/route.ts` emits exactly one event. _(deferred → depends on #179)_
+- [x] The `event` field on each log line is exactly one of `signin.success`, `signin.no_access`, `signin.error`.
+- [x] Payload fields: `user_id` (string | null), `github_user_id` (number | null), `matched_org_count` (number).
+- [x] Helper tests in §5 pass. Callback telemetry tests deferred (see §4.2 note).
+- [x] `npx tsc --noEmit` passes.
 
 ## 7. Non-goals
 
