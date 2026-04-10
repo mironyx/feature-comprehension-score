@@ -5,7 +5,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { getInstallationToken as defaultGetInstallationToken } from '@/lib/github/app-auth';
-import { logger } from '@/lib/logger';
 
 type ServiceClient = SupabaseClient<Database>;
 type UserOrganisation = Database['public']['Tables']['user_organisations']['Row'];
@@ -130,53 +129,16 @@ async function writeUserOrgs(
   return reloadUserOrgs(serviceClient, input.userId);
 }
 
-async function findFirstInstallAsInstaller(
-  serviceClient: ServiceClient,
-  githubUserId: number,
-): Promise<MatchedOrg | null> {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const { data: orgs, error } = await serviceClient
-    .from('organisations')
-    .select('id, github_org_id, github_org_name, installation_id')
-    .eq('installer_github_user_id', githubUserId)
-    .gte('created_at', fiveMinutesAgo)
-    .eq('status', 'active');
-  if (error) {
-    // DB error is non-fatal — the race fallback is best-effort; the caller
-    // persists empty memberships and emits no_access telemetry.
-    logger.error({ err: error, githubUserId }, 'findFirstInstallAsInstaller: org query failed');
-    return null;
-  }
-  if (!orgs || orgs.length === 0) return null;
-
-  const org = orgs[0]!;
-  const { count, error: countErr } = await serviceClient
-    .from('user_organisations')
-    .select('*', { count: 'exact', head: true })
-    .eq('org_id', org.id);
-  if (countErr) {
-    logger.error({ err: countErr, orgId: org.id }, 'findFirstInstallAsInstaller: count query failed');
-    return null;
-  }
-  if (count && count > 0) return null;
-  return { org, role: 'admin' };
-}
-
 /** Resolve and persist the signed-in user's org memberships via the App installation token. */
 export async function resolveUserOrgsViaApp(
   serviceClient: ServiceClient,
   input: ResolveUserOrgsInput,
   deps: ResolveUserOrgsDeps = {},
-  opts: { firstInstallFallback?: boolean } = {},
 ): Promise<UserOrganisation[]> {
   const resolved: Required<ResolveUserOrgsDeps> = {
     getInstallationToken: deps.getInstallationToken ?? defaultGetInstallationToken,
     fetchImpl: deps.fetchImpl ?? fetch,
   };
-  let matches = await matchOrgsForUser(serviceClient, input, resolved);
-  if (matches.length === 0 && opts.firstInstallFallback) {
-    const fallback = await findFirstInstallAsInstaller(serviceClient, input.githubUserId);
-    if (fallback) matches = [fallback];
-  }
+  const matches = await matchOrgsForUser(serviceClient, input, resolved);
   return writeUserOrgs(serviceClient, input, matches);
 }

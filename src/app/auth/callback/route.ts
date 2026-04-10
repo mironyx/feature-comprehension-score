@@ -33,7 +33,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       secretClient,
       { userId: user.id, githubUserId, githubLogin },
       {},
-      { firstInstallFallback: true },
     );
     emitSigninEvent(matched.length > 0 ? 'success' : 'no_access', {
       user_id: user.id,

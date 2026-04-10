@@ -16,7 +16,6 @@ export interface Database {
           github_org_id: number;
           github_org_name: string;
           installation_id: number;
-          installer_github_user_id: number | null;
           status: 'active' | 'inactive';
           created_at: string;
           updated_at: string;
@@ -26,7 +25,6 @@ export interface Database {
           github_org_id: number;
           github_org_name: string;
           installation_id: number;
-          installer_github_user_id?: number | null;
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;
@@ -36,7 +34,6 @@ export interface Database {
           github_org_id?: number;
           github_org_name?: string;
           installation_id?: number;
-          installer_github_user_id?: number | null;
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;

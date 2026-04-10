@@ -68,7 +68,6 @@ describe('/auth/callback', () => {
       expect.anything(),
       { userId: 'user-123', githubUserId: 42, githubLogin: 'alice' },
       {},
-      { firstInstallFallback: true },
     );
     expect(mockEmit).toHaveBeenCalledWith('success', expect.objectContaining({
       user_id: 'user-123',

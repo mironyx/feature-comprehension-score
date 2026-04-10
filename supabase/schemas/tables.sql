@@ -10,7 +10,6 @@ CREATE TABLE organisations (
   github_org_id              bigint UNIQUE NOT NULL,
   github_org_name            text NOT NULL,
   installation_id            bigint UNIQUE NOT NULL,
-  installer_github_user_id   bigint,
   status                     text NOT NULL DEFAULT 'active'
                                CHECK (status IN ('active', 'inactive')),
   created_at                 timestamptz NOT NULL DEFAULT now(),

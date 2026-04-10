@@ -73,7 +73,3 @@ drop index if exists "public"."user_github_tokens_pkey";
 drop index if exists "public"."user_github_tokens_user_id_key";
 
 drop table "public"."user_github_tokens";
-
-alter table "public"."organisations" add column "installer_github_user_id" bigint;
-
-
