@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { getInstallationToken as defaultGetInstallationToken } from '@/lib/github/app-auth';
+import { logger } from '@/lib/logger';
 
 type ServiceClient = SupabaseClient<Database>;
 type UserOrganisation = Database['public']['Tables']['user_organisations']['Row'];
@@ -140,15 +141,23 @@ async function findFirstInstallAsInstaller(
     .eq('installer_github_user_id', githubUserId)
     .gte('created_at', fiveMinutesAgo)
     .eq('status', 'active');
-  // DB error is non-fatal here — the race fallback is best-effort; the caller
-  // already persists empty memberships and emits no_access telemetry.
-  if (error || !orgs || orgs.length === 0) return null;
+  if (error) {
+    // DB error is non-fatal — the race fallback is best-effort; the caller
+    // persists empty memberships and emits no_access telemetry.
+    logger.error({ err: error, githubUserId }, 'findFirstInstallAsInstaller: org query failed');
+    return null;
+  }
+  if (!orgs || orgs.length === 0) return null;
 
   const org = orgs[0]!;
-  const { count } = await serviceClient
+  const { count, error: countErr } = await serviceClient
     .from('user_organisations')
     .select('*', { count: 'exact', head: true })
     .eq('org_id', org.id);
+  if (countErr) {
+    logger.error({ err: countErr, orgId: org.id }, 'findFirstInstallAsInstaller: count query failed');
+    return null;
+  }
   if (count && count > 0) return null;
   return { org, role: 'admin' };
 }
