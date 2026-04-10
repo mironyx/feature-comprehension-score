@@ -6,6 +6,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     new URL('/auth/sign-in', request.url),
   );
   const supabase = createRouteHandlerSupabaseClient(request, response);
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    // Log but still redirect — cookie is cleared on the response regardless.
+    console.error('sign-out failed', error);
+  }
   return response;
 }

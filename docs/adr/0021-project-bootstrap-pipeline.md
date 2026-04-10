@@ -1,4 +1,4 @@
-#  0021. Project Bootstrap Pipeline
+# 0021. Project Bootstrap Pipeline
 
 **Date:** 2026-04-09
 **Status:** Accepted

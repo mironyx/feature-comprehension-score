@@ -5,6 +5,7 @@
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/supabase/types';
+import { NonMemberEmptyState } from './NonMemberEmptyState';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
 type UserOrgRow = Database['public']['Tables']['user_organisations']['Row'];
@@ -48,15 +49,7 @@ export default async function OrgSelectPage() {
   }
 
   if (userOrgs.length === 0) {
-    return (
-      <main>
-        <h1>Select Organisation</h1>
-        <p>No organisations found. Ask your organisation admin to install the app.</p>
-        <form action="/auth/sign-out" method="post">
-          <button type="submit">Sign out</button>
-        </form>
-      </main>
-    );
+    return <NonMemberEmptyState />;
   }
 
   return (

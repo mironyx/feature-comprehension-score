@@ -3,8 +3,9 @@
 **Parent epic:** #176 — Onboarding & Auth — installation-token org membership
 **Plan:** [docs/plans/2026-04-07-onboarding-auth-epic.md](../plans/2026-04-07-onboarding-auth-epic.md) Task 4
 **Related:** [req-onboarding-and-auth.md](../requirements/req-onboarding-and-auth.md) §O.3, [lld-onboarding-auth-cutover.md](lld-onboarding-auth-cutover.md) (prerequisite)
-**Status:** Draft
+**Status:** Revised
 **Date:** 2026-04-07
+**Revised:** 2026-04-10 (issue #181)
 
 ## 1. Purpose
 
@@ -46,12 +47,15 @@ if (userOrgs.length === 0) {
 
 Extracted into a new component to keep `page.tsx` under the 20-line function budget and to make the component independently testable.
 
-**New file:** `src/app/org-select/NonMemberEmptyState.tsx` (server component — no client interactivity needed; sign-out is a form POST).
+**New file:** `src/app/org-select/NonMemberEmptyState.tsx` (server component — no client interactivity needed; sign-out is a form POST). The default install URL is extracted to a named constant `DEFAULT_INSTALL_URL` for clarity.
+
+> **Implementation note (issue #181):** The `??` operator was replaced with `||` so that an empty-string env var also falls back to the default — a defensive improvement over the original spec.
 
 ```tsx
 export function NonMemberEmptyState() {
-  const installUrl = process.env['NEXT_PUBLIC_GITHUB_APP_INSTALL_URL']
-    ?? 'https://github.com/apps/fcs-app/installations/new';
+  // Use || so an empty-string env var also falls back to the default.
+  const installUrl =
+    process.env['NEXT_PUBLIC_GITHUB_APP_INSTALL_URL'] || DEFAULT_INSTALL_URL;
   return (
     <main>
       <h1>No access</h1>
@@ -91,7 +95,11 @@ If it does not meet these, adjust it in this same task — it is a three-line ch
 
 ## 4. Tests
 
-**New file:** `src/app/org-select/NonMemberEmptyState.test.tsx` (component test using `@testing-library/react` if already a dep; otherwise a snapshot-style render test in Vitest).
+**New file:** `src/app/org-select/NonMemberEmptyState.test.ts` (component test using `renderToStaticMarkup` from `react-dom/server` — no `@testing-library/react` dependency needed).
+
+> **Implementation note (issue #181):** Test file uses `.test.ts` (not `.test.tsx`) because `renderToStaticMarkup` avoids the need for JSX transform in tests. This is simpler and avoids adding `@testing-library/react` as a dependency.
+
+**New file:** `tests/evaluation/org-select-empty-state.eval.test.ts` — 13 adversarial evaluation tests verifying acceptance criteria coverage (added by feature-evaluator agent).
 
 Verify:
 
@@ -135,7 +143,7 @@ describe('/auth/sign-out handler', () => {
 
 - Loading skeleton on the multi-org case (tracked in #90).
 - Extracting `OrgCard` (tracked in #89).
-- Full E2E of the install → sign-in → empty-state loop unless the harness already supports it.
+- Full E2E of the install → sign-in → empty-state loop unless the harness already supports it. _(deferred — no E2E harness for authenticated flows yet)_
 
 ## 8. Task
 
