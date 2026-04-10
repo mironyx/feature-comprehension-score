@@ -69,6 +69,10 @@ Create one task per issue:
 
 ### Step 4: Spawn teammates
 
+**Pre-flight:** `TeamCreate` is a deferred tool — its schema is not loaded at session start.
+Fetch it before proceeding or the call will fail with `InputValidationError`:
+`ToolSearch(query="select:TeamCreate")`
+
 **Two-step pattern — always follow this exact sequence:**
 
 1. Call `TeamCreate` to create the team record:
