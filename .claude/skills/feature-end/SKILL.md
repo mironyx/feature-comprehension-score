@@ -28,13 +28,29 @@ If an issue number argument was provided:
    gh pr list --search "closes #<issue-number>" --json number,title,baseRefName,state,url,headRefName --state open
    ```
    If no open PR is found, try `--state merged` in case it was already merged. If still none, stop and report.
-2. Extract the head branch (`headRefName`) and read the session ID embedded in the PR body:
+2. Extract the head branch (`headRefName`) and read the session ID — PR body first, prom file as fallback:
    ```bash
    OLD_SESSION_ID=$(gh pr view <pr-number> --json body --jq '.body' | python3 -c "
    import sys, re
    m = re.search(r'claude-session-id: ([a-f0-9-]+)', sys.stdin.read())
    print(m.group(1) if m else '')
    ")
+
+   # Fallback: read from prom file (covers PRs created before session-ID embedding was added)
+   if [ -z "$OLD_SESSION_ID" ]; then
+     OLD_SESSION_ID=$(python3 -c "
+   import re, pathlib, os, subprocess
+   result = subprocess.run(['git', 'rev-parse', '--git-common-dir'], capture_output=True, text=True)
+   root = pathlib.Path(result.stdout.strip()).parent.resolve()
+   prom_dir = pathlib.Path(os.environ.get('FCS_FEATURE_PROM_DIR') or root / 'monitoring' / 'textfile_collector')
+   prom = prom_dir / 'session_feature.prom'
+   if prom.exists():
+       m = re.search(r'session_id=\"([^\"]+)\",feature_id=\"FCS-<issue-number>\"', prom.read_text())
+       print(m.group(1) if m else '')
+   else:
+       print('')
+   ")
+   fi
    ```
 3. Detect an orphaned worktree — a worktree on that branch left behind by a crashed teammate:
    ```bash
