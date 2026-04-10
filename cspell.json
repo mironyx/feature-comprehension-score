@@ -1,0 +1,23 @@
+{
+  "version": "0.2",
+  "language": "en-GB",
+  "words": [
+    "artefact",
+    "artefacts",
+    "authorise",
+    "authorised",
+    "authorising",
+    "organisation",
+    "organisations",
+    "mironyx",
+    "PRCC",
+    "Supabase",
+    "supabase"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    ".next",
+    "supabase/migrations",
+    ".diagnostics"
+  ]
+}
