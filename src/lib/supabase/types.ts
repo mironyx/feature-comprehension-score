@@ -610,6 +610,10 @@ export interface Database {
         };
         Returns: string;
       };
+      handle_installation_deleted: {
+        Args: { p_installation_id: number };
+        Returns: void;
+      };
       handle_repositories_added: {
         Args: { p_installation_id: number; p_repos: Json };
         Returns: void;

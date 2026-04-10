@@ -3,8 +3,9 @@
 **Parent epic:** #176 — Onboarding & Auth — installation-token org membership
 **Plan:** [docs/plans/2026-04-07-onboarding-auth-epic.md](../plans/2026-04-07-onboarding-auth-epic.md) Task 5
 **Related:** [req-onboarding-and-auth.md](../requirements/req-onboarding-and-auth.md) §O.4, ADR-0001, [installation-handlers.ts](../../src/lib/github/installation-handlers.ts) (existing)
-**Status:** Draft
+**Status:** Revised
 **Date:** 2026-04-07
+**Revised:** 2026-04-10 — Issue #180 (partial; AC2 deferred to follow-up pending #179)
 
 ## 1. Purpose
 
@@ -35,9 +36,12 @@ Requirement O.4 is the contract. ADR-0001 establishes the App; ADR-0008 establis
 | File | Action |
 |---|---|
 | `src/lib/github/installation-handlers.ts` | Extend `handleWebhookEvent` dispatch; add `handleInstallationSuspend`/`Unsuspend`; extend `handleInstallationCreated` to store `sender.id`; extend `handleInstallationDeleted` to call the new RPC. |
-| `src/lib/github/installation-handlers.test.ts` | New or extended; one `describe` block per handler. |
+| `tests/lib/github/installation-handlers.test.ts` | New or extended; one `describe` block per handler. |
+| `src/lib/supabase/types.ts` | Add `handle_installation_deleted` RPC type definition. |
 | `supabase/schemas/functions.sql` | Add `handle_installation_deleted` RPC; optionally extend `handle_installation_created` to accept `p_installer_github_user_id` (or add a second RPC `set_org_installer`). **Chosen:** extend `handle_installation_created` to take the new parameter. |
 | `supabase/migrations/<ts>_install_lifecycle_rpcs.sql` | Generated migration. |
+
+> **Implementation note (issue #180):** Test file lives at `tests/lib/github/` not `src/lib/github/` — consistent with the project-wide convention of keeping tests outside `src/`. `src/lib/supabase/types.ts` was not listed in the original spec but required a type addition for the new `handle_installation_deleted` RPC.
 
 ### 3.3 Payload types
 
@@ -48,7 +52,7 @@ export interface InstallationCreatedPayload {
   action: 'created';
   installation: { id: number; account: GithubAccount; app_id: number };
   repositories?: GithubRepo[];
-  sender: { id: number; login: string };  // NEW — required
+  sender: { id: number; login: string };  // NEW — required (deferred → follow-up pending #179)
 }
 
 export interface InstallationDeletedPayload {
@@ -113,7 +117,7 @@ Unchanged. `src/app/api/webhooks/github/route.ts` verifies HMAC-SHA256 via `veri
 describe('handleInstallationCreated', () => {
   it('upserts an organisation row with status=active');
   it('inserts initial repositories for the installation');
-  it('stores sender.id into organisations.installer_github_user_id');
+  it('stores sender.id into organisations.installer_github_user_id'); // _(deferred → follow-up pending #179)_
   it('is idempotent when replayed');
   it('handles personal-account installs (account.type === "User")');
 });
@@ -146,16 +150,16 @@ describe('handleWebhookEvent dispatch', () => {
 
 ## 8. Acceptance criteria
 
-- [ ] All six event types (`installation.{created,deleted,suspend,unsuspend}`, `installation_repositories.{added,removed}`) are handled.
-- [ ] `organisations.installer_github_user_id` is populated from `sender.id` on `installation.created`.
-- [ ] `installation.deleted` deletes `user_organisations` for the affected org.
-- [ ] Replaying any event is a no-op (verified by tests calling the handler twice with the same payload).
-- [ ] Signature verification in the route handler is unchanged.
-- [ ] Assessments that reference a removed repo remain readable (covered by an integration or query-level test).
-- [ ] Dispatch refactor covered by a regression test for the nested-if bug.
-- [ ] `npx tsc --noEmit` passes.
-- [ ] `npx vitest run src/lib/github/installation-handlers.test.ts` passes.
-- [ ] `npx supabase db diff` is clean after the new migration.
+- [x] All six event types (`installation.{created,deleted,suspend,unsuspend}`, `installation_repositories.{added,removed}`) are handled.
+- [ ] `organisations.installer_github_user_id` is populated from `sender.id` on `installation.created`. _(deferred → follow-up pending #179 merge)_
+- [x] `installation.deleted` deletes `user_organisations` for the affected org.
+- [x] Replaying any event is a no-op (verified by tests calling the handler twice with the same payload).
+- [x] Signature verification in the route handler is unchanged.
+- [ ] Assessments that reference a removed repo remain readable (covered by an integration or query-level test). _(not explicitly tested — query-level coverage deferred)_
+- [x] Dispatch refactor covered by a regression test for the nested-if bug.
+- [x] `npx tsc --noEmit` passes.
+- [x] `npx vitest run tests/lib/github/installation-handlers.test.ts` passes (491/491).
+- [x] `npx supabase db diff` is clean after the new migration.
 
 ## 9. Coordination with Task 3
 
