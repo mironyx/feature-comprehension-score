@@ -3,10 +3,6 @@
 -- Design reference: docs/design/lld-phase-2-web-auth-db.md §2.1 Declarative schema adoption
 -- Issue: #65
 
--- Supabase Vault is used for GitHub token encryption (issue #84).
--- vault.create_secret / vault.decrypted_secrets are accessible to the postgres role
--- on both cloud and local Supabase, unlike pgsodium crypto functions.
-
 -- get_user_org_ids: returns all org IDs the current user belongs to.
 -- SECURITY DEFINER avoids circular RLS dependency on user_organisations.
 CREATE OR REPLACE FUNCTION get_user_org_ids()
@@ -118,59 +114,6 @@ AS $$
   JOIN org_config oc ON oc.org_id = r.org_id
   LEFT JOIN repository_config rc ON rc.repository_id = r.id
   WHERE r.id = repo_id
-$$;
-
--- store_github_token: stores a GitHub OAuth provider token in Supabase Vault
--- and upserts the returned secret UUID into user_github_tokens.
--- Called by the auth callback route handler via the service role client.
--- Uses vault.create_secret / vault.update_secret — both accessible to postgres on cloud.
-CREATE OR REPLACE FUNCTION store_github_token(p_user_id uuid, p_token text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_existing_secret_id uuid;
-BEGIN
-  SELECT token_secret_id INTO v_existing_secret_id
-  FROM user_github_tokens
-  WHERE user_id = p_user_id;
-
-  IF v_existing_secret_id IS NOT NULL THEN
-    -- Rotate the secret in-place; the UUID in user_github_tokens stays stable.
-    PERFORM vault.update_secret(v_existing_secret_id, p_token);
-    UPDATE user_github_tokens
-    SET updated_at = now()
-    WHERE user_id = p_user_id;
-  ELSE
-    INSERT INTO user_github_tokens (user_id, token_secret_id)
-    VALUES (
-      p_user_id,
-      vault.create_secret(
-        p_token,
-        'github_token_' || p_user_id::text,
-        'GitHub OAuth token for user ' || p_user_id::text
-      )
-    );
-  END IF;
-END;
-$$;
-
--- get_github_token: retrieves and decrypts the stored GitHub OAuth token for a user.
--- Reads from vault.decrypted_secrets via the secret UUID stored in user_github_tokens.
--- Returns NULL if no token has been stored for the user.
-CREATE OR REPLACE FUNCTION get_github_token(p_user_id uuid)
-RETURNS text
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-SET search_path = public
-AS $$
-  SELECT s.decrypted_secret
-  FROM user_github_tokens t
-  JOIN vault.decrypted_secrets s ON s.id = t.token_secret_id
-  WHERE t.user_id = p_user_id
 $$;
 
 -- ---------------------------------------------------------------------------

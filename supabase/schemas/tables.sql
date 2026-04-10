@@ -6,14 +6,14 @@
 
 -- organisations: tenant registry. One row per GitHub App installation (Story 1.1).
 CREATE TABLE organisations (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  github_org_id   bigint UNIQUE NOT NULL,
-  github_org_name text NOT NULL,
-  installation_id bigint UNIQUE NOT NULL,
-  status          text NOT NULL DEFAULT 'active'
-                    CHECK (status IN ('active', 'inactive')),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
+  id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  github_org_id              bigint UNIQUE NOT NULL,
+  github_org_name            text NOT NULL,
+  installation_id            bigint UNIQUE NOT NULL,
+  status                     text NOT NULL DEFAULT 'active'
+                               CHECK (status IN ('active', 'inactive')),
+  created_at                 timestamptz NOT NULL DEFAULT now(),
+  updated_at                 timestamptz NOT NULL DEFAULT now()
 );
 
 -- org_config: organisation-level default settings (Story 1.4).
@@ -97,19 +97,6 @@ CREATE TABLE user_organisations (
 
 CREATE INDEX idx_user_orgs_user ON user_organisations (user_id);
 CREATE INDEX idx_user_orgs_org ON user_organisations (org_id);
-
--- user_github_tokens: GitHub OAuth provider tokens stored in Supabase Vault (ADR-0003).
--- Captured once at /auth/callback. Encrypted via Vault (vault.create_secret).
--- token_secret_id references the UUID returned by vault.create_secret.
--- Migrated from pgsodium in issue #84 (permission denied on cloud).
-CREATE TABLE user_github_tokens (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         uuid NOT NULL UNIQUE
-                     REFERENCES auth.users(id) ON DELETE CASCADE,
-  token_secret_id uuid NOT NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
 
 -- assessments: one row per PRCC or FCS assessment.
 -- Stores type, lifecycle state, results, and a config snapshot at creation time (Story 1.3).

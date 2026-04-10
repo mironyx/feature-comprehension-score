@@ -69,7 +69,6 @@ describe('Supabase local environment', () => {
       'repositories',
       'repository_config',
       'user_organisations',
-      'user_github_tokens',
     ] as const;
 
     for (const table of tables) {

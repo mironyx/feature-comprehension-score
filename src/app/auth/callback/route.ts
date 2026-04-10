@@ -1,46 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
-import { syncOrgMembership } from '@/lib/supabase/org-sync';
+import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
+import { emitSigninEvent } from '@/lib/observability/signin-events';
 import { logger } from '@/lib/logger';
+
+function redirectSignIn(origin: string, error: string): NextResponse {
+  return NextResponse.redirect(`${origin}/auth/sign-in?error=${error}`);
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-
-  if (!code) {
-    return NextResponse.redirect(`${origin}/auth/sign-in?error=missing_code`);
-  }
+  if (!code) return redirectSignIn(origin, 'missing_code');
 
   const response = NextResponse.redirect(`${origin}/assessments`);
   const supabase = createRouteHandlerSupabaseClient(request, response);
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error || !data.session) return redirectSignIn(origin, 'auth_failed');
 
-  if (error || !data.session) {
-    return NextResponse.redirect(`${origin}/auth/sign-in?error=auth_failed`);
+  const { user } = data.session;
+  const githubUserId = Number(user.user_metadata['provider_id']);
+  const githubLogin = String(user.user_metadata['user_name'] ?? '');
+  if (!Number.isFinite(githubUserId) || githubUserId === 0 || !githubLogin) {
+    return redirectSignIn(origin, 'auth_failed');
   }
 
-  const { user, provider_token } = data.session;
-
-  if (provider_token) {
+  try {
     const secretClient = createSecretSupabaseClient();
-    const { error: rpcError } = await secretClient.rpc('store_github_token', {
-      p_user_id: user.id,
-      p_token: provider_token,
+    const matched = await resolveUserOrgsViaApp(
+      secretClient,
+      { userId: user.id, githubUserId, githubLogin },
+      {},
+    );
+    emitSigninEvent(matched.length > 0 ? 'success' : 'no_access', {
+      user_id: user.id,
+      github_user_id: githubUserId,
+      matched_org_count: matched.length,
     });
-    if (rpcError) {
-      logger.error({ err: rpcError }, 'Failed to store provider token');
-      await supabase.auth.signOut();
-      return NextResponse.redirect(`${origin}/auth/sign-in?error=token_storage_failed`);
-    }
-
-    // Sync org memberships — step 5 deferred from §2.2, now implemented in §2.3.
-    // syncOrgMembership is no-throw: all GitHub/DB errors are handled internally.
-    await syncOrgMembership(secretClient, user.id, provider_token);
-  } else {
-    logger.warn({ userId: user.id }, 'No provider_token in session');
+    return response;
+  } catch (err) {
+    logger.error({ err, userId: user.id }, 'resolveUserOrgsViaApp failed');
+    emitSigninEvent('error', {
+      user_id: user.id,
+      github_user_id: githubUserId,
+      matched_org_count: 0,
+    });
+    return redirectSignIn(origin, 'auth_failed');
   }
-
-  return response;
 }

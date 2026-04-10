@@ -235,30 +235,6 @@ export interface Database {
         };
         Relationships: [];
       };
-      user_github_tokens: {
-        Row: {
-          id: string;
-          user_id: string;
-          token_secret_id: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          token_secret_id: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          token_secret_id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
       assessments: {
         Row: {
           id: string;
@@ -592,14 +568,6 @@ export interface Database {
           exempt_file_patterns: string[];
           context_file_patterns: string[];
         }[];
-      };
-      store_github_token: {
-        Args: { p_user_id: string; p_token: string };
-        Returns: void;
-      };
-      get_github_token: {
-        Args: { p_user_id: string };
-        Returns: string | null;
       };
       handle_installation_created: {
         Args: {

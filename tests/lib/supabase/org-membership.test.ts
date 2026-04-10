@@ -159,8 +159,6 @@ describe('resolveUserOrgsViaApp', () => {
       getInstallationToken: async () => 'ghs_test',
     });
 
-    // Every delete call must be scoped to INPUT.userId — this test proves the
-    // service never issues an unfiltered delete that could affect other users.
     for (const call of deleteSpy.mock.results) {
       const chain = call.value as { eq: ReturnType<typeof vi.fn> };
       for (const eqCall of chain.eq.mock.calls) {
@@ -170,3 +168,4 @@ describe('resolveUserOrgsViaApp', () => {
     }
   });
 });
+

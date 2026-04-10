@@ -48,18 +48,6 @@ ALTER TABLE user_organisations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY user_orgs_select_own ON user_organisations
   FOR SELECT USING (user_id = auth.uid());
 
--- user_github_tokens: users can only access their own token record.
-ALTER TABLE user_github_tokens ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY tokens_select_own ON user_github_tokens
-  FOR SELECT USING (user_id = auth.uid());
-
-CREATE POLICY tokens_insert_own ON user_github_tokens
-  FOR INSERT WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY tokens_update_own ON user_github_tokens
-  FOR UPDATE USING (user_id = auth.uid());
-
 -- assessments: org admins see all; participants see only their own assessments.
 -- UPDATE restricted to org admins (skip and close operations).
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;

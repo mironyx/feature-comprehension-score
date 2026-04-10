@@ -67,6 +67,7 @@ export function buildMockClient(opts: MockClientOptions) {
     eq: vi.fn().mockResolvedValue({ data: opts.finalUserOrgs, error: null }),
   };
 
+  // Main org query chain: .select(...).eq('status', 'active')
   const orgsSelectChain = {
     eq: vi.fn().mockResolvedValue({
       data: opts.orgQueryError ? null : opts.installedOrgs,
