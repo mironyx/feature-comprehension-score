@@ -3,12 +3,15 @@
 **Parent epic:** #176 — Onboarding & Auth — installation-token org membership
 **Plan:** [docs/plans/2026-04-07-onboarding-auth-epic.md](../plans/2026-04-07-onboarding-auth-epic.md) Task 3
 **Related:** ADR-0020 §Decision points 3 & 4, [lld-onboarding-auth-resolver.md](lld-onboarding-auth-resolver.md) (prerequisite)
-**Status:** Draft
+**Status:** Revised
 **Date:** 2026-04-07
+**Revised:** 2026-04-10 | Issue #179
 
 ## 1. Purpose
 
-Atomic cutover from OAuth-provider-token org membership to installation-token org membership. Wires `resolveUserOrgsViaApp` into `/auth/callback`, deletes `org-sync.ts`, drops the `user_github_tokens` table and associated RPCs + Vault key, drops `read:org`/`repo` OAuth scopes, and implements the first-install-race mitigation.
+Atomic cutover from OAuth-provider-token org membership to installation-token org membership. Wires `resolveUserOrgsViaApp` into `/auth/callback`, deletes `org-sync.ts`, drops the `user_github_tokens` table and associated RPCs + Vault key, and drops `read:org`/`repo` OAuth scopes.
+
+> **Implementation note (issue #179):** The first-install-race mitigation (§6) was designed but deliberately removed during implementation — the installer can simply refresh the page if they hit the race. KISS over speculative engineering.
 
 **No feature flag, no dual-write.** Nothing in this epic has shipped to production yet, so cutover is a single PR. The PR is expected to slightly exceed the 200-line budget (~220); the plan and this LLD explicitly accept the overrun because there is no clean seam once dual-write is off the table.
 
@@ -67,7 +70,7 @@ Post-generation verification:
 **Modify:**
 
 - `src/app/auth/callback/route.ts` — see §4.
-- `src/lib/github/client.ts` — this file currently calls `get_github_token`. Since the RPC is being dropped, this file must either be deleted (if unused) or refactored to use the installation token. **Investigation required at implementation time**: grep every caller of `createGithubClient`. If the only callers are assessment flows (which per ADR-0001 should use the installation token), refactor them to use `getInstallationToken` from the Task 2 helper. **If a caller genuinely needs the user's OAuth token for something other than org lookup**, the cutover is blocked — flag it and escalate. ADR-0020 §"What the user OAuth provider token is actually used for today" claims there are no such callers; this must be verified.
+- `src/lib/github/client.ts` — _(deferred)_ This file currently calls `get_github_token`. The audit confirmed no callers block the cutover, but the file itself was not deleted or refactored in this task. To be addressed in a follow-up cleanup issue.
 
 ### 3.3 Frontend
 
@@ -93,7 +96,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const { user } = data.session;
   const githubUserId = Number(user.user_metadata['provider_id']);
-  const githubLogin = String(user.user_metadata['user_name']);
+  const githubLogin = String(user.user_metadata['user_name'] ?? '');
+  if (!Number.isFinite(githubUserId) || githubUserId === 0 || !githubLogin) {
+    return redirectSignIn(origin, 'auth_failed');
+  }
 
   try {
     const secretClient = createSecretSupabaseClient();
@@ -101,16 +107,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userId: user.id,
       githubUserId,
       githubLogin,
-    });
+    }, {});
     emitSigninEvent(matched.length > 0 ? 'success' : 'no_access', {
-      userId: user.id,
-      githubUserId,
-      matchedOrgCount: matched.length,
+      user_id: user.id,
+      github_user_id: githubUserId,
+      matched_org_count: matched.length,
     });
     return response;
   } catch (err) {
     logger.error({ err, userId: user.id }, 'resolveUserOrgsViaApp failed');
-    emitSigninEvent('error', { userId: user.id, githubUserId, matchedOrgCount: 0 });
+    emitSigninEvent('error', { user_id: user.id, github_user_id: githubUserId, matched_org_count: 0 });
     return redirectSignIn(origin, 'auth_failed');
   }
 }
@@ -147,25 +153,13 @@ scopes: 'read:user',
 
 **Existing sessions** remain valid — Supabase does not re-run OAuth until the session expires. That is acceptable; no orphan state.
 
-## 6. First-install-and-sign-in race mitigation
+## 6. First-install-and-sign-in race mitigation _(descoped)_
 
-**Scenario:** admin installs the App, GitHub sends `installation.created`, then the admin clicks "Sign in" before the webhook is processed. `organisations` has no row yet; resolver returns `[]`; admin lands on the non-member empty state despite being the legitimate installer.
+> **Implementation note (issue #179):** This entire section was designed, implemented, and then deliberately removed. The installer rarely signs in immediately after installing the app. The 5-minute-window fallback, `installer_github_user_id` column, and all supporting code added unnecessary complexity for an edge case that can be handled by a simple page refresh. KISS principle applied.
 
-**Mitigation (per ADR-0020 Open Questions):** on install webhook, store the `sender.id` (the installer's GitHub user id) on the `organisations` row. On sign-in, if `resolveUserOrgsViaApp` returns `[]`, look up any `organisations` row where `installer_github_user_id = githubUserId` **created in the last 5 minutes** and has no `user_organisations` rows yet; if found, insert the installer as `admin` of that org.
+~~**Scenario:** admin installs the App, GitHub sends `installation.created`, then the admin clicks "Sign in" before the webhook is processed.~~
 
-**Schema impact:**
-
-- Add column `organisations.installer_github_user_id bigint NULL` (nullable — historical rows have no installer recorded).
-- Included in the same migration as the `user_github_tokens` drop.
-
-**Webhook handler update (in Task 5's scope, coordination note here):** `handleInstallationCreated` stores `sender.id` into the new column. Since Task 5 is parallelisable, this LLD specifies the column and Task 3 adds it to the schema; Task 5's LLD must pick up the write. If Task 5 lands first, it cannot write to the column until this task's migration is in. Order requirement: **this task's migration merges before Task 5**.
-
-**Race-window mitigation code** lives in the resolver (Task 2) — but Task 2 predates the column's existence. Options:
-
-- **Option A (chosen):** resolver accepts an optional `opts.firstInstallFallback: boolean` (default false). Task 3 flips it to `true` at the call site and adds a narrow helper `findFirstInstallAsInstaller(serviceClient, githubUserId)` colocated in the resolver file. The helper is added as a minor extension in Task 3, not back-ported to Task 2.
-- **Option B (rejected):** put the fallback in the callback. Rejected because it couples the callback to schema details.
-
-Tests added in Task 3 (integration-ish) cover: (a) installer signs in 1s after install → lands on `/assessments`, (b) stranger signs in with the same scenario → lands on `/org-select` empty state.
+**If this race becomes a real user complaint in production**, the mitigation can be re-added: point the GitHub App setup URL to a dedicated `/app/installed` page instead of `/auth/callback`, decoupling installation from sign-in entirely.
 
 ## 7. BDD specs
 
@@ -184,10 +178,7 @@ describe('SignInButton', () => {
   it('requests only the read:user scope');
 });
 
-describe('first-install race', () => {
-  it('treats the installer as admin when signing in within 5 minutes of installation.created');
-  it('does not treat an arbitrary user as admin in the same window');
-});
+// first-install race tests — descoped (see §6)
 ```
 
 ## 8. Acceptance criteria
@@ -201,8 +192,8 @@ describe('first-install race', () => {
 - [ ] OAuth scope string is exactly `'read:user'`.
 - [ ] Migration applies cleanly: `npx supabase db reset` succeeds.
 - [ ] `npx supabase db diff` after reset prints "No schema changes found".
-- [ ] `organisations.installer_github_user_id` column exists and is `bigint NULL`.
-- [ ] First-install-race BDD specs pass.
+- [ ] ~~`organisations.installer_github_user_id` column exists~~ _(descoped — §6)_
+- [ ] ~~First-install-race BDD specs pass~~ _(descoped — §6)_
 - [ ] `npx vitest run` passes.
 - [ ] `npx tsc --noEmit` passes.
 - [ ] E2E happy path (placeholder env acceptable): install → sign in → `/assessments`. If E2E cannot run without a real GitHub App, document the manual verification steps in the PR body.
