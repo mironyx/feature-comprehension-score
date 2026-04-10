@@ -251,7 +251,7 @@ Then chain all cleanup in a **single Bash call**:
 # If in a worktree: cd to main repo first, then clean up worktree + branch
 # If in main repo: standard cleanup (git branch -d works directly)
 
-cd "$MAIN_REPO" && git pull \
+cd "$MAIN_REPO" && git pull --rebase \
   && { [ "$IS_WORKTREE" = "yes" ] && git worktree remove "$WORKTREE_PATH" --force 2>&1 || true; } \
   && { git branch -d <feature-branch> 2>&1 || true; } \
   && { bash scripts/gh-project-status.sh <issue-number> done 2>&1 || true; } \
