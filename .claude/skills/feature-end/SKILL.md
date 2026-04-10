@@ -267,6 +267,41 @@ The `|| true` inside `{ }` groups ensures:
 
 **Do not run separate Bash calls** for branch delete, board update, and issue close — they must be one call.
 
+### Step 6.5: Tick the parent epic checklist
+
+If the closed issue has a parent epic, tick its checkbox in the epic body.
+
+1. Read the issue body to find the parent epic number:
+   ```bash
+   EPIC=$(gh issue view <issue-number> --json body --jq '.body' | python3 -c "
+   import sys, re
+   m = re.search(r'## Parent epic\s*\n+#(\d+)', sys.stdin.read())
+   print(m.group(1) if m else '')
+   ")
+   ```
+
+2. If `EPIC` is non-empty, read the epic body and tick the checkbox for this issue:
+   ```bash
+   if [ -n "$EPIC" ]; then
+     EPIC_BODY=$(gh issue view "$EPIC" --json body --jq '.body')
+     UPDATED=$(echo "$EPIC_BODY" | python3 -c "
+   import sys, re
+   issue = '<issue-number>'
+   body = sys.stdin.read()
+   body = re.sub(
+       r'- \[ \] (#' + issue + r'\b)',
+       r'- [x] \1',
+       body
+   )
+   print(body, end='')
+   ")
+     gh api "repos/{owner}/{repo}/issues/$EPIC" --method PATCH -f body="$UPDATED" > /dev/null \
+       && echo "Epic #$EPIC: checked off #<issue-number>"
+   fi
+   ```
+
+3. If no `## Parent epic` section exists (chore or standalone task), skip silently.
+
 ### Step 7: Report
 
 Summarise what was done:
