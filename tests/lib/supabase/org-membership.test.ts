@@ -159,8 +159,6 @@ describe('resolveUserOrgsViaApp', () => {
       getInstallationToken: async () => 'ghs_test',
     });
 
-    // Every delete call must be scoped to INPUT.userId — this test proves the
-    // service never issues an unfiltered delete that could affect other users.
     for (const call of deleteSpy.mock.results) {
       const chain = call.value as { eq: ReturnType<typeof vi.fn> };
       for (const eqCall of chain.eq.mock.calls) {
@@ -168,5 +166,55 @@ describe('resolveUserOrgsViaApp', () => {
         expect(eqCall[1]).toBe(INPUT.userId);
       }
     }
+  });
+});
+
+describe('first-install race', () => {
+  it('treats the installer as admin when signing in within 5 minutes of installation.created', async () => {
+    const installerOrg = makeOrg({
+      id: 'org-new',
+      installer_github_user_id: INPUT.githubUserId,
+    });
+    const { client, upsertSpy } = buildMockClient({
+      installedOrgs: [],
+      finalUserOrgs: [makeUserOrg({ org_id: 'org-new', github_role: 'admin' })],
+      installerOrgs: [installerOrg],
+      userOrgCount: 0,
+    });
+    const fetchImpl = vi.fn();
+
+    const result = await resolveUserOrgsViaApp(
+      client,
+      INPUT,
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getInstallationToken: async () => 'ghs_test' },
+      { firstInstallFallback: true },
+    );
+
+    expect(result).toHaveLength(1);
+    expect(upsertSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ org_id: 'org-new', github_role: 'admin' }),
+      ]),
+      expect.anything(),
+    );
+  });
+
+  it('does not treat an arbitrary user as admin in the same window', async () => {
+    const { client } = buildMockClient({
+      installedOrgs: [],
+      finalUserOrgs: [],
+      installerOrgs: [],
+      userOrgCount: 0,
+    });
+    const fetchImpl = vi.fn();
+
+    const result = await resolveUserOrgsViaApp(
+      client,
+      INPUT,
+      { fetchImpl: fetchImpl as unknown as typeof fetch, getInstallationToken: async () => 'ghs_test' },
+      { firstInstallFallback: true },
+    );
+
+    expect(result).toHaveLength(0);
   });
 });

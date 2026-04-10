@@ -23,6 +23,7 @@ export function makeOrg(overrides: Partial<OrgRow> = {}): OrgRow {
     github_org_id: 1001,
     github_org_name: 'acme',
     installation_id: 9001,
+    installer_github_user_id: null,
     status: 'active',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -50,6 +51,8 @@ export interface MockClientOptions {
   orgQueryError?: { message: string };
   upsertError?: { message: string };
   deleteError?: { message: string };
+  installerOrgs?: OrgRow[];
+  userOrgCount?: number;
 }
 
 export function buildMockClient(opts: MockClientOptions) {
@@ -67,6 +70,7 @@ export function buildMockClient(opts: MockClientOptions) {
     eq: vi.fn().mockResolvedValue({ data: opts.finalUserOrgs, error: null }),
   };
 
+  // Main org query chain: .select(...).eq('status', 'active')
   const orgsSelectChain = {
     eq: vi.fn().mockResolvedValue({
       data: opts.orgQueryError ? null : opts.installedOrgs,
@@ -74,15 +78,53 @@ export function buildMockClient(opts: MockClientOptions) {
     }),
   };
 
+  // First-install-race fallback chain: .eq(...).gte(...).eq(...)
+  const installerChain = {
+    eq: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockReturnThis(),
+  };
+  // Final .eq('status', 'active') in the chain resolves the promise
+  let installerCallCount = 0;
+  installerChain.eq.mockImplementation(() => {
+    installerCallCount++;
+    // The 2nd .eq() call is the terminal one (.eq('status', 'active'))
+    if (installerCallCount >= 2) {
+      return Promise.resolve({
+        data: opts.installerOrgs ?? [],
+        error: null,
+      });
+    }
+    return installerChain;
+  });
+
+  // Count query for user_organisations: .select('*', { count, head }).eq('org_id', ...)
+  const countChain = {
+    eq: vi.fn().mockResolvedValue({
+      count: opts.userOrgCount ?? 0,
+      data: null,
+      error: null,
+    }),
+  };
+
+  let orgSelectCallCount = 0;
   const fromSpy = vi.fn((table: string) => {
     if (table === 'organisations') {
-      return { select: vi.fn().mockReturnValue(orgsSelectChain) };
+      orgSelectCallCount++;
+      // First call: matchOrgsForUser; subsequent: findFirstInstallAsInstaller
+      if (orgSelectCallCount === 1) {
+        return { select: vi.fn().mockReturnValue(orgsSelectChain) };
+      }
+      return { select: vi.fn().mockReturnValue(installerChain) };
     }
     if (table === 'user_organisations') {
       return {
         upsert: upsertSpy,
         delete: deleteSpy,
-        select: vi.fn().mockReturnValue(selectFinal),
+        select: vi.fn((...args: unknown[]) => {
+          const firstArg = args[1] as Record<string, unknown> | undefined;
+          if (firstArg && 'head' in firstArg) return countChain;
+          return selectFinal;
+        }),
       };
     }
     throw new Error(`Unexpected table: ${table}`);

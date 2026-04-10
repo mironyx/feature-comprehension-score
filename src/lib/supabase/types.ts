@@ -16,6 +16,7 @@ export interface Database {
           github_org_id: number;
           github_org_name: string;
           installation_id: number;
+          installer_github_user_id: number | null;
           status: 'active' | 'inactive';
           created_at: string;
           updated_at: string;
@@ -25,6 +26,7 @@ export interface Database {
           github_org_id: number;
           github_org_name: string;
           installation_id: number;
+          installer_github_user_id?: number | null;
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;
@@ -34,6 +36,7 @@ export interface Database {
           github_org_id?: number;
           github_org_name?: string;
           installation_id?: number;
+          installer_github_user_id?: number | null;
           status?: 'active' | 'inactive';
           created_at?: string;
           updated_at?: string;
@@ -230,30 +233,6 @@ export interface Database {
           github_user_id?: number;
           github_username?: string;
           github_role?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
-      };
-      user_github_tokens: {
-        Row: {
-          id: string;
-          user_id: string;
-          token_secret_id: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          token_secret_id: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          token_secret_id?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -592,14 +571,6 @@ export interface Database {
           exempt_file_patterns: string[];
           context_file_patterns: string[];
         }[];
-      };
-      store_github_token: {
-        Args: { p_user_id: string; p_token: string };
-        Returns: void;
-      };
-      get_github_token: {
-        Args: { p_user_id: string };
-        Returns: string | null;
       };
       handle_installation_created: {
         Args: {

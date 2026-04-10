@@ -1,6 +1,8 @@
+// Unit tests for /auth/callback route — sign-in cutover.
+// Design reference: docs/design/lld-onboarding-auth-cutover.md §7
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock Supabase clients
 vi.mock('@/lib/supabase/route-handler', () => ({
   createRouteHandlerSupabaseClient: vi.fn(),
 }));
@@ -9,123 +11,155 @@ vi.mock('@/lib/supabase/secret', () => ({
   createSecretSupabaseClient: vi.fn(),
 }));
 
-// syncOrgMembership is tested separately in org-sync.test.ts; stub it here.
-vi.mock('@/lib/supabase/org-sync', () => ({
-  syncOrgMembership: vi.fn().mockResolvedValue([]),
+vi.mock('@/lib/supabase/org-membership', () => ({
+  resolveUserOrgsViaApp: vi.fn(),
+}));
+
+vi.mock('@/lib/observability/signin-events', () => ({
+  emitSigninEvent: vi.fn(),
+}));
+
+vi.mock('@/lib/logger', () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/route-handler';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
+import { emitSigninEvent } from '@/lib/observability/signin-events';
 
 const mockCreateRouteHandler = vi.mocked(createRouteHandlerSupabaseClient);
 const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
+const mockResolve = vi.mocked(resolveUserOrgsViaApp);
+const mockEmit = vi.mocked(emitSigninEvent);
 
-describe('Auth callback route', () => {
+const TEST_USER = {
+  id: 'user-123',
+  user_metadata: { provider_id: '42', user_name: 'alice' },
+};
+
+function mockSession(user = TEST_USER) {
+  return { data: { session: { user } }, error: null };
+}
+
+describe('/auth/callback', () => {
   const mockExchangeCode = vi.fn();
-  const mockRpc = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-
     mockCreateRouteHandler.mockReturnValue({
       auth: { exchangeCodeForSession: mockExchangeCode },
     } as never);
-
-    mockCreateSecret.mockReturnValue({
-      rpc: mockRpc,
-    } as never);
+    mockCreateSecret.mockReturnValue({} as never);
   });
 
-  describe('Given a valid OAuth callback with auth code', () => {
-    it('then it exchanges for session and redirects to /assessments', async () => {
-      mockExchangeCode.mockResolvedValue({
-        data: {
-          session: {
-            user: { id: 'user-123' },
-            provider_token: 'gh-token-xyz',
-          },
-        },
-        error: null,
-      });
-      mockRpc.mockResolvedValue({ error: null });
+  it('redirects to /assessments on successful sign-in with matching orgs', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockResolvedValue([{ org_id: 'org-1' }] as never);
 
-      const { NextRequest } = await import('next/server');
-      const request = new NextRequest(
-        'http://localhost/auth/callback?code=valid-code',
-      );
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
 
-      const { GET } = await import('@/app/auth/callback/route');
-      const response = await GET(request);
-
-      expect(response.status).toBe(307);
-      expect(response.headers.get('location')).toContain('/assessments');
-      expect(mockExchangeCode).toHaveBeenCalledWith('valid-code');
-    });
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/assessments');
+    expect(mockResolve).toHaveBeenCalledWith(
+      expect.anything(),
+      { userId: 'user-123', githubUserId: 42, githubLogin: 'alice' },
+      {},
+      { firstInstallFallback: true },
+    );
+    expect(mockEmit).toHaveBeenCalledWith('success', expect.objectContaining({
+      user_id: 'user-123',
+      matched_org_count: 1,
+    }));
   });
 
-  describe('Given a provider token in the session', () => {
-    it('then it encrypts and stores the token in user_github_tokens', async () => {
-      mockExchangeCode.mockResolvedValue({
-        data: {
-          session: {
-            user: { id: 'user-123' },
-            provider_token: 'gh-token-xyz',
-          },
-        },
-        error: null,
-      });
-      mockRpc.mockResolvedValue({ error: null });
+  it('redirects to /assessments with no_access event when user has no matching orgs', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockResolvedValue([]);
 
-      const { NextRequest } = await import('next/server');
-      const request = new NextRequest(
-        'http://localhost/auth/callback?code=valid-code',
-      );
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
 
-      const { GET } = await import('@/app/auth/callback/route');
-      await GET(request);
-
-      expect(mockRpc).toHaveBeenCalledWith('store_github_token', {
-        p_user_id: 'user-123',
-        p_token: 'gh-token-xyz',
-      });
-    });
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/assessments');
+    expect(mockEmit).toHaveBeenCalledWith('no_access', expect.objectContaining({
+      matched_org_count: 0,
+    }));
   });
 
-  describe('Given a code exchange failure', () => {
-    it('then it redirects to /auth/sign-in with error', async () => {
-      mockExchangeCode.mockResolvedValue({
-        data: { session: null },
-        error: { message: 'invalid grant' },
-      });
+  it('redirects to /auth/sign-in?error=missing_code when no code is present', async () => {
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
 
-      const { NextRequest } = await import('next/server');
-      const request = new NextRequest(
-        'http://localhost/auth/callback?code=bad-code',
-      );
-
-      const { GET } = await import('@/app/auth/callback/route');
-      const response = await GET(request);
-
-      expect(response.status).toBe(307);
-      expect(response.headers.get('location')).toContain(
-        '/auth/sign-in?error=auth_failed',
-      );
-    });
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/auth/sign-in?error=missing_code');
   });
 
-  describe('Given a missing auth code', () => {
-    it('then it redirects to /auth/sign-in with error', async () => {
-      const { NextRequest } = await import('next/server');
-      const request = new NextRequest('http://localhost/auth/callback');
-
-      const { GET } = await import('@/app/auth/callback/route');
-      const response = await GET(request);
-
-      expect(response.status).toBe(307);
-      expect(response.headers.get('location')).toContain(
-        '/auth/sign-in?error=missing_code',
-      );
-      expect(mockExchangeCode).not.toHaveBeenCalled();
+  it('redirects to /auth/sign-in?error=auth_failed when exchangeCodeForSession fails', async () => {
+    mockExchangeCode.mockResolvedValue({
+      data: { session: null },
+      error: { message: 'invalid grant' },
     });
+
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=bad');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/auth/sign-in?error=auth_failed');
+  });
+
+  it('redirects to /auth/sign-in?error=auth_failed when resolveUserOrgsViaApp throws', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockRejectedValue(new Error('GitHub API down'));
+
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/auth/sign-in?error=auth_failed');
+    expect(mockEmit).toHaveBeenCalledWith('error', expect.objectContaining({
+      user_id: 'user-123',
+      matched_org_count: 0,
+    }));
+  });
+
+  it('does not read session.provider_token', async () => {
+    const userWithToken = { ...TEST_USER };
+    const session = { user: userWithToken, provider_token: 'should-be-ignored' };
+    mockExchangeCode.mockResolvedValue({ data: { session }, error: null });
+    mockResolve.mockResolvedValue([]);
+
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    await GET(request);
+
+    // resolveUserOrgsViaApp should NOT receive the provider_token
+    const callArgs = mockResolve.mock.calls[0];
+    expect(callArgs?.[1]).not.toHaveProperty('providerToken');
+  });
+
+  it('does not call syncOrgMembership or /user/orgs (both removed)', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockResolvedValue([]);
+
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    await GET(request);
+
+    // syncOrgMembership module should not exist at all
+    await expect(import('@/lib/supabase/org-sync')).rejects.toThrow();
   });
 });
