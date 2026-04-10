@@ -181,6 +181,8 @@ Closes #<number>
 - **Cost:** TBD
 - **Tokens:** TBD
 - **Time to PR:** TBD
+
+<!-- claude-session-id: TBD -->
 EOF
 )")
 
@@ -194,15 +196,30 @@ COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
 TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
 TIME_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Time to PR:')
 CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
+SESSION_ID=$(python3 -c "
+import re, pathlib, os, subprocess
+result = subprocess.run(['git', 'rev-parse', '--git-common-dir'], capture_output=True, text=True)
+root = pathlib.Path(result.stdout.strip()).parent.resolve()
+prom_dir = pathlib.Path(os.environ.get('FCS_FEATURE_PROM_DIR') or root / 'monitoring' / 'textfile_collector')
+prom = prom_dir / 'session_feature.prom'
+if prom.exists():
+    m = re.search(r'session_id=\"([^\"]+)\",feature_id=\"FCS-<issue-number>\"', prom.read_text())
+    print(m.group(1) if m else 'unknown')
+else:
+    print('unknown')
+")
+
 UPDATED_BODY=$(echo "$CURRENT_BODY" | .claude/hooks/run-python.sh -c "
 import sys
 cost_line = '''$COST_LINE'''
 token_line = '''$TOKEN_LINE'''
 time_line = '''$TIME_LINE'''
+session_id = '''$SESSION_ID'''
 body = sys.stdin.read()
 body = body.replace('- **Cost:** TBD', cost_line)
 body = body.replace('- **Tokens:** TBD', token_line)
 body = body.replace('- **Time to PR:** TBD', time_line)
+body = body.replace('<!-- claude-session-id: TBD -->', f'<!-- claude-session-id: {session_id} -->')
 print(body, end='')
 ")
 gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH -f body="$UPDATED_BODY" > /dev/null

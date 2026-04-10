@@ -12,7 +12,7 @@ Finalises a feature branch after the PR has been reviewed and approved. Handles 
 
 **Usage:**
 - `/feature-end` — detects the PR from the current branch (original behaviour)
-- `/feature-end <issue-number>` — looks up the PR for the given issue and checks out its branch (used by `/feature-team` lead when triggering remotely via message)
+- `/feature-end <issue-number>` — looks up the PR for the given issue. If an orphaned worktree exists (crashed teammate), switches into it and recovers. Otherwise checks out the branch (used by `/feature-team` lead when triggering remotely via message).
 
 ## Process
 
@@ -28,7 +28,35 @@ If an issue number argument was provided:
    gh pr list --search "closes #<issue-number>" --json number,title,baseRefName,state,url,headRefName --state open
    ```
    If no open PR is found, try `--state merged` in case it was already merged. If still none, stop and report.
-2. Check out the PR's head branch so subsequent git operations work correctly:
+2. Extract the head branch (`headRefName`) and read the session ID embedded in the PR body:
+   ```bash
+   OLD_SESSION_ID=$(gh pr view <pr-number> --json body --jq '.body' | python3 -c "
+   import sys, re
+   m = re.search(r'claude-session-id: ([a-f0-9-]+)', sys.stdin.read())
+   print(m.group(1) if m else '')
+   ")
+   ```
+3. Detect an orphaned worktree — a worktree on that branch left behind by a crashed teammate:
+   ```bash
+   MAIN_REPO=$(dirname "$(git rev-parse --git-common-dir)")
+   ORPHAN_WORKTREE=$(git worktree list | python3 -c "
+   import sys
+   lines = sys.stdin.read().strip().splitlines()
+   for line in lines:
+       parts = line.split()
+       if len(parts) >= 3 and parts[2] == '[<head-branch>]' and parts[0] != '$MAIN_REPO':
+           print(parts[0])
+           break
+   ")
+   ```
+4. **If an orphaned worktree is found (crash recovery mode):**
+   - Switch into it and register this recovery session under the same feature ID for cost aggregation:
+     ```bash
+     cd "$ORPHAN_WORKTREE"
+     .claude/hooks/run-python.sh scripts/tag-session.py <issue-number> --cont
+     ```
+   - Proceed with all remaining steps from inside the worktree. `IS_WORKTREE=yes` will be detected automatically in Step 5+6, which handles self-cleanup.
+5. **If no orphaned worktree is found** (normal mode — e.g. triggered by lead via SendMessage):
    ```bash
    gh pr checkout <pr-number>
    ```
@@ -41,7 +69,7 @@ If no argument was provided (original behaviour):
 In both cases:
 - Extract the **base branch**, **PR number**, and **URL**.
 - Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
-- Read the latest session log in `docs/sessions/` to understand what has been done this session.
+- Read the latest session log in `docs/sessions/` to understand what has been done this session. **Skip this in crash recovery mode** (`OLD_SESSION_ID` set) — the JSONL read in Step 2 provides the implementation history instead.
 
 ### Step 1.5: Sync the LLD — MANDATORY
 
@@ -63,6 +91,25 @@ session log.
      than estimates. The final session log filename should match the draft name minus `-draft`
      (e.g., `2026-03-26-session-3-draft.md` → `2026-03-26-session-3.md`).
    - If no draft exists, determine the filename as `YYYY-MM-DD-session-N-<slug>.md` where N increments from the latest log for today and `<slug>` is a short kebab-case label derived from the issue title (e.g. issue #130 "show rubric_generation status" → `rubric-generation-status`).
+
+1a. **Crash recovery only** — if `OLD_SESSION_ID` is set and non-empty, recover the original session's implementation history from its JSONL:
+   ```python
+   import json, pathlib, subprocess, os, re
+
+   result = subprocess.run(['git', 'rev-parse', '--git-common-dir'], capture_output=True, text=True)
+   root = pathlib.Path(result.stdout.strip()).parent.resolve()
+   path_str = str(root).lower().replace(":\\", "--").replace("\\", "-").replace("/", "-").replace(":", "")
+   jsonl_path = pathlib.Path.home() / '.claude' / 'projects' / path_str / f'{OLD_SESSION_ID}.jsonl'
+
+   if jsonl_path.exists():
+       events = [json.loads(l) for l in jsonl_path.read_text().splitlines() if l.strip()]
+       # Extract: file writes/edits (tool_use name in Write/Edit/MultiEdit),
+       # test run results (Bash with vitest/tsc/lint), assistant reasoning messages,
+       # and any tool_result content showing pass/fail outcomes.
+       # Use this as the primary source for "Work completed" and "Decisions made".
+   ```
+   Note in the session log: _"Session recovered from crashed teammate (original session: `<OLD_SESSION_ID>`)."_
+
 2. Write the session log capturing:
    - Work completed (reference issue number and PR)
    - Decisions made during the session
