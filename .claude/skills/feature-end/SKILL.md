@@ -85,6 +85,7 @@ If no argument was provided (original behaviour):
 In both cases:
 - Extract the **base branch**, **PR number**, and **URL**.
 - Find the associated issue number from the PR body (look for `Closes #N` or `#N` references).
+- **Check review status:** `gh pr view <number> --json reviewDecision --jq .reviewDecision`. If the result is `CHANGES_REQUESTED`, stop and report per the Blocker policy. (Empty/null or `APPROVED` are fine — repos without required reviews will return empty.)
 - Read the latest session log in `docs/sessions/` to understand what has been done this session. **Skip this in crash recovery mode** (`OLD_SESSION_ID` set) — the JSONL read in Step 2 provides the implementation history instead.
 
 ### Step 1.5: Sync the LLD — MANDATORY
@@ -251,17 +252,18 @@ Then chain all cleanup in a **single Bash call**:
 # If in main repo: standard cleanup (git branch -d works directly)
 
 cd "$MAIN_REPO" && git pull \
-  && [ "$IS_WORKTREE" = "yes" ] && git worktree remove "$WORKTREE_PATH" --force 2>&1; true \
-  && git branch -d <feature-branch> 2>&1; true \
-  && bash scripts/gh-project-status.sh <issue-number> done 2>&1; true \
-  && gh issue close <issue-number> 2>&1; true
+  && { [ "$IS_WORKTREE" = "yes" ] && git worktree remove "$WORKTREE_PATH" --force 2>&1 || true; } \
+  && { git branch -d <feature-branch> 2>&1 || true; } \
+  && { bash scripts/gh-project-status.sh <issue-number> done 2>&1 || true; } \
+  && { gh issue close <issue-number> 2>&1 || true; }
 ```
 
-The `2>&1; true` on each segment ensures:
+The `|| true` inside `{ }` groups ensures:
 - Not in a worktree — `git worktree remove` skipped cleanly.
 - A missing local branch does not abort the chain.
 - A board item already at Done (script exits 0 with no-op) continues cleanly.
 - An already-closed issue (`gh issue close` 422) is silently ignored.
+- If `cd` or `git pull` fails, the chain **stops** rather than running from the wrong directory.
 
 **Do not run separate Bash calls** for branch delete, board update, and issue close — they must be one call.
 
