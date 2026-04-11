@@ -8,12 +8,12 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite, WebSearch, WebFet
 
 Takes a freeform idea and explores the problem space through adapted Lean
 Inception activities. Produces a structured discovery document that feeds into
-`/kickoff` (and eventually a future `/requirements` skill).
+`/requirements` (which produces the structured requirements doc for `/kickoff`).
 
 Fills the gap in the pipeline:
 
 ```
-idea.md  →  /discovery  →  discovery.md  →  /kickoff  →  HLD + ADRs + Plan
+idea.md  →  /discovery  →  discovery.md  →  /requirements  →  requirements.md  →  /kickoff
 ```
 
 **Model:** Use Opus (the latest Claude model) for this skill and any sub-agents
@@ -340,8 +340,8 @@ After Gate 2 approval:
 ```markdown
 ## Next steps
 
-1. Create `docs/requirements/v{N}-requirements.md` from this discovery
-   (manually or via future `/requirements` skill)
+1. Run `/requirements` to produce `docs/requirements/v{N}-requirements.md`
+   from this discovery
 2. Run `/kickoff docs/requirements/v{N}-requirements.md` to produce HLD,
    ADRs, and implementation plan
 ```
@@ -390,8 +390,7 @@ git commit -m "docs: address discovery review comments"
 
 - **Do not write requirements.** This skill explores the problem space and
   catalogues features. Formal user stories with acceptance criteria belong
-  in a requirements document (produced later, manually or via a future
-  `/requirements` skill).
+  in a requirements document (produced later, manually or via `/requirements`).
 - **Do not design.** No components, no architecture, no technology choices.
   Those belong in `/kickoff` and `/architect`.
 - **Research actively.** Use web search to ground the discovery in real
