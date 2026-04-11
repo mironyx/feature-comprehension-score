@@ -116,6 +116,10 @@ Add a `## Cross-References` section at the end of the phase LLD (before Tasks) n
 
 ## LLD Template
 
+The LLD is structured in two parts. **Part A** is for human review — a reviewer can read
+Part A alone and build sufficient theory about the feature. **Part B** is for the implementing
+agent — detailed enough for `/feature` to produce correct code autonomously.
+
 One file per phase. Each implementation plan section becomes a top-level heading.
 
 ```markdown
@@ -134,14 +138,125 @@ One file per phase. Each implementation plan section becomes a top-level heading
 
 ---
 
+# Part A — Human-Reviewable Design
+
+> Both the human reviewer and the implementing agent read this part.
+> For the reviewer, it builds theory about the feature. For the agent, it provides
+> the conceptual foundation that Part B's details depend on.
+> It answers: what does the feature do, how do the parts interact,
+> what must always be true, and how do we know it works.
+
 ## N.1 [Section Name]
 
 **Stories:** [story numbers]
 **Layers:** DB | BE | FE
 
+### Purpose
+[1-3 sentences: what this section delivers and why]
+
+### Behavioural Flows
+
+Sequence diagrams for every non-trivial interaction (>2 components communicating).
+Use mermaid `sequenceDiagram` syntax. One diagram per key flow (happy path, error path,
+async/webhook flows as needed).
+
+` ` `mermaid
+sequenceDiagram
+    participant Client
+    participant API as API Route
+    participant Service
+    participant DB as Database
+
+    Client->>API: POST /api/example
+    API->>Service: processRequest(ctx, params)
+    Service->>DB: query(...)
+    DB-->>Service: rows
+    Service-->>API: Result
+    API-->>Client: 200 OK
+` ` `
+
+**When required:** Any flow involving >2 components or services. API routes with
+auth + service + DB. Webhook handling chains. Multi-step UI interactions with server calls.
+
+**When optional:** Single-component CRUD. Pure utility functions. Schema-only changes.
+
+### Structural Overview
+
+Module/class dependency diagram showing how the pieces fit together. Use mermaid
+`classDiagram` syntax. Works for both class-based and module-based codebases:
+
+- **Classes** — show with methods and relationships (inheritance, composition)
+- **Modules** — use `<<module>>` stereotype, show exported functions
+- **Interfaces/Ports** — use `<<interface>>`, show who implements them
+- **Direction** — arrows show dependency direction (who depends on whom)
+
+` ` `mermaid
+classDiagram
+    class engine/scoring {
+        <<module>>
+        +calculateScore(responses) Score
+        +buildDimensions(config) Dimension[]
+    }
+    class ports/github {
+        <<interface>>
+        +fetchPRs(org, repo) PR[]
+    }
+    class adapters/github {
+        <<module>>
+        +createGitHubClient(token) GitHubPort
+    }
+    engine/scoring --> ports/github : depends on
+    adapters/github ..|> ports/github : implements
+` ` `
+
+**When required:** Any task that introduces new modules/classes, modifies module boundaries,
+or adds new dependencies between existing modules. Changes touching the ports/adapters layer.
+
+**When optional:** Changes within a single existing module that do not alter its public
+surface or dependencies.
+
+### Invariants
+
+Hard constraints that the implementation must satisfy. Collected in one place so the
+reviewer can sign off on them and automated tools (`/pr-review-v2`, `/feature-evaluator`)
+can verify them.
+
+Each invariant should be testable — either by a unit test, a type check, or a lint rule.
+
+| # | Invariant | Verification |
+|---|-----------|-------------|
+| 1 | [e.g. Service never calls createClient() directly] | [e.g. grep for import; unit test with mock ApiContext] |
+| 2 | [e.g. Webhook replay is idempotent — no duplicate rows] | [e.g. test calls handler twice, asserts row count unchanged] |
+| 3 | [e.g. Engine module has zero framework imports] | [e.g. grep src/lib/engine/ for 'next', 'supabase'] |
+
+### Acceptance Criteria
+
+- [ ] [Concrete, testable criterion]
+- [ ] [Another criterion]
+
+### BDD Specs
+
+` ` `ts
+describe('[context]', () => {
+  it('[behaviour — given/when/then]');
+  it('[another behaviour]');
+});
+` ` `
+
 ### HLD coverage assessment
 - [Section X.Y] — sufficient, referenced only
 - [Section X.Z] — needs extension, detailed below
+
+---
+
+# Part B — Agent Implementation Detail
+
+> The implementing agent (`/feature`) reads both parts — Part A for the conceptual
+> model, Part B for precise file paths, types, function signatures, and decomposition
+> rules. A human reviewer may scan Part B for completeness but does not need to
+> review it line-by-line.
+
+## N.1 [Section Name] — Implementation
 
 ### [Layer: Database] (if applicable)
 
@@ -186,13 +301,6 @@ Service ([endpoint]/service.ts):
 
 Extracted to helpers.ts (if applicable):
 - `pureFunction(...)` — [why extracted: testability, reuse]
-
-> **Constraint:** The service must never call createClient(), createServiceClient(), or any infrastructure factory. ApiContext is injected by the controller; tests inject a mock ApiContext. A service that creates its own clients cannot be unit-tested without a live database.
-
-> **Constraint:** [other hard limits, e.g. "do not create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept"]
-
-Do NOT:
-- [specific anti-pattern to avoid]
 ```
 
 Use `> **Constraint:**` for notes written **before** implementation (hard limits for the implementing
@@ -233,7 +341,7 @@ PageComponent
 
 ## N.2 [Next Section Name]
 
-[Same structure as above]
+[Same Part A + Part B structure as above]
 
 ---
 
@@ -261,6 +369,10 @@ PageComponent
 ## Guidelines
 
 - The LLD is an **implementation guide**, not a design discussion. Decisions should already be made in the HLD and ADRs. If you find an undecided question, flag it to the user rather than deciding in the LLD.
+- **Part A is the shared foundation.** Both the human reviewer and the implementing agent read Part A. For the reviewer, it is sufficient on its own to build theory. For the agent, it provides the conceptual model that Part B's details depend on. Part A must be self-contained: a reviewer who reads only Part A should understand what the feature does, how the parts interact, what must always be true, and how success is verified.
+- **Part B extends Part A with implementation precision.** The `/feature` agent reads both parts. Part B adds file paths, types, function signatures, and decomposition rules. A human reviewer may scan Part B for completeness but does not need to review it line-by-line.
+- **Diagrams are not optional decoration.** Sequence diagrams and structural overviews are primary review artefacts. Generate them whenever the "when required" conditions are met. Use mermaid syntax so they render in GitHub and editors.
+- **Invariants must be verifiable.** Every invariant needs a verification method (test, type check, grep, lint rule). If you cannot state how to verify it, it is not an invariant — it is a wish.
 - Keep LLDs focused and concise. If a section is just "see HLD", that's fine — it confirms the HLD is sufficient.
 - Task granularity: each task should be completable in one `/feature` cycle. If a task would produce > 200 lines of changes, split it.
 - BDD specs in tasks should be concrete enough for the `/feature` skill to write tests directly from them.

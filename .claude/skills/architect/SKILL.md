@@ -128,6 +128,9 @@ Check each of the following and note findings:
 | **Thin contracts** | Function signatures, types, or internal decomposition are vague or missing — would block a `/feature` agent |
 | **Missing BDD specs** | No `describe`/`it` blocks for an agent to implement against |
 | **Uncovered acceptance criteria** | Acceptance criteria in the issue have no corresponding design detail |
+| **Missing behavioural flows** | Multi-component interactions lack sequence diagrams — reviewer cannot build theory from text alone |
+| **Missing structural overview** | Task introduces/modifies module boundaries but has no structural diagram showing dependencies |
+| **Unverifiable invariants** | Constraints listed without a verification method (test, type check, grep), or invariants scattered inline instead of collected in the Invariants table |
 
 ### Review Step 3: Report and optionally patch
 
@@ -241,8 +244,16 @@ Use `/create-adr` to produce the ADR. Provide the context, options, and recommen
 
 #### LLD section (implementation item with contracts)
 
-Follow the LLD template from `/lld`:
+Follow the LLD template from `/lld` (Part A + Part B structure):
 
+**Part A (human-reviewable):**
+- Purpose — what this section delivers
+- Behavioural flows — mermaid sequence diagrams for multi-component interactions
+- Structural overview — mermaid class/module diagram when introducing or modifying module boundaries
+- Invariants — hard constraints with verification methods, collected in a table
+- Acceptance criteria + BDD specs
+
+**Part B (agent-implementable):**
 - Identify layers (DB / BE / FE)
 - Reference HLD sections — do not duplicate
 - Add implementation-level detail: file paths, internal types, function signatures
