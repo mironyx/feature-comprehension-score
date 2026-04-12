@@ -1,7 +1,7 @@
 # GitHub Auth & Token Handling — High-Level Design
 
 **Date:** 2026-04-07
-**Status:** Draft (pending human security sign-off)
+**Status:** Accepted (human security sign-off 2026-04-12)
 **Owner:** LS
 **Issue:** #186
 **Parent epic:** #176 (Onboarding & Auth)

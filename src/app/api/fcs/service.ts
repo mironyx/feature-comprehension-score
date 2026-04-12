@@ -153,7 +153,7 @@ async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: Reposit
   const [repoResult, cfgResult] = await Promise.all([
     adminSupabase
       .from('repositories')
-      .select('github_repo_name, org_id, organisations!inner(github_org_name)')
+      .select('github_repo_name, org_id, organisations!inner(github_org_name, installation_id)')
       .eq('id', repositoryId)
       .single() as unknown as Promise<{ data: RepoRow | null; error: unknown }>,
     adminSupabase

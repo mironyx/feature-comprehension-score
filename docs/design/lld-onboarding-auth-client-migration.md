@@ -3,7 +3,7 @@
 **Parent epic:** #176
 **Task issue:** #192
 **HLD:** [github-auth-hld.md](./github-auth-hld.md) §5.4 ("FCS user-initiated — target state")
-**Status:** in progress
+**Status:** complete
 
 ## 1. Goal
 
