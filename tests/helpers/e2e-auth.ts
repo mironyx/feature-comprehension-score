@@ -19,7 +19,9 @@ const PUBLISHABLE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'] ?? '';
 const SERVER_SUPABASE_URL =
   process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? SUPABASE_URL;
 
+// @supabase/ssr@0.9+ defaults to base64url-encoded cookies with a "base64-" prefix.
 const CHUNK_SIZE = 3180;
+const BASE64_PREFIX = 'base64-';
 const E2E_PASSWORD = 'e2e-test-password-123';
 
 export interface E2EUser {
@@ -32,19 +34,23 @@ function buildCookieStorageKey(): string {
   return `sb-${ref}-auth-token`;
 }
 
+function toBase64Url(input: string): string {
+  return BASE64_PREFIX + Buffer.from(input).toString('base64url');
+}
+
 function chunkSession(
   key: string,
   session: object,
 ): { name: string; value: string }[] {
-  const json = JSON.stringify(session);
-  if (json.length <= CHUNK_SIZE) {
-    return [{ name: key, value: json }];
+  const encoded = toBase64Url(JSON.stringify(session));
+  if (encoded.length <= CHUNK_SIZE) {
+    return [{ name: key, value: encoded }];
   }
   const chunks: { name: string; value: string }[] = [];
-  for (let i = 0; i * CHUNK_SIZE < json.length; i++) {
+  for (let i = 0; i * CHUNK_SIZE < encoded.length; i++) {
     chunks.push({
       name: `${key}.${i}`,
-      value: json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
+      value: encoded.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE),
     });
   }
   return chunks;
