@@ -88,13 +88,51 @@ git add docs/design/lld-<epic-slug>-<task-slug>.md
 git commit -m "docs: LLD for #<task-issue> — <summary>"
 ```
 
-### Epic Step 4: Report
+### Epic Step 4: Execution order
+
+After all LLDs are produced, create a single execution order summary for the epic. This lives in the epic issue body (appended at the end) and makes parallelism explicit for `/feature-team`.
+
+1. **Build the dependency DAG** from each task's `Depends on` field.
+2. **Assign execution waves** — tasks with no dependencies go in Wave 1; tasks whose dependencies are all in Wave N go in Wave N+1. Tasks in the same wave must not modify the same files.
+3. **Produce both artefacts:**
+
+```markdown
+## Execution Order
+
+### Dependency DAG
+
+` ` `mermaid
+graph LR
+  T1[#<issue>: <title>] --> T3[#<issue>: <title>]
+  T2[#<issue>: <title>] --> T3
+` ` `
+
+### Execution Waves
+
+| Wave | Tasks | Blocked by | Notes |
+|------|-------|------------|-------|
+| 1 | #N, #M | — | Parallelisable |
+| 2 | #P | Wave 1 (#N) | |
+```
+
+4. Update the epic issue body with this section:
+```bash
+gh issue edit <epic-number> --body "$(cat <<'EOF'
+[existing epic body]
+
+[execution order section]
+EOF
+)"
+```
+
+### Epic Step 5: Report
 
 Summarise:
 
 - Epic issue number and scope
 - Tasks created (or existing) with their issue numbers
 - LLD files produced
+- Execution waves (which tasks can run in parallel)
 - Any open questions or ambiguities
 
 **Stop here.** The user reviews all artefacts before implementation begins.
@@ -203,11 +241,22 @@ For each item, determine:
 Present a summary table to the user:
 
 ```
-| # | Item | Artefact type | Output path | Split? |
-|---|------|---------------|-------------|--------|
+| # | Item | Artefact type | Output path | Depends on | Split? |
+|---|------|---------------|-------------|------------|--------|
 ```
 
-**Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, redirect artefact types, or reject a proposed split.
+Include a preliminary execution waves proposal below the table:
+
+```
+### Proposed execution waves
+
+| Wave | Items | Blocked by | Notes |
+|------|-------|------------|-------|
+| 1 | #1, #2 | — | Parallelisable |
+| 2 | #3 | Wave 1 (#1) | |
+```
+
+**Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, redirect artefact types, adjust wave assignments, or reject a proposed split.
 
 ### Step 2b: Decomposition assessment
 
@@ -220,7 +269,7 @@ For each item, assess whether it should be split into sub-issues. The bar is hig
 
 If only one condition holds (large but no clean seam, or clean seam but small), do **not** split.
 
-When a split is warranted, propose the sub-issues with explicit dependency order (A completes → B starts) and note which files each sub-issue touches. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
+When a split is warranted, propose the sub-issues with explicit dependency order (A completes → B starts) and note which files each sub-issue touches. Sub-issues that do not share files and have no dependency can be assigned to the same execution wave for parallel implementation. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
 
 ### Step 3: Read all input sources
 
@@ -309,9 +358,10 @@ One commit per item for granular review. Do not batch.
 After all items are processed, summarise:
 
 - What was produced (table of items and their artefacts)
+- **Execution waves** — final wave assignments showing which items can be implemented in parallel by `/feature-team`
 - Any items skipped and why
 - Any open questions or ambiguities found during design
-- Suggested next step: human reviews the artefacts, then `/feature` implements
+- Suggested next step: human reviews the artefacts, then `/feature` or `/feature-team` implements
 
 **Stop here.** The user reviews all artefacts before implementation begins.
 

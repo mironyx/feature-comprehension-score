@@ -87,7 +87,7 @@ Each task entry follows this format:
 
 **Issue title:** [Title for the GitHub issue]
 **Layer:** DB | BE | FE
-**Depends on:** Task M (if any)
+**Depends on:** Task M (if any), or — (no dependencies)
 **Stories:** [requirement story numbers]
 **HLD reference:** [link to relevant HLD section]
 
@@ -106,6 +106,47 @@ describe('[context]')
 **Files to create/modify:**
 - `src/path/to/file.ts` — [what this file does]
 ```
+
+### Step 3b: Execution order
+
+After defining all tasks, produce an **Execution Order** section that makes parallelism
+explicit. This section has two parts:
+
+1. **Dependency DAG** — a mermaid `graph LR` showing which tasks block which. This is the
+   primary visual for human reviewers.
+
+2. **Execution waves table** — groups tasks into numbered waves. All tasks within a wave
+   can run in parallel; a wave starts only after all predecessor waves complete. This is
+   the primary artifact for `/feature-team`.
+
+```markdown
+## Execution Order
+
+### Dependency DAG
+
+` ` `mermaid
+graph LR
+  T1[Task 1: Schema migration] --> T3[Task 3: Service layer]
+  T2[Task 2: Auth helper] --> T4[Task 4: API route]
+  T3 --> T4
+  T3 --> T5[Task 5: Webhook handler]
+` ` `
+
+### Execution Waves
+
+| Wave | Tasks | Blocked by | Notes |
+|------|-------|------------|-------|
+| 1 | Task 1, Task 2 | — | No dependencies — start immediately, parallelisable |
+| 2 | Task 3 | Wave 1 (Task 1) | |
+| 3 | Task 4, Task 5 | Wave 2 (Task 3) | Parallelisable — no shared files |
+```
+
+**Rules for wave assignment:**
+
+- A task with no `Depends on` goes into Wave 1.
+- A task whose dependencies are all in Wave N goes into Wave N+1.
+- Tasks in the same wave must not modify the same files (otherwise they cannot run in parallel safely). If two otherwise-independent tasks share files, place the smaller one in the next wave and note the reason.
+- If all tasks are sequential (each depends on the previous), there is one task per wave — still produce the table for consistency.
 
 ### Step 4: Cross-references (epic mode and phase mode)
 
@@ -364,6 +405,25 @@ PageComponent
 ## Tasks
 
 [Task entries per the format in Step 3, covering ALL sections in the phase]
+
+---
+
+## Execution Order
+
+### Dependency DAG
+
+` ` `mermaid
+graph LR
+  T1[Task 1: ...] --> T3[Task 3: ...]
+  T2[Task 2: ...] --> T3
+` ` `
+
+### Execution Waves
+
+| Wave | Tasks | Blocked by | Notes |
+|------|-------|------------|-------|
+| 1 | Task 1, Task 2 | — | Parallelisable |
+| 2 | Task 3 | Wave 1 | |
 ```
 
 ## Guidelines

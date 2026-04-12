@@ -31,6 +31,7 @@ If `epic <N>` is given:
 2. Verify it has the `epic` label. If not, stop: "Issue #N is not an epic."
 3. Parse the task checklist from the body. Extract all unchecked task issue numbers.
 4. If no unchecked tasks, stop: "Epic #N has no remaining tasks."
+5. Check for an **Execution Order** section in the epic body. If present, parse the execution waves table and spawn teammates wave-by-wave (all tasks in Wave 1 first; when Wave 1 completes, spawn Wave 2, etc.). If no execution order section exists, spawn all tasks in parallel (legacy behaviour).
 
 If `-n N` is given:
 ```bash
