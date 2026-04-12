@@ -1,4 +1,4 @@
----
+ ---
 name: requirements
 description: Transform discovery output or a freeform brief into a structured requirements document with epics, prioritised user stories, and testable acceptance criteria. Use after /discovery (or standalone for smaller projects) and before /kickoff.
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite, WebSearch, WebFetch, Agent
@@ -108,7 +108,15 @@ Execute these steps sequentially. Use `TodoWrite` to track progress.
    `docs/plans/`) — if substantial artefacts exist, warn the user that
    requirements changes may drift from existing design. Confirm they want to
    proceed.
-5. Present a short orientation: what input was found, how many features/
+5. When prior requirements exist (found in step 1.3), even if doing a rewrite:
+   - Read the existing requirements fully.
+   - Extract content NOT covered by the discovery doc: design principles,
+     anti-scope lists, open questions, concrete interface definitions,
+     identity/auth concerns, quality/observability stories.
+   - Present a summary of "prior content to carry forward or explicitly defer"
+     at the orientation step.
+   - The user decides what to include vs. drop.
+6. Present a short orientation: what input was found, how many features/
    journeys it contains, and the two-gate process. Wait for user confirmation.
 
 ### Step 2: Domain clarification (freeform brief only)
@@ -129,6 +137,11 @@ already done.
 Create `docs/requirements/v{N}-requirements.md` with the following sections.
 At this stage, epics and stories have titles and one-line descriptions only —
 no acceptance criteria yet.
+
+As you work through this step, collect any unresolved questions or ambiguities
+into the Open Questions section of the document. Questions discovered during
+structuring should be captured immediately. Do not wait for gates to surface
+them.
 
 #### Header
 
@@ -154,6 +167,18 @@ no acceptance criteria yet.
 ---
 ```
 
+#### Context / Background
+
+1–2 paragraphs explaining why this project/version exists, what it replaces or
+builds on, who uses it, and hard constraints. Source from the discovery doc's
+vision and boundaries, or from a freeform brief.
+
+```markdown
+## Context / Background
+
+<1–2 paragraphs>
+```
+
 #### Glossary
 
 Define domain-specific terms used throughout the document. 5–15 entries
@@ -165,6 +190,20 @@ typical. Source from the discovery doc's domain research or from the brief.
 | Term | Definition |
 |------|-----------|
 | **Term** | One-line definition |
+```
+
+#### Design Principles / Constraints
+
+Numbered list of non-functional constraints that shape all stories. Examples:
+tool budget limits, scope model, storage strategy. Source from the discovery
+doc's boundaries and any prior requirements doc. These are requirements-level
+constraints, not architecture decisions.
+
+```markdown
+## Design Principles / Constraints
+
+1. **<Principle name>** — <One-line description of the constraint and why it matters.>
+2. ...
 ```
 
 #### Roles
@@ -236,12 +275,55 @@ requirements rather than user stories.
 - <requirement>
 ```
 
+#### What We Are NOT Building
+
+Explicit exclusions. Source from discovery boundaries (Is Not column), prior
+requirements anti-scope, and anything deliberately deferred. Prevents scope
+creep.
+
+```markdown
+## What We Are NOT Building
+
+- <Exclusion and why it's out of scope>
+```
+
+#### Open Questions
+
+Unresolved decisions needing human input. Collected throughout Steps 1–5.
+Each question should state the context, the options considered, and why it
+matters.
+
+```markdown
+## Open Questions
+
+| # | Question | Context | Options | Impact |
+|---|----------|---------|---------|--------|
+| 1 | <question> | <why it came up> | <options considered> | <what depends on the answer> |
+```
+
 #### Commit
 
 ```bash
 git add docs/requirements/v{N}-requirements.md
 git commit -m "docs: v{N} requirements structure — epics, stories, roles"
 ```
+
+### Step 3b: Cross-reference validation
+
+Before presenting Gate 1, verify coverage:
+
+1. List every discovery doc feature and check it maps to at least one story
+   (or is explicitly deferred to a Wave/Future section).
+2. Flag implicit requirements the discovery doc assumes but doesn't state
+   (e.g., user identity for multi-user systems, database schema for storage
+   products).
+3. Flag tensions between wave scoping and technical dependencies (e.g., auth
+   deferred to Wave 2 but user_id needed in Wave 1 stories).
+4. If prior requirements were absorbed (Step 1.5), verify that
+   carried-forward content is reflected in stories or explicitly listed as
+   deferred.
+
+Present the cross-reference summary as part of the Gate 1 presentation.
 
 ### Gate 1 — Structure review
 
@@ -252,6 +334,7 @@ Present to the user:
 - Role summary
 - Mapping coverage: which discovery features/journeys are covered, which are
   deferred
+- Cross-reference summary from Step 3b
 - Any open questions or ambiguities found during structuring
 
 Ask explicitly: **"Are these the right epics and stories? Is the priority
@@ -263,6 +346,12 @@ ordering sensible? Any [Review] comments before I write acceptance criteria?"**
 - Add `[Review]` comments in the doc and re-invoke `/requirements`
 - Reorder priorities, merge/split epics, add/remove stories
 
+If the user says "continue" or "go ahead" without addressing flagged gaps or
+open questions, interpret this as approval of the current structure. However,
+any gaps you flagged (missing epics, coverage holes, tensions) MUST be recorded
+in the Open Questions section — they are not silently dropped. The user can
+address them later via `[Review]` comments.
+
 ### Step 4: Write acceptance criteria
 
 For each story, write acceptance criteria in Given/When/Then format:
@@ -273,6 +362,11 @@ For each story, write acceptance criteria in Given/When/Then format:
 - Given <precondition>, when <action>, then <outcome>.
 - Given <precondition>, when <action>, then <outcome>.
 ```
+
+As you work through this step, collect any unresolved questions or ambiguities
+into the Open Questions section of the document. Questions discovered during
+AC writing should be captured immediately. Do not wait for gates to surface
+them.
 
 **INVEST check** — as you write each story, verify:
 
@@ -306,6 +400,11 @@ git commit -m "docs: v{N} requirements — acceptance criteria"
 Scan every acceptance criterion in the document and evaluate testability.
 This is the evaluator step — catch problems before they propagate to design
 and implementation.
+
+As you work through this step, collect any unresolved questions or ambiguities
+into the Open Questions section of the document. Questions discovered during
+testability validation should be captured immediately. Do not wait for gates
+to surface them.
 
 **For each AC, check:**
 
@@ -435,8 +534,11 @@ Key conventions:
 ## Guidelines
 
 - **Requirements, not design.** This skill produces what the system must do,
-  not how it's built. No components, no architecture, no technology choices.
-  Those belong in `/kickoff` and `/architect`.
+  not how it's built internally. No components, no class hierarchies, no
+  internal architecture. However, when the product surface IS an interface
+  (API tools, CLI commands, config schemas), naming those interfaces and their
+  parameters is a requirement, not a design choice. Include concrete interface
+  definitions when the product is defined by its interfaces.
 - **Discovery informs, does not dictate.** The discovery doc is input, not
   gospel. Challenge feature priorities, split oversized features, and add
   missing cases. The requirements doc is the authoritative scope statement.
