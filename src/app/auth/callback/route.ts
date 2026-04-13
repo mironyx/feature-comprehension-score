@@ -34,6 +34,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { userId: user.id, githubUserId, githubLogin },
       {},
     );
+    // Bulk-link any assessment_participants rows added by GitHub username
+    // before this user ever logged in. Best-effort — must not block login.
+    // Resolves #206.
+    const { error: linkError } = await secretClient.rpc('link_all_participants', {
+      p_user_id: user.id,
+      p_github_user_id: githubUserId,
+    });
+    if (linkError) logger.warn({ err: linkError, userId: user.id }, 'link_all_participants failed');
     emitSigninEvent(matched.length > 0 ? 'success' : 'no_access', {
       user_id: user.id,
       github_user_id: githubUserId,
