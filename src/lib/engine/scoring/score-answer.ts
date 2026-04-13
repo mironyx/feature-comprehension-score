@@ -22,7 +22,7 @@ Evaluate the participant's answer on three dimensions:
 
 Semantically equivalent answers with different wording should receive similar scores to answers that match the reference closely.
 
-Return a score between 0.0 (completely wrong) and 1.0 (perfect) with a brief rationale.`;
+Respond with a JSON object: { "score": number, "rationale": "brief reason" }`;
 
 export async function scoreAnswer(
   request: ScoreAnswerRequest,

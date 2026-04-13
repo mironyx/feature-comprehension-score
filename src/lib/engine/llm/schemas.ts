@@ -47,7 +47,10 @@ export const ScoringResponseSchema = z.object({
 export type ScoringResponse = z.infer<typeof ScoringResponseSchema>;
 
 export const RelevanceResponseSchema = z.object({
-  is_relevant: z.boolean(),
+  is_relevant: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toLowerCase() === 'true' : val),
+    z.boolean(),
+  ),
   explanation: z.string(),
 });
 export type RelevanceResponse = z.infer<typeof RelevanceResponseSchema>;

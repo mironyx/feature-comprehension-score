@@ -35,7 +35,7 @@ export type SubmitBody = z.infer<typeof SubmitBodySchema>;
 
 export interface AnswerResult {
   question_id: string;
-  is_relevant: boolean;
+  is_relevant: boolean | null;
   explanation: string | null;
   attempts_remaining: number;
 }
@@ -104,11 +104,13 @@ async function fetchQuestionsForValidation(
 // logic from submitAnswers. LLD §2.4 constraint: 'Determine attempt number from existing
 // participant_answers rows — the client never sends one.' Extracted for clarity.
 function resolveAttemptNumber(
-  existingAnswers: { attempt_number: number }[],
+  existingAnswers: { attempt_number: number; is_relevant: boolean | null }[],
 ): number {
   if (existingAnswers.length === 0) return 1;
   const max = Math.max(...existingAnswers.map(a => a.attempt_number));
-  return max + 1;
+  const latestAttempt = existingAnswers.filter(a => a.attempt_number === max);
+  const hasUnevaluated = latestAttempt.some(a => a.is_relevant === null);
+  return hasUnevaluated ? max : max + 1;
 }
 
 /** Throws 422 if any submitted answer references an unknown question. */
@@ -156,6 +158,26 @@ function validateSubmission(
   }
 }
 
+/** Remove unevaluated answer rows (is_relevant IS NULL) for a given attempt — allows retry after LLM failure. */
+async function deleteUnevaluatedAnswers(
+  adminSupabase: ServiceClient,
+  participantId: string,
+  attemptNumber: number,
+): Promise<void> {
+  const { error } = await adminSupabase
+    .from('participant_answers')
+    .delete()
+    .eq('participant_id', participantId)
+    .eq('attempt_number', attemptNumber)
+    .eq('is_reassessment', false)
+    .is('is_relevant', null);
+
+  if (error) {
+    logger.error({ err: error }, 'deleteUnevaluatedAnswers: delete failed');
+    throw new ApiError(500, 'Failed to clean up previous attempt');
+  }
+}
+
 /** Insert answer rows into participant_answers. */
 async function storeAnswers(
   adminSupabase: ServiceClient,
@@ -190,8 +212,10 @@ async function runRelevanceChecks(
   answers: SubmitBody['answers'],
   questions: QuestionRow[],
   llmClient: LLMClient,
+  attemptNumber: number,
 ): Promise<AnswerResult[]> {
   const questionMap = new Map(questions.map(q => [q.id, q]));
+  const remaining = MAX_ATTEMPTS - attemptNumber;
 
   const results = await Promise.all(
     answers.map(async (answer): Promise<AnswerResult> => {
@@ -209,18 +233,18 @@ async function runRelevanceChecks(
 
         if (!result.success) {
           logger.error({ err: result.error }, 'runRelevanceChecks: detectRelevance failed');
-          return { question_id: answer.question_id, is_relevant: false, explanation: null, attempts_remaining: 0 };
+          return { question_id: answer.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining };
         }
 
         return {
           question_id: answer.question_id,
           is_relevant: result.data.is_relevant,
           explanation: result.data.is_relevant ? null : result.data.explanation,
-          attempts_remaining: result.data.is_relevant ? 0 : MAX_ATTEMPTS - 1,
+          attempts_remaining: result.data.is_relevant ? 0 : remaining,
         };
       } catch (err) {
         logger.error({ err }, 'runRelevanceChecks: unexpected error');
-        return { question_id: answer.question_id, is_relevant: false, explanation: null, attempts_remaining: 0 };
+        return { question_id: answer.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining };
       }
     }),
   );
@@ -396,7 +420,7 @@ export async function submitAnswers(
   const typedExisting = (existingAnswers ?? []) as ExistingAnswer[];
   const isFirstAttempt = typedExisting.length === 0;
   const previouslyIrrelevantIds = new Set(
-    typedExisting.filter(a => a.is_relevant === false).map(a => a.question_id),
+    typedExisting.filter(a => a.is_relevant !== true).map(a => a.question_id),
   );
   const attemptNumber = resolveAttemptNumber(typedExisting);
 
@@ -407,6 +431,12 @@ export async function submitAnswers(
   // 4. Validate submission
   validateSubmission(body, questions, isFirstAttempt, previouslyIrrelevantIds);
 
+  // 4b. Clean up unevaluated rows from a failed LLM attempt before re-inserting
+  const hasUnevaluated = typedExisting.some(a => a.is_relevant === null);
+  if (hasUnevaluated) {
+    await deleteUnevaluatedAnswers(adminSupabase, participant.id, attemptNumber);
+  }
+
   // 5. Store answers
   await storeAnswers(adminSupabase, participant.id, participant.org_id, assessmentId, body.answers, attemptNumber);
 
@@ -414,7 +444,7 @@ export async function submitAnswers(
   const llmClient = buildLlmClient();
 
   // 7. Run relevance checks
-  const relevanceResults = await runRelevanceChecks(body.answers, questions, llmClient);
+  const relevanceResults = await runRelevanceChecks(body.answers, questions, llmClient, attemptNumber);
 
   // 8. Update stored answers with relevance results
   const relevanceUpdates = await Promise.all(

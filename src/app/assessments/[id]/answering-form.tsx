@@ -78,7 +78,7 @@ function isAnswerLocked(
   if (!relevanceResults) return false;
   const result = relevanceResults.find(r => r.question_id === questionId);
   // undefined means this question was not flagged — lock it on re-attempt
-  return result === undefined || result.is_relevant;
+  return result === undefined || result.is_relevant === true;
 }
 
 /** Sends answers to the API and returns the parsed response. Throws on HTTP or network error. */

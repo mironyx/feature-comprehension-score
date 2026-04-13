@@ -74,6 +74,7 @@ export class OpenRouterClient implements LLMClient {
       const response = await this.client.chat.completions.create({
         model,
         max_tokens: maxTokens,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt },

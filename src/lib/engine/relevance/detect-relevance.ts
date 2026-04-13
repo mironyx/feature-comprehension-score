@@ -23,7 +23,7 @@ Classify as **not relevant** (is_relevant: false) if the answer is:
 
 Classify as **relevant** (is_relevant: true) if the answer is a genuine attempt, even if it is factually incorrect.
 
-Return a brief explanation for your classification.`;
+Respond with a JSON object: { "is_relevant": boolean, "explanation": "brief reason" }`;
 
 export async function detectRelevance(
   request: DetectRelevanceRequest,

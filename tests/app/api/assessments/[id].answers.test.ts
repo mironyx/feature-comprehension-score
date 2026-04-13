@@ -54,10 +54,14 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
     insert: vi.fn(() => Promise.resolve(resolver())),
     update: vi.fn(),
+    delete: vi.fn(),
+    is: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.update.mockReturnValue(chain);
+  chain.delete.mockReturnValue(chain);
+  chain.is.mockReturnValue(chain);
   return chain;
 }
 
@@ -211,6 +215,20 @@ async function postAnswers(body: unknown) {
 // Tests: POST /api/assessments/[id]/answers
 // ---------------------------------------------------------------------------
 
+function resetServiceClientFrom() {
+  mockServiceClient.from.mockImplementation((table: string) => {
+    if (table === 'assessment_questions') return makeChain(() => questionsResult);
+    if (table === 'participant_answers') {
+      const chain = makeChain(() => ({ data: [], error: null }));
+      chain.insert.mockReturnValue(Promise.resolve(insertAnswersResult));
+      return chain;
+    }
+    if (table === 'assessment_participants') return makeChain(() => allParticipantsResult);
+    if (table === 'assessments') return makeChain(() => assessmentResult);
+    return makeChain(() => SUCCESS);
+  });
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   process.env['OPENROUTER_API_KEY'] = 'test-key';
@@ -220,6 +238,7 @@ beforeEach(async () => {
   insertAnswersResult = { data: null, error: null };
   allParticipantsResult = { data: [], error: null };
   assessmentResult = { data: null, error: null };
+  resetServiceClientFrom();
 });
 
 describe('POST /api/assessments/[id]/answers', () => {
@@ -405,6 +424,159 @@ describe('POST /api/assessments/[id]/answers', () => {
       });
 
       expect(response.status).toBe(500);
+    });
+  });
+
+  describe('Given attempts_remaining calculation', () => {
+    function setupExistingAnswers(existingAnswers: Array<{ question_id: string; attempt_number: number; is_relevant: boolean }>) {
+      mockServiceClient.from.mockImplementation((table: string) => {
+        if (table === 'assessment_questions') return makeChain(() => questionsResult);
+        if (table === 'participant_answers') {
+          const chain = makeChain(() => ({ data: existingAnswers, error: null }));
+          chain.insert.mockReturnValue(Promise.resolve(insertAnswersResult));
+          return chain;
+        }
+        if (table === 'assessment_participants') return makeChain(() => allParticipantsResult);
+        if (table === 'assessments') return makeChain(() => assessmentResult);
+        return makeChain(() => SUCCESS);
+      });
+    }
+
+    it('then first attempt returns attempts_remaining = 2 for irrelevant answers', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      vi.mocked(detectRelevance)
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: true, explanation: 'Good' } })
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Off-topic' } });
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-001', answer_text: 'Good answer' },
+          { question_id: 'question-002', answer_text: 'asdf' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; is_relevant: boolean; attempts_remaining: number }> };
+      const relevant = body.results.find(r => r.question_id === 'question-001');
+      const irrelevant = body.results.find(r => r.question_id === 'question-002');
+      expect(relevant?.attempts_remaining).toBe(0);
+      expect(irrelevant?.attempts_remaining).toBe(2);
+    });
+
+    it('then second attempt returns attempts_remaining = 1 for irrelevant answers', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      // Existing: attempt 1, question-002 was irrelevant
+      setupExistingAnswers([
+        { question_id: 'question-001', attempt_number: 1, is_relevant: true },
+        { question_id: 'question-002', attempt_number: 1, is_relevant: false },
+      ]);
+
+      vi.mocked(detectRelevance)
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Still off-topic' } });
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-002', answer_text: 'still bad' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; attempts_remaining: number }> };
+      expect(body.results[0]?.attempts_remaining).toBe(1);
+    });
+
+    it('then third attempt returns attempts_remaining = 0 for irrelevant answers', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      // Existing: attempts 1 and 2, question-002 was irrelevant both times
+      setupExistingAnswers([
+        { question_id: 'question-001', attempt_number: 1, is_relevant: true },
+        { question_id: 'question-002', attempt_number: 1, is_relevant: false },
+        { question_id: 'question-002', attempt_number: 2, is_relevant: false },
+      ]);
+
+      vi.mocked(detectRelevance)
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Gibberish' } });
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-002', answer_text: 'xyz' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; attempts_remaining: number }> };
+      expect(body.results[0]?.attempts_remaining).toBe(0);
+    });
+
+    it('then LLM failure preserves remaining attempts instead of reporting 0', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      vi.mocked(detectRelevance)
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: true, explanation: 'Good' } })
+        .mockResolvedValueOnce({ success: false, error: { code: 'malformed_response', message: 'Bad JSON', retryable: true } });
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-001', answer_text: 'Good answer' },
+          { question_id: 'question-002', answer_text: 'Also good but LLM broke' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; is_relevant: boolean | null; attempts_remaining: number }> };
+      const failed = body.results.find(r => r.question_id === 'question-002');
+      expect(failed?.is_relevant).toBeNull();
+      expect(failed?.attempts_remaining).toBe(2);
+    });
+
+    it('then LLM exception on re-attempt preserves correct remaining attempts', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      // Existing: attempt 1, question-002 was irrelevant
+      setupExistingAnswers([
+        { question_id: 'question-001', attempt_number: 1, is_relevant: true },
+        { question_id: 'question-002', attempt_number: 1, is_relevant: false },
+      ]);
+
+      vi.mocked(detectRelevance)
+        .mockRejectedValueOnce(new Error('Network timeout'));
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-002', answer_text: 'Retry answer' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; attempts_remaining: number }> };
+      expect(body.results[0]?.attempts_remaining).toBe(1);
+    });
+
+    it('then retry after LLM failure does not burn an attempt', async () => {
+      setupPendingParticipant();
+      allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
+
+      // Existing: attempt 1, question-002 had LLM failure (is_relevant: null)
+      setupExistingAnswers([
+        { question_id: 'question-001', attempt_number: 1, is_relevant: true },
+        { question_id: 'question-002', attempt_number: 1, is_relevant: null as unknown as boolean },
+      ]);
+
+      vi.mocked(detectRelevance)
+        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Off-topic' } });
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-002', answer_text: 'Another try' },
+        ],
+      });
+
+      const body = await response.json() as { results: Array<{ question_id: string; attempts_remaining: number }> };
+      // Should still be attempt 1 (not 2), so remaining = MAX_ATTEMPTS - 1 = 2
+      expect(body.results[0]?.attempts_remaining).toBe(2);
     });
   });
 

@@ -912,7 +912,7 @@ Service (`answers/service.ts`):
   - `fetchScoringData(adminSupabase, assessmentId)` — fetches questions and answers for scoring in parallel
   - `persistScoringResults(adminSupabase, params)` — calls `persist_scoring_results` RPC to atomically update assessment aggregate and per-answer scores
 
-> **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as irrelevant.
+> **Constraint:** `runRelevanceChecks` must never throw — a failed relevance call must not crash the submission. Log and treat as unevaluated (`is_relevant: null`), preserving the participant's attempt.
 >
 > **Constraint:** `triggerScoring()` in `finaliseSubmission` is synchronous. If it throws, re-throw as ApiError(500).
 >
@@ -927,6 +927,11 @@ Service (`answers/service.ts`):
 > 5. Max-attempts enforcement — the acceptance criterion (`attemptNumber > MAX_ATTEMPTS` → 422) was not in the LLD decomposition; added to `submitAnswers` before validation.
 > 6. Relevance write-back step — not in the LLD flow: after storing answers and running relevance checks, a separate `UPDATE` writes `is_relevant` and `relevance_explanation` back to the stored rows. Non-fatal failures are logged.
 > 7. `AnswerResult.attempts_remaining` — added to the response shape (not in the LLD spec); communicates remaining attempts to the client on `relevance_failed`.
+> 8. `runRelevanceChecks` — signature changed from `(answers, questions, llmClient)` to `(answers, questions, llmClient, attemptNumber)`. `attemptNumber` is needed to calculate correct `attempts_remaining` per answer.
+> 9. `AnswerResult.is_relevant` — changed from `boolean` to `boolean | null`. LLM failures return `null` (unevaluated) instead of `false`, preventing LLM errors from burning participant attempts.
+> 10. `resolveAttemptNumber` — now checks whether the latest attempt has unevaluated (`null`) answers; if so, returns the same attempt number (retry) rather than incrementing.
+> 11. `deleteUnevaluatedAnswers` — new helper. Removes `is_relevant IS NULL` rows before re-inserting on retry, avoiding unique constraint violations.
+> 12. `previouslyIrrelevantIds` — filter changed from `=== false` to `!== true` to include both `false` and `null` answers as re-submittable.
 
 Do NOT:
 - Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
