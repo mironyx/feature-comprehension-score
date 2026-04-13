@@ -554,6 +554,10 @@ export interface Database {
         Args: { p_assessment_id: string; p_github_user_id: number };
         Returns: string;
       };
+      link_all_participants: {
+        Args: { p_user_id: string; p_github_user_id: number };
+        Returns: number;
+      };
       get_effective_config: {
         Args: { repo_id: string };
         Returns: {

@@ -29,6 +29,7 @@ import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
 import { emitSigninEvent } from '@/lib/observability/signin-events';
 
 const mockCreateRouteHandler = vi.mocked(createRouteHandlerSupabaseClient);
+const mockRpc = vi.fn().mockResolvedValue({ data: 0, error: null });
 const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
 const mockResolve = vi.mocked(resolveUserOrgsViaApp);
 const mockEmit = vi.mocked(emitSigninEvent);
@@ -50,7 +51,7 @@ describe('/auth/callback', () => {
     mockCreateRouteHandler.mockReturnValue({
       auth: { exchangeCodeForSession: mockExchangeCode },
     } as never);
-    mockCreateSecret.mockReturnValue({} as never);
+    mockCreateSecret.mockReturnValue({ rpc: mockRpc } as never);
   });
 
   it('redirects to /assessments on successful sign-in with matching orgs', async () => {
@@ -131,6 +132,40 @@ describe('/auth/callback', () => {
       user_id: 'user-123',
       matched_org_count: 0,
     }));
+  });
+
+  it('calls link_all_participants to bulk-link unlinked participant records', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockResolvedValue([{ org_id: 'org-1' }] as never);
+
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    await GET(request);
+
+    expect(mockRpc).toHaveBeenCalledWith('link_all_participants', {
+      p_user_id: 'user-123',
+      p_github_user_id: 42,
+    });
+  });
+
+  it('logs a warning when link_all_participants returns a Supabase error', async () => {
+    mockExchangeCode.mockResolvedValue(mockSession());
+    mockResolve.mockResolvedValue([{ org_id: 'org-1' }] as never);
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'DB failure' } });
+
+    const { logger } = await import('@/lib/logger');
+    const { NextRequest } = await import('next/server');
+    const request = new NextRequest('http://localhost/auth/callback?code=valid');
+    const { GET } = await import('@/app/auth/callback/route');
+    const response = await GET(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toContain('/assessments');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: { message: 'DB failure' } }),
+      'link_all_participants failed',
+    );
   });
 
   it('does not read session.provider_token', async () => {

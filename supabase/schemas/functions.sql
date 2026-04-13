@@ -79,6 +79,33 @@ BEGIN
 END;
 $$;
 
+-- link_all_participants: bulk-links all unlinked assessment_participants rows
+-- for a given user at login time. Resolves the chicken-and-egg problem where
+-- participants added by GitHub username cannot discover their assessments
+-- until visiting the direct link. Called from the auth callback.
+-- Issue: #206
+CREATE OR REPLACE FUNCTION link_all_participants(
+  p_user_id        uuid,
+  p_github_user_id bigint
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  UPDATE assessment_participants
+  SET user_id = p_user_id, updated_at = now()
+  WHERE github_user_id = p_github_user_id
+    AND user_id IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
 -- get_effective_config: resolves effective repository configuration by coalescing
 -- per-repo overrides with org-level defaults (section 3.4).
 -- Includes context_file_patterns (added in migration context_file_patterns, issue #45).

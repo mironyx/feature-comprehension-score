@@ -26,6 +26,10 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 4. Read any existing source files in the target directory.
 5. Understand the contract: inputs, outputs, types, error cases.
 
+### Step 3b: Pick the simplest approach
+
+Before writing any code, list 2–3 approaches in 1–2 sentences each. Pick the one that fixes the root cause with the least code. State why. Prefer fixing data at the source over adding complexity downstream (CLAUDE.md: "Simplicity first").
+
 ### Step 4: Implement with TDD
 
 Tests-first, grouped by acceptance criterion. Batch the test and its implementation in a single turn per criterion rather than running each test twice (once red, once green) — the literal Red-Green-Refactor cadence burns tokens on every round-trip without adding signal for LLM-driven work. The discipline remains: no implementation without a test written from the LLD spec, and every acceptance criterion must have covering tests before Step 5.
@@ -54,6 +58,8 @@ For each acceptance criterion in the LLD / issue:
 1. **Write the test(s) and the implementation together**, derived from the BDD spec. Keep the test first in the edit order and make sure it would fail without the implementation.
 2. Run `npx vitest run <test-file>` once. If it fails, diagnose and fix. If it passes, move on.
 3. **Refactor** if anything is obviously cleanup-worthy. Tests must stay green.
+
+For each criterion, include at least one error/edge case test — not just the happy path. If the code calls an external service or RPC, test what happens when it fails.
 
 Continue until all acceptance criteria are covered. One acceptance criterion per iteration, not one assertion per iteration.
 
