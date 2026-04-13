@@ -72,13 +72,25 @@ CREATE POLICY questions_select_participant ON assessment_questions
   FOR SELECT USING (is_assessment_participant(assessment_id));
 
 -- assessment_participants: org admins see all; users see only their own participant records.
+-- participants_select_own also matches by github_user_id (via user_organisations) when
+-- user_id is NULL — allows discovery before link_participant fires. Issue: #206
 ALTER TABLE assessment_participants ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY participants_select_admin ON assessment_participants
   FOR SELECT USING (is_org_admin(org_id));
 
 CREATE POLICY participants_select_own ON assessment_participants
-  FOR SELECT USING (user_id = auth.uid());
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR (
+      user_id IS NULL
+      AND github_user_id IN (
+        SELECT uo.github_user_id
+        FROM user_organisations uo
+        WHERE uo.user_id = auth.uid()
+      )
+    )
+  );
 
 CREATE POLICY participants_update_own ON assessment_participants
   FOR UPDATE USING (user_id = auth.uid());
