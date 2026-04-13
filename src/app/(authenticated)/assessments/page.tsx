@@ -12,6 +12,7 @@ import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
 import type { Database } from '@/lib/supabase/types';
 import { StatusBadge } from './assessment-status';
+import { PollingStatusBadge } from './polling-status-badge';
 import { RetryButton } from './retry-button';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
@@ -79,7 +80,10 @@ export default async function AssessmentsPage(
               <Link href={`/assessments/${a.id}`}>
                 {a.feature_name ?? `Assessment ${a.id}`}
               </Link>
-              {' '}<StatusBadge status={a.status} />
+              {' '}
+              {created === a.id && a.status === 'rubric_generation'
+                ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
+                : <StatusBadge status={a.status} />}
               {admin && a.status === 'rubric_failed' && (
                 <>{' '}<RetryButton assessmentId={a.id} /></>
               )}
