@@ -11,6 +11,8 @@ import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
 import type { Database } from '@/lib/supabase/types';
+import { PageHeader } from '@/components/ui/page-header';
+import { Card } from '@/components/ui/card';
 import { StatusBadge } from './assessment-status';
 import { PollingStatusBadge } from './polling-status-badge';
 import { RetryButton } from './retry-button';
@@ -64,33 +66,44 @@ export default async function AssessmentsPage(
   const assessments = (data ?? []) as PendingAssessment[];
   const admin = isOrgAdmin((membership ?? []) as MembershipRow[]);
 
+  const newAssessmentAction = admin ? (
+    <Link
+      href="/assessments/new"
+      className="inline-flex items-center justify-center rounded-sm text-label font-medium transition-colors cursor-pointer bg-accent text-background hover:bg-accent-hover h-8 px-2.5"
+    >
+      New Assessment
+    </Link>
+  ) : undefined;
+
   return (
-    <main>
+    <div className="space-y-section-gap">
       {created && (
-        <p role="status">Assessment created successfully.</p>
+        <p role="status" className="text-body text-accent">Assessment created successfully.</p>
       )}
-      <h1>My Assessments</h1>
-      {admin && <Link href="/assessments/new">New Assessment</Link>}
+      <PageHeader title="My Assessments" action={newAssessmentAction} />
       {assessments.length === 0 ? (
-        <p>No pending assessments.</p>
+        <p className="text-body text-text-secondary">No pending assessments.</p>
       ) : (
-        <ul>
+        <ul className="space-y-3">
           {assessments.map((a) => (
             <li key={a.id}>
-              <Link href={`/assessments/${a.id}`}>
-                {a.feature_name ?? `Assessment ${a.id}`}
-              </Link>
-              {' '}
-              {created === a.id && a.status === 'rubric_generation'
-                ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
-                : <StatusBadge status={a.status} />}
-              {admin && a.status === 'rubric_failed' && (
-                <>{' '}<RetryButton assessmentId={a.id} /></>
-              )}
+              <Card className="flex items-center justify-between">
+                <Link href={`/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
+                  {a.feature_name ?? `Assessment ${a.id}`}
+                </Link>
+                <div className="flex items-center gap-2">
+                  {created === a.id && a.status === 'rubric_generation'
+                    ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
+                    : <StatusBadge status={a.status} />}
+                  {admin && a.status === 'rubric_failed' && (
+                    <RetryButton assessmentId={a.id} />
+                  )}
+                </div>
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

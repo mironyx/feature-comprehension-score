@@ -6,6 +6,8 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import QuestionCard from '@/components/question-card';
 import type { AnswerResult, SubmitResponse } from '@/app/api/assessments/[id]/answers/route';
 import type { NaurLayer } from '@/lib/engine/llm/schemas';
@@ -98,7 +100,7 @@ async function postAnswers(
 
 function QuestionList({ questions, answers, relevanceResults, onChange }: QuestionListProps) {
   return (
-    <ol>
+    <ol className="space-y-4 list-none p-0">
       {questions.map(q => (
         <li key={q.id}>
           <QuestionCard
@@ -163,23 +165,25 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
   const repoName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
 
   return (
-    <main>
-      <header>
-        <span aria-label="Assessment type">{assessment.type.toUpperCase()}</span>
-        <h1>{assessment.feature_name ?? `PR #${assessment.pr_number}`}</h1>
-        <p>{repoName}</p>
+    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap">
+      <header className="space-y-2">
+        <Badge className="bg-surface-raised text-text-primary" aria-label="Assessment type">
+          {assessment.type.toUpperCase()}
+        </Badge>
+        <h1 className="text-heading-xl font-display">{assessment.feature_name ?? `PR #${assessment.pr_number}`}</h1>
+        <p className="text-body text-text-secondary">{repoName}</p>
       </header>
 
       {assessment.type === 'prcc' && (
-        <div role="note">
+        <div role="note" className="rounded-md border border-border bg-surface p-card-pad text-body text-text-secondary">
           <p>Complete your PR review before submitting your answers.</p>
         </div>
       )}
 
       {submitError && (
-        <div role="alert">
-          <p>{submitError}</p>
-          <button type="button" disabled={submitting} onClick={handleSubmit}>Retry</button>
+        <div role="alert" className="rounded-md border border-destructive bg-destructive-muted p-card-pad space-y-2">
+          <p className="text-body text-destructive">{submitError}</p>
+          <Button variant="secondary" size="sm" type="button" disabled={submitting} onClick={handleSubmit}>Retry</Button>
         </div>
       )}
 
@@ -190,13 +194,13 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
         onChange={handleChange}
       />
 
-      <button
+      <Button
         type="button"
         disabled={!ready || submitting}
         onClick={handleSubmit}
       >
         {submitting ? 'Submitting…' : submitLabel}
-      </button>
+      </Button>
     </main>
   );
 }

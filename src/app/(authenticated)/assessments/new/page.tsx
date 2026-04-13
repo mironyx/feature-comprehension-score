@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
+import { PageHeader } from '@/components/ui/page-header';
 import CreateAssessmentForm from './create-assessment-form';
 import type { Database } from '@/lib/supabase/types';
 
@@ -54,9 +55,9 @@ export default async function NewAssessmentPage() {
   if (!isAdmin) redirect('/assessments');
 
   return (
-    <main>
-      <h1>New Assessment</h1>
+    <div className="space-y-section-gap">
+      <PageHeader title="New Assessment" subtitle="Create an FCS assessment for your team" />
       <CreateAssessmentForm orgId={orgId} repositories={repos} />
-    </main>
+    </div>
   );
 }

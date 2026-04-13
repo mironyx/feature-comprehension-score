@@ -5,6 +5,8 @@
 
 import type { NaurLayer } from '@/lib/engine/llm/schemas';
 import type { AnswerResult } from '@/app/api/assessments/[id]/answers/route';
+import { Card } from './ui/card';
+import { Badge } from './ui/badge';
 import RelevanceWarning from './relevance-warning';
 
 export const NAUR_LABELS: Record<NaurLayer, string> = {
@@ -36,13 +38,15 @@ export default function QuestionCard({
 }: QuestionCardProps) {
   const isFlagged = relevanceResult !== undefined && !relevanceResult.is_relevant;
 
+  const inputClasses = 'w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary resize-y disabled:opacity-50';
+
   return (
-    <div aria-label={`Question ${questionNumber}`}>
-      <div>
-        <span>Q{questionNumber}.</span>
-        <span aria-label="Naur layer">{NAUR_LABELS[naurLayer]}</span>
+    <Card aria-label={`Question ${questionNumber}`} className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-label text-text-secondary">Q{questionNumber}.</span>
+        <Badge className="bg-surface-raised text-text-primary" aria-label="Naur layer">{NAUR_LABELS[naurLayer]}</Badge>
       </div>
-      <p>{questionText}</p>
+      <p className="text-body text-text-primary">{questionText}</p>
       {isFlagged && (
         <RelevanceWarning
           explanation={relevanceResult.explanation}
@@ -55,7 +59,9 @@ export default function QuestionCard({
         value={answer}
         disabled={locked}
         onChange={(e) => onChange(questionId, e.target.value)}
+        rows={4}
+        className={inputClasses}
       />
-    </div>
+    </Card>
   );
 }

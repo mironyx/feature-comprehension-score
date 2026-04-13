@@ -53,16 +53,23 @@ export default async function OrgSelectPage() {
   }
 
   return (
-    <main>
-      <h1>Select Organisation</h1>
-      <ul>
-        {userOrgs.map(({ membership, org }) => (
-          <li key={membership.org_id}>
-            <span>{org.github_org_name}</span>
-            <a href={`/api/org-select?orgId=${membership.org_id}`}>Select</a>
-          </li>
-        ))}
-      </ul>
+    <main className="flex min-h-screen items-center justify-center px-content-pad-sm">
+      <div className="w-full max-w-sm space-y-6">
+        <h1 className="text-heading-xl font-display text-center">Select Organisation</h1>
+        <ul className="space-y-3">
+          {userOrgs.map(({ membership, org }) => (
+            <li key={membership.org_id}>
+              <a
+                href={`/api/org-select?orgId=${membership.org_id}`}
+                className="flex items-center justify-between rounded-md border border-border bg-surface p-card-pad text-body text-text-primary hover:border-accent hover:text-accent transition-colors"
+              >
+                <span>{org.github_org_name}</span>
+                <span className="text-text-secondary">&rarr;</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
     </main>
   );
 }

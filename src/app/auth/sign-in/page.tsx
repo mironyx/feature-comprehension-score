@@ -14,10 +14,15 @@ export default async function SignInPage({ searchParams }: Props) {
   const errorMessage = error ? (ERROR_MESSAGES[error] ?? 'Sign-in failed.') : null;
 
   return (
-    <main>
-      <h1>Sign in to Feature Comprehension Score</h1>
-      {errorMessage && <p role="alert">{errorMessage}</p>}
-      <SignInButton />
+    <main className="flex min-h-screen items-center justify-center px-content-pad-sm">
+      <div className="w-full max-w-sm space-y-6 text-center">
+        <h1 className="text-heading-xl font-display">Sign in</h1>
+        <p className="text-body text-text-secondary">Feature Comprehension Score</p>
+        {errorMessage && (
+          <p role="alert" className="text-body text-destructive">{errorMessage}</p>
+        )}
+        <SignInButton />
+      </div>
     </main>
   );
 }
