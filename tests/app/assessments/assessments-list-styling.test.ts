@@ -17,8 +17,9 @@ describe('Assessments list page styling', () => {
       expect(src).toContain('PageHeader');
     });
 
-    it('then it uses Button for the new assessment link', () => {
-      expect(src).toContain('Button');
+    it('then the new assessment link uses button-style classes', () => {
+      expect(src).toContain('bg-accent');
+      expect(src).toContain('text-background');
     });
 
     it('then list items use Card styling', () => {

@@ -20,7 +20,7 @@ function src(relPath: string): string {
 const signInPage     = src('app/auth/sign-in/page.tsx');
 const signInButton   = src('app/auth/sign-in/SignInButton.tsx');
 const createForm     = src('app/(authenticated)/assessments/new/create-assessment-form.tsx');
-const newPage        = src('app/(authenticated)/assessments/new/page.tsx');
+const _newPage       = src('app/(authenticated)/assessments/new/page.tsx');
 const assessments    = src('app/(authenticated)/assessments/page.tsx');
 const retryButton    = src('app/(authenticated)/assessments/retry-button.tsx');
 const answeringForm  = src('app/assessments/[id]/answering-form.tsx');
