@@ -42,6 +42,11 @@ vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
   RetryButton: () => 'RetryButton',
 }));
 
+vi.mock('@/app/(authenticated)/assessments/polling-status-badge', () => ({
+  PollingStatusBadge: ({ assessmentId }: { assessmentId: string }) =>
+    `PollingStatusBadge:${assessmentId}`,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -168,6 +173,49 @@ describe('Assessments page', () => {
       const rendered = JSON.stringify(result);
 
       expect(rendered).toContain('assessmentId');
+    });
+
+    it('uses PollingStatusBadge for newly created rubric_generation assessment', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'new-assessment',
+            feature_name: 'New Feature',
+            status: 'rubric_generation',
+            created_at: '2026-01-01',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({ created: 'new-assessment' }),
+      });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('"initialStatus":"rubric_generation"');
+      expect(rendered).toContain('"assessmentId":"new-assessment"');
+    });
+
+    it('does not use PollingStatusBadge without created param', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'a1',
+            feature_name: 'Existing Feature',
+            status: 'rubric_generation',
+            created_at: '2026-01-01',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({}),
+      });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).not.toContain('"initialStatus"');
     });
 
     it('shows empty message when no assessments', async () => {
