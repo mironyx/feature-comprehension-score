@@ -6,7 +6,7 @@ test.describe('Sign-in page', () => {
   }) => {
     await page.goto('/auth/sign-in');
     await expect(
-      page.getByRole('heading', { name: 'Sign in to Feature Comprehension Score' }),
+      page.getByRole('heading', { name: 'Sign in' }),
     ).toBeVisible();
   });
 });

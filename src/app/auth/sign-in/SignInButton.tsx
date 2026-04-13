@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
 
 export function SignInButton() {
   const [loading, setLoading] = useState(false);
@@ -25,11 +26,11 @@ export function SignInButton() {
   }
 
   return (
-    <>
-      {error && <p role="alert">{error}</p>}
-      <button onClick={handleSignIn} disabled={loading} type="button">
+    <div className="space-y-3">
+      {error && <p role="alert" className="text-body text-destructive">{error}</p>}
+      <Button onClick={handleSignIn} disabled={loading} type="button" className="w-full">
         {loading ? 'Signing in…' : 'Sign in with GitHub'}
-      </button>
-    </>
+      </Button>
+    </div>
   );
 }

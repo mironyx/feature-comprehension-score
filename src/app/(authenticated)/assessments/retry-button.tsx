@@ -1,9 +1,10 @@
 // RetryButton — client component that calls the retry-rubric API endpoint.
-// Issue: #132
+// Issue: #132, #208
 'use client';
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 export function RetryButton({ assessmentId }: { assessmentId: string }) {
   const router = useRouter();
@@ -31,11 +32,11 @@ export function RetryButton({ assessmentId }: { assessmentId: string }) {
   }
 
   return (
-    <>
-      <button onClick={handleRetry} disabled={loading}>
+    <span className="inline-flex items-center gap-2">
+      <Button variant="secondary" size="sm" onClick={handleRetry} disabled={loading}>
         {loading ? 'Retrying...' : 'Retry'}
-      </button>
-      {error && <span role="alert" style={{ color: 'red' }}>{error}</span>}
-    </>
+      </Button>
+      {error && <span role="alert" className="text-caption text-destructive">{error}</span>}
+    </span>
   );
 }

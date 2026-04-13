@@ -11,10 +11,10 @@ export default function RelevanceWarning({ explanation, attemptsRemaining }: Rel
   const attemptText = attemptsRemaining === 1 ? '1 attempt remaining' : `${attemptsRemaining} attempts remaining`;
 
   return (
-    <div role="alert" aria-label="Relevance warning">
-      <p>Your answer was flagged as not relevant to the question.</p>
-      {explanation && <p>{explanation}</p>}
-      <p>{attemptText}</p>
+    <div role="alert" aria-label="Relevance warning" className="rounded-md border border-destructive bg-destructive-muted p-card-pad space-y-1">
+      <p className="text-body text-destructive font-medium">Your answer was flagged as not relevant to the question.</p>
+      {explanation && <p className="text-body text-text-secondary">{explanation}</p>}
+      <p className="text-caption text-text-secondary">{attemptText}</p>
     </div>
   );
 }

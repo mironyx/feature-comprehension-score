@@ -2,10 +2,12 @@
 
 // CreateAssessmentForm — client component for admin to create an FCS assessment.
 // Submits to POST /api/fcs and redirects to /assessments on success.
-// Issue: #121
+// Issue: #121, #208
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 
 interface Repository {
   id: string;
@@ -135,64 +137,84 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
     [form, orgId, router],
   );
 
+  const inputClasses = 'w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary';
+
   return (
-    <form onSubmit={handleSubmit} noValidate>
-      {errors.length > 0 && (
-        <ul role="alert">
-          {errors.map((e) => <li key={e}>{e}</li>)}
-        </ul>
-      )}
+    <Card>
+      <form onSubmit={handleSubmit} noValidate className="space-y-section-gap">
+        {errors.length > 0 && (
+          <ul role="alert" className="text-destructive text-body space-y-1">
+            {errors.map((e) => <li key={e}>{e}</li>)}
+          </ul>
+        )}
 
-      <label htmlFor="featureName">Feature name *</label>
-      <input
-        id="featureName"
-        type="text"
-        required
-        value={form.featureName}
-        onChange={handleChange('featureName')}
-      />
+        <div className="space-y-2">
+          <label htmlFor="featureName" className="text-label text-text-secondary block">Feature name *</label>
+          <input
+            id="featureName"
+            type="text"
+            required
+            value={form.featureName}
+            onChange={handleChange('featureName')}
+            className={inputClasses}
+          />
+        </div>
 
-      <label htmlFor="featureDescription">Feature description</label>
-      <textarea
-        id="featureDescription"
-        value={form.featureDescription}
-        onChange={handleChange('featureDescription')}
-      />
+        <div className="space-y-2">
+          <label htmlFor="featureDescription" className="text-label text-text-secondary block">Feature description</label>
+          <textarea
+            id="featureDescription"
+            value={form.featureDescription}
+            onChange={handleChange('featureDescription')}
+            rows={3}
+            className={`${inputClasses} resize-y`}
+          />
+        </div>
 
-      <label htmlFor="repositoryId">Repository *</label>
-      <select
-        id="repositoryId"
-        required
-        value={form.repositoryId}
-        onChange={handleChange('repositoryId')}
-      >
-        <option value="">Select a repository…</option>
-        {repositories.map((repo) => (
-          <option key={repo.id} value={repo.id}>{repo.github_repo_name}</option>
-        ))}
-      </select>
+        <div className="space-y-2">
+          <label htmlFor="repositoryId" className="text-label text-text-secondary block">Repository *</label>
+          <select
+            id="repositoryId"
+            required
+            value={form.repositoryId}
+            onChange={handleChange('repositoryId')}
+            className={inputClasses}
+          >
+            <option value="">Select a repository…</option>
+            {repositories.map((repo) => (
+              <option key={repo.id} value={repo.id}>{repo.github_repo_name}</option>
+            ))}
+          </select>
+        </div>
 
-      <label htmlFor="prNumbers">Merged PR numbers * (comma-separated)</label>
-      <input
-        id="prNumbers"
-        type="text"
-        placeholder="e.g. 42, 43, 44"
-        value={form.prNumbers}
-        onChange={handleChange('prNumbers')}
-      />
+        <div className="space-y-2">
+          <label htmlFor="prNumbers" className="text-label text-text-secondary block">Merged PR numbers * (comma-separated)</label>
+          <input
+            id="prNumbers"
+            type="text"
+            placeholder="e.g. 42, 43, 44"
+            value={form.prNumbers}
+            onChange={handleChange('prNumbers')}
+            className={inputClasses}
+          />
+        </div>
 
-      <label htmlFor="participants">Participant GitHub usernames * (comma-separated)</label>
-      <input
-        id="participants"
-        type="text"
-        placeholder="e.g. alice, bob"
-        value={form.participants}
-        onChange={handleChange('participants')}
-      />
+        <div className="space-y-2">
+          <label htmlFor="participants" className="text-label text-text-secondary block">Participant GitHub usernames * (comma-separated)</label>
+          <input
+            id="participants"
+            type="text"
+            placeholder="e.g. alice, bob"
+            value={form.participants}
+            onChange={handleChange('participants')}
+            className={inputClasses}
+          />
+        </div>
 
-      <button type="submit" disabled={submitting}>
-        {submitting ? 'Creating…' : 'Create Assessment'}
-      </button>
-    </form>
+        <Button type="submit" disabled={submitting}>
+          {submitting ? 'Creating…' : 'Create Assessment'}
+        </Button>
+      </form>
+    </Card>
   );
 }

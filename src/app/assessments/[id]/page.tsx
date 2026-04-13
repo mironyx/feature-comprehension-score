@@ -41,20 +41,20 @@ type AnsweringQuestion = Pick<QuestionRow, 'id' | 'question_number' | 'naur_laye
 
 function AccessDeniedPage() {
   return (
-    <main>
-      <h1>Access Denied</h1>
-      <p>You are not a participant on this assessment.</p>
-      <Link href="/assessments">Back to assessments</Link>
+    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap text-center">
+      <h1 className="text-heading-xl font-display">Access Denied</h1>
+      <p className="text-body text-text-secondary">You are not a participant on this assessment.</p>
+      <Link href="/assessments" className="text-body text-accent hover:text-accent-hover">Back to assessments</Link>
     </main>
   );
 }
 
 function AlreadySubmittedPage({ assessmentId }: { readonly assessmentId: string }) {
   return (
-    <main>
-      <h1>Already Submitted</h1>
-      <p>You have already submitted your answers for this assessment.</p>
-      <Link href={`/assessments/${assessmentId}/submitted`}>View confirmation</Link>
+    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap text-center">
+      <h1 className="text-heading-xl font-display">Already Submitted</h1>
+      <p className="text-body text-text-secondary">You have already submitted your answers for this assessment.</p>
+      <Link href={`/assessments/${assessmentId}/submitted`} className="text-body text-accent hover:text-accent-hover">View confirmation</Link>
     </main>
   );
 }

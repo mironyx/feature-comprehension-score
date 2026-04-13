@@ -49,14 +49,14 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
   const completed = participants.filter(p => p.status === 'submitted').length;
 
   return (
-    <main>
-      <h1>Answers Submitted</h1>
-      <p>Thank you. Your answers have been recorded.</p>
-      {assessment.feature_name && <p>Feature: {assessment.feature_name}</p>}
-      <p>
+    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap text-center">
+      <h1 className="text-heading-xl font-display text-success">Answers Submitted</h1>
+      <p className="text-body text-text-primary">Thank you. Your answers have been recorded.</p>
+      {assessment.feature_name && <p className="text-body text-text-secondary">Feature: {assessment.feature_name}</p>}
+      <p className="text-body text-text-secondary">
         Participation: {completed} of {total} complete
       </p>
-      <Link href="/assessments">Back to my assessments</Link>
+      <Link href="/assessments" className="text-body text-accent hover:text-accent-hover">Back to my assessments</Link>
     </main>
   );
 }
