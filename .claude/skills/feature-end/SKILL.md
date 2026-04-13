@@ -308,7 +308,7 @@ Summarise what was done:
 - PR merged (link)
 - Issue closed
 - Now on branch `<base-branch>`, up to date with remote
-- Suggested next item: run `gh issue list --label L5-implementation --state open --limit 3` and print the results. This is the only additional query allowed here.
+- Suggested next item: run `gh issue list --label kind:task --state open --limit 3` and print the results. This is the only additional query allowed here.
 
 ### Step 7.5: Check branch protection
 

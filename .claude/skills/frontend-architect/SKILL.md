@@ -209,18 +209,26 @@ Each bootstrap task should become a GitHub issue.
 
 ### Step 8: Create bootstrap GitHub issues
 
-For each bootstrap task in Step 7, check if an issue already exists. If not, create one:
+For each bootstrap task in Step 7, create an issue using the shared script (handles dedup automatically):
 
 ```bash
-gh issue create \
-  --title "chore: [task title]" \
-  --body "Bootstrap task for the frontend design system.\n\nDesign reference: docs/design/frontend-system.md\n\n## What\n[description]\n\n## Acceptance criteria\n- [ ] [criterion]"
-```
+BODY=$(cat <<'EOF'
+## Design reference
+docs/design/frontend-system.md
 
-Add each new issue to the project board:
+## What
+[description of the bootstrap task]
 
-```bash
-bash scripts/gh-project-status.sh add <issue-number> todo
+## Acceptance criteria
+- [ ] [criterion]
+EOF
+)
+RESULT=$(./scripts/gh-create-issue.sh \
+  --title "<task title>" \
+  --body "$BODY" \
+  --labels "area:frontend,kind:task" \
+  --add-to-board)
+# RESULT is "created:<number>" or "exists:<number>"
 ```
 
 ### Step 9: Commit the design system doc

@@ -41,8 +41,8 @@ off cleanly to `/architect epic <n>`.
   seam (independently testable, non-overlapping files).
 - Each task must name its design artefact need: new LLD, update to existing
   LLD, new ADR, or "covered by existing doc — BDD specs only".
-- L1–L5 labels describe design level, not hierarchy — tasks are typically
-  `L5-implementation`.
+- L1–L5 labels describe design level, not hierarchy — tasks are labelled
+  `kind:task`.
 
 ## Plan Template
 

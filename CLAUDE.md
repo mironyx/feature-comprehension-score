@@ -34,7 +34,7 @@ For the full lifecycle, stages, human gates, artefact map, skills index, and ADR
 Work is organised into **epics** and **tasks** (see [ADR-0018](docs/adr/0018-epic-task-organisation.md)):
 
 - **Epic** — a container that groups related tasks into a deliverable feature. GitHub issue with the `epic` label. Body contains: scope, success criteria, and a checklist linking child task issues.
-- **Task** — a single unit of implementation work. GitHub issue (typically `L5-implementation`). References its parent epic in the body.
+- **Task** — a single unit of implementation work. GitHub issue (labelled `kind:task`). References its parent epic in the body.
 
 Flow: Epic created → tasks broken out as separate issues → tasks added to board → `/feature` implements one task at a time.
 
@@ -46,7 +46,9 @@ Flow: Epic created → tasks broken out as separate issues → tasks added to bo
 - The main HLD (`docs/design/v1-design.md`) stays as the top-level design document. Epics reference sections of it.
 - Existing phase-based LLDs (`lld-phase-*`) are not retroactively renamed.
 
-### Project Board IDs (stable — do not re-query)
+### Project Board IDs
+
+Stored in [.github/project.env](.github/project.env) — read by `gh-project-status.sh` and `gh-create-issue.sh` at runtime. Do not hardcode in scripts.
 
 | Entity       | ID                               |
 | ------------ | -------------------------------- |
@@ -58,12 +60,21 @@ Flow: Epic created → tasks broken out as separate issues → tasks added to bo
 | In Progress  | `3317982f`                       |
 | Done         | `8c0ec0d7`                       |
 
-**Status helper** — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh):
+**Status helper** — see [scripts/gh-project-status.sh](scripts/gh-project-status.sh) (reads config from `.github/project.env`):
 
 - **New issue** (add to board + set status in one step): `./scripts/gh-project-status.sh add <issue-number> [status]` (default status: `todo`)
 - **Existing board item** (update status only): `./scripts/gh-project-status.sh <issue-number> <status>`
+- **Remove from board**: `./scripts/gh-project-status.sh remove <issue-number>`
 
 Status values: `todo` | `blocked` | `"in progress"` | `done`
+
+**Issue creation helper** — see [scripts/gh-create-issue.sh](scripts/gh-create-issue.sh):
+
+- Automatic dedup (exact title match against open issues)
+- Consistent output: `created:<number>` or `exists:<number>`
+- Optional `--add-to-board` flag for board integration
+- Optional `--labels` for standardised label application
+- Used by `/kickoff`, `/architect`, and `/frontend-architect` skills
 
 ## Key References
 

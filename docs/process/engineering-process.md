@@ -271,7 +271,7 @@ Where every kind of artefact lives and which skill owns it.
 | ADRs                    | `docs/adr/NNNN-*.md`                        | `/create-adr`, `/kickoff`  | any   |
 | Implementation plan     | `docs/plans/YYYY-MM-DD-*.md`                | `/kickoff`                 | —     |
 | Epic issues             | GitHub Issues (`epic` label)                | `/kickoff`                 | —     |
-| Task issues             | GitHub Issues (`L5-implementation`)         | `/architect`, `/kickoff`   | —     |
+| Task issues             | GitHub Issues (`kind:task`)             | `/architect`, `/kickoff`   | —     |
 | LLDs                    | `docs/design/lld-<epic>-<task>.md`          | `/architect`, `/lld`       | 4     |
 | Code                    | `src/`                                      | `/feature`                 | 5     |
 | Tests                   | `src/**/*.test.ts`, `tests/`                | `/feature`                 | 5     |

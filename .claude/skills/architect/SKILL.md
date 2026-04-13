@@ -12,130 +12,27 @@ Reads a plan file and produces the design artefacts needed for each item, so `/f
 
 **Usage:**
 
-- `/architect` — reads the most recent plan in `docs/plans/`
-- `/architect docs/plans/2026-03-29-mvp-phase2-plan.md` — reads a specific plan
-- `/architect epic <issue-number>` — reads an epic issue, produces per-task LLDs (see Epic mode below)
+- `/architect` — reads the most recent plan in `docs/plans/`, processes all epics
+- `/architect docs/plans/2026-03-29-mvp-phase2-plan.md` — reads a specific plan, processes all epics
+- `/architect --epics E2,E3` — processes only epics in Phases 2 and 3
+- `/architect --epics E2.1,E2.3,E3.1` — processes only the listed epics
+- `/architect docs/plans/plan.md --epics E4` — specific plan, only Phase 4 epics
 - `/architect review <issue-number>` — reviews existing design for an issue (see Review mode below)
 
-## Epic Mode
+### Epic filter syntax
 
-If `$ARGUMENTS` starts with `epic`, extract the issue number and run the epic design process instead of the plan-based process.
+The `--epics` flag accepts a comma-separated list of epic identifiers. Two forms:
 
-**Purpose:** Read an epic issue, break it into tasks (if not already broken down), and produce one LLD per task.
+- **Phase-level:** `E2` matches all epics in Phase 2 (E2.1, E2.2, E2.3, etc.)
+- **Individual:** `E2.1` matches only that specific epic
 
-### Epic Step 1: Read the epic
+Examples:
+- `--epics E2` → E2.1, E2.2, E2.3
+- `--epics E2,E3` → all epics in Phases 2 and 3
+- `--epics E2.1,E3.3` → only E2.1 and E3.3
+- `--epics E2,E3.1` → all of Phase 2 plus E3.1
 
-Run `gh issue view <number>` to get the epic body. Verify it has the `epic` label. Extract:
-
-- **Scope** — what the epic delivers
-- **Success criteria** — how to know it is done
-- **Task checklist** — child issue links (may be empty if tasks have not been created yet)
-
-Read all referenced design docs, ADRs, requirements, and relevant source files.
-
-### Epic Step 2: Break into tasks (if needed)
-
-If the epic body already has a task checklist with linked issues, use those. Otherwise:
-
-1. Analyse the epic scope and propose a task breakdown.
-2. Each task should be implementable in a single `/feature` cycle (< 200 lines).
-3. Present the proposed tasks with dependency order and **wait for user confirmation**.
-4. After confirmation, create the task issues:
-   ```bash
-   gh issue create --title "<task title>" --body "$(cat <<'EOF'
-   ## Parent epic
-   #<epic-number>
-
-   ## Design reference
-   docs/design/lld-<epic-slug>-<task-slug>.md
-
-   ## Acceptance criteria
-   - [ ] ...
-
-   ## BDD specs
-   ```
-   describe('...')
-     it('...')
-   ```
-   EOF
-   )" --label L5-implementation
-   ```
-5. Add each task to the project board: `./scripts/gh-project-status.sh add <task-number> todo`
-6. Update the epic body with the task checklist linking all created issues.
-
-### Epic Step 3: Produce LLDs
-
-For each task, produce an LLD following the template from `/lld`. File naming:
-
-```
-docs/design/lld-<epic-slug>-<task-slug>.md
-```
-
-Each LLD is a standalone file (not a section in a phase file). Include:
-
-- Document control with parent epic reference
-- Layers (DB / BE / FE) as applicable
-- HLD coverage assessment — reference, do not duplicate
-- Implementation detail: file paths, internal types, function signatures
-- Internal decomposition for API routes (mandatory per existing guidelines)
-- BDD specs and acceptance criteria
-- Single task at the bottom (the task this LLD covers)
-
-Commit each LLD individually:
-
-```bash
-git add docs/design/lld-<epic-slug>-<task-slug>.md
-git commit -m "docs: LLD for #<task-issue> — <summary>"
-```
-
-### Epic Step 4: Execution order
-
-After all LLDs are produced, create a single execution order summary for the epic. This lives in the epic issue body (appended at the end) and makes parallelism explicit for `/feature-team`.
-
-1. **Build the dependency DAG** from each task's `Depends on` field.
-2. **Assign execution waves** — tasks with no dependencies go in Wave 1; tasks whose dependencies are all in Wave N go in Wave N+1. Tasks in the same wave must not modify the same files.
-3. **Produce both artefacts:**
-
-```markdown
-## Execution Order
-
-### Dependency DAG
-
-` ` `mermaid
-graph LR
-  T1[#<issue>: <title>] --> T3[#<issue>: <title>]
-  T2[#<issue>: <title>] --> T3
-` ` `
-
-### Execution Waves
-
-| Wave | Tasks | Blocked by | Notes |
-|------|-------|------------|-------|
-| 1 | #N, #M | — | Parallelisable |
-| 2 | #P | Wave 1 (#N) | |
-```
-
-4. Update the epic issue body with this section:
-```bash
-gh issue edit <epic-number> --body "$(cat <<'EOF'
-[existing epic body]
-
-[execution order section]
-EOF
-)"
-```
-
-### Epic Step 5: Report
-
-Summarise:
-
-- Epic issue number and scope
-- Tasks created (or existing) with their issue numbers
-- LLD files produced
-- Execution waves (which tasks can run in parallel)
-- Any open questions or ambiguities
-
-**Stop here.** The user reviews all artefacts before implementation begins.
+When `--epics` is omitted, all epics in the plan are processed.
 
 ---
 
@@ -217,21 +114,28 @@ For each item in the plan, determine the artefact type:
 
 Execute these steps sequentially.
 
-### Step 1: Read the plan and check existing state
+### Step 1: Read the plan, parse epic filter, and check existing state
 
-If `$ARGUMENTS` contains a file path, use that. Otherwise find the most recent `docs/plans/*.md` file by modification date.
+**Parse arguments.** Scan `$ARGUMENTS` for:
 
-Read the plan file fully. Extract the list of items with their priorities, dependencies, and design needs.
+1. **A file path** — if present, use it as the plan file. Otherwise find the most recent `docs/plans/*.md` file by modification date.
+2. **`--epics` flag** — if present, extract the comma-separated list of epic identifiers. Parse each:
+   - Phase-level (e.g. `E2`) — expand to all epics matching `E2.*` in the plan.
+   - Individual (e.g. `E2.1`) — match that exact epic.
+   - Store the resolved set of epic identifiers (e.g. `{E2.1, E2.2, E2.3, E3.1}`).
+3. If `--epics` is not provided, all epics in the plan are in scope.
+
+**Read the plan file fully.** Extract the list of epics with their priorities, dependencies, and design needs. **Filter to only the in-scope epics.** Report which epics are in scope and which are being skipped.
 
 **Before creating anything**, check what already exists:
 
-1. **Issues:** Run `gh issue list --state open --limit 50` to see all open issues. Do not create issues that already exist.
+1. **Issues:** Run `gh issue list --state open --limit 100` to see all open issues. Do not create issues that already exist.
 2. **Design docs:** Check `docs/design/`, `docs/adr/`, and `docs/requirements/` for existing coverage of each item.
 3. **Source of truth rule:** Design detail must live in version-controlled repo docs (`docs/design/`, `docs/adr/`, `docs/requirements/`), not only in GitHub issue bodies. Issue bodies should reference repo docs, not replace them. If an item has detail only in an issue body, it needs a repo doc artefact (LLD section, design doc update, or requirements update).
 
 ### Step 2: Analyse and present overview
 
-For each item, determine:
+For each in-scope epic, determine:
 
 1. **Artefact type** — which row in the decision logic table applies.
 2. **Input sources** — what files, issues, or design docs to read.
@@ -241,7 +145,7 @@ For each item, determine:
 Present a summary table to the user:
 
 ```
-| # | Item | Artefact type | Output path | Depends on | Split? |
+| # | Epic | Artefact type | Output path | Depends on | Split? |
 |---|------|---------------|-------------|------------|--------|
 ```
 
@@ -260,7 +164,7 @@ Include a preliminary execution waves proposal below the table:
 
 ### Step 2b: Decomposition assessment
 
-For each item, assess whether it should be split into sub-issues. The bar is high — splitting has overhead (extra issues, PRs, dependency tracking) and should only happen when there is clear rational.
+For each epic, assess whether it should be split into multiple task issues. The bar is high — splitting has overhead (extra issues, PRs, dependency tracking) and should only happen when there is clear rationale.
 
 **Split if and only if both conditions hold:**
 
@@ -269,11 +173,11 @@ For each item, assess whether it should be split into sub-issues. The bar is hig
 
 If only one condition holds (large but no clean seam, or clean seam but small), do **not** split.
 
-When a split is warranted, propose the sub-issues with explicit dependency order (A completes → B starts) and note which files each sub-issue touches. Sub-issues that do not share files and have no dependency can be assigned to the same execution wave for parallel implementation. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
+When a split is warranted, propose the task issues with explicit dependency order (A completes → B starts) and note which files each task touches. Tasks that do not share files and have no dependency can be assigned to the same execution wave for parallel implementation. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
 
 ### Step 3: Read all input sources
 
-For each item, read:
+For each in-scope epic, read:
 
 - Referenced GitHub issues: `gh issue view <number>`
 - Referenced design docs in `docs/design/`
@@ -285,18 +189,50 @@ Read broadly — understanding the full context prevents design artefacts that c
 
 ### Step 4: Produce artefacts
 
-Process items in the order listed in the plan. For each item:
+Process epics in the order listed in the plan. For each epic:
+
+#### Task issues (if decomposition was approved)
+
+Create task issues for any approved splits using the shared creation script:
+
+```bash
+BODY=$(cat <<'EOF'
+## Parent epic
+#<epic-number>
+
+## Design reference
+docs/design/lld-<epic-slug>.md
+
+## Acceptance criteria
+- [ ] ...
+
+## BDD specs
+```
+describe('...')
+  it('...')
+```
+EOF
+)
+RESULT=$(./scripts/gh-create-issue.sh \
+  --title "<task title>" \
+  --body "$BODY" \
+  --labels "<phase-label>,<area-label>,kind:task" \
+  --add-to-board)
+# RESULT is "created:<number>" or "exists:<number>"
+```
+
+Update the epic body with the task checklist linking all created issues.
 
 #### ADR (cross-cutting decision)
 
 Use `/create-adr` to produce the ADR. Provide the context, options, and recommended decision based on what the plan says and what you read in Step 3.
 
-#### LLD section (implementation item with contracts)
+#### LLD (implementation item with contracts)
 
 Follow the LLD template from `/lld` (Part A + Part B structure):
 
 **Part A (human-reviewable):**
-- Purpose — what this section delivers
+- Purpose — what this epic delivers
 - Behavioural flows — mermaid sequence diagrams for multi-component interactions
 - Structural overview — mermaid class/module diagram when introducing or modifying module boundaries
 - Invariants — hard constraints with verification methods, collected in a table
@@ -315,11 +251,9 @@ Follow the LLD template from `/lld` (Part A + Part B structure):
 - Write BDD specs and acceptance criteria
 - Append tasks sized for single `/feature` cycles (< 200 lines)
 
-**File naming:**
-- If the item belongs to an epic: `docs/design/lld-<epic-slug>-<task-slug>.md` (one file per task).
-- Legacy/cross-cutting items without an epic: `docs/design/lld-phase-<N>-<short-name>.md` (one file per phase).
+**File naming:** `docs/design/lld-<epic-slug>.md` — one LLD per epic. The `<epic-slug>` is derived from the epic identifier (e.g. `e21` for E2.1, `e1` for E1).
 
-If the file exists, add or update sections. If not, create it.
+If the file exists, update it. If not, create it.
 
 #### Design doc update
 
@@ -327,13 +261,13 @@ Edit the existing design doc directly. Add a change log entry at the top noting 
 
 #### Enriched issue body
 
-Update the GitHub issue with:
+Update the GitHub issue (epic or task) with:
 
-- **Root cause** (for bugs)
 - **Fix approach** — specific files and functions to change
 - **Affected files** — paths with line numbers where relevant
 - **Acceptance criteria** — concrete, testable
 - **BDD specs** — `describe`/`it` blocks the `/feature` skill can use directly
+- **Design reference** — path to the LLD file
 
 ```bash
 gh issue edit <number> --body "$(cat <<'EOF'
@@ -355,9 +289,10 @@ One commit per item for granular review. Do not batch.
 
 ### Step 6: Report
 
-After all items are processed, summarise:
+After all in-scope epics are processed, summarise:
 
-- What was produced (table of items and their artefacts)
+- **Scope** — which epics were processed (and which were filtered out)
+- What was produced (table of epics and their artefacts)
 - **Execution waves** — final wave assignments showing which items can be implemented in parallel by `/feature-team`
 - Any items skipped and why
 - Any open questions or ambiguities found during design
@@ -376,3 +311,5 @@ After all items are processed, summarise:
 - **Repo docs are source of truth.** GitHub issue bodies are convenient but not version-controlled. Every item that `/feature` will implement must have its design detail (fix approach, BDD specs, acceptance criteria) traceable to a file in `docs/`. Issue bodies reference these docs — they do not replace them.
 - **Check before creating.** Always check for existing issues and design docs before creating new ones. Duplicate artefacts cause confusion.
 - **API route items always get internal decomposition.** If a plan item involves an API route, the LLD section must include an explicit internal decomposition (controller/service split with `createApiContext` + `ApiContext` injection). Without this, `/feature` agents miss the established pattern and produce routes that call auth helpers and infrastructure factories directly. See `src/lib/api/context.ts` for the composition root and any existing `service.ts` file under `src/app/api/` for the pattern.
+- **MCP tool handlers stay thin.** Tool handlers should parse inputs, delegate to a service function, and return. Business logic, store calls, and embedding work belong in services or store wrappers — not in the handler body. The LLD for any new tool must name the handler, the service function it delegates to, and the store/embedding boundaries it crosses.
+- **One LLD per epic.** Each epic gets a single LLD file (`lld-<epic-slug>.md`). Tasks within the epic are sections of that LLD, not separate files.

@@ -26,7 +26,7 @@ Execute these steps sequentially. Do not skip steps. Do not ask for confirmation
 
 - If `$ARGUMENTS` starts with `epic <N>`: read epic issue #N with `gh issue view <N>`. Parse the task checklist from the body. Pick the first unchecked task issue number. If all tasks are checked or no tasks exist, stop: "Epic #N has no remaining tasks."
 - If `$ARGUMENTS` contains an issue number (not prefixed with `epic`): use that issue directly.
-- If no arguments: run `gh issue list --label L5-implementation --state open --limit 1` and use the first result.
+- If no arguments: run `gh issue list --label kind:task --state open --limit 1` and use the first result.
 
 **Guard:** Check whether the selected issue has the `epic` label (`gh issue view <number> --json labels`). If it does, stop: "Issue #N is an epic. Use `/feature epic <N>` to pick a task within it, or `/feature <task-number>` for a specific task."
 
@@ -68,7 +68,7 @@ This covers: read design → TDD → full verification → silent-swallow check 
 
 **Pause and report** if:
 
-- Issue not found on the board or has no L5-implementation label
+- Issue not found on the board or has no kind:task label
 - Issue lacks a design reference or acceptance criteria (caught in Step 1 validation)
 
 For all other blockers (test failures, type errors, design mismatches, missing dependencies), see the blocker policy in `/feature-core`.

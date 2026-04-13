@@ -114,7 +114,7 @@ Summarise what was done:
 - Now on branch `<base-branch>`, up to date with remote
 - Suggested next items:
   ```powershell
-  gh issue list --label L5-implementation --state open --limit 3
+  gh issue list --label kind:task --state open --limit 3
   ```
 
 ## Blocker policy

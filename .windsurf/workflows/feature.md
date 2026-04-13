@@ -23,7 +23,7 @@ Execute these steps sequentially. Do not skip steps. Do not ask for confirmation
 If an issue number was provided in the user's message, use that. Otherwise:
 
 ```powershell
-gh issue list --label L5-implementation --state open --limit 1
+gh issue list --label kind:task --state open --limit 1
 ```
 
 Read the issue body:
