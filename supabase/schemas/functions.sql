@@ -35,9 +35,7 @@ AS $$
 $$;
 
 -- is_assessment_participant: checks whether the current user is an active participant
--- on a given assessment. Matches by user_id when linked, or by github_user_id
--- (via user_organisations) when user_id is still NULL (pre-link_participant).
--- Issue: #206
+-- on a given assessment.
 CREATE OR REPLACE FUNCTION is_assessment_participant(check_assessment_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -47,20 +45,10 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM assessment_participants ap
-    WHERE ap.assessment_id = check_assessment_id
-      AND ap.status != 'removed'
-      AND (
-        ap.user_id = auth.uid()
-        OR (
-          ap.user_id IS NULL
-          AND ap.github_user_id IN (
-            SELECT uo.github_user_id
-            FROM user_organisations uo
-            WHERE uo.user_id = auth.uid()
-          )
-        )
-      )
+    FROM assessment_participants
+    WHERE assessment_id = check_assessment_id
+      AND user_id = auth.uid()
+      AND status != 'removed'
   )
 $$;
 
