@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft — Complete |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-14 |
 | Last updated | 2026-04-14 |
@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-04-14 | LS / Claude | Initial draft — structure |
 | 0.2 | 2026-04-14 | LS / Claude | Acceptance criteria for all stories, resolved OQ-3 |
+| 1.0 | 2026-04-14 | LS / Claude | Finalised — all open questions resolved, testability validated |
 
 ---
 
@@ -129,7 +130,7 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 - Given the `assessments` table, then it has a `config_comprehension_depth` column of type `text`, not null, default `'conceptual'`, with a check constraint `IN ('conceptual', 'detailed')`.
 - Given an assessment is created, then the selected depth is stored in `config_comprehension_depth` as part of the config snapshot.
 - Given an existing assessment created before this feature, then its `config_comprehension_depth` is `'conceptual'` (the default).
-- Given a PRCC assessment (webhook-triggered, not manually created), then it uses the repository-level default depth. The `repository_configs` table gains a `default_comprehension_depth` column with the same type and default.
+- Given a PRCC assessment (webhook-triggered, not manually created), then it defaults to `'conceptual'` depth.
 
 **Notes:** Depth is captured at creation time and immutable — consistent with existing config snapshot pattern (`config_enforcement_mode`, `config_score_threshold`, etc.).
 
@@ -209,12 +210,14 @@ Existing assessments created before these features must continue to render and s
 
 | # | Question | Context | Options | Impact |
 |---|----------|---------|---------|--------|
-| 1 | Should comprehension depth be configurable at org level (default) or only per-assessment? | Issue #215 describes it as per-assessment. An org-level default would reduce friction. | A) Per-assessment only. B) Org-level default + per-assessment override. | If B, needs an additional column on `organisations` or `repository_configs`. |
-| 2 | Should hints be visible on the results page alongside reference answers? | Hints add context to how participants interpreted the question. | A) Show hints only during answering. B) Show hints on results too. | Minor UI change but affects results page layout. |
+| 1 | ~~Should comprehension depth be configurable at org level (default) or only per-assessment?~~ | Resolved: per-assessment only. Assessment creation form defaults to Conceptual (Story 2.1 AC1). Org-level default is an additive change if needed later. | Decided: A) Per-assessment only. | No additional schema needed. |
+| 2 | ~~Should hints be visible on the results page alongside reference answers?~~ | Resolved: Yes — hints on results page give context for score interpretation. | Decided: B) Show hints on results too. | Already covered by Story 1.3 AC4. |
 | 3 | ~~Does comprehension depth affect hint wording?~~ | Resolved: Yes — Story 2.2 AC specifies hints are depth-aware when both features are enabled. | Decided: A) Hints are depth-aware. | Prompt coordinates both features. |
 
 ---
 
 ## Next steps
 
-*(Populated after Gate 2 approval)*
+1. Run `/architect` to produce LLDs for Epic 1 and Epic 2 (can be a single LLD given the shared prompt surface).
+2. Resolve #212 (scoring prompt scale bug) before implementing Story 2.3.
+3. Run `/feature` for each story in order: 1.1 → 1.2 → 1.3 → 2.1 → 2.2 → 2.3 → 2.4.
