@@ -131,6 +131,27 @@ describe('scoreAnswer', () => {
       expect(call.prompt).toContain('Redis-based locking.');
       expect(call.schema).toBe(ScoringResponseSchema);
     });
+
+    it('then the system prompt specifies the 0.0–1.0 scoring scale', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('0.0');
+      expect(systemPrompt).toContain('1.0');
+      expect(systemPrompt).toMatch(/0\.0[^\n]*(no comprehension|incorrect)/i);
+      expect(systemPrompt).toMatch(/1\.0[^\n]*(complete|accurate|full)/i);
+    });
   });
 
   describe('Given the score returned is outside 0-1 range', () => {
