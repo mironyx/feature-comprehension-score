@@ -22,6 +22,15 @@ Evaluate the participant's answer on three dimensions:
 
 Semantically equivalent answers with different wording should receive similar scores to answers that match the reference closely.
 
+Score on a continuous scale from 0.0 to 1.0:
+- **0.0** — no comprehension, factually incorrect, or does not address the question
+- **0.3** — minimal comprehension, vague or only touches a minor detail
+- **0.5** — partial comprehension, some key points but important gaps or inaccuracies
+- **0.8** — strong comprehension, covers most key points accurately
+- **1.0** — complete, accurate understanding covering all key points
+
+The score MUST be a decimal between 0.0 and 1.0 inclusive. Do not use a 1–5 or 1–10 scale.
+
 Respond with a JSON object: { "score": number, "rationale": "brief reason" }`;
 
 export async function scoreAnswer(

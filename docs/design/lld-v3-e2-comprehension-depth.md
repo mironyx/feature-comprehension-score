@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
+| 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
 
 ## Part A — Human-Reviewable
 
@@ -463,5 +464,5 @@ describe('Results page')
 ### Cross-reference
 
 - **E1 LLD** (`docs/design/lld-e1-hints.md`) — hint wording is depth-aware per Story 2.2 AC. The depth instruction in the prompt covers this.
-- **#212** (scoring scale bug) — must be resolved before Story 2.3 implementation.
+- **#212** (scoring scale bug) — **resolved** by PR #216. The base `SYSTEM_PROMPT` in `score-answer.ts` now contains an explicit 0.0–1.0 scale with five anchor descriptors (0.0 / 0.3 / 0.5 / 0.8 / 1.0) and a guard forbidding 1–5 or 1–10 scales. Story 2.3 calibration blocks should *not* re-declare the scale — appending the conceptual or detailed calibration on top of the base is sufficient. The single-line `Score on a scale from 0.0 to 1.0.` in each calibration template below is redundant with the base prompt and can be dropped when Story 2.3 lands.
 - **PRCC webhook** — creates assessments without the form. Depth defaults to `'conceptual'` via DB default and RPC parameter default. No webhook code change needed.
