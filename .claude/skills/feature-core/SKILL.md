@@ -30,38 +30,73 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 
 Before writing any code, list 2–3 approaches in 1–2 sentences each. Pick the one that fixes the root cause with the least code. State why. Prefer fixing data at the source over adding complexity downstream (CLAUDE.md: "Simplicity first").
 
-### Step 4: Implement with TDD
+### Step 4: Implement with independent test authorship
 
-Tests-first, grouped by acceptance criterion. Batch the test and its implementation in a single turn per criterion rather than running each test twice (once red, once green) — the literal Red-Green-Refactor cadence burns tokens on every round-trip without adding signal for LLM-driven work. The discipline remains: no implementation without a test written from the LLD spec, and every acceptance criterion must have covering tests before Step 5.
+The tests must be written by a separate agent, against the spec only, before any
+implementation behaviour is written. This is the only way to stop the LLM from picking
+assertions it already knows its about-to-be-written code will satisfy.
 
-A dedicated ADR on the TDD execution strategy under LLM cost constraints is planned; until it lands, default to batching per criterion.
+The flow is four sub-steps: interface → independent tests → implementation → green.
+
+#### Step 4a: Write the interface, not the behaviour
+
+Main agent writes only the *public surface* of the unit under change: exported types,
+Zod schemas, function signatures, and stub bodies that throw `not implemented`. No
+behaviour logic, no happy-path code, no error handling. The surface is derived from the
+LLD or issue contract, not from any implementation choice.
+
+For bug fixes the interface usually already exists — skip to Step 4b. If the bug fix
+requires a new signature (e.g. adding a parameter), commit the signature change first.
 
 The PostToolUse hook opens edited files in the editor automatically for diagnostics analysis.
-If the hook fires with inline findings during the cycle, address them before moving to the next test.
+If the hook fires with inline findings, address them before moving on.
 
-**Before writing the first test**, scan for reusable fixtures:
+#### Step 4b: Hand off to the `test-author` sub-agent
 
-1. Grep existing `tests/` files in the same area (e.g. the neighbouring unit test for the
-   module you're replacing or extending) for mock client builders, `makeX` factories,
-   shared input constants, and response helpers.
-2. Check `tests/fixtures/` and `tests/helpers/` for anything already extracted.
-3. **If the pattern you need already exists, import it** — never copy-paste boilerplate.
-4. **If you are about to write a helper that looks similar to one in a neighbouring test
-   file, extract both into `tests/fixtures/<topic>-mocks.ts` first**, then import from
-   both places. Do this in the same commit as the new tests.
+Launch the `test-author` agent with:
 
-Duplicated mock setup is tech debt the moment it's written — cheaper to extract up front
-than after the evaluator or a reviewer catches it.
+```
+Launch Agent: test-author
+Input:
+  issue_number: <N>
+  lld_path: <path or "none">
+  target_test_file: <tests/.../<unit>.test.ts>
+  unit_under_test: <src/.../<unit>.ts>
+  mode: "feature" | "bugfix"
+```
 
-For each acceptance criterion in the LLD / issue:
+The sub-agent reads the issue and LLD only, enumerates every observable property of the
+contract, and writes the complete test file. It does not read implementation bodies. It
+returns a report listing each property and the test that covers it.
 
-1. **Write the test(s) and the implementation together**, derived from the BDD spec. Keep the test first in the edit order and make sure it would fail without the implementation.
-2. Run `npx vitest run <test-file>` once. If it fails, diagnose and fix. If it passes, move on.
-3. **Refactor** if anything is obviously cleanup-worthy. Tests must stay green.
+**If the sub-agent reports fewer than three observable properties** or reports unresolved
+spec gaps, **stop and escalate to the user** — the spec is too vague to implement against.
+Do not try to paper over this by writing the tests yourself; that re-introduces the
+same-agent bias the sub-agent exists to prevent.
 
-For each criterion, include at least one error/edge case test — not just the happy path. If the code calls an external service or RPC, test what happens when it fails.
+#### Step 4c: Implement against the tests
 
-Continue until all acceptance criteria are covered. One acceptance criterion per iteration, not one assertion per iteration.
+Main agent reads the test file written by the sub-agent and implements the stub bodies
+to make the tests pass.
+
+- You MAY NOT modify the tests to match what you built, except for: fixing typos in
+  test names, fixing imports the sub-agent got wrong, and renaming a test for clarity
+  without changing its assertion.
+- If a test looks semantically wrong (the sub-agent misread the spec), stop and report
+  to the user. Do not change the test unilaterally — the independence of the test
+  authorship is the whole point.
+- If a test is uncompilable because a type is wrong, fix the test's type annotation but
+  keep the assertion identical.
+
+Run `npx vitest run <test-file>` after each small increment. Continue until all tests
+in the file pass.
+
+#### Step 4d: Self-check coverage before Step 5
+
+Before running the full suite, re-read the sub-agent's report and confirm every listed
+property maps to a passing test. If the sub-agent missed a property you can see in the
+spec, add the test yourself and note this in the Step 10 report (so we can feed it back
+into the sub-agent's prompt).
 
 ### Step 5: Full verification
 
@@ -122,12 +157,18 @@ Only proceed to Step 6b when `/diag` reports zero findings on non-generated file
 
 ### Step 6b: Evaluate (blocking gate)
 
-Launch the `feature-evaluator` agent as a sub-agent. Pass it:
+Launch the `feature-evaluator` agent as a sub-agent. Its primary job is now a *coverage
+audit*, not a test factory — Step 4b already produced independent tests, so the
+evaluator's role is to confirm that the contract is fully covered and probe for genuine
+gaps only.
+
+Pass it:
 
 - `lld_path` — the LLD file read in Step 3 (or the issue number if no LLD exists)
 - `issue_number` — the current issue number
 - `changed_files` — all `src/` files created or modified in this cycle
-- `test_files` — all `tests/` files created or modified in this cycle
+- `test_files` — all `tests/` files created or modified in this cycle (including the
+  file the `test-author` sub-agent produced in Step 4b)
 
 ```
 Launch Agent: feature-evaluator
@@ -136,11 +177,18 @@ Input: lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
 
 **Triage the verdict:**
 
-- **PASS** — proceed to Step 7.
-- **PASS WITH WARNINGS** — review warnings. Fix quick wins; note the rest in the PR body. Proceed to Step 7.
-- **FAIL** — read the failed adversarial tests and silent failure risks. Fix the implementation to address each finding. After fixing, re-run Step 5 (full verification) and Step 6 (`/diag`). Do NOT re-run the evaluator — proceed to Step 7 after verification passes.
+- **PASS** — every acceptance criterion maps to at least one passing test, no gaps. Proceed to Step 7.
+- **PASS WITH WARNINGS** — minor gaps found, evaluator added a small number of adversarial tests. Review warnings, fix quick wins, note the rest in the PR body. Proceed to Step 7.
+- **FAIL** — a criterion is uncovered or an adversarial test exposed a real defect. Fix the implementation, re-run Step 5 (verification) and Step 6 (`/diag`). Do NOT re-run the evaluator — proceed to Step 7 after verification passes.
 
-The evaluator writes tests to `tests/evaluation/<slug>.eval.test.ts`. These files are committed alongside the feature code in Step 7 — they serve as ongoing regression protection.
+**Volume signal:** if the evaluator writes more than three adversarial tests, the Step 4b
+test-author missed structural properties — surface this in the Step 10 report under
+"process notes". It is not a blocker for this PR, but it is a signal that either the spec
+was vague or the test-author prompt needs tightening.
+
+The evaluator writes tests, if any, to `tests/evaluation/<slug>.eval.test.ts`. These
+files are committed alongside the feature code in Step 7. They should be short or empty
+when Step 4b did its job; volume here is diagnostic, not the point.
 
 ### Step 7: Commit
 
