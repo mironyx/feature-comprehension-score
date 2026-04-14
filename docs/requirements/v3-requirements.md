@@ -160,6 +160,7 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 - Given comprehension depth is `'detailed'`, when a participant answer is scored, then the scoring prompt uses the current behaviour — specificity is expected and valued.
 - Given the `ScoreAnswerRequest` interface, then it accepts a `comprehensionDepth` parameter that controls which scoring calibration is applied.
 - Given a participant provides exact identifiers on a conceptual-depth assessment, then they are not penalised — specificity is accepted but not required.
+- Given `comprehensionDepth` is not provided to the scoring function (pre-existing assessments), then scoring defaults to `'conceptual'` calibration.
 
 **Notes:** This is the most impactful change for score calibration. The scoring prompt in `score-answer.ts` needs a depth-conditional instruction block. Depends on #212 (scoring prompt scale bug) being resolved first.
 
