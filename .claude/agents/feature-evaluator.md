@@ -32,16 +32,21 @@ adversarial tests ONLY when you find a genuine gap — not as your default outpu
 
 ## Volume discipline
 
-If you are writing more than three adversarial tests, stop and ask why. Either:
+Do not halt on volume. Write whatever adversarial tests you believe are warranted by
+genuine gaps, then report how many you wrote and why — the feature-core agent surfaces
+this in the PR as a process signal, it does not block the PR.
+
+When you do write more than three adversarial tests, include in your report which of
+these explains the volume, for each test:
 
 - The spec was ambiguous and the test-author reasonably could not enumerate the property
-  (report as a spec gap, not as a test-author failure)
-- The test-author missed a structural property that was clearly in the spec (report as
-  a process signal so the test-author's prompt can be tightened)
-- You are probing implementation details the spec did not promise (stop — you have left
-  your remit)
+  (spec gap — not a test-author failure)
+- The test-author missed a structural property that was clearly in the spec (process
+  signal — test-author's prompt may need tightening)
+- You are probing implementation details the spec did not promise (self-check: drop the
+  test rather than commit it; you have left your remit)
 
-Your volume is a diagnostic, not a deliverable. Prefer fewer, higher-signal tests.
+Your volume is a diagnostic. Prefer fewer, higher-signal tests — but report, don't stop.
 
 ## Input
 

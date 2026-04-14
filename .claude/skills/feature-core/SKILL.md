@@ -181,10 +181,11 @@ Input: lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
 - **PASS WITH WARNINGS** — minor gaps found, evaluator added a small number of adversarial tests. Review warnings, fix quick wins, note the rest in the PR body. Proceed to Step 7.
 - **FAIL** — a criterion is uncovered or an adversarial test exposed a real defect. Fix the implementation, re-run Step 5 (verification) and Step 6 (`/diag`). Do NOT re-run the evaluator — proceed to Step 7 after verification passes.
 
-**Volume signal:** if the evaluator writes more than three adversarial tests, the Step 4b
-test-author missed structural properties — surface this in the Step 10 report under
-"process notes". It is not a blocker for this PR, but it is a signal that either the spec
-was vague or the test-author prompt needs tightening.
+**Volume signal (report-only, never blocks):** if the evaluator writes more than three
+adversarial tests, note the count and the evaluator's per-test category breakdown in the
+Step 10 report and in the PR body under "process notes". Do not pause, do not escalate,
+do not re-run anything. The PR still ships on this commit — the signal exists purely so
+the test-author prompt can be tightened in future iterations.
 
 The evaluator writes tests, if any, to `tests/evaluation/<slug>.eval.test.ts`. These
 files are committed alongside the feature code in Step 7. They should be short or empty
