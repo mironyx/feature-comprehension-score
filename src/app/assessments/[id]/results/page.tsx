@@ -191,6 +191,9 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
               </p>
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
+              {assessment.scoring_incomplete && q.aggregate_score === null && (
+                <p>Unable to score</p>
+              )}
               {revealAnswers && (
                 <details>
                   <summary>Reference answer</summary>
