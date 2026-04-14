@@ -23,6 +23,8 @@ See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for f
 Pipeline: `idea → /discovery → /requirements → /kickoff → /architect → /feature → /feature-end → /retro`.
 Full lifecycle: [docs/process/engineering-process.md](docs/process/engineering-process.md). Bootstrap rationale: [ADR-0021](docs/adr/0021-project-bootstrap-pipeline.md).
 
+**Tiered process** ([ADR-0022](docs/adr/0022-tiered-feature-process.md)): Bug → issue + `/feature`. Feature → `/requirements` + `/architect` + `/feature`. Epic/phase → add `/kickoff`. New project → add `/discovery`.
+
 ## Task Tracking
 
 - **Project board:** `gh project item-list 2 --owner mironyx`

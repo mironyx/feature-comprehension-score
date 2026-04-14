@@ -118,14 +118,15 @@ Execute these steps sequentially.
 
 **Parse arguments.** Scan `$ARGUMENTS` for:
 
-1. **A file path** — if present, use it as the plan file. Otherwise find the most recent `docs/plans/*.md` file by modification date.
-2. **`--epics` flag** — if present, extract the comma-separated list of epic identifiers. Parse each:
+1. **A file path** — if present, use it as the input file. Otherwise find the most recent `docs/plans/*.md` file by modification date.
+2. **Input detection.** The input may be either a plan file (`docs/plans/`) or a requirements document (`docs/requirements/`). If it is a requirements document, treat each epic and its stories as the work items to design — extract epics, stories, priorities, and acceptance criteria the same way you would from a plan. The `--epics` filter works identically (filter by epic number). Skip `/kickoff`-specific concerns (HLD creation, ADR discovery, phase sequencing) — the requirements doc is the authority for scope. See ADR-0022 for the tiered process rationale.
+3. **`--epics` flag** — if present, extract the comma-separated list of epic identifiers. Parse each:
    - Phase-level (e.g. `E2`) — expand to all epics matching `E2.*` in the plan.
    - Individual (e.g. `E2.1`) — match that exact epic.
    - Store the resolved set of epic identifiers (e.g. `{E2.1, E2.2, E2.3, E3.1}`).
-3. If `--epics` is not provided, all epics in the plan are in scope.
+4. If `--epics` is not provided, all epics in the plan are in scope.
 
-**Read the plan file fully.** Extract the list of epics with their priorities, dependencies, and design needs. **Filter to only the in-scope epics.** Report which epics are in scope and which are being skipped.
+**Read the input file fully.** Extract the list of epics with their priorities, dependencies, and design needs. **Filter to only the in-scope epics.** Report which epics are in scope and which are being skipped.
 
 **Before creating anything**, check what already exists:
 
