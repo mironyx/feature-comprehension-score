@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Version | 0.1 |
-| Status | Draft — Structure |
+| Status | Draft — Complete |
 | Author | LS / Claude |
 | Created | 2026-04-14 |
 | Last updated | 2026-04-14 |
@@ -15,6 +15,7 @@
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | 2026-04-14 | LS / Claude | Initial draft — structure |
+| 0.2 | 2026-04-14 | LS / Claude | Acceptance criteria for all stories, resolved OQ-3 |
 
 ---
 
@@ -74,7 +75,14 @@ Extend the rubric generation pipeline to produce a `hint` field per question tha
 **I want to** generate a guidance hint for each question during rubric generation,
 **so that** participants know what depth and format of answer is expected.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given the rubric generation prompt runs, when it produces questions, then each question includes a `hint` string field alongside the existing `question_text`, `reference_answer`, `weight`, and `naur_layer` fields.
+- Given a generated hint, then it describes the expected answer format and depth (e.g. "Describe 2–3 specific scenarios and explain the design rationale") without revealing any content from the reference answer.
+- Given a generated hint, then it is 1–2 sentences long (max 200 characters).
+- Given the LLM fails to produce a hint for a question (malformed output), then the question is still accepted with `hint` set to `null` — hint generation failure does not block rubric generation.
+
+**Notes:** The `QuestionSchema` in `src/lib/engine/llm/schemas.ts` gains an optional `hint` field. The `QuestionGenerationResponseSchema` validates it. The system prompt in `prompt-builder.ts` gains hint generation instructions.
 
 ### Story 1.2: Store hints in assessment questions
 
@@ -82,7 +90,12 @@ Extend the rubric generation pipeline to produce a `hint` field per question tha
 **I want to** persist the generated hint alongside each question,
 **so that** it can be displayed to participants and survives page reloads.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given the `assessment_questions` table, then it has a `hint` column of type `text`, nullable, with no default.
+- Given a rubric generation result with hints, when questions are inserted into `assessment_questions`, then the `hint` value is stored per row.
+- Given a rubric generation result where a question has no hint (null), when inserted, then the `hint` column is `null` for that row.
+- Given an existing assessment created before this feature, then its `hint` columns are `null` and the assessment continues to function.
 
 ### Story 1.3: Display hints in participant answer form
 
@@ -90,7 +103,12 @@ Extend the rubric generation pipeline to produce a `hint` field per question tha
 **I want to** see a guidance hint below each question,
 **so that** I understand the expected answer depth before I start writing.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given a question with a non-null hint, when the participant views the answer form, then the hint is displayed below the question text in a visually distinct style (e.g. muted text, smaller font).
+- Given a question with a null hint, when the participant views the answer form, then no hint area is rendered — no empty space or placeholder.
+- Given the hint is displayed, then it appears before the answer input field, not after.
+- Given the results page (Org Admin or participant self-view), then hints are displayed alongside questions and reference answers for context.
 
 ---
 
@@ -104,7 +122,16 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 **I want to** select a comprehension depth (Conceptual or Detailed) when creating an assessment,
 **so that** the rubric matches the type of understanding I want to measure.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given the assessment creation form, then it includes a "Comprehension Depth" selector with two options: "Conceptual" (default, selected) and "Detailed".
+- Given the selector, then each option includes a one-line explanation: Conceptual — "Tests reasoning about approach, constraints, and rationale"; Detailed — "Tests knowledge of specific types, files, and function signatures".
+- Given the `assessments` table, then it has a `config_comprehension_depth` column of type `text`, not null, default `'conceptual'`, with a check constraint `IN ('conceptual', 'detailed')`.
+- Given an assessment is created, then the selected depth is stored in `config_comprehension_depth` as part of the config snapshot.
+- Given an existing assessment created before this feature, then its `config_comprehension_depth` is `'conceptual'` (the default).
+- Given a PRCC assessment (webhook-triggered, not manually created), then it uses the repository-level default depth. The `repository_configs` table gains a `default_comprehension_depth` column with the same type and default.
+
+**Notes:** Depth is captured at creation time and immutable — consistent with existing config snapshot pattern (`config_enforcement_mode`, `config_score_threshold`, etc.).
 
 ### Story 2.2: Depth-aware rubric generation
 
@@ -112,7 +139,14 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 **I want to** adjust the rubric generation prompt based on the selected comprehension depth,
 **so that** questions and reference answers match the intended depth.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given comprehension depth is `'conceptual'`, when the rubric generation prompt runs, then reference answers describe approach, constraints, and rationale without requiring specific identifier names, file paths, or function signatures. Example: "The sign-in flow uses a union type to represent outcomes, and adding a pending state requires extending this union and handling it in the UI" rather than "Add `'pending'` to the `SigninOutcome` union type in `src/types/auth.ts`".
+- Given comprehension depth is `'detailed'`, when the rubric generation prompt runs, then reference answers include specific type names, file paths, and function signatures as in the current behaviour.
+- Given comprehension depth is `'conceptual'`, then questions focus on "why" and "how would you approach" rather than "what is the exact name of".
+- Given comprehension depth is `'detailed'`, then question style is unchanged from current behaviour.
+- Given the `AssembledArtefactSet`, then it includes a `comprehension_depth` field that the prompt builder reads to select the appropriate prompt variant.
+- Given hints are also enabled (Epic 1), then hint wording reflects the selected depth — conceptual hints guide toward reasoning ("Describe the approach and constraints"), detailed hints guide toward specifics ("Name the relevant types and files").
 
 ### Story 2.3: Depth-aware scoring calibration
 
@@ -120,7 +154,14 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 **I want to** adjust the scoring prompt based on the assessment's comprehension depth,
 **so that** participants are graded appropriately for the depth level selected.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given comprehension depth is `'conceptual'`, when a participant answer is scored, then the scoring prompt instructs the LLM to: accept semantically equivalent descriptions even without exact identifier names; weight demonstration of reasoning and understanding of constraints over recall of specifics; not penalise for omitting file paths, type names, or function signatures when the conceptual understanding is correct.
+- Given comprehension depth is `'detailed'`, when a participant answer is scored, then the scoring prompt uses the current behaviour — specificity is expected and valued.
+- Given the `ScoreAnswerRequest` interface, then it accepts a `comprehensionDepth` parameter that controls which scoring calibration is applied.
+- Given a participant provides exact identifiers on a conceptual-depth assessment, then they are not penalised — specificity is accepted but not required.
+
+**Notes:** This is the most impactful change for score calibration. The scoring prompt in `score-answer.ts` needs a depth-conditional instruction block. Depends on #212 (scoring prompt scale bug) being resolved first.
 
 ### Story 2.4: Display depth context in results
 
@@ -128,7 +169,12 @@ Add a comprehension depth setting to assessments that controls both rubric gener
 **I want to** see the comprehension depth setting on the assessment results page,
 **so that** I can interpret scores in the context of what was being measured.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given the assessment results page, then it displays the comprehension depth as a labelled badge or tag (e.g. "Depth: Conceptual" or "Depth: Detailed") near the assessment title.
+- Given the depth is "Conceptual", then the results page includes a contextual note: "This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers."
+- Given the depth is "Detailed", then the results page includes a contextual note: "This assessment measured detailed implementation knowledge including specific types, files, and function signatures."
+- Given the organisation assessment history / list view, then the depth setting is shown as a column or filter option so Org Admins can compare scores within the same depth level.
 
 ---
 
@@ -164,7 +210,7 @@ Existing assessments created before these features must continue to render and s
 |---|----------|---------|---------|--------|
 | 1 | Should comprehension depth be configurable at org level (default) or only per-assessment? | Issue #215 describes it as per-assessment. An org-level default would reduce friction. | A) Per-assessment only. B) Org-level default + per-assessment override. | If B, needs an additional column on `organisations` or `repository_configs`. |
 | 2 | Should hints be visible on the results page alongside reference answers? | Hints add context to how participants interpreted the question. | A) Show hints only during answering. B) Show hints on results too. | Minor UI change but affects results page layout. |
-| 3 | Does comprehension depth affect hint wording? | Conceptual-depth hints would say "describe the approach" while detailed-depth hints would say "name the specific types." | A) Hints are depth-aware (generated together). B) Hints are depth-agnostic. | If A, the prompt must coordinate both features. If B, hints may conflict with depth expectations. |
+| 3 | ~~Does comprehension depth affect hint wording?~~ | Resolved: Yes — Story 2.2 AC specifies hints are depth-aware when both features are enabled. | Decided: A) Hints are depth-aware. | Prompt coordinates both features. |
 
 ---
 
