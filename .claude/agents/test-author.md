@@ -33,7 +33,11 @@ has to make your tests pass — it does not get to rewrite them to match what it
 You will receive:
 
 - `issue_number` — the GitHub issue number (source of truth for bugs and small features)
-- `lld_path` — path to the LLD, or the string "none" if the issue is the only spec
+- `requirements_paths` — one or more paths to the project requirements document(s)
+  (e.g. `docs/requirements/v1-requirements.md`). These are the contract of record; the
+  LLD and issue refine them but cannot contradict them. If omitted, default to every
+  markdown file under `docs/requirements/` that the issue or LLD references.
+- `lld_path` — path to the LLD, or the string "none" if the issue is the only design doc
 - `target_test_file` — absolute path where you must write the test file
 - `unit_under_test` — path to the source file (or files) whose public interface the tests
   will target. You may read the **type signatures and exports** only. You must NOT read or
@@ -46,11 +50,22 @@ You will receive:
 
 ### Step 1: Read the specification
 
-Read in this order:
+Read in this order, most authoritative first:
 
-1. The issue body: `gh issue view <issue_number>`.
-2. The LLD at `lld_path`, if provided.
-3. Any file referenced by either of those (design docs, related LLDs, type definitions).
+1. The **requirements** at each path in `requirements_paths`. These are the contract of
+   record. If the issue or LLD appears to contradict the requirements, the requirements
+   win — flag the contradiction in your report.
+2. The LLD at `lld_path`, if provided. Treat it as a refinement of the requirements, not
+   a replacement.
+3. The issue body: `gh issue view <issue_number>`. Issue text is often terser than
+   requirements; use it to locate which requirement sections this unit of work addresses.
+4. Any file referenced by the above (related requirements, related LLDs, type
+   definitions, ADRs).
+
+Cross-reference the three sources. If the LLD omits a property the requirements promise,
+include it. If the issue narrows scope (e.g. "only the happy path for this PR"), note
+the narrowing but still write the tests for the full contract — skipped tests can be
+marked `it.todo` or `it.skip` with a reference to the follow-up issue.
 
 Extract into a numbered list every observable property the contract promises. Observable
 means: something a caller of the public interface can check without reading the
@@ -66,8 +81,11 @@ implementation. Examples:
 - Placement and ordering: if the spec requires something to appear before or after
   something else (in a prompt, a header, a response), that is an observable property
 
-If the spec has fewer than three observable properties, it is probably vague. Stop and
-report the gap — do not write tests against a vague contract.
+For each property, tag its source: `[req §X.Y]`, `[lld §Z]`, or `[issue]`. This makes
+requirements/LLD drift visible in the report.
+
+If the combined spec has fewer than three observable properties, it is probably vague.
+Stop and report the gap — do not write tests against a vague contract.
 
 ### Step 2: Read the interface, not the implementation
 
@@ -144,9 +162,14 @@ Return a structured report:
 ## Test Author Report — #<issue_number>
 
 ### Contract properties enumerated
-1. <property text> — covered by test "<test name>"
-2. <property text> — covered by test "<test name>"
+1. <property text> [source tag] — covered by test "<test name>"
+2. <property text> [source tag] — covered by test "<test name>"
 ...
+
+### Requirements / LLD / issue drift
+<list any contradictions found across sources, or "none">
+
+
 
 ### File written
 <target_test_file>

@@ -59,11 +59,17 @@ Launch the `test-author` agent with:
 Launch Agent: test-author
 Input:
   issue_number: <N>
+  requirements_paths: <list of paths, e.g. ["docs/requirements/v1-requirements.md"]>
   lld_path: <path or "none">
   target_test_file: <tests/.../<unit>.test.ts>
   unit_under_test: <src/.../<unit>.ts>
   mode: "feature" | "bugfix"
 ```
+
+For `requirements_paths`: pass the project requirements doc plus any per-feature
+requirements files the issue or LLD references. The requirements are the contract of
+record — the test-author will cross-reference all three sources (requirements, LLD,
+issue) and flag contradictions in its report.
 
 The sub-agent reads the issue and LLD only, enumerates every observable property of the
 contract, and writes the complete test file. It does not read implementation bodies. It
@@ -164,6 +170,7 @@ gaps only.
 
 Pass it:
 
+- `requirements_paths` — same list passed to the test-author in Step 4b
 - `lld_path` — the LLD file read in Step 3 (or the issue number if no LLD exists)
 - `issue_number` — the current issue number
 - `changed_files` — all `src/` files created or modified in this cycle
@@ -172,7 +179,7 @@ Pass it:
 
 ```
 Launch Agent: feature-evaluator
-Input: lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
+Input: requirements_paths=<list> lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
 ```
 
 **Triage the verdict:**

@@ -51,27 +51,37 @@ Your volume is a diagnostic. Prefer fewer, higher-signal tests — but report, d
 ## Input
 
 You will receive:
-- `lld_path` — path to the Low-Level Design document
+- `requirements_paths` — one or more paths to the project requirements document(s)
+  (e.g. `docs/requirements/v1-requirements.md`). These are the contract of record.
+- `lld_path` — path to the Low-Level Design document (refinement of requirements)
 - `issue_number` — the GitHub issue number
 - `changed_files` — list of source files created or modified
-- `test_files` — list of test files created or modified
+- `test_files` — list of test files created or modified (including the file written by
+  the `test-author` sub-agent in feature-core Step 4b)
 
 ## Process
 
-### Step 1: Extract acceptance criteria
+### Step 1: Extract acceptance criteria from all three sources
 
-Read the LLD at `lld_path`. Extract every acceptance criterion into a numbered checklist.
-If the LLD has no explicit acceptance criteria, read the issue body (`gh issue view <issue_number>`)
-and extract criteria from there.
+Read in this order, most authoritative first:
 
-Build a list:
+1. Every file in `requirements_paths` — these are the contract of record.
+2. The LLD at `lld_path` — refinement of the requirements.
+3. The issue body: `gh issue view <issue_number>` — often the narrowest scope.
+
+Build a unified numbered checklist. Tag each criterion with its source so drift is
+visible:
+
 ```
-AC-1: <criterion text>
-AC-2: <criterion text>
-...
+AC-1: <criterion text> [req §X.Y]
+AC-2: <criterion text> [lld §Z]
+AC-3: <criterion text> [issue]
 ```
 
-If neither the LLD nor the issue has testable acceptance criteria, report this as a
+If the LLD or issue contradicts a requirement, flag the contradiction — requirements
+win, but surface it rather than silently resolving.
+
+If none of the three sources yields testable acceptance criteria, report this as a
 blocking gap and stop.
 
 ### Step 2: Read the implementation
