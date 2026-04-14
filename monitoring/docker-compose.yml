@@ -29,6 +29,8 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    extra_hosts:
+      - "remote:${LINUX_IP}"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:

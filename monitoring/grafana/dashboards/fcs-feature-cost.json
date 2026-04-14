@@ -56,7 +56,7 @@
         {
           "datasource": { "type": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (feature_id) (\n  sum by (session_id) (\n    increase(claude_code_cost_usage_USD_total[$__range])\n  )\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "expr": "sum by (feature_id) (\n  claude_session_feature\n  * on(session_id) group_left()\n  sum by (session_id) (\n    increase(claude_code_cost_usage_USD_total[$__range])\n  )\n)",
           "instant": true,
           "legendFormat": "{{feature_id}}",
           "refId": "A"
@@ -115,7 +115,7 @@
         {
           "datasource": { "type": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (feature_id, type) (\n  increase(claude_code_token_usage_tokens_total[$__range])\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "expr": "sum by (feature_id, type) (\n  claude_session_feature\n  * on(session_id) group_left(type)\n  sum by (session_id, type) (\n    increase(claude_code_token_usage_tokens_total[$__range])\n  )\n)",
           "instant": true,
           "legendFormat": "{{feature_id}} / {{type}}",
           "refId": "A"
@@ -175,7 +175,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "sum by (feature_id) (\n  increase(claude_code_cost_usage_USD_total[5m])\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "expr": "sum by (feature_id) (\n  claude_session_feature\n  * on(session_id) group_left()\n  sum by (session_id) (\n    increase(claude_code_cost_usage_USD_total[5m])\n  )\n)",
           "legendFormat": "{{feature_id}}",
           "refId": "A"
         }
@@ -234,7 +234,7 @@
         {
           "datasource": { "type": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (feature_id, type) (\n  sum by (session_id, type) (\n    increase(claude_code_token_usage_tokens_total[5m])\n  )\n  * on(session_id) group_left(feature_id)\n  claude_session_feature\n)",
+          "expr": "sum by (feature_id, type) (\n  claude_session_feature\n  * on(session_id) group_left(type)\n  sum by (session_id, type) (\n    increase(claude_code_token_usage_tokens_total[5m])\n  )\n)",
           "legendFormat": "{{feature_id}} / {{type}}",
           "range": true,
           "refId": "A"

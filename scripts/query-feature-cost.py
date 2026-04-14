@@ -22,7 +22,10 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-PROM = "http://localhost:9090/api/v1/query"
+import os
+
+_PROM_HOST = os.environ.get("WINDOWS_IP", "localhost")
+PROM = f"http://{_PROM_HOST}:9090/api/v1/query"
 
 
 def git_root() -> pathlib.Path:
