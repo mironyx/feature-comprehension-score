@@ -30,6 +30,10 @@ it spawns. When launching agents, pass `model: "opus"`.
   addresses `[Review]` comments, and continues from where it stopped
 - `/requirements "Brief description of what needs building"` — works from a
   freeform prompt when no discovery doc exists
+- `/requirements #215` — reads a GitHub issue as the brief (tier-2 per
+  ADR-0022)
+- `/requirements #214,#215` — reads multiple issues as related features;
+  groups them into a single requirements doc
 
 ## When to use
 
@@ -48,6 +52,9 @@ minor updates, edit them directly rather than re-running this skill.
 - `docs/discovery/v{N}-discovery.md` — structured discovery document (preferred)
 - Freeform brief — a prompt argument describing what needs building (for
   smaller projects)
+- GitHub issue(s) — one or more issue numbers (`#215` or `#214,#215`). Fetched
+  via `gh issue view`. Multiple issues are treated as related features within a
+  single requirements doc.
 - Human feedback via `[Review]` inline comments in an existing requirements doc
 
 **Outputs:**
@@ -88,6 +95,10 @@ Execute these steps sequentially. Use `TodoWrite` to track progress.
 ### Step 1: Read inputs and orient
 
 1. Determine the input source:
+   - If `$ARGUMENTS` matches `#\d+` or a comma-separated list of `#\d+`,
+     treat as GitHub issue input. Run `gh issue view <number>` for each
+     issue to fetch title, body, and labels. Multiple issues are treated as
+     related features within a single requirements doc.
    - If `$ARGUMENTS` contains a file path, use that.
    - If `$ARGUMENTS` contains a quoted string or freeform text (not a file
      path), treat it as a brief.
@@ -96,6 +107,9 @@ Execute these steps sequentially. Use `TodoWrite` to track progress.
 2. Read the input fully. Extract:
    - **From a discovery doc:** vision, boundaries (Is / Is Not), personas,
      user journeys, feature catalogue, MVP sequencer.
+   - **From GitHub issues:** summary, proposed solution, scope, acceptance
+     criteria, related issues. Combine multiple issues into a unified
+     feature brief.
    - **From a freeform brief:** core concept, target users, stated
      constraints, known scope boundaries, any explicit non-goals.
 3. Check for an existing requirements doc
