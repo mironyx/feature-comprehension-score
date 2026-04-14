@@ -1,4 +1,4 @@
-# LLD — E2: Configurable Comprehension Depth (#215)
+# LLD — E2: Configurable Comprehension Depth (epic #215)
 
 ## Change Log
 
@@ -88,7 +88,7 @@ sequenceDiagram
 
 ## Part B — Agent-Implementable
 
-### Story 2.1: Add comprehension depth to assessment configuration
+### Story 2.1: Add comprehension depth to assessment configuration (#222)
 
 **Layer:** Database + Frontend form + API
 
@@ -229,7 +229,7 @@ describe('CreateAssessmentForm')
 
 ---
 
-### Story 2.2: Depth-aware rubric generation
+### Story 2.2: Depth-aware rubric generation (#223)
 
 **Layer:** Engine (prompts)
 
@@ -307,7 +307,7 @@ describe('depthInstruction')
 
 ---
 
-### Story 2.3: Depth-aware scoring calibration
+### Story 2.3: Depth-aware scoring calibration (#224)
 
 **Layer:** Engine (scoring)
 
@@ -397,7 +397,7 @@ describe('scoreAnswers pipeline')
 
 ---
 
-### Story 2.4: Display depth context in results
+### Story 2.4: Display depth context in results (#225)
 
 **Layer:** Frontend (results page)
 

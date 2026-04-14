@@ -1,4 +1,4 @@
-# LLD — E1: Answer Guidance Hints (#214)
+# LLD — E1: Answer Guidance Hints (epic #214)
 
 ## Change Log
 
@@ -57,7 +57,7 @@ sequenceDiagram
 
 ## Part B — Agent-Implementable
 
-### Story 1.1: Generate hints in rubric pipeline
+### Story 1.1: Generate hints in rubric pipeline (#219)
 
 **Layer:** Engine (pure domain logic)
 
@@ -111,7 +111,7 @@ describe('buildQuestionGenerationPrompt')
 
 ---
 
-### Story 1.2: Store hints in assessment questions
+### Story 1.2: Store hints in assessment questions (#220)
 
 **Layer:** Database + RPC
 
@@ -165,7 +165,7 @@ describe('finalise_rubric RPC')
 
 ---
 
-### Story 1.3: Display hints in participant answer form
+### Story 1.3: Display hints in participant answer form (#221)
 
 **Layer:** Frontend (React components)
 
