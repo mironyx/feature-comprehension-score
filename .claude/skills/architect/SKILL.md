@@ -165,6 +165,19 @@ Include a preliminary execution waves proposal below the table:
 | 2 | #3 | Wave 1 (#1) | |
 ```
 
+Include a Mermaid dependency graph below the waves table:
+
+```mermaid
+graph LR
+  A["#N · Task title\n(layer)"]
+  B["#M · Task title\n(layer)"]
+  C["#P · Task title\n(layer)"]
+  A --> C
+  B --> C
+```
+
+Nodes use the format `#<issue> · <short title>\n(<layer>)`. Dashed arrows (`-.->` with label) indicate soft coupling such as a shared migration. Nodes that have no incoming arrows are parallelisable from the start. Add a plain-English summary below the diagram stating which tasks can start immediately in parallel and which must be sequential.
+
 **Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, redirect artefact types, adjust wave assignments, or reject a proposed split.
 
 ### Step 2b: Decomposition assessment
@@ -226,7 +239,9 @@ RESULT=$(./scripts/gh-create-issue.sh \
 # RESULT is "created:<number>" or "exists:<number>"
 ```
 
-Update the epic body with the task checklist linking all created issues.
+Update the epic body with:
+1. A task checklist linking all created issues (`- [ ] #N — <title>`).
+2. A `## Dependency graph` section containing the finalised Mermaid diagram (with real issue numbers substituted) and the plain-English parallelism summary.
 
 #### ADR (cross-cutting decision)
 
