@@ -277,6 +277,76 @@ describe('FCS results page', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Per-question failure indicator — Issue #213
+  // -------------------------------------------------------------------------
+
+  describe('Per-question failure indicator', () => {
+    type IndicatorCase = [label: string, opts: SecretClientOptions, expectIndicator: boolean];
+
+    it.each<IndicatorCase>([
+      // Property 1 [issue]: per-question failure label visible when scoring_incomplete AND aggregate_score === null
+      ['scoring_incomplete=true, null score → shows indicator', {
+        assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [makeQuestion(1, { aggregate_score: null })],
+        participants: [makeParticipant('submitted')],
+      }, true],
+      // Property 2 [issue]: no per-question indicator when scoring_incomplete === false
+      ['scoring_incomplete=false, null score → no indicator', {
+        assessment: makeAssessment({ scoring_incomplete: false, aggregate_score: null }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [makeQuestion(1, { aggregate_score: null })],
+        participants: [makeParticipant('submitted')],
+      }, false],
+      // Property 3 [issue]: scoring_incomplete flag alone must not trigger per-question label
+      ['scoring_incomplete=true, all scored → no indicator', {
+        assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [makeQuestion(1), makeQuestion(2)],
+        participants: [makeParticipant('submitted')],
+      }, false],
+    ])('Given %s', async (_label, opts, expectIndicator) => {
+      const html = await renderPage(opts);
+      if (expectIndicator) {
+        expect(html).toContain('Unable to score');
+      } else {
+        expect(html).not.toContain('Unable to score');
+      }
+    });
+  });
+
+  describe('Given scoring_incomplete is true and only some questions have null aggregate_score', () => {
+    it('then it renders a failure indicator only for the unscored questions', async () => {
+      // Property 4 [issue]: per-question indicator is scoped to the specific question(s)
+      // with null aggregate_score; scored questions must not show it
+      const html = await renderPage({
+        assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.6 }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [
+          makeQuestion(1),                           // scored — should NOT show indicator
+          makeQuestion(2, { aggregate_score: null }), // unscored — SHOULD show indicator
+        ],
+        participants: [makeParticipant('submitted')],
+      });
+
+      // Verify the indicator is present for the failing question
+      expect(html).toContain('Unable to score');
+
+      // Verify Q1 (scored) does not carry the indicator. Check that the indicator
+      // does not appear in the neighbourhood of Q1's question text. We do this by
+      // asserting the HTML does NOT contain both Q1 text and the indicator label
+      // fused together — the simplest available check given server-rendered flat HTML.
+      // A more targeted assertion: count occurrences should equal 1 (one per null question).
+      const occurrences = (html.match(/Unable to score/g) ?? []).length;
+      expect(occurrences).toBe(1);
+    });
+  });
+
   describe('Reference answer gate', () => {
     const SUBMITTED_ONE = [makeParticipant('submitted')];
     const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];
