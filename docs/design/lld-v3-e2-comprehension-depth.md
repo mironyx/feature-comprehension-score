@@ -7,6 +7,7 @@
 | 2026-04-14 | Claude | Initial LLD |
 | 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
 | 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
+| 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
 
 ## Part A — Human-Reviewable
 
@@ -414,33 +415,38 @@ describe('scoreAnswers pipeline')
 
 - `src/app/assessments/[id]/results/page.tsx` — display depth badge and contextual note
 - `src/app/api/assessments/route.ts` — include `config_comprehension_depth` in list response (for future filtering)
+- `src/app/api/assessments/helpers.ts` — add `config_comprehension_depth` to `AssessmentListItem` and thread it through `toListItem`
+
+> **Implementation note (issue #225):** The route previously used `select('*, …')`, which silently propagated the new column. Switched to an explicit column list so `AssessmentListItem` is the contract of record and drift between DB and API shape surfaces via TypeScript.
 
 #### Results page change
 
-After the assessment title section, add a depth badge:
-
-```tsx
-<p>
-  <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
-    Depth: {assessment.config_comprehension_depth === 'conceptual' ? 'Conceptual' : 'Detailed'}
-  </span>
-</p>
-```
-
-Add contextual note below the badge:
+After the assessment title section, add a depth badge and contextual note:
 
 ```typescript
-const DEPTH_NOTES: Record<string, string> = {
+const DEPTH_LABELS: Record<'conceptual' | 'detailed', string> = {
+  conceptual: 'Conceptual',
+  detailed: 'Detailed',
+};
+
+const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
   conceptual: 'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.',
   detailed: 'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.',
 };
 ```
 
 ```tsx
+<p>
+  <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
+    Depth: {DEPTH_LABELS[assessment.config_comprehension_depth ?? 'conceptual']}
+  </span>
+</p>
 <p className="text-caption text-text-secondary">
   {DEPTH_NOTES[assessment.config_comprehension_depth ?? 'conceptual']}
 </p>
 ```
+
+> **Implementation note (issue #225):** The spec originally inlined a ternary for the badge label. Replaced with a `DEPTH_LABELS` constant keyed on the enum so badge and note share one source of truth and the `Record<'conceptual' | 'detailed', …>` type guards against future enum drift.
 
 #### List endpoint change
 
@@ -459,7 +465,10 @@ describe('Results page')
 
 #### Test files
 
-- E2E or component test for results page (deferred — manual verification sufficient for display-only change).
+- `tests/app/assessments/results.test.ts` — new `Comprehension depth display` describe block (8 tests) covering badge text, note text, null default, and cross-depth prohibition (reuses existing `renderPage` / `makeAssessment` fixtures)
+- `tests/app/api/assessments.test.ts` — new `Comprehension depth in response` describe block (2 tests) covering `AssessmentListItem.config_comprehension_depth` passthrough and the explicit select column
+
+> **Implementation note (issue #225):** The initial spec deferred tests ("manual verification sufficient for display-only change"). Server-component tests are cheap here because the existing `renderPage` harness already exists, so ten tests ship alongside the feature.
 
 ---
 
