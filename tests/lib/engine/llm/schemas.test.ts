@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AdditionalContextSuggestionSchema,
   QuestionGenerationResponseSchema,
+  QuestionSchema,
 } from '@/lib/engine/llm/schemas';
 
 describe('AdditionalContextSuggestionSchema', () => {
@@ -116,6 +117,64 @@ describe('QuestionGenerationResponseSchema additional_context_suggestions', () =
             // missing description and expected_benefit
           },
         ],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+});
+
+const validQuestion = {
+  question_number: 1,
+  question_text: 'Why was this change introduced?',
+  weight: 2,
+  naur_layer: 'design_justification',
+  reference_answer: 'To fix a race condition.',
+};
+
+describe('QuestionSchema', () => {
+  describe('Given a question with a valid hint string', () => {
+    it('then it accepts the question', () => {
+      const result = QuestionSchema.safeParse({
+        ...validQuestion,
+        hint: 'Describe 2–3 specific scenarios and explain the design rationale.',
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('Given a question with hint set to null', () => {
+    it('then it accepts the question (hint generation failure does not block rubric generation)', () => {
+      const result = QuestionSchema.safeParse({
+        ...validQuestion,
+        hint: null,
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hint).toBeNull();
+      }
+    });
+  });
+
+  describe('Given a question with hint omitted', () => {
+    it('then it accepts the question (hint field is optional)', () => {
+      const result = QuestionSchema.safeParse(validQuestion);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hint).toBeUndefined();
+      }
+    });
+  });
+
+  describe('Given a question with a hint longer than 200 characters', () => {
+    it('then it rejects the question (max 200 characters enforced)', () => {
+      const hint201 = 'a'.repeat(201);
+      const result = QuestionSchema.safeParse({
+        ...validQuestion,
+        hint: hint201,
       });
 
       expect(result.success).toBe(false);
