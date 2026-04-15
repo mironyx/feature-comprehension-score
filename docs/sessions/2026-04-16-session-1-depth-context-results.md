@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-16
 **Issue:** #225
-**PR:** https://github.com/mironyx/feature-comprehension-score/pull/230
+**PR:** <https://github.com/mironyx/feature-comprehension-score/pull/230>
 **Epic:** #215 (E2 — Configurable Comprehension Depth)
 
 ## Work completed
