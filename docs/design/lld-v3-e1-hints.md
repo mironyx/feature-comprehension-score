@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
+| 2026-04-15 | Claude | Revised after Story 1.1 implementation (issue #219) |
 
 ## Part A — Human-Reviewable
 
@@ -99,15 +100,28 @@ describe('QuestionSchema')
   it('accepts a question with hint set to null')
   it('accepts a question with hint omitted')
   it('rejects a hint longer than 200 characters')
+  it('accepts a hint of exactly 200 characters (boundary inclusive)')
 
 describe('buildQuestionGenerationPrompt')
   it('includes hint generation instruction in system prompt')
+  it('instructs the LLM not to reveal reference answer content in hints')
+  it('instructs the LLM to set hint to null when generation is not possible')
 ```
+
+> **Implementation note (issue #219):** The first four BDD specs were covered by the
+> test-author sub-agent in `tests/lib/engine/llm/schemas.test.ts` and
+> `tests/lib/engine/prompts/prompt-builder.test.ts`. The remaining three specs
+> (200-char boundary, non-disclosure instruction, null-fallback instruction) were added
+> by the `feature-evaluator` sub-agent in `tests/evaluation/hint-generation.eval.test.ts`
+> after auditing this spec against Invariants #1 and #4. The loose "includes hint
+> generation instruction" phrasing in the original BDD spec under-specified Invariant
+> #1's non-disclosure requirement; the tightened wording here matches what is tested.
 
 #### Test files
 
-- `tests/lib/engine/llm/schemas.test.ts` (existing or new)
-- `tests/lib/engine/prompts/prompt-builder.test.ts` (existing or new)
+- `tests/lib/engine/llm/schemas.test.ts` (existing — appended `describe('QuestionSchema')` block)
+- `tests/lib/engine/prompts/prompt-builder.test.ts` (existing — appended hint instruction block)
+- `tests/evaluation/hint-generation.eval.test.ts` (new — boundary and invariant coverage)
 
 ---
 
