@@ -6,6 +6,7 @@
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
 | 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
+| 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
 
 ## Part A — Human-Reviewable
 
@@ -99,6 +100,9 @@ sequenceDiagram
 - `src/app/api/fcs/service.ts` — add `comprehension_depth` to `FcsCreateBodySchema`, pass to RPC
 - `src/app/(authenticated)/assessments/new/create-assessment-form.tsx` — add depth selector
 - `src/lib/engine/prompts/artefact-types.ts` — add `comprehension_depth` to `AssembledArtefactSet`
+- `src/lib/supabase/types.ts` — add `config_comprehension_depth` to `assessments` Row/Insert/Update and `p_config_comprehension_depth` to `create_fcs_assessment` RPC Args (generated-looking file, but hand-maintained in this repo)
+
+> **Implementation note (issue #222):** The types file update was not called out in the original spec but is required — Supabase typegen is not run automatically, so the declarative schema change has to be mirrored by hand.
 
 #### Schema change (`tables.sql`)
 
@@ -202,7 +206,9 @@ Note: Story 2.1 adds the field. Story 2.2 wires the depth from the assessment re
 
 #### Migration
 
-Combined with E1 Story 1.2: `npx supabase db diff -f add-hint-and-comprehension-depth`.
+Standalone: `npx supabase db diff -f add-comprehension-depth`.
+
+> **Implementation note (issue #222):** E1 Story 1.2 (#220) merged before this story started, so the combined-migration plan in the initial LLD was obsolete. The migration shipped as `supabase/migrations/20260415143019_add-comprehension-depth.sql`.
 
 #### BDD specs
 
@@ -224,8 +230,11 @@ describe('CreateAssessmentForm')
 
 #### Test files
 
-- `tests/app/api/fcs.test.ts`
-- `tests/components/create-assessment-form.test.tsx` (new or existing)
+- `tests/app/api/comprehension-depth.test.ts` — Zod schema, `AssembledArtefactSetSchema`, and source-level form assertions (14 tests)
+- `tests/app/api/comprehension-depth.integration.test.ts` — `create_fcs_assessment` RPC cases requiring a local Supabase instance (2 tests)
+- `tests/evaluation/comprehension-depth-story-2-1.eval.test.ts` — feature-evaluator adversarial tests confirming service-layer threads `comprehension_depth` to RPC (2 tests)
+
+> **Implementation note (issue #222):** Test layout diverges from the initial spec (`fcs.test.ts` + `create-assessment-form.test.tsx`). Story 2.1 tests are co-located in a single `comprehension-depth.*` pair so the contract is easy to find, and the RPC cases are split into `*.integration.test.ts` to keep the unit-test CI job green when Supabase is not running. The project does not use React Testing Library, so form assertions are source-level reads of the JSX — the same pattern as `tests/app/assessments/create-assessment-styling.test.ts`.
 
 ---
 
