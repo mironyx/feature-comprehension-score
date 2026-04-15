@@ -37,12 +37,13 @@ export const FcsCreateBodySchema = z.object({
   feature_description: z.string().optional(),
   merged_pr_numbers: z.array(z.number().int().positive()).min(1),
   participants: z.array(z.object({ github_username: z.string().min(1) })).min(1),
+  comprehension_depth: z.enum(['conceptual', 'detailed']).default('conceptual'),
 });
 
 export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
 // FcsCreateInput is the subset of fields passed to createAssessmentRecord (LLD §2.4 constraint).
 // Narrowed to only the fields the DB write needs, enforcing the design boundary.
-export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description'>;
+export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description' | 'comprehension_depth'>;
 
 export interface CreateFcsResponse {
   assessment_id: string;
@@ -223,6 +224,7 @@ async function createAssessmentWithParticipants(
       github_user_id: p.github_user_id,
       github_username: p.github_username,
     })) as unknown as Json,
+    p_config_comprehension_depth: body.comprehension_depth ?? 'conceptual',
   });
   if (error) {
     logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
@@ -279,7 +281,9 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
       source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
-    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context };
+    // comprehension_depth is populated with the DB default here; Story 2.2 threads the depth
+    // from the assessment record through RubricTriggerParams to the artefact assembly.
+    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: 'conceptual' };
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
