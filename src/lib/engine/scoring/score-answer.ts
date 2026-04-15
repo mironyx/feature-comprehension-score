@@ -44,9 +44,12 @@ This assessment measures reasoning and design understanding, not code recall:
 
 const DETAILED_CALIBRATION = `## Scoring Calibration — Detailed Depth
 
-This assessment measures detailed implementation knowledge, where specificity is expected and valued:
-- Weight exact type names, file paths, and function signatures as part of a correct answer.
-- Vague answers that demonstrate only conceptual understanding should score lower than answers with precise implementation details.`;
+This assessment measures understanding of the implementation at the specific level: how the actual types, files, and call sites compose, why they were chosen, and what would change if they were different.
+
+- Specific identifiers (type names, file paths, function signatures) are the expected vocabulary — use them to anchor reasoning, not as the reasoning itself.
+- Accept answers that name the right identifiers and explain the role each plays; prefer them over answers that list names without context.
+- Score lower when answers remain conceptual where specifics matter, OR list specifics without demonstrating understanding of their role.
+- Purely recall-style answers ("the type is X") without reasoning about why or how should not score full marks.`;
 
 function buildScoringPrompt(depth?: 'conceptual' | 'detailed'): string {
   const calibration = depth === 'detailed' ? DETAILED_CALIBRATION : CONCEPTUAL_CALIBRATION;

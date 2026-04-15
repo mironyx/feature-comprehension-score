@@ -274,7 +274,7 @@ describe('scoreAnswer', () => {
       expect(systemPrompt).toContain('Detailed Depth');
     });
 
-    it('uses detailed calibration — system prompt contains "implementation knowledge"', async () => {
+    it('uses detailed calibration — system prompt frames depth as understanding of the implementation', async () => {
       const generateStructured = vi.fn().mockResolvedValue({
         success: true,
         data: scoringFixture.valid,
@@ -290,10 +290,10 @@ describe('scoreAnswer', () => {
       });
 
       const { systemPrompt } = generateStructured.mock.calls[0][0];
-      expect(systemPrompt).toContain('implementation knowledge');
+      expect(systemPrompt).toContain('understanding of the implementation');
     });
 
-    it('uses detailed calibration — system prompt contains "specificity is expected and valued"', async () => {
+    it('uses detailed calibration — system prompt treats specific identifiers as the expected vocabulary, not the reasoning itself', async () => {
       const generateStructured = vi.fn().mockResolvedValue({
         success: true,
         data: scoringFixture.valid,
@@ -309,10 +309,11 @@ describe('scoreAnswer', () => {
       });
 
       const { systemPrompt } = generateStructured.mock.calls[0][0];
-      expect(systemPrompt).toContain('specificity is expected and valued');
+      expect(systemPrompt).toContain('expected vocabulary');
+      expect(systemPrompt).toContain('anchor reasoning, not as the reasoning itself');
     });
 
-    it('uses detailed calibration — system prompt contains "Vague answers" and "should score lower"', async () => {
+    it('uses detailed calibration — system prompt scores lower for conceptual-only answers and pure recall', async () => {
       const generateStructured = vi.fn().mockResolvedValue({
         success: true,
         data: scoringFixture.valid,
@@ -328,8 +329,8 @@ describe('scoreAnswer', () => {
       });
 
       const { systemPrompt } = generateStructured.mock.calls[0][0];
-      expect(systemPrompt).toContain('Vague answers');
-      expect(systemPrompt).toContain('should score lower');
+      expect(systemPrompt).toContain('Score lower when answers remain conceptual');
+      expect(systemPrompt).toContain('Purely recall-style answers');
     });
   });
 

@@ -9,6 +9,7 @@
 | 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
 | 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
 | 2026-04-16 | Claude | Story 2.2 (#223, PR #231) — revised detailed-depth instruction to keep Naur theory-building framing at higher resolution; identifiers now anchor probes rather than being the elicited answer |
+| 2026-04-16 | Claude | Story 2.3 detailed calibration revised pre-merge (#224, PR #232) — re-framed as *understanding at higher resolution* (Naur theory-building) rather than recall of implementation knowledge; tests updated in lockstep |
 
 ## Part A — Human-Reviewable
 
@@ -377,12 +378,15 @@ Score on a scale from 0.0 to 1.0.
 ```
 ## Scoring Calibration — Detailed Depth
 
-This assessment measures detailed implementation knowledge:
-- Specificity is expected and valued — exact type names, file paths, and function signatures.
-- Vague answers that demonstrate only conceptual understanding should score lower than answers with precise implementation details.
+This assessment measures understanding of the implementation at the specific level: how the actual types, files, and call sites compose, why they were chosen, and what would change if they were different.
 
-Score on a scale from 0.0 to 1.0.
+- Specific identifiers (type names, file paths, function signatures) are the expected vocabulary — use them to anchor reasoning, not as the reasoning itself.
+- Accept answers that name the right identifiers and explain the role each plays; prefer them over answers that list names without context.
+- Score lower when answers remain conceptual where specifics matter, OR list specifics without demonstrating understanding of their role.
+- Purely recall-style answers ("the type is X") without reasoning about why or how should not score full marks.
 ```
+
+Rationale: the earlier wording framed detailed depth as recall ("implementation knowledge", "specifics expected") and drifted from Naur's theory-building frame. The revised wording keeps detailed depth as *understanding at higher resolution* — specific identifiers are the vocabulary, not the content, and pure recall scores lower than reasoning about the role those identifiers play.
 
 #### Pipeline threading
 
