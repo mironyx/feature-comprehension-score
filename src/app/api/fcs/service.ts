@@ -94,6 +94,7 @@ interface RubricTriggerParams {
   assessmentId: AssessmentId;
   repoInfo: RepoInfo;
   prNumbers: number[];
+  comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
 // ---------------------------------------------------------------------------
@@ -281,9 +282,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
       source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
-    // comprehension_depth is populated with the DB default here; Story 2.2 threads the depth
-    // from the assessment record through RubricTriggerParams to the artefact assembly.
-    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: 'conceptual' };
+    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: params.comprehensionDepth ?? 'conceptual' };
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
@@ -301,6 +300,7 @@ interface AssessmentRetryRow {
   repository_id: string;
   status: string;
   config_question_count: number;
+  config_comprehension_depth?: 'conceptual' | 'detailed' | null;
 }
 
 // Resets a rubric_failed assessment to rubric_generation and re-runs generation
@@ -317,7 +317,7 @@ export async function retriggerRubricForAssessment(
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
@@ -335,6 +335,6 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
   const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, participants });
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers, comprehensionDepth: body.comprehension_depth });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }

@@ -69,11 +69,33 @@ Respond with a JSON object matching this exact schema:
 - If the provided artefacts are missing context that would help you generate deeper or more targeted questions, include additional_context_suggestions describing what extra artefacts would help and why. Only suggest artefacts that would materially improve question quality — do not suggest artefacts for completeness. Omit the field entirely if the provided artefacts are sufficient.
 - Focus questions on architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not on low-level implementation details. A useful test: if a developer could answer the question by reading the code for 30 seconds (variable names, default values, specific syntax, line-level logic), the question is too shallow. Good questions test understanding that persists after the developer has moved on to other work — the kind of knowledge that matters when deciding whether a proposed change is safe, not when recalling how a function is currently implemented. This applies across all three Naur layers: even "modification capacity" questions should test reasoning about dependencies and risks, not recall of specific code paths.`;
 
+const CONCEPTUAL_DEPTH_INSTRUCTION = `## Comprehension Depth
+
+This assessment uses CONCEPTUAL depth. Generate questions and reference answers that test reasoning about approach, constraints, and rationale:
+
+- Reference answers should describe the approach, design reasoning, and constraints WITHOUT requiring specific identifier names, file paths, or function signatures.
+- Example good reference answer: "The sign-in flow uses a union type to represent outcomes, and adding a pending state requires extending this union and handling it in the UI."
+- Example bad reference answer: "Add 'pending' to the SigninOutcome union type in src/types/auth.ts."
+- Questions should ask "why" and "how would you approach" rather than "what is the exact name of".
+- Hints should guide toward reasoning: "Describe the approach and constraints."`;
+
+const DETAILED_DEPTH_INSTRUCTION = `## Comprehension Depth
+
+This assessment uses DETAILED depth. Generate questions and reference answers that test implementation knowledge:
+
+- Reference answers should include specific type names, file paths, and function signatures where relevant.
+- Questions may ask about exact identifiers, module locations, and implementation specifics.
+- Hints should guide toward specifics: "Name the relevant types and files."`;
+
+export function depthInstruction(depth?: 'conceptual' | 'detailed'): string {
+  return depth === 'detailed' ? DETAILED_DEPTH_INSTRUCTION : CONCEPTUAL_DEPTH_INSTRUCTION;
+}
+
 export function buildQuestionGenerationPrompt(
   artefacts: AssembledArtefactSet,
 ): PromptPair {
   return {
-    systemPrompt: QUESTION_GENERATION_SYSTEM_PROMPT,
+    systemPrompt: `${QUESTION_GENERATION_SYSTEM_PROMPT}\n\n${depthInstruction(artefacts.comprehension_depth)}`,
     userPrompt: formatUserPrompt(artefacts),
   };
 }
