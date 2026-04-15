@@ -301,6 +301,7 @@ async function finaliseSubmission(
 
 type ScoringQuestionRow = { id: string; question_number: number; question_text: string; reference_answer: string | null; weight: number; naur_layer: 'world_to_program' | 'design_justification' | 'modification_capacity' };
 type ScoringAnswerRow = { participant_id: string; question_id: string; answer_text: string; attempt_number: number; is_relevant: boolean | null };
+type ComprehensionDepth = 'conceptual' | 'detailed';
 
 // Justification: triggerScoring decomposes the LLD's scoreAssessment() call into sub-helpers
 // to satisfy the ≤20-line function limit (CLAUDE.md). The LLD names only finaliseSubmission
@@ -308,16 +309,19 @@ type ScoringAnswerRow = { participant_id: string; question_id: string; answer_te
 async function fetchScoringData(
   adminSupabase: ServiceClient,
   assessmentId: string,
-): Promise<{ questions: ScoringQuestionRow[]; answers: ScoringAnswerRow[] }> {
-  const [qResult, aResult] = await Promise.all([
+): Promise<{ questions: ScoringQuestionRow[]; answers: ScoringAnswerRow[]; comprehensionDepth: ComprehensionDepth }> {
+  const [qResult, aResult, assessmentResult] = await Promise.all([
     adminSupabase.from('assessment_questions').select('*').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
     adminSupabase.from('participant_answers').select('*').eq('assessment_id', assessmentId).eq('is_reassessment', false),
+    adminSupabase.from('assessments').select('config_comprehension_depth').eq('id', assessmentId).single(),
   ]);
   if (qResult.error) throw new Error('Failed to fetch questions for scoring');
   if (aResult.error) throw new Error('Failed to fetch answers for scoring');
+  if (assessmentResult.error) throw new Error('Failed to fetch assessment for scoring');
   return {
     questions: (qResult.data ?? []) as ScoringQuestionRow[],
     answers: (aResult.data ?? []) as ScoringAnswerRow[],
+    comprehensionDepth: (assessmentResult.data?.config_comprehension_depth ?? 'conceptual') as ComprehensionDepth,
   };
 }
 
@@ -357,7 +361,7 @@ async function triggerScoring(
   llmClient: LLMClient,
 ): Promise<void> {
   try {
-    const { questions, answers } = await fetchScoringData(adminSupabase, assessmentId);
+    const { questions, answers, comprehensionDepth } = await fetchScoringData(adminSupabase, assessmentId);
     const rubric = {
       questions: questions.map(q => ({
         question_number: q.question_number,
@@ -374,7 +378,7 @@ async function triggerScoring(
       .filter(a => a.is_relevant !== false)
       .map(a => ({ questionIndex: questionIndexMap.get(a.question_id) ?? -1, participantId: a.participant_id, answer: a.answer_text }))
       .filter(a => a.questionIndex >= 0);
-    const result = await scoreAnswers({ rubric, answers: participantAnswers, llmClient });
+    const result = await scoreAnswers({ rubric, answers: participantAnswers, llmClient, comprehensionDepth });
     const aggregate = calculateAssessmentAggregate(result.scored, rubric);
     await persistScoringResults(adminSupabase, {
       assessmentId,

@@ -173,4 +173,245 @@ describe('scoreAnswer', () => {
       expect(result.error.code).toBe('validation_failed');
     });
   });
+
+  // Story 2.3 — depth-aware scoring calibration (#224)
+
+  describe('Given comprehensionDepth is "conceptual"', () => {
+    it('uses conceptual calibration — system prompt contains "Conceptual Depth"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Why was a distributed lock used?',
+        referenceAnswer: 'To prevent race conditions.',
+        participantAnswer: 'Redis-based locking.',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Conceptual Depth');
+    });
+
+    it('uses conceptual calibration — system prompt contains "reasoning and design understanding"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('reasoning and design understanding');
+    });
+
+    it('uses conceptual calibration — system prompt contains "semantically equivalent descriptions"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('semantically equivalent descriptions');
+    });
+
+    it('uses conceptual calibration — system prompt contains "specificity is welcomed but not required"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('specificity is welcomed but not required');
+    });
+  });
+
+  describe('Given comprehensionDepth is "detailed"', () => {
+    it('uses detailed calibration — system prompt contains "Detailed Depth"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Detailed Depth');
+    });
+
+    it('uses detailed calibration — system prompt contains "implementation knowledge"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('implementation knowledge');
+    });
+
+    it('uses detailed calibration — system prompt contains "specificity is expected and valued"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('specificity is expected and valued');
+    });
+
+    it('uses detailed calibration — system prompt contains "Vague answers" and "should score lower"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Vague answers');
+      expect(systemPrompt).toContain('should score lower');
+    });
+  });
+
+  describe('Given comprehensionDepth is omitted', () => {
+    it('defaults to conceptual calibration — system prompt contains "Conceptual Depth"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        // comprehensionDepth intentionally omitted
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Conceptual Depth');
+    });
+
+    it('defaults to conceptual calibration — system prompt does not contain "Detailed Depth"', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        // comprehensionDepth intentionally omitted
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).not.toContain('Detailed Depth');
+    });
+  });
+
+  describe('Given calibration is appended to the base scoring prompt', () => {
+    it('includes 0.0–1.0 scale in system prompt when conceptual depth is used', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('0.0');
+      expect(systemPrompt).toContain('1.0');
+    });
+
+    it('includes 0.0–1.0 scale in system prompt when detailed depth is used', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('0.0');
+      expect(systemPrompt).toContain('1.0');
+    });
+  });
 });

@@ -77,12 +77,14 @@ export interface ScoreAnswersRequest {
   llmClient: LLMClient;
   model?: string;
   maxTokens?: number;
+  comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
 interface LLMCallConfig {
   llmClient: LLMClient;
   model?: string;
   maxTokens?: number;
+  comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
 type AnswerOutcome =
@@ -95,7 +97,7 @@ async function processAnswer(
   config: LLMCallConfig,
 ): Promise<AnswerOutcome> {
   // Check relevance first — skip the scoring LLM call for irrelevant answers
-  const { llmClient, model, maxTokens } = config;
+  const { llmClient, model, maxTokens, comprehensionDepth } = config;
   const relevanceResult = await detectRelevance({
     questionText: question.question_text,
     participantAnswer: answer.answer,
@@ -119,6 +121,7 @@ async function processAnswer(
     llmClient,
     model,
     maxTokens,
+    comprehensionDepth,
   });
 
   if (!scoreResult.success) {
@@ -131,8 +134,8 @@ async function processAnswer(
 export async function scoreAnswers(
   request: ScoreAnswersRequest,
 ): Promise<ScoreAnswersResult> {
-  const { rubric, answers, llmClient, model, maxTokens } = request;
-  const config: LLMCallConfig = { llmClient, model, maxTokens };
+  const { rubric, answers, llmClient, model, maxTokens, comprehensionDepth } = request;
+  const config: LLMCallConfig = { llmClient, model, maxTokens, comprehensionDepth };
   const scored: ScoredAnswer[] = [];
   const failures: ScoringFailure[] = [];
 

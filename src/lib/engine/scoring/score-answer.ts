@@ -11,9 +11,10 @@ export interface ScoreAnswerRequest {
   llmClient: LLMClient;
   model?: string;
   maxTokens?: number;
+  comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
-const SYSTEM_PROMPT = `You are a software comprehension assessor. You score a participant's answer against a reference answer.
+const BASE_SYSTEM_PROMPT = `You are a software comprehension assessor. You score a participant's answer against a reference answer.
 
 Evaluate the participant's answer on three dimensions:
 1. **Factual correctness** — Does the answer contain accurate information?
@@ -33,10 +34,29 @@ The score MUST be a decimal between 0.0 and 1.0 inclusive. Do not use a 1–5 or
 
 Respond with a JSON object: { "score": number, "rationale": "brief reason" }`;
 
+const CONCEPTUAL_CALIBRATION = `## Scoring Calibration — Conceptual Depth
+
+This assessment measures reasoning and design understanding, not code recall:
+- Accept semantically equivalent descriptions even without exact identifier names.
+- Weight demonstration of reasoning and understanding of constraints over recall of specifics.
+- Do not penalise for omitting file paths, type names, or function signatures when the conceptual understanding is correct.
+- If the participant provides exact identifiers, accept them — specificity is welcomed but not required.`;
+
+const DETAILED_CALIBRATION = `## Scoring Calibration — Detailed Depth
+
+This assessment measures detailed implementation knowledge, where specificity is expected and valued:
+- Weight exact type names, file paths, and function signatures as part of a correct answer.
+- Vague answers that demonstrate only conceptual understanding should score lower than answers with precise implementation details.`;
+
+function buildScoringPrompt(depth?: 'conceptual' | 'detailed'): string {
+  const calibration = depth === 'detailed' ? DETAILED_CALIBRATION : CONCEPTUAL_CALIBRATION;
+  return `${BASE_SYSTEM_PROMPT}\n\n${calibration}`;
+}
+
 export async function scoreAnswer(
   request: ScoreAnswerRequest,
 ): Promise<LLMResult<ScoringResponse>> {
-  const { questionText, referenceAnswer, participantAnswer, llmClient, model, maxTokens } = request;
+  const { questionText, referenceAnswer, participantAnswer, llmClient, model, maxTokens, comprehensionDepth } = request;
 
   const prompt = `## Question
 ${questionText}
@@ -50,7 +70,7 @@ ${participantAnswer}
 Score the participant's answer against the reference answer.`;
 
   return llmClient.generateStructured<typeof ScoringResponseSchema>({
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: buildScoringPrompt(comprehensionDepth),
     prompt,
     schema: ScoringResponseSchema,
     model,
