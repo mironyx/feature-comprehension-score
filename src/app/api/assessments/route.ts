@@ -51,7 +51,10 @@ export async function GET(request: NextRequest) {
     // RLS enforces org membership + participant access based on session.
     let query = supabase
       .from('assessments')
-      .select('*, repositories!inner(github_repo_name)', { count: 'exact' })
+      .select(
+        'id, type, status, pr_number, feature_name, aggregate_score, conclusion, config_comprehension_depth, created_at, repositories!inner(github_repo_name)',
+        { count: 'exact' },
+      )
       .eq('org_id', orgId);
 
     if (typeFilter) query = query.eq('type', typeFilter);

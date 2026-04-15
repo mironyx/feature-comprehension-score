@@ -10,6 +10,7 @@ import type { Database } from '@/lib/supabase/types';
 type AssessmentType = Database['public']['Tables']['assessments']['Row']['type'];
 type AssessmentStatus = Database['public']['Tables']['assessments']['Row']['status'];
 type Conclusion = Database['public']['Tables']['assessments']['Row']['conclusion'];
+type ComprehensionDepth = Database['public']['Tables']['assessments']['Row']['config_comprehension_depth'];
 type RepoRow = Database['public']['Tables']['repositories']['Row'];
 
 export type ParticipantCounts = Record<string, { total: number; submitted: number }>;
@@ -31,6 +32,7 @@ export interface AssessmentListItem {
   feature_name: string | null;
   aggregate_score: number | null;
   conclusion: Conclusion;
+  config_comprehension_depth: ComprehensionDepth;
   participant_count: number;
   completed_count: number;
   created_at: string;
@@ -57,7 +59,8 @@ const MAX_PER_PAGE = 100;
 export function toListItem(
   row: { id: string; type: AssessmentType; status: AssessmentStatus; repositories: unknown;
          pr_number: number | null; feature_name: string | null; aggregate_score: number | null;
-         conclusion: Conclusion; created_at: string },
+         conclusion: Conclusion; config_comprehension_depth: ComprehensionDepth;
+         created_at: string },
   counts: ParticipantCounts,
 ): AssessmentListItem {
   return {
@@ -69,6 +72,7 @@ export function toListItem(
     feature_name: row.feature_name,
     aggregate_score: row.aggregate_score,
     conclusion: row.conclusion,
+    config_comprehension_depth: row.config_comprehension_depth,
     participant_count: counts[row.id]?.total ?? 0,
     completed_count: counts[row.id]?.submitted ?? 0,
     created_at: row.created_at,
