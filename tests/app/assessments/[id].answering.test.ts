@@ -3,6 +3,7 @@
 // Issue: #61
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -23,6 +24,7 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND');
   }),
+  useRouter: vi.fn(() => ({ push: vi.fn() })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -68,13 +70,15 @@ function makeParticipant(status: 'pending' | 'submitted' = 'pending') {
   return { id: `participant-001`, status, submitted_at: status === 'submitted' ? '2026-03-20T10:00:00Z' : null };
 }
 
-function makeQuestion(n: number) {
+function makeQuestion(n: number, overrides: Record<string, unknown> = {}) {
   return {
     id: `question-00${n}`,
     question_number: n,
     naur_layer: 'world_to_program',
     question_text: `Question ${n}?`,
     weight: 1,
+    hint: null,
+    ...overrides,
   };
 }
 
@@ -238,6 +242,31 @@ describe('Assessment answering page', () => {
         p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10),
       });
       expect(secretRpcSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // Issue #221, AC-3: hint flows page → AnsweringForm → QuestionCard → rendered HTML.
+  describe('Hint passthrough', () => {
+    async function renderPage(hint: string | null): Promise<string> {
+      const { AssessmentPage } = await arrange({
+        assessment: makeAssessment(),
+        participant: makeParticipant('pending'),
+        questions: [makeQuestion(1, { hint })],
+      });
+      const element = await AssessmentPage({ params: makeParams() });
+      return renderToStaticMarkup(element as React.ReactElement);
+    }
+
+    it('Given a non-null hint, then the hint text renders in the answering form', async () => {
+      const HINT_TEXT = 'Describe the key design trade-offs in 2–3 sentences.';
+      const html = await renderPage(HINT_TEXT);
+      expect(html).toContain(HINT_TEXT);
+    });
+
+    it('Given a null hint, then the form renders without a hint element', async () => {
+      const html = await renderPage(null);
+      expect(html).toContain('Question 1?');
+      expect(html).not.toContain('italic');
     });
   });
 });
