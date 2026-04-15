@@ -17,6 +17,7 @@ interface Question {
   question_number: number;
   naur_layer: NaurLayer;
   question_text: string;
+  hint: string | null;
 }
 
 interface AssessmentInfo {
@@ -108,6 +109,7 @@ function QuestionList({ questions, answers, relevanceResults, onChange }: Questi
             questionNumber={q.question_number}
             naurLayer={q.naur_layer}
             questionText={q.question_text}
+            hint={q.hint}
             answer={answers[q.id] ?? ''}
             locked={isAnswerLocked(q.id, relevanceResults)}
             relevanceResult={relevanceResults?.find(r => r.question_id === q.id)}

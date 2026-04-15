@@ -31,6 +31,7 @@ interface ScoredQuestion {
   question_number: number;
   naur_layer: NaurLayer;
   question_text: string;
+  hint: string | null;
   aggregate_score: number | null;
   reference_answer: string;
 }
@@ -77,7 +78,7 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
         .maybeSingle(),
       adminSupabase
         .from('assessment_questions')
-        .select('id, question_number, naur_layer, question_text, aggregate_score, reference_answer')
+        .select('id, question_number, naur_layer, question_text, hint, aggregate_score, reference_answer')
         .eq('assessment_id', assessmentId)
         .order('question_number', { ascending: true }),
       adminSupabase
@@ -189,6 +190,9 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
               <p>
                 <strong>Q{q.question_number}.</strong> {q.question_text}
               </p>
+              {q.hint && (
+                <p className="text-caption text-text-secondary italic">{q.hint}</p>
+              )}
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
               {assessment.scoring_incomplete && q.aggregate_score === null && (

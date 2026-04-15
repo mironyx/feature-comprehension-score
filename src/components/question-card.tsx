@@ -20,6 +20,7 @@ interface QuestionCardProps {
   readonly questionNumber: number;
   readonly naurLayer: NaurLayer;
   readonly questionText: string;
+  readonly hint: string | null;
   readonly answer: string;
   readonly locked: boolean;
   readonly relevanceResult: AnswerResult | undefined;
@@ -31,6 +32,7 @@ export default function QuestionCard({
   questionNumber,
   naurLayer,
   questionText,
+  hint,
   answer,
   locked,
   relevanceResult,
@@ -47,6 +49,9 @@ export default function QuestionCard({
         <Badge className="bg-surface-raised text-text-primary" aria-label="Naur layer">{NAUR_LABELS[naurLayer]}</Badge>
       </div>
       <p className="text-body text-text-primary">{questionText}</p>
+      {hint && (
+        <p className="text-caption text-text-secondary italic">{hint}</p>
+      )}
       {isFlagged && (
         <RelevanceWarning
           explanation={relevanceResult.explanation}

@@ -33,7 +33,7 @@ interface ParticipantRow {
   submitted_at: string | null;
 }
 
-type AnsweringQuestion = Pick<QuestionRow, 'id' | 'question_number' | 'naur_layer' | 'question_text'>;
+type AnsweringQuestion = Pick<QuestionRow, 'id' | 'question_number' | 'naur_layer' | 'question_text' | 'hint'>;
 
 // ---------------------------------------------------------------------------
 // Sub-views
@@ -98,7 +98,7 @@ async function fetchQuestions(
 ): Promise<AnsweringQuestion[]> {
   const { data } = await adminSupabase
     .from('assessment_questions')
-    .select('id, question_number, naur_layer, question_text')
+    .select('id, question_number, naur_layer, question_text, hint')
     .eq('assessment_id', assessmentId)
     .order('question_number', { ascending: true });
 

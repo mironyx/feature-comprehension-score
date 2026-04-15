@@ -15,6 +15,7 @@ export interface FilteredQuestion {
   weight: number;
   aggregate_score: number | null;
   reference_answer: string | null;
+  hint: string | null;
 }
 
 /**
@@ -39,5 +40,6 @@ export function filterQuestionFields(
     weight: q.weight,
     aggregate_score: q.aggregate_score,
     reference_answer: showReference ? q.reference_answer : null,
+    hint: q.hint,
   }));
 }
