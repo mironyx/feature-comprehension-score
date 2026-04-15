@@ -407,6 +407,99 @@ describe('FCS results page', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Comprehension depth display — Issue #225 (Story 2.4)
+  // -------------------------------------------------------------------------
+
+  describe('Comprehension depth display', () => {
+    const CONCEPTUAL_NOTE =
+      'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.';
+    const DETAILED_NOTE =
+      'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.';
+
+    const BASE_DEPTH: SecretClientOptions = {
+      assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      orgMembership: null,
+      participation: { id: 'part-001' },
+      questions: [makeQuestion(1)],
+      participants: [makeParticipant('submitted')],
+    };
+
+    // Property 1 [lld §Story 2.4, AC 8 / BDD]: badge shows "Depth: Conceptual" for conceptual depth
+    it('displays "Depth: Conceptual" badge when config_comprehension_depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).toContain('Depth: Conceptual');
+    });
+
+    // Property 2 [lld §Story 2.4 BDD]: badge shows "Depth: Detailed" for detailed depth
+    it('displays "Depth: Detailed" badge when config_comprehension_depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).toContain('Depth: Detailed');
+    });
+
+    // Property 3 [lld §Story 2.4 DEPTH_NOTES]: conceptual contextual note present for conceptual depth
+    it('displays the conceptual contextual note when config_comprehension_depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).toContain(CONCEPTUAL_NOTE);
+    });
+
+    // Property 4 [lld §Story 2.4 DEPTH_NOTES]: detailed contextual note present for detailed depth
+    it('displays the detailed contextual note when config_comprehension_depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).toContain(DETAILED_NOTE);
+    });
+
+    // Property 5 [lld §Story 2.4 BDD, invariant #2]: defaults to conceptual badge when field is null
+    it('displays "Depth: Conceptual" badge when config_comprehension_depth is null', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: null }),
+      });
+      expect(html).toContain('Depth: Conceptual');
+    });
+
+    // Property 6 [lld §Story 2.4 BDD, invariant #2]: defaults to conceptual note when field is null
+    it('displays the conceptual contextual note when config_comprehension_depth is null', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: null }),
+      });
+      expect(html).toContain(CONCEPTUAL_NOTE);
+    });
+
+    // Property 7 [lld §Story 2.4, task brief invariant]: "Detailed" label/note absent when depth is conceptual
+    it('does not display "Depth: Detailed" or the detailed note when depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).not.toContain('Depth: Detailed');
+      expect(html).not.toContain(DETAILED_NOTE);
+    });
+
+    // Property 8 [lld §Story 2.4, task brief invariant]: "Conceptual" label/note absent when depth is detailed
+    it('does not display "Depth: Conceptual" or the conceptual note when depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).not.toContain('Depth: Conceptual');
+      expect(html).not.toContain(CONCEPTUAL_NOTE);
+    });
+  });
+
   describe('Reference answer gate', () => {
     const SUBMITTED_ONE = [makeParticipant('submitted')];
     const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];

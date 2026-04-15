@@ -133,6 +133,18 @@ const NAUR_LABELS: Record<NaurLayer, string> = {
   modification_capacity: 'Modification Capacity',
 };
 
+const DEPTH_LABELS: Record<'conceptual' | 'detailed', string> = {
+  conceptual: 'Conceptual',
+  detailed: 'Detailed',
+};
+
+const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
+  conceptual:
+    'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.',
+  detailed:
+    'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.',
+};
+
 const ANSWERS_WITHHELD_MESSAGE =
   'Reference answers will be visible once all participants have submitted and scoring is complete.';
 
@@ -168,6 +180,14 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
         <p>Date: {formatDate(assessment.created_at)}</p>
         <p>
           Participants: {participantCompleted} of {participantTotal} completed
+        </p>
+        <p>
+          <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
+            Depth: {DEPTH_LABELS[assessment.config_comprehension_depth ?? 'conceptual']}
+          </span>
+        </p>
+        <p className="text-caption text-text-secondary">
+          {DEPTH_NOTES[assessment.config_comprehension_depth ?? 'conceptual']}
         </p>
       </section>
 
