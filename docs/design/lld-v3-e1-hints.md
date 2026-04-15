@@ -7,6 +7,7 @@
 | 2026-04-14 | Claude | Initial LLD |
 | 2026-04-15 | Claude | Revised after Story 1.1 implementation (issue #219) |
 | 2026-04-15 | Claude | Revised after Story 1.2 implementation (issue #220) |
+| 2026-04-15 | Claude | Revised after Story 1.3 implementation (issue #221) |
 
 ## Part A — Human-Reviewable
 
@@ -208,8 +209,10 @@ describe('finalise_rubric — hint column')
 
 - `src/components/question-card.tsx` — add optional `hint` prop, render below question text
 - `src/app/assessments/[id]/answering-form.tsx` — pass `hint` from question data to `QuestionCard`
-- `src/app/assessments/[id]/results/page.tsx` — display hint alongside question on results page
-- `src/app/api/assessments/[id]/route.ts` or helpers — include `hint` in question response
+- `src/app/assessments/[id]/page.tsx` — add `hint` to the SELECT query and `AnsweringQuestion` Pick type so the field reaches the answering form
+- `src/app/assessments/[id]/results/page.tsx` — display hint alongside question on results page; add `hint` to SELECT and `ScoredQuestion`
+- `src/app/api/assessments/[id]/route.ts` — include `hint` in the questions SELECT
+- `src/app/api/assessments/[id]/helpers.ts` — add `hint: string | null` to `FilteredQuestion` and pass it through `filterQuestionFields`
 
 #### QuestionCard change
 
@@ -255,8 +258,19 @@ describe('Results page')
 
 #### Test files
 
-- `tests/components/question-card.test.tsx` (new or existing)
+- `tests/components/question-card.test.ts` (new — component unit tests for hint rendering)
+- `tests/app/api/assessments/[id].test.ts` (extended — `hint field passthrough` describe block verifies API response includes `hint`)
+- `tests/app/assessments/[id].answering.test.ts` (extended — `Hint passthrough` describe block verifies page → AnsweringForm → QuestionCard data flow)
+- `tests/app/assessments/results.test.ts` (extended — `Hint display` describe block verifies results page rendering)
 - E2E coverage deferred — manual verification sufficient for styling.
+
+> **Implementation note (issue #221):** Test file was created as `question-card.test.ts` (not
+> `.tsx`) because the test asserts on the JSON-serialised React element tree rather than rendering
+> to a DOM — matching the pattern used by sibling tests. The hint-passthrough tests were folded
+> into the existing `[id].answering.test.ts` rather than a separate eval file, to reuse the
+> `makeAssessment` / `makeParticipant` / `makeQuestion` / `makeSecretClient` / `makeServerClient`
+> factories that already existed there (see CLAUDE.md: "Read before writing — grep for existing
+> helpers").
 
 ---
 
