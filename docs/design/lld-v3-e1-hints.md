@@ -6,6 +6,7 @@
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
 | 2026-04-15 | Claude | Revised after Story 1.1 implementation (issue #219) |
+| 2026-04-15 | Claude | Revised after Story 1.2 implementation (issue #220) |
 
 ## Part A — Human-Reviewable
 
@@ -164,18 +165,38 @@ FROM jsonb_array_elements(p_questions) AS q;
 
 Generate via `npx supabase db diff -f add-hint-and-comprehension-depth`. Single migration for both E1 and E2 schema changes (see E2 LLD).
 
+> **Implementation note (issue #220):** Shipped as a standalone migration
+> `20260415115537_add_hint_to_assessment_questions.sql` because Story 2.1 (#215) had not
+> started at the time Story 1.2 was implemented. Story 2.1 will add its own migration on
+> top rather than combine into this one. The combined-migration approach remains the
+> preferred pattern when related schema changes land in the same iteration.
+
 #### BDD specs
 
 ```
-describe('finalise_rubric RPC')
-  it('stores hint value when present in question JSON')
-  it('stores NULL hint when hint is absent from question JSON')
-  it('preserves existing questions without hint column (backward compat)')
+describe('finalise_rubric — hint column')
+  it('stores hint value when question JSON includes a non-null hint string')
+  it('stores NULL hint when the hint key is absent from question JSON')
+  it('stores NULL hint when hint is explicitly null in question JSON')
+  it('stores each question hint independently in a multi-question call')
+  it('preserves existing column values and sets assessment status to awaiting_responses when hints are present')
 ```
+
+> **Implementation note (issue #220):** The spec originally listed three cases (stored value,
+> NULL when absent, backward-compat). The implemented suite tightened this to five to cover
+> Invariant #3 explicitly: the explicit-`null` JSON case (distinct from key-absent), and
+> per-question independence in a multi-question call. The "backward compat" case was
+> re-framed as "preserves existing contract" — the existing column values are verified along
+> with the `awaiting_responses` status transition, since that transition is the observable
+> behaviour of `finalise_rubric` that must not regress.
 
 #### Test files
 
-- `tests/app/api/fcs.test.ts` (integration — verify hint flows through to DB)
+- `tests/helpers/transaction-functions.integration.test.ts` (integration — existing file
+  hosting all `finalise_rubric` RPC tests; a new `describe('finalise_rubric — hint column')`
+  block was appended). The original spec named `tests/app/api/fcs.test.ts`, but the RPC is
+  tested directly against Supabase in the helpers integration suite rather than through the
+  API route.
 
 ---
 

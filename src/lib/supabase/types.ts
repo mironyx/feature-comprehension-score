@@ -353,6 +353,7 @@ export interface Database {
           question_text: string;
           weight: number;
           reference_answer: string;
+          hint: string | null;
           aggregate_score: number | null;
           created_at: string;
         };
@@ -365,6 +366,7 @@ export interface Database {
           question_text: string;
           weight: number;
           reference_answer: string;
+          hint?: string | null;
           aggregate_score?: number | null;
           created_at?: string;
         };
@@ -377,6 +379,7 @@ export interface Database {
           question_text?: string;
           weight?: number;
           reference_answer?: string;
+          hint?: string | null;
           aggregate_score?: number | null;
           created_at?: string;
         };

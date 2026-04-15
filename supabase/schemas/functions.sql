@@ -285,11 +285,12 @@ AS $$
 BEGIN
   INSERT INTO assessment_questions (
     org_id, assessment_id, question_number,
-    naur_layer, question_text, weight, reference_answer
+    naur_layer, question_text, weight, reference_answer, hint
   )
   SELECT p_org_id, p_assessment_id,
     (q->>'question_number')::integer, q->>'naur_layer',
-    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer'
+    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer',
+    q->>'hint'
   FROM jsonb_array_elements(p_questions) AS q;
 
   UPDATE assessments

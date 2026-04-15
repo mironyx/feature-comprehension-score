@@ -252,6 +252,244 @@ describe('finalise_rubric', () => {
 });
 
 // ---------------------------------------------------------------------------
+// finalise_rubric — hint column (#220)
+// ---------------------------------------------------------------------------
+
+describe('finalise_rubric — hint column', () => {
+  let orgId: string;
+
+  // Shared helper: create a minimal assessment in rubric_generation status.
+  async function createAssessment(svc: ReturnType<typeof secretClient>): Promise<{ assessmentId: string }> {
+    const repoId = await createTestRepo(svc, orgId);
+    const assessmentId = crypto.randomUUID();
+    await svc.from('assessments').insert({
+      id: assessmentId,
+      org_id: orgId,
+      repository_id: repoId,
+      type: 'fcs',
+      status: 'rubric_generation',
+      config_enforcement_mode: 'soft',
+      config_score_threshold: 70,
+      config_question_count: 3,
+      config_min_pr_size: 20,
+    });
+    return { assessmentId };
+  }
+
+  afterEach(async () => {
+    const svc = secretClient();
+    if (orgId) await deleteTestOrg(svc, orgId);
+  });
+
+  // Property 1 [req §Story 1.2 AC2, lld §Story 1.2]:
+  // When a question JSON includes a non-null hint string, the stored row has that hint value.
+  it('stores hint value when question JSON includes a non-null hint string', async () => {
+    const svc = secretClient();
+    orgId = await createTestOrg(svc);
+    const { assessmentId } = await createAssessment(svc);
+
+    const questions = [
+      {
+        question_number: 1,
+        naur_layer: 'world_to_program',
+        question_text: 'Q1',
+        weight: 2,
+        reference_answer: 'A1',
+        hint: 'Describe 2–3 scenarios and explain the design rationale.',
+      },
+    ];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: orgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+
+    const { data: qRows } = await svc
+      .from('assessment_questions')
+      .select('hint')
+      .eq('assessment_id', assessmentId);
+
+    expect(qRows).toHaveLength(1);
+    expect(qRows?.[0]?.hint).toBe('Describe 2–3 scenarios and explain the design rationale.');
+  });
+
+  // Property 2 [req §Story 1.2 AC3, lld §Story 1.2]:
+  // When the hint key is absent from the question JSON, the stored row has NULL for hint.
+  it('stores NULL hint when the hint key is absent from question JSON', async () => {
+    const svc = secretClient();
+    orgId = await createTestOrg(svc);
+    const { assessmentId } = await createAssessment(svc);
+
+    const questions = [
+      {
+        question_number: 1,
+        naur_layer: 'world_to_program',
+        question_text: 'Q1',
+        weight: 2,
+        reference_answer: 'A1',
+        // hint key is deliberately absent
+      },
+    ];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: orgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+
+    const { data: qRows } = await svc
+      .from('assessment_questions')
+      .select('hint')
+      .eq('assessment_id', assessmentId);
+
+    expect(qRows).toHaveLength(1);
+    expect(qRows?.[0]?.hint).toBeNull();
+  });
+
+  // Property 3 [req §Story 1.2 AC3, req §Story 1.1 AC4]:
+  // When hint is explicitly null in the question JSON, the stored row has NULL for hint.
+  it('stores NULL hint when hint is explicitly null in question JSON', async () => {
+    const svc = secretClient();
+    orgId = await createTestOrg(svc);
+    const { assessmentId } = await createAssessment(svc);
+
+    const questions = [
+      {
+        question_number: 1,
+        naur_layer: 'world_to_program',
+        question_text: 'Q1',
+        weight: 2,
+        reference_answer: 'A1',
+        hint: null,
+      },
+    ];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: orgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+
+    const { data: qRows } = await svc
+      .from('assessment_questions')
+      .select('hint')
+      .eq('assessment_id', assessmentId);
+
+    expect(qRows).toHaveLength(1);
+    expect(qRows?.[0]?.hint).toBeNull();
+  });
+
+  // Property 4 [req §Story 1.2 AC2]:
+  // When multiple questions are inserted in a single call, each question's hint is stored independently.
+  it('stores each question hint independently in a multi-question call', async () => {
+    const svc = secretClient();
+    orgId = await createTestOrg(svc);
+    const { assessmentId } = await createAssessment(svc);
+
+    const questions = [
+      {
+        question_number: 1,
+        naur_layer: 'world_to_program',
+        question_text: 'Q1',
+        weight: 2,
+        reference_answer: 'A1',
+        hint: 'Hint for question one.',
+      },
+      {
+        question_number: 2,
+        naur_layer: 'design_justification',
+        question_text: 'Q2',
+        weight: 1,
+        reference_answer: 'A2',
+        hint: null,
+      },
+      {
+        question_number: 3,
+        naur_layer: 'modification_capacity',
+        question_text: 'Q3',
+        weight: 3,
+        reference_answer: 'A3',
+        // hint key absent
+      },
+    ];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: orgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+
+    const { data: qRows } = await svc
+      .from('assessment_questions')
+      .select('question_number, hint')
+      .eq('assessment_id', assessmentId)
+      .order('question_number');
+
+    expect(qRows).toHaveLength(3);
+    expect(qRows?.[0]?.hint).toBe('Hint for question one.');
+    expect(qRows?.[1]?.hint).toBeNull();
+    expect(qRows?.[2]?.hint).toBeNull();
+  });
+
+  // Property 5 [req §Story 1.2 AC2, req §Story 1.2 AC1]:
+  // The existing contract (question_number, naur_layer, question_text, weight, reference_answer,
+  // assessment status → awaiting_responses) is unchanged when hints are also present.
+  it('preserves existing column values and sets assessment status to awaiting_responses when hints are present', async () => {
+    const svc = secretClient();
+    orgId = await createTestOrg(svc);
+    const { assessmentId } = await createAssessment(svc);
+
+    const questions = [
+      {
+        question_number: 1,
+        naur_layer: 'world_to_program',
+        question_text: 'What is the primary entry point?',
+        weight: 2,
+        reference_answer: 'The main function in index.ts.',
+        hint: 'Name the file and describe what it does.',
+      },
+    ];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: orgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+
+    const { data: assessment } = await svc
+      .from('assessments')
+      .select('status')
+      .eq('id', assessmentId)
+      .single();
+    expect(assessment?.status).toBe('awaiting_responses');
+
+    const { data: qRows } = await svc
+      .from('assessment_questions')
+      .select('question_number, naur_layer, question_text, weight, reference_answer, hint')
+      .eq('assessment_id', assessmentId)
+      .single();
+
+    expect(qRows?.question_number).toBe(1);
+    expect(qRows?.naur_layer).toBe('world_to_program');
+    expect(qRows?.question_text).toBe('What is the primary entry point?');
+    expect(qRows?.weight).toBe(2);
+    expect(qRows?.reference_answer).toBe('The main function in index.ts.');
+    expect(qRows?.hint).toBe('Name the file and describe what it does.');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // persist_scoring_results
 // ---------------------------------------------------------------------------
 
