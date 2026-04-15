@@ -31,7 +31,8 @@ Respond with a JSON object matching this exact schema:
       "question_text": "Your question here",
       "weight": 1,
       "naur_layer": "world_to_program",
-      "reference_answer": "The expected answer derived from the artefacts"
+      "reference_answer": "The expected answer derived from the artefacts",
+      "hint": "Describe 2–3 scenarios and explain the design rationale"
     }
   ],
   "artefact_quality": "code_only",
@@ -50,6 +51,7 @@ Respond with a JSON object matching this exact schema:
 - weight: Integer 1-3 reflecting importance (3 = critical to understanding)
 - naur_layer: One of "world_to_program", "design_justification", "modification_capacity"
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts
+- hint: A 1–2 sentence guidance hint (max 200 characters) shown to participants alongside the question. The hint describes the expected answer depth and format (e.g. "Describe 2–3 specific scenarios and explain the design rationale") WITHOUT revealing any content from the reference answer. If you cannot generate a suitable hint, set it to null.
 - artefact_quality: One of "code_only", "code_and_tests", "code_and_requirements", "code_and_design", "code_requirements_and_design"
 - artefact_quality_note: Explain what categories of artefacts were available and any gaps
 - additional_context_suggestions: Optional array of objects describing extra artefacts that would improve question quality. Omit if the provided artefacts are sufficient. Each object has:

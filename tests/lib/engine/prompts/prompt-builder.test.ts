@@ -320,3 +320,30 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT', () => {
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('code_and_design');
   });
 });
+
+describe('buildQuestionGenerationPrompt hint instruction', () => {
+  const baseArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_description: 'Fix race condition in payment processor',
+    pr_diff: '--- a/src/pay.ts\n+++ b/src/pay.ts\n@@ -1 +1 @@\n-old\n+new',
+    file_listing: [
+      { path: 'src/pay.ts', additions: 5, deletions: 2, status: 'modified' },
+    ],
+    file_contents: [
+      { path: 'src/pay.ts', content: 'export function pay() {}' },
+    ],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  describe('Given any assembled artefact set', () => {
+    it('then the system prompt includes a hint generation instruction', () => {
+      const { systemPrompt } = buildQuestionGenerationPrompt(baseArtefacts);
+
+      // The contract requires the LLM be instructed to produce a `hint` field.
+      // We check for a recognisable substring without over-specifying exact wording.
+      expect(systemPrompt.toLowerCase()).toContain('hint');
+    });
+  });
+});
