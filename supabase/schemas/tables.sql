@@ -177,6 +177,7 @@ CREATE TABLE assessment_questions (
   question_text    text NOT NULL,
   weight           integer NOT NULL CHECK (weight BETWEEN 1 AND 3),
   reference_answer text NOT NULL,
+  hint             text,
   aggregate_score  numeric(5,4),
   created_at       timestamptz NOT NULL DEFAULT now(),
   UNIQUE (assessment_id, question_number)
