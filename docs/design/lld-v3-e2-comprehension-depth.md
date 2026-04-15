@@ -10,6 +10,7 @@
 | 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
 | 2026-04-16 | Claude | Story 2.2 (#223, PR #231) — revised detailed-depth instruction to keep Naur theory-building framing at higher resolution; identifiers now anchor probes rather than being the elicited answer |
 | 2026-04-16 | Claude | Story 2.3 detailed calibration revised pre-merge (#224, PR #232) — re-framed as *understanding at higher resolution* (Naur theory-building) rather than recall of implementation knowledge; tests updated in lockstep |
+| 2026-04-16 | Claude | Story 2.3 post-impl sync (#224, PR #232) — noted that `fetchScoringData` gained a third parallel query for `config_comprehension_depth` (the row wasn't previously fetched in the scoring path); added `tests/evaluation/comprehension-depth-story-2-3.eval.test.ts` to the test-files list |
 
 ## Part A — Human-Reviewable
 
@@ -398,7 +399,9 @@ Add `comprehensionDepth` to:
 
 #### Service wiring (`answers/service.ts`)
 
-Read `config_comprehension_depth` from the assessment row (already fetched in the answer submission flow). Pass to the scoring pipeline.
+Read `config_comprehension_depth` from the assessment row and pass it to the scoring pipeline.
+
+> **Implementation note (issue #224):** the original spec assumed the assessment row was already fetched in the answer submission flow. It was not — the scoring path only fetched questions and participant answers. The implementation adds a third query to `fetchScoringData`'s `Promise.all` that selects `config_comprehension_depth` from `assessments` by id, and returns it alongside `questions` and `answers`. `triggerScoring` forwards the value to `scoreAnswers`. This keeps the fetch parallel with the existing queries and avoids a standalone helper.
 
 #### BDD specs
 
@@ -415,8 +418,9 @@ describe('scoreAnswers pipeline')
 
 #### Test files
 
-- `tests/lib/engine/scoring/score-answer.test.ts`
-- `tests/lib/engine/pipeline/assess-pipeline.test.ts`
+- `tests/lib/engine/scoring/score-answer.test.ts` — feature tests covering calibration content and default-to-conceptual behaviour
+- `tests/lib/engine/pipeline/assess-pipeline.test.ts` — pipeline threading tests
+- `tests/evaluation/comprehension-depth-story-2-3.eval.test.ts` — feature-evaluator adversarial tests asserting the answers-service layer forwards `config_comprehension_depth` to `scoreAnswers` (2 tests; prior coverage asserted call count but not arguments)
 
 ---
 
