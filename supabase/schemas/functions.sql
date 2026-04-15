@@ -227,17 +227,18 @@ $$;
 -- create_fcs_assessment: atomically creates an FCS assessment with its
 -- merged PRs and participants in a single transaction.
 CREATE OR REPLACE FUNCTION create_fcs_assessment(
-  p_id                       uuid,
-  p_org_id                   uuid,
-  p_repository_id            uuid,
-  p_feature_name             text,
-  p_feature_description      text,
-  p_config_enforcement_mode  text,
-  p_config_score_threshold   integer,
-  p_config_question_count    integer,
-  p_config_min_pr_size       integer,
-  p_merged_prs               jsonb,
-  p_participants             jsonb
+  p_id                          uuid,
+  p_org_id                      uuid,
+  p_repository_id               uuid,
+  p_feature_name                text,
+  p_feature_description         text,
+  p_config_enforcement_mode     text,
+  p_config_score_threshold      integer,
+  p_config_question_count       integer,
+  p_config_min_pr_size          integer,
+  p_merged_prs                  jsonb,
+  p_participants                jsonb,
+  p_config_comprehension_depth  text DEFAULT 'conceptual'
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -248,12 +249,14 @@ BEGIN
     id, org_id, repository_id, type, status,
     feature_name, feature_description,
     config_enforcement_mode, config_score_threshold,
-    config_question_count, config_min_pr_size
+    config_question_count, config_min_pr_size,
+    config_comprehension_depth
   ) VALUES (
     p_id, p_org_id, p_repository_id, 'fcs', 'rubric_generation',
     p_feature_name, p_feature_description,
     p_config_enforcement_mode, p_config_score_threshold,
-    p_config_question_count, p_config_min_pr_size
+    p_config_question_count, p_config_min_pr_size,
+    p_config_comprehension_depth
   );
 
   INSERT INTO fcs_merged_prs (org_id, assessment_id, pr_number, pr_title)

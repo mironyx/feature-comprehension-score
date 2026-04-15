@@ -140,6 +140,8 @@ CREATE TABLE assessments (
   config_score_threshold   integer NOT NULL,
   config_question_count    integer NOT NULL,
   config_min_pr_size       integer NOT NULL,
+  config_comprehension_depth text NOT NULL DEFAULT 'conceptual'
+                              CHECK (config_comprehension_depth IN ('conceptual', 'detailed')),
 
   -- Skip tracking (Story 2.7)
   skip_reason              text,

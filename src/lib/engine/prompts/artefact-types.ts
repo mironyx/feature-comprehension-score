@@ -54,5 +54,6 @@ export const AssembledArtefactSetSchema = RawArtefactSetSchema.extend({
   token_budget_applied: z.boolean(),
   truncation_notes: z.array(z.string()).optional(),
   organisation_context: OrganisationContextSchema.optional(),
+  comprehension_depth: z.enum(['conceptual', 'detailed']).optional(),
 });
 export type AssembledArtefactSet = z.infer<typeof AssembledArtefactSetSchema>;
