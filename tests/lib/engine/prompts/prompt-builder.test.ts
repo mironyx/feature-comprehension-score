@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildQuestionGenerationPrompt,
+  depthInstruction,
   QUESTION_GENERATION_SYSTEM_PROMPT,
 } from '@/lib/engine/prompts/prompt-builder';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
@@ -34,7 +35,7 @@ describe('buildQuestionGenerationPrompt', () => {
   it('builds prompt with all sections populated for full artefacts', () => {
     const { systemPrompt, userPrompt } = buildQuestionGenerationPrompt(fullArtefacts);
 
-    expect(systemPrompt).toBe(QUESTION_GENERATION_SYSTEM_PROMPT);
+    expect(systemPrompt).toContain(QUESTION_GENERATION_SYSTEM_PROMPT);
     expect(userPrompt).toContain('pull_request');
     expect(userPrompt).toContain('3');
     expect(userPrompt).toContain('Fix race condition in payment processor');
@@ -345,5 +346,154 @@ describe('buildQuestionGenerationPrompt hint instruction', () => {
       // We check for a recognisable substring without over-specifying exact wording.
       expect(systemPrompt.toLowerCase()).toContain('hint');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 2.2 — Depth-aware rubric generation (#223)
+// ---------------------------------------------------------------------------
+
+describe('buildQuestionGenerationPrompt — depth-aware system prompt', () => {
+  // Reuse the fixture defined in the first describe block by redeclaring a
+  // minimal variant here. The full fixture is not exported, so we declare a
+  // slim one sufficient for systemPrompt assertions.
+  const baseArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_description: 'Fix race condition in payment processor',
+    pr_diff: '--- a/src/pay.ts\n+++ b/src/pay.ts\n@@ -1 +1 @@\n-old\n+new',
+    file_listing: [
+      { path: 'src/pay.ts', additions: 5, deletions: 2, status: 'modified' },
+    ],
+    file_contents: [
+      { path: 'src/pay.ts', content: 'export function pay() {}' },
+    ],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  describe('Given depth is "conceptual"', () => {
+    it('includes conceptual depth instruction when depth is "conceptual"', () => {
+      // [lld §Story 2.2 — conceptual block]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'conceptual' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('CONCEPTUAL depth');
+    });
+
+    it('conceptual system prompt references reasoning about approach', () => {
+      // [lld §Story 2.2 — conceptual block: "test reasoning about approach, constraints, and rationale"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'conceptual' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('reasoning about approach');
+    });
+
+    it('conceptual system prompt instructs against requiring specific identifiers', () => {
+      // [lld §Story 2.2 — conceptual block: "WITHOUT requiring specific identifier names"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'conceptual' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('WITHOUT requiring specific identifier names');
+    });
+
+    it('conceptual system prompt still contains the base QUESTION_GENERATION_SYSTEM_PROMPT', () => {
+      // [lld §Story 2.2 — depth instruction is appended to the base, not a replacement]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'conceptual' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain(QUESTION_GENERATION_SYSTEM_PROMPT);
+    });
+  });
+
+  describe('Given depth is "detailed"', () => {
+    it('includes detailed depth instruction when depth is "detailed"', () => {
+      // [lld §Story 2.2 — detailed block]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('DETAILED depth');
+    });
+
+    it('detailed system prompt references specific type names and file paths', () => {
+      // [lld §Story 2.2 — detailed block: "specific type names, file paths, and function signatures"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('specific type names');
+    });
+
+    it('detailed system prompt frames identifiers as probe anchors, not the answer', () => {
+      // [lld §Story 2.2 — detailed block: identifiers anchor the question, they are not the answer being elicited]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('not the answer being elicited');
+    });
+
+    it('detailed system prompt forbids recall-shaped questions', () => {
+      // [lld §Story 2.2 — detailed block: "Avoid recall shapes"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('Avoid recall shapes');
+    });
+
+    it('detailed system prompt still contains the base QUESTION_GENERATION_SYSTEM_PROMPT', () => {
+      // [lld §Story 2.2 — depth instruction is appended to the base, not a replacement]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain(QUESTION_GENERATION_SYSTEM_PROMPT);
+    });
+  });
+
+  describe('Given depth is undefined', () => {
+    it('defaults to conceptual instruction when depth is undefined', () => {
+      // [lld §Invariant 2: "Default depth is 'conceptual'"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts };
+      // comprehension_depth intentionally absent
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('CONCEPTUAL depth');
+    });
+
+    it('does not include detailed depth instruction when depth is undefined', () => {
+      // [lld §Invariant 2: default is conceptual, not detailed]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).not.toContain('DETAILED depth');
+    });
+  });
+});
+
+describe('depthInstruction', () => {
+  it('returns conceptual instruction text for "conceptual"', () => {
+    // [lld §Story 2.2 — conceptual block]
+    const result = depthInstruction('conceptual');
+
+    expect(result).toContain('CONCEPTUAL depth');
+  });
+
+  it('conceptual instruction references reasoning about approach and rationale', () => {
+    // [lld §Story 2.2 — conceptual block: "reasoning about approach, constraints, and rationale"]
+    const result = depthInstruction('conceptual');
+
+    expect(result).toContain('reasoning about approach');
+  });
+
+  it('returns detailed instruction text for "detailed"', () => {
+    // [lld §Story 2.2 — detailed block]
+    const result = depthInstruction('detailed');
+
+    expect(result).toContain('DETAILED depth');
+  });
+
+  it('detailed instruction references specific type names and file paths', () => {
+    // [lld §Story 2.2 — detailed block: "specific type names, file paths, and function signatures"]
+    const result = depthInstruction('detailed');
+
+    expect(result).toContain('specific type names');
   });
 });

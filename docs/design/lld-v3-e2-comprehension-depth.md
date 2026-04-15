@@ -8,6 +8,7 @@
 | 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
 | 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
 | 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
+| 2026-04-16 | Claude | Story 2.2 (#223, PR #231) — revised detailed-depth instruction to keep Naur theory-building framing at higher resolution; identifiers now anchor probes rather than being the elicited answer |
 
 ## Part A — Human-Reviewable
 
@@ -247,6 +248,9 @@ describe('CreateAssessmentForm')
 
 - `src/lib/engine/prompts/prompt-builder.ts` — add depth-conditional section to system prompt and user prompt
 - `src/app/api/fcs/service.ts` — wire depth from assessment record to `AssembledArtefactSet`
+- `src/app/api/assessments/[id]/retry-rubric/service.ts` — select `config_comprehension_depth` from the assessment row so the retry path threads depth too
+
+> **Implementation note (issue #223):** The retry-rubric service was not called out in the original spec; the select query had to include `config_comprehension_depth` and the `AssessmentRetryRow` interface had to gain the field. Without this, retries for `rubric_failed` assessments silently defaulted to conceptual depth regardless of the assessment's stored value.
 
 #### Prompt change (`prompt-builder.ts`)
 
@@ -275,28 +279,33 @@ This assessment uses CONCEPTUAL depth. Generate questions and reference answers 
 **Detailed:**
 
 ```
-This assessment uses DETAILED depth. Generate questions and reference answers that test implementation knowledge:
+This assessment uses DETAILED depth. Generate questions and reference answers that test theory of the implementation at specific resolution — the reasoning behind particular type choices, how actual files and call sites compose, and what would change or break under concrete structural changes:
 
-- Reference answers should include specific type names, file paths, and function signatures where relevant.
-- Questions may ask about exact identifiers, module locations, and implementation specifics.
-- Hints should guide toward specifics: "Name the relevant types and files."
+- Use specific type names, file paths, and function signatures as the vocabulary that anchors each question. Identifiers are the probe's anchor — not the answer being elicited.
+- Reference answers should explain why a structure was chosen and how it composes, grounded in the concrete code — not merely restate the identifiers in the question.
+- Good question shapes: "Why is X modelled as a `Y<Z>` rather than a plain Z?", "What breaks if `fooBar()` in `src/a/b.ts` returns null instead of undefined?", "How do the `X` and `Y` types compose in the `process()` call site?"
+- Avoid recall shapes like "What is the exact name of the type that…" or "Which file contains…" — those test memory, not theory.
+- Hints should guide toward reasoning at specific resolution: "Reason about the chosen structure and its composition."
 ```
+
+> **Framing note:** Detailed depth is still *theory building* (Naur) — it measures understanding at higher resolution, not recall. Specific identifiers are the vocabulary anchoring each probe, not the answer being elicited. Teammate-225 flagged drift in the original wording; revised 2026-04-16.
 
 #### Implementation approach
 
-The system prompt is currently a single constant string. To make it depth-conditional:
+Extract the depth instruction as an exported function: `function depthInstruction(depth?: 'conceptual' | 'detailed'): string` — defaults to the conceptual block when `depth` is undefined. `buildQuestionGenerationPrompt` appends the returned block to the existing `QUESTION_GENERATION_SYSTEM_PROMPT` constant.
 
-1. Extract the depth instruction as a function: `function depthInstruction(depth: 'conceptual' | 'detailed'): string`
-2. Change `QUESTION_GENERATION_SYSTEM_PROMPT` from a `const` string to a function `buildSystemPrompt(depth?: 'conceptual' | 'detailed'): string` that appends the depth instruction.
-3. Update `buildQuestionGenerationPrompt` to call `buildSystemPrompt(artefacts.comprehension_depth)`.
+> **Implementation note (issue #223):** The original plan was to convert `QUESTION_GENERATION_SYSTEM_PROMPT` from a `const` string into a `buildSystemPrompt(depth?)` function. We kept the constant and append the depth instruction inline instead — simpler, preserves the existing assertion-by-identity tests, and avoids rippling the change through every caller. Callers can still reference the base constant; depth-awareness is the `buildQuestionGenerationPrompt` wrapper's concern.
 
 #### Service wiring (`service.ts`)
 
-In `triggerRubricGeneration`, read the depth from the assessment record. This requires fetching `config_comprehension_depth` from the assessment row. Options:
+In `triggerRubricGeneration`, read the depth from the assessment record. Depth is known at creation time (from the request body) and on retry (from the assessment row), so no extra DB query is needed on the creation path.
 
-- Pass depth through `RubricTriggerParams` (preferred — avoids extra DB query since depth is known at creation time).
+Add `comprehensionDepth` to `RubricTriggerParams`, thread from both entry points:
 
-Add `comprehensionDepth` to `RubricTriggerParams` and `RepoInfo`, thread from `createFcs` → `triggerRubricGeneration` → artefact assembly.
+- `createFcs` — pass `body.comprehension_depth` into `triggerRubricGeneration`.
+- `retriggerRubricForAssessment` — pass `assessment.config_comprehension_depth ?? 'conceptual'` (covers legacy rows with `null`).
+
+> **Implementation note (issue #223):** The initial spec said "add `comprehensionDepth` to `RubricTriggerParams` and `RepoInfo`". `RepoInfo` was omitted — depth is per-assessment, not per-repo, so threading it through a repo-scoped record would have been misleading. Only `RubricTriggerParams` carries it.
 
 #### BDD specs
 

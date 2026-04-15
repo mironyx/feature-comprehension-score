@@ -11,7 +11,7 @@ export async function retryRubricGeneration(
 ): Promise<{ assessment_id: string; status: 'rubric_generation' }> {
   const { data: assessment, error } = await ctx.adminSupabase
     .from('assessments')
-    .select('id, org_id, repository_id, status, config_question_count')
+    .select('id, org_id, repository_id, status, config_question_count, config_comprehension_depth')
     .eq('id', assessmentId)
     .single();
   if (error ?? !assessment) throw new ApiError(404, 'Assessment not found');
