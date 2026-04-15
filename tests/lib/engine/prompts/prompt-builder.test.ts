@@ -423,6 +423,22 @@ describe('buildQuestionGenerationPrompt — depth-aware system prompt', () => {
       expect(systemPrompt).toContain('specific type names');
     });
 
+    it('detailed system prompt frames identifiers as probe anchors, not the answer', () => {
+      // [lld §Story 2.2 — detailed block: identifiers anchor the question, they are not the answer being elicited]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('not the answer being elicited');
+    });
+
+    it('detailed system prompt forbids recall-shaped questions', () => {
+      // [lld §Story 2.2 — detailed block: "Avoid recall shapes"]
+      const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };
+      const { systemPrompt } = buildQuestionGenerationPrompt(artefacts);
+
+      expect(systemPrompt).toContain('Avoid recall shapes');
+    });
+
     it('detailed system prompt still contains the base QUESTION_GENERATION_SYSTEM_PROMPT', () => {
       // [lld §Story 2.2 — depth instruction is appended to the base, not a replacement]
       const artefacts: AssembledArtefactSet = { ...baseArtefacts, comprehension_depth: 'detailed' };

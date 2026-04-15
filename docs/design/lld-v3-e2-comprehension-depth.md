@@ -8,6 +8,7 @@
 | 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
 | 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
 | 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
+| 2026-04-16 | Claude | Story 2.2 (#223, PR #231) — revised detailed-depth instruction to keep Naur theory-building framing at higher resolution; identifiers now anchor probes rather than being the elicited answer |
 
 ## Part A — Human-Reviewable
 
@@ -275,12 +276,16 @@ This assessment uses CONCEPTUAL depth. Generate questions and reference answers 
 **Detailed:**
 
 ```
-This assessment uses DETAILED depth. Generate questions and reference answers that test implementation knowledge:
+This assessment uses DETAILED depth. Generate questions and reference answers that test theory of the implementation at specific resolution — the reasoning behind particular type choices, how actual files and call sites compose, and what would change or break under concrete structural changes:
 
-- Reference answers should include specific type names, file paths, and function signatures where relevant.
-- Questions may ask about exact identifiers, module locations, and implementation specifics.
-- Hints should guide toward specifics: "Name the relevant types and files."
+- Use specific type names, file paths, and function signatures as the vocabulary that anchors each question. Identifiers are the probe's anchor — not the answer being elicited.
+- Reference answers should explain why a structure was chosen and how it composes, grounded in the concrete code — not merely restate the identifiers in the question.
+- Good question shapes: "Why is X modelled as a `Y<Z>` rather than a plain Z?", "What breaks if `fooBar()` in `src/a/b.ts` returns null instead of undefined?", "How do the `X` and `Y` types compose in the `process()` call site?"
+- Avoid recall shapes like "What is the exact name of the type that…" or "Which file contains…" — those test memory, not theory.
+- Hints should guide toward reasoning at specific resolution: "Reason about the chosen structure and its composition."
 ```
+
+> **Framing note:** Detailed depth is still *theory building* (Naur) — it measures understanding at higher resolution, not recall. Specific identifiers are the vocabulary anchoring each probe, not the answer being elicited. Teammate-225 flagged drift in the original wording; revised 2026-04-16.
 
 #### Implementation approach
 

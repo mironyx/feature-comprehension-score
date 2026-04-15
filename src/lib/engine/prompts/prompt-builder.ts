@@ -81,11 +81,13 @@ This assessment uses CONCEPTUAL depth. Generate questions and reference answers 
 
 const DETAILED_DEPTH_INSTRUCTION = `## Comprehension Depth
 
-This assessment uses DETAILED depth. Generate questions and reference answers that test implementation knowledge:
+This assessment uses DETAILED depth. Generate questions and reference answers that test theory of the implementation at specific resolution — the reasoning behind particular type choices, how actual files and call sites compose, and what would change or break under concrete structural changes:
 
-- Reference answers should include specific type names, file paths, and function signatures where relevant.
-- Questions may ask about exact identifiers, module locations, and implementation specifics.
-- Hints should guide toward specifics: "Name the relevant types and files."`;
+- Use specific type names, file paths, and function signatures as the vocabulary that anchors each question. Identifiers are the probe's anchor — not the answer being elicited.
+- Reference answers should explain why a structure was chosen and how it composes, grounded in the concrete code — not merely restate the identifiers in the question.
+- Good question shapes: "Why is X modelled as a \`Y<Z>\` rather than a plain Z?", "What breaks if \`fooBar()\` in \`src/a/b.ts\` returns null instead of undefined?", "How do the \`X\` and \`Y\` types compose in the \`process()\` call site?"
+- Avoid recall shapes like "What is the exact name of the type that…" or "Which file contains…" — those test memory, not theory.
+- Hints should guide toward reasoning at specific resolution: "Reason about the chosen structure and its composition."`;
 
 export function depthInstruction(depth?: 'conceptual' | 'detailed'): string {
   return depth === 'detailed' ? DETAILED_DEPTH_INSTRUCTION : CONCEPTUAL_DEPTH_INSTRUCTION;
