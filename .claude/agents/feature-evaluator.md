@@ -135,18 +135,30 @@ or fixture in the eval file:
 1. **Read the feature's own test files** (the ones passed in `test_files`) and note every
    helper: mock client builders, `makeX` factories, shared input constants, response
    helpers, etc.
-2. **Check `tests/fixtures/` and `tests/helpers/`** for anything already extracted.
-3. **If a helper you need already exists, import it** — do not copy-paste it into the
-   eval file.
-4. **If a helper is duplicated between the eval file and the feature's unit test file,
+2. **Grep `tests/` for any sibling test file that already covers the src modules in
+   `changed_files`** — `test_files` only lists files touched this cycle, but an
+   unmodified sibling test may already have the fixtures you need. For each path in
+   `changed_files`, run: `grep -rln "<module-name>" tests/` and read the matches.
+   Example: if `changed_files` includes `src/app/assessments/[id]/page.tsx`, grep for
+   `tests/app/assessments/[id]*.test.ts` — one of those almost certainly has
+   `makeAssessment`/`makeParticipant`/`makeQuestion`/`makeSecretClient` factories.
+3. **Check `tests/fixtures/` and `tests/helpers/`** for anything already extracted.
+4. **If a helper you need already exists, import it** — do not copy-paste it into the
+   eval file. If the helper is module-scoped (not exported) in the sibling file, prefer
+   adding your `describe` block to that sibling file instead of creating a new eval
+   file — eval-vs-unit provenance is not worth 150 lines of duplicated mocks.
+5. **If a helper is duplicated between the eval file and the feature's unit test file,
    extract it into `tests/fixtures/<feature-slug>-mocks.ts`** and update both files to
    import from there. The eval file is part of the repo's long-term test surface, so
    duplication here is real technical debt, not throwaway code.
-5. Only write a new helper in the eval file when the behaviour being probed genuinely
+6. Only write a new helper in the eval file when the behaviour being probed genuinely
    needs a different mock shape than what already exists.
 
 When in doubt, err on the side of importing. A 10-line eval file that reuses existing
-fixtures is worth more than a 200-line one that re-declares them.
+fixtures is worth more than a 200-line one that re-declares them. If folding the
+adversarial tests into an existing sibling test file eliminates all duplication, do
+that instead of creating `tests/evaluation/<slug>.eval.test.ts` — the convention is not
+worth the cost.
 
 Keep tests focused — one assertion per test where possible.
 

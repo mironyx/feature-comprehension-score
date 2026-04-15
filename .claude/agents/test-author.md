@@ -103,17 +103,30 @@ not promise), stop — you have been contaminated. Rewrite the test against the 
 
 ### Step 3: Read neighbouring tests for style and fixtures
 
-Before writing anything, scan the nearest existing test file under `tests/` for:
+Before writing anything, scan existing test files under `tests/` for:
 
 - Mock client builders (`createMockLLMClient`, `makeX` factories)
 - Shared input constants and fixtures (`tests/fixtures/`, `tests/helpers/`)
 - Describe/it structure (BDD `Given/When/Then` style if the project uses it)
 - Assertion patterns (how the project expresses "should contain", "should equal", etc.)
 
+**Grep for sibling tests that already cover the `unit_under_test` or its containing
+module.** Run `grep -rln "<module-name>" tests/` for each src module in scope —
+`target_test_file` may not exist yet, but a sibling test may already have the exact
+mock builders and factories you need. Example: if `unit_under_test` is
+`src/app/assessments/[id]/page.tsx`, look at every test file matching
+`tests/app/assessments/[id]*.test.ts` before defining your own factories.
+
 Match the existing style. Import existing fixtures — never copy-paste a factory or mock
-builder that already exists. If the test you need requires a new helper, and that helper
-would be reused by at least one existing test file, extract it to
-`tests/fixtures/<topic>-mocks.ts` and import from both places.
+builder that already exists. If a needed factory is module-scoped (not exported) in a
+sibling test file, prefer one of:
+
+1. Add your `describe` block to that sibling file (simplest — no cross-file imports).
+2. Extract the factory to `tests/fixtures/<topic>-mocks.ts` and import from both places
+   (when the factory is genuinely reusable beyond this feature).
+
+Only create a new test file with its own factories when no sibling covers the same unit
+or module.
 
 ### Step 4: Write one test per observable property
 
