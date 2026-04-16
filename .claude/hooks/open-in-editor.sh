@@ -28,6 +28,9 @@ except Exception:
 " 2>/dev/null)
 
 if [ -n "$DATA" ]; then
+    case "$(basename "$DATA")" in
+        .tmp-*.md) exit 0 ;;
+    esac
     $EDITOR_CMD --reuse-window "$DATA" &>/dev/null &
 fi
 

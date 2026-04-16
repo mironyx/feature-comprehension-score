@@ -57,6 +57,7 @@ supabase/.temp/
 # monitoring runtime state
 /monitoring/textfile_collector/
 
-#claude 
+#claude
 /.remember
 .claude/settings.local.json
+.tmp-*.md
