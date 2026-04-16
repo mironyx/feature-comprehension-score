@@ -1,596 +1,701 @@
-# LLD — E17: Agentic Artefact Retrieval (epic: TBD)
+# LLD — E17: Agentic Artefact Retrieval (Tool-Use Loop)
 
 ## Change Log
 
 | Date | Author | Changes |
 |------|--------|---------|
-| 2026-04-16 | Claude | Initial LLD covering V2 Stories 17.1 and 17.2 framework |
+| 2026-04-16 | LS / Claude | Initial LLD — deterministic orchestrator over strategy registry. |
+| 2026-04-16 | LS / Claude | Rewritten around tool-use loop per ADR-0023. Replaces orchestrator + strategy framework with two read-only tools (`readFile`, `listDirectory`), a bounded multi-turn loop, and observability (tokens + call log + duration) on every rubric generation. Drops feasibility-spike framing, suggestion-taxonomy analysis, additional GitHub scopes. |
+
+---
 
 ## Part A — Human-Reviewable
 
 ### Purpose
 
-V1 captures `additional_context_suggestions` from the question-generation LLM as passive metadata indicating what extra artefacts would have improved the questions. Today the field is generated but **not persisted**. E17 closes the loop in two phases:
+Replace V1's fixed, snapshot-only artefact assembly with a **tool-use loop**: the rubric-generation LLM receives two read-only tools — `readFile` and `listDirectory` — and calls them on demand during question generation. No second LLM pass, no batch-suggest-then-fulfil phase, no strategy registry.
 
-1. **Story 17.1** — a research spike that establishes whether agentic retrieval is feasible. Deliverable is a report with four go/no-go criteria and (if go) the scoped set of artefact types and retrieval strategies.
-2. **Story 17.2** — the implementation framework. The orchestration framework (configuration, scope upgrade, budget enforcement, fallback semantics, results UI) is designed and decomposed now. Concrete retrieval strategies are added as task issues only after Story 17.1 produces its report — they cannot be designed in advance because their scope is the report's output.
+This epic also lands the observability layer (token counts, tool-call log, wall-clock duration) on every rubric generation, whether tool-use is enabled or not.
 
-### Behavioural flows
+**Architectural decision:** [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md).
 
-#### Story 17.1a — persist suggestions during rubric finalisation (prerequisite)
+**Requirements:** [V2 Epic 17](../requirements/v2-requirements.md#epic-17-agentic-artefact-retrieval) — Stories 17.1 and 17.2.
 
-```mermaid
-sequenceDiagram
-    participant Service as triggerRubricGeneration
-    participant Gen as generateQuestions
-    participant LLM as LLM
-    participant DB as Supabase
-
-    Service->>Gen: generate
-    Gen->>LLM: generation prompt
-    LLM-->>Gen: { questions, additional_context_suggestions[] }
-    Gen-->>Service: rubric (now includes suggestions)
-    Service->>DB: finalise_rubric_v3 (questions, quality, suggestions)
-    Note over DB: assessment_artefact_suggestions rows inserted
-```
-
-#### Story 17.1b — feasibility report (offline analysis script)
+### Behavioural Flow — Rubric Generation With Tool-Use Enabled
 
 ```mermaid
 sequenceDiagram
-    participant Analyst as Analysis script (scripts/agentic-retrieval-feasibility.ts)
-    participant DB as Supabase (read-only)
-    participant Report as docs/reports/YYYY-MM-DD-agentic-retrieval-feasibility.md
+  participant Caller as Assess pipeline
+  participant Loop as tool-use loop<br/>(engine)
+  participant LLM as LLM (OpenRouter)
+  participant Tools as Tool handlers<br/>(adapter)
 
-    Analyst->>DB: SELECT all assessment_artefact_suggestions, joined with assessment metadata
-    Analyst->>Analyst: signalConsistency(suggestions)
-    Analyst->>Analyst: classifyRetrievalStrategy(suggestions)
-    Analyst->>Analyst: estimateCostImpact(suggestions, telemetry)
-    Analyst->>Analyst: estimateLatencyImpact(suggestions, telemetry)
-    Analyst->>Report: write four sections + go/no-go recommendation
+  Caller->>Loop: generateRubric(artefacts, tools, bounds)
+  Loop->>LLM: system + user prompt + tool defs
+  LLM-->>Loop: tool_call readFile("docs/adr/0014...")
+  Loop->>Tools: readFile(path)
+  Tools-->>Loop: { content } or { error }
+  Loop->>LLM: tool_result
+  LLM-->>Loop: tool_call listDirectory("docs/design")
+  Loop->>Tools: listDirectory(path)
+  Tools-->>Loop: { entries }
+  Loop->>LLM: tool_result
+  LLM-->>Loop: final structured response (rubric)
+  Loop-->>Caller: { rubric, tokens, tool_calls, duration_ms }
 ```
 
-#### Story 17.2 — opt-in retrieval flow (framework, scope-set TBD by 17.1)
+Bounds enforced at the loop boundary, not the LLM:
+
+- call count ≤ 5
+- cumulative bytes ≤ 64 KiB
+- extra input tokens ≤ 10 000
+- wall-clock ≤ 60 s (AbortSignal)
+
+On breach the loop returns a typed error to the LLM (not an exception) and the LLM is expected to finalise with what it has.
+
+### Behavioural Flow — Rubric Generation With Tool-Use Disabled
 
 ```mermaid
 sequenceDiagram
-    participant Admin as Org Admin
-    participant Service as triggerRubricGeneration
-    participant Gen as generateQuestions
-    participant Orchestrator as RetrievalOrchestrator
-    participant Strategies as Strategy registry (TBD §17.1)
-    participant LLM as LLM
-    participant DB as Supabase
+  participant Caller as Assess pipeline
+  participant Loop as tool-use loop<br/>(engine)
+  participant LLM as LLM (OpenRouter)
 
-    Admin-->>Service: org_config.agentic_retrieval_enabled = true
-    Service->>Gen: generate(initial)
-    Gen-->>Service: { questions, suggestions }
-    Service->>Orchestrator: enrich(suggestions, scopedSet, perAssessmentCap)
-    loop each suggestion in scoped set
-      Orchestrator->>Strategies: dispatch(type)
-      Strategies-->>Orchestrator: artefact | failure
-    end
-    alt at least one artefact retrieved
-      Orchestrator->>Gen: regenerate(original + retrieved)
-      Gen-->>Orchestrator: enriched questions
-      Orchestrator->>Service: replace questions
-    else zero artefacts retrieved or budget breached
-      Orchestrator->>Service: keep original questions, log reason
-    end
-    Service->>DB: finalise_rubric_v3 with retrieval_outcome
+  Caller->>Loop: generateRubric(artefacts, tools=[], bounds)
+  Loop->>LLM: system + user prompt (no tool defs)
+  LLM-->>Loop: final structured response
+  Loop-->>Caller: { rubric, tokens, tool_calls=[], duration_ms }
 ```
 
-### Structural overview
+The tool-use loop is always the code path; passing an empty tool set is equivalent to the V1 single-shot call. Observability fields (tokens, empty call log, duration) are populated regardless.
+
+### Structural Overview
 
 ```mermaid
 classDiagram
-    class assessment_artefact_suggestions {
-      <<DB table>>
-      assessment_id, artefact_type, description, expected_benefit
-    }
-    class persistSuggestionsService {
-      <<api/fcs/service>>
-    }
-    class feasibilityScript {
-      <<scripts/agentic-retrieval-feasibility>>
-    }
-    class RetrievalOrchestrator {
-      <<engine/retrieval/orchestrator>>
-      +enrich(suggestions, scopedSet, cap) RetrievalOutcome
-    }
-    class RetrievalStrategy {
-      <<engine/retrieval/ports>>
-      <<interface>>
-      +artefactType: string
-      +retrieve(suggestion): Promise~Artefact|Failure~
-    }
-    class StrategyRegistry {
-      <<engine/retrieval/registry>>
-      +register(strategy)
-      +get(type): RetrievalStrategy | undefined
-    }
-    class CostBudgetTracker {
-      <<engine/retrieval/budget>>
-      +charge(cost) BreachOrOk
-    }
-    class regenerateQuestions {
-      <<engine/generation>>
-      +(initialArtefacts + retrievedArtefacts, llmClient)
-    }
-    class results_page {
-      <<app/assessments/[id]/results/page>>
-    }
+  class LLMClient {
+    <<interface>>
+    +generateStructured(req) LLMResult
+    +generateWithTools(req) LLMResult
+  }
+  class ToolDefinition {
+    <<type>>
+    name: string
+    description: string
+    inputSchema: ZodType
+    handler: (input, signal) => Promise<ToolResult>
+  }
+  class ToolLoopBounds {
+    <<type>>
+    maxCalls: number
+    maxBytes: number
+    maxExtraInputTokens: number
+    timeoutMs: number
+  }
+  class RubricGenerationResult {
+    <<type>>
+    rubric: Rubric
+    inputTokens: number
+    outputTokens: number
+    toolCalls: ToolCallLogEntry[]
+    durationMs: number
+  }
+  class ReadFileTool {
+    +handle(path, signal)
+  }
+  class ListDirectoryTool {
+    +handle(path, signal)
+  }
+  class PathSafety {
+    +resolveRepoPath(path) Result
+  }
 
-    persistSuggestionsService --> assessment_artefact_suggestions
-    feasibilityScript --> assessment_artefact_suggestions
-    RetrievalOrchestrator --> StrategyRegistry
-    StrategyRegistry --> RetrievalStrategy
-    RetrievalOrchestrator --> CostBudgetTracker
-    RetrievalOrchestrator --> regenerateQuestions
-    results_page --> assessment_artefact_suggestions : "(reads outcome)"
+  LLMClient <|.. OpenRouterClient : implements
+  ReadFileTool ..> PathSafety : uses
+  ListDirectoryTool ..> PathSafety : uses
+  ReadFileTool ..|> ToolDefinition
+  ListDirectoryTool ..|> ToolDefinition
 ```
+
+- **Engine layer** (`src/lib/engine/llm/`, `src/lib/engine/generation/`): port types, loop, schemas. No I/O.
+- **Adapter layer** (`src/lib/github/tools/`): concrete tool handlers + path-safety module. I/O allowed.
+- **Composition root** (`src/app/api/fcs/service.ts`): wires concrete tools into the generate-rubric call.
 
 ### Invariants
 
 | # | Invariant | Verification |
-|---|-----------|-------------|
-| 1 | `additional_context_suggestions` are persisted whenever returned by the LLM | Unit test: rubric finalisation with suggestions → row count > 0 |
-| 2 | Story 17.1 deliverable is a markdown report under `docs/reports/`, not production code | PR review |
-| 3 | Default org configuration: agentic retrieval **disabled** | DB default + unit test |
-| 4 | Retrieval-enabled state is captured at assessment-creation time, not read live during processing | Persisted as `assessments.retrieval_enabled_at_creation boolean` |
-| 5 | Zero retrieved artefacts → original questions used, no enrichment claim shown | Orchestrator unit test + UI test |
-| 6 | Per-assessment additional spend cap is enforced before re-generation runs | Unit test on `CostBudgetTracker` |
-| 7 | End-to-end retrieval + re-generation budget ≤ 90 seconds | Integration test with mocked strategies + AbortController |
-| 8 | An individual strategy failure does not abort the orchestrator | Unit test with one failing + one succeeding strategy |
-| 9 | Strategies live in the engine layer with no I/O imports themselves; I/O is performed by injected adapters | grep + tsc |
-| 10 | Required GitHub scopes are listed before opt-in is permitted | UI test + API test for the scopes-grant gate |
+|---|-----------|--------------|
+| 1 | The tool-use loop is the only code path into the rubric LLM — single-shot calls go through it with an empty tool set. | Unit test: non-tool path routes through `generateWithTools` with `tools=[]`. Grep: no direct `generateStructured` calls for rubric generation. |
+| 2 | No tool-call argument may resolve to a path outside the repository root. | Unit tests in `path-safety.test.ts` covering absolute paths, `..`, symlinks, Windows drive letters, case variants. |
+| 3 | Tool handlers never throw to the loop; all failures are typed `ToolResult` errors. | Lint: handlers return `Promise<ToolResult>`; test: every handler has a "throws internally → typed error" case. |
+| 4 | Bounds are enforced at the loop, not inside the tools. | Test: a malicious tool that returns 1 MiB still triggers `budget_exhausted` on the next call, not crash. |
+| 5 | Observability fields are populated on every rubric generation, including disabled path and failure paths. | Test: four scenarios (enabled/disabled × success/error) all persist non-null tokens + duration. |
+| 6 | The loop is pure engine code — no `import` from `@/lib/github`, `@/lib/supabase`, or `next/*`. | CI check: grep engine dir for forbidden imports. |
+| 7 | Tool-use is off by default per organisation. | Test: new org row has `tool_use_enabled = false`; pipeline reads flag before attaching tools. |
+| 8 | Abort on timeout must propagate into in-flight tool calls via `AbortSignal`. | Test: a slow tool handler is cancelled when the loop's controller aborts. |
+| 9 | The LLM port's `generateWithTools` method must never leak OpenRouter-specific types into the engine layer. | Type check: signature uses Zod schemas and port-owned tool types only. |
+| 10 | Path allow-list logic is implemented once, in `path-safety.ts`; no ad-hoc path joins elsewhere. | Grep: `path.resolve` and `path.join` appear only inside `path-safety.ts`. |
 
-### Acceptance Criteria (epic-level)
+### Acceptance Criteria (rolled up for Part B to split into tasks)
 
-1. `additional_context_suggestions` are persisted for every successful assessment from the day §17.1a ships, in a queryable form.
-2. Story 17.1 produces a markdown report in `docs/reports/` containing the four required sections (signal consistency, retrieval strategy map, cost impact, latency impact) and a go / no-go recommendation against the four explicit thresholds.
-3. The retrieval orchestration framework is implemented in the engine layer with a strategy port interface, registry, budget tracker, and 90-second wall-clock guard — independent of any concrete strategy.
-4. Per-organisation configuration supports: `agentic_retrieval_enabled` (default false), `agentic_retrieval_spend_cap` (default 2× V1 baseline assessment cost).
-5. The GitHub scopes upgrade flow blocks opt-in until the additional scopes (per 17.1's report) have been granted by the App installation.
-6. The results page surfaces the enrichment outcome (`N retrieved`, `unchanged`, `cap_breached`) and the per-assessment cost breakdown attributing retrieval cost separately from generation cost.
-7. Concrete retrieval strategies (one per scoped artefact type) are added as separate task issues spawned from §17.2f (`implement scoped retrievers`) only after Story 17.1's report is approved.
+- [ ] `LLMClient` port gains `generateWithTools<T>(req): Promise<LLMResult<{ data: T, usage, toolCalls }>>`; OpenRouter adapter implements it.
+- [ ] Engine-layer tool-use loop exists with 5-call / 64 KiB / 10k-token / 60s caps and typed errors for each breach.
+- [ ] Adapter-layer `readFile` and `listDirectory` handlers exist, share a single `path-safety` module, and handle every case in the path-safety test matrix.
+- [ ] Rubric generation flows through `generateWithTools` unconditionally; tool-use-disabled orgs pass an empty tool set.
+- [ ] `assessments` table gains `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls` (jsonb), `rubric_duration_ms` columns (all populated on every rubric generation).
+- [ ] `org_config` gains `tool_use_enabled boolean not null default false` and `rubric_cost_cap_cents integer not null default 20` (2× V1 baseline).
+- [ ] Results page renders tool-call log when non-empty; hides the block when empty/disabled.
+- [ ] Warning-coloured rendering for `forbidden_path` and `budget_exhausted` outcomes.
+- [ ] `finalise_rubric_v3` RPC persists all new fields in one transaction.
 
 ### Open Questions
 
-- **17.1 thresholds** — the four go/no-go thresholds (60% overlap, 70% strategy coverage, 50% cost increase, 90s latency) are directional anchors per Story 17.1's notes. The report can recommend "go with caveats" when one threshold misses by < 10 percentage points.
-- **Suggestion persistence backfill** — historical V1 assessments (before §17.1a ships) have no persisted suggestions. Backfilling would require re-running the question-generation LLM call against historical artefacts, which is expensive and may not match current model behaviour. **Decision:** do not backfill. The feasibility report uses only assessments generated after §17.1a, with a stated minimum sample size of 30.
-- **Spend cap denomination** — "twice the V1 baseline assessment cost" requires a captured baseline value. Today per-assessment cost is logged but not aggregated. §17.1a should also persist the per-assessment generation cost so the baseline is computable.
-- **Per-strategy timeout** — the 90s end-to-end budget is the hard ceiling, but individual strategies should have shorter timeouts (e.g. 10s) so one slow strategy cannot consume the whole budget. The exact value is finalised after 17.1.
+1. **Tokenizer choice for the `maxExtraInputTokens` cap.** The LLM's reported input-token count (from the OpenRouter response) is authoritative at finalisation but unavailable mid-loop. Pre-flight estimation is needed. Candidates: (a) simple heuristic `bytes / 4`, (b) a local tokenizer matching the target model, (c) just cap on bytes and drop the token cap. **Proposed:** go with `bytes / 4` heuristic and cap on bytes as the primary gate; token cap becomes a soft post-hoc check. Revisit after production telemetry.
+2. **Whether to expose tool-call log to participants or admin-only.** Participants could find it distracting; admins want auditability. **Proposed:** admin-only for V2. Revisit if surveyed.
+3. **Interaction with the E11 artefact-quality evaluator.** E11 runs a separate LLM call that also reads the artefact set. Should it get tools too? **Proposed:** not in this epic. E11's evaluator is a single-purpose classification call; adding tools doubles cost for no signal. Revisit if call-log analysis of rubric generation shows value.
 
 ---
 
 ## Part B — Agent-Implementable
 
-### Story 17.1: Agentic Retrieval Feasibility Study
+### Cross-epic ordering with E11
 
-#### §17.1a — Persist `additional_context_suggestions` (prerequisite)
+E11 (#233) adds `finalise_rubric_v2` with artefact-quality columns. E17 (#240) adds `finalise_rubric_v3` with observability + tool-use columns. The implementing agent should check `main` at branch creation:
 
-**Layer:** Database + Backend
+- If `finalise_rubric_v2` is already in `main`, add `_v3` that extends it with E17 fields.
+- If `_v2` is not yet in `main`, create `_v3` that supersedes V1 directly and E11 will rebase onto it.
 
-**Files to create:**
+Either ordering is fine; the RPC is the serialisation point.
 
-- `supabase/migrations/<timestamp>_assessment_artefact_suggestions.sql`
-- `tests/unit/api/fcs/service-suggestions.test.ts`
+### Task breakdown
 
-**Files to modify:**
+| Task | Layer | Est. size | Depends on |
+|------|-------|-----------|------------|
+| §17.1a — Extend `LLMClient` port with `generateWithTools` + tool types + bounded loop + typed error taxonomy | engine | ~180 lines | — |
+| §17.1b — Path-safety module + `readFile` + `listDirectory` tool handlers | adapter | ~140 lines | — |
+| §17.1c — OpenRouter adapter: implement `generateWithTools` (multi-turn, tool-use API) | adapter | ~160 lines | §17.1a |
+| §17.1d — Schema: observability columns + `tool_use_enabled` + `rubric_cost_cap_cents` + `finalise_rubric_v3` | DB | ~120 lines | — |
+| §17.1e — Pipeline integration: route rubric generation through `generateWithTools`, persist observability via `_v3` | engine+BE | ~140 lines | §17.1a, §17.1b, §17.1c, §17.1d |
+| §17.2a — Org settings UI: enable flag + cost cap input | FE | ~100 lines | §17.1d |
+| §17.2b — Results page: tool-call log block with warning styling | FE | ~160 lines | §17.1e |
 
-- `supabase/schemas/tables.sql` — add table:
-  ```sql
-  CREATE TABLE assessment_artefact_suggestions (
-    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id          uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
-    assessment_id   uuid NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-    artefact_type   text NOT NULL,
-    description     text NOT NULL,
-    expected_benefit text NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now()
-  );
-  CREATE INDEX idx_assessment_suggestions_assessment
-    ON assessment_artefact_suggestions (assessment_id);
-  CREATE INDEX idx_assessment_suggestions_org_type
-    ON assessment_artefact_suggestions (org_id, artefact_type);
-  ```
-- `supabase/schemas/policies.sql` — RLS: read by org members; insert by service role only.
-- `supabase/schemas/functions.sql` — replace `finalise_rubric_v2` (from E11 §11.1b) with `finalise_rubric_v3` accepting `p_suggestions jsonb`. The two epics' migrations interact — see "Cross-epic ordering" below.
-- [src/app/api/fcs/service.ts](src/app/api/fcs/service.ts) — pass `result.rubric.additional_context_suggestions` to the new RPC.
-- [src/app/api/assessments/[id]/retry-rubric/service.ts](src/app/api/assessments/[id]/retry-rubric/service.ts) — same.
-- `src/lib/supabase/types.ts` — regenerate.
-
-**Cross-epic ordering with E11:**
-
-- If E11 §11.1b has not landed, this task introduces `finalise_rubric_v2` first as in E11, then layers `finalise_rubric_v3` on top — same migration body without the quality columns.
-- If E11 §11.1b has landed, this task replaces `finalise_rubric_v2` with `finalise_rubric_v3` (adds `p_suggestions jsonb`).
-- Independent execution: §17.1a does not depend on E11.1b for *its own* persistence — the table is independent. The shared concern is the RPC name; the implementing agent picks the correct version based on what is in `main` at branch-creation time.
-
-**Internal decomposition:** No new route handler. Existing `triggerRubricGeneration` already calls `finaliseRubric()`; the change is in that helper plus the RPC.
-
-**BDD specs:**
-
-```
-describe('finalise_rubric_v3 RPC')
-  describe('Given a rubric with two suggestions')
-    it('then two assessment_artefact_suggestions rows are inserted')
-  describe('Given a rubric with no suggestions')
-    it('then zero suggestion rows are inserted')
-  describe('Given the RPC is called twice (retry path)')
-    it('then suggestion rows are not duplicated (clear-on-retry semantics)')
-
-describe('triggerRubricGeneration suggestion persistence')
-  describe('Given the LLM omits additional_context_suggestions')
-    it('then no suggestion rows are inserted and the assessment proceeds')
-  describe('Given the LLM returns 3 suggestions')
-    it('then 3 rows exist after rubric finalisation')
-```
-
-**Acceptance:**
-
-- [ ] Schema diff is empty after migration.
-- [ ] Reading suggestions back via `SELECT * FROM assessment_artefact_suggestions WHERE assessment_id = ...` matches what the LLM returned.
-- [ ] Retry path does not duplicate rows (the RPC clears prior rows for that `assessment_id` before inserting).
+Seven tasks. Each ≤ 200 lines. Wave plan in the epic body.
 
 ---
 
-#### §17.1b — Feasibility analysis & report
-
-**Layer:** Offline script + markdown deliverable. **No production code paths shipped.**
+### §17.1a — Extend LLMClient port with tool-use loop
 
 **Files to create:**
 
-- `scripts/agentic-retrieval-feasibility.ts` — analysis script (run with `tsx` against the production database read-replica or a local snapshot)
-- `docs/reports/<YYYY-MM-DD>-agentic-retrieval-feasibility.md` — the deliverable
+- `src/lib/engine/llm/tools.ts` — tool types, bounds, loop
 
-**Script outline (no implementation detail prescribed beyond function shape):**
+**Files to modify:**
+
+- `src/lib/engine/llm/types.ts` — add `generateWithTools` to `LLMClient` interface
+
+**Engine types (to be defined in `tools.ts`):**
 
 ```typescript
-// scripts/agentic-retrieval-feasibility.ts
-async function main(): Promise<void> {
-  const rows = await fetchAllSuggestions();
-  if (rows.length < MIN_ASSESSMENTS) reportInsufficientData();   // <30 → abort
+import type { ZodType } from 'zod';
+import type { LLMResult } from './types';
 
-  const consistency = signalConsistency(rows);             // % overlap of top-3 per assessment with global top-3
-  const strategyMap = classifyRetrievalStrategy(rows);     // {in_repo, external_link, none} per type
-  const costEstimate = estimateCostImpact(rows, telemetry);
-  const latencyEstimate = estimateLatencyImpact(rows, telemetry);
+export interface ToolDefinition<TInput extends ZodType = ZodType> {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: TInput;
+  readonly handler: (
+    input: z.infer<TInput>,
+    signal: AbortSignal,
+  ) => Promise<ToolResult>;
+}
 
-  const recommendation = decideGoNoGo({ consistency, strategyMap, costEstimate, latencyEstimate });
-  writeReport({ consistency, strategyMap, costEstimate, latencyEstimate, recommendation });
+export type ToolResult =
+  | { kind: 'ok'; content: string; bytes: number }
+  | { kind: 'not_found'; similar_paths: string[]; bytes: number }
+  | { kind: 'forbidden_path'; reason: string; bytes: number }
+  | { kind: 'error'; message: string; bytes: number };
+
+export interface ToolLoopBounds {
+  readonly maxCalls: number;
+  readonly maxBytes: number;
+  readonly maxExtraInputTokens: number;
+  readonly timeoutMs: number;
+}
+
+export const DEFAULT_TOOL_LOOP_BOUNDS: ToolLoopBounds = {
+  maxCalls: 5,
+  maxBytes: 64 * 1024,
+  maxExtraInputTokens: 10_000,
+  timeoutMs: 60_000,
+};
+
+export interface ToolCallLogEntry {
+  readonly tool_name: string;
+  readonly argument_path: string;
+  readonly bytes_returned: number;
+  readonly outcome: 'ok' | 'not_found' | 'forbidden_path' | 'error' | 'budget_exhausted' | 'iteration_limit_reached';
+}
+
+export interface GenerateWithToolsRequest<TSchema extends ZodType> {
+  prompt: string;
+  systemPrompt: string;
+  schema: TSchema;
+  tools: readonly ToolDefinition[];
+  bounds?: Partial<ToolLoopBounds>;
+  model?: string;
+  maxTokens?: number;
+  signal?: AbortSignal;
+}
+
+export interface GenerateWithToolsData<T> {
+  data: T;
+  usage: { inputTokens: number; outputTokens: number };
+  toolCalls: ToolCallLogEntry[];
+  durationMs: number;
 }
 ```
 
-**Report sections (mandatory):**
-
-1. **Data summary** — assessment count, date range, total suggestions, distinct artefact types.
-2. **Signal consistency analysis** — per-type frequency table; consistency value (% overlap of per-assessment top-3 with global top-3); pass/fail vs 60% threshold.
-3. **Retrieval-strategy map** — table mapping each requested artefact type to `(a) in-repo GitHub search`, `(b) external link`, `(c) no viable strategy`; pass/fail vs 70% threshold.
-4. **Cost impact estimate** — projected additional LLM tokens + GitHub API calls per assessment, in absolute terms and as a percentage delta against V1 baseline; pass/fail vs 50% increase threshold.
-5. **Latency impact estimate** — projected wall-clock delta against V1 measured latency; cross-check against 90s end-to-end budget for §17.2.
-6. **Go / no-go recommendation** — explicit recommendation with citation of each threshold; if go, the **scoped artefact type set** for §17.2; if no-go, the rationale and what evidence would change the decision.
-
-**BDD specs:** none — output is a document, reviewed by the user.
-
-**Acceptance:**
-
-- [ ] Report exists at `docs/reports/<YYYY-MM-DD>-agentic-retrieval-feasibility.md`.
-- [ ] All four go/no-go criteria are evaluated explicitly with the underlying numbers shown.
-- [ ] Recommendation either approves §17.2 with a scoped set, or marks it blocked with rationale.
-
-**Time-gate dependency:** This task must wait for ≥ 30 production assessments to accumulate after §17.1a ships. That is operational latency, not work.
-
----
-
-### Story 17.2: Opt-In Agentic Retrieval — framework
-
-The framework is decomposed below. **Concrete retrieval strategies are not in this LLD** — they are spawned by §17.2f as separate task issues after Story 17.1's report defines the scoped set.
-
-#### §17.2a — Schema for org config + assessment retrieval state
-
-**Layer:** Database
-
-**Files to modify:**
-
-- `supabase/schemas/tables.sql`:
-  - `org_config` additions:
-    - `agentic_retrieval_enabled boolean NOT NULL DEFAULT false`
-    - `agentic_retrieval_spend_cap_cents integer NOT NULL DEFAULT 0 CHECK (agentic_retrieval_spend_cap_cents >= 0)` — `0` resolves at runtime to "2× the V1 baseline" via `getEffectiveSpendCap()` in §17.2c
-    - `agentic_retrieval_scopes_granted boolean NOT NULL DEFAULT false`
-  - `assessments` additions:
-    - `retrieval_enabled_at_creation boolean NOT NULL DEFAULT false`
-    - `retrieval_outcome text CHECK (retrieval_outcome IN ('not_attempted', 'enriched', 'unchanged_no_artefacts', 'unchanged_cap_breached', 'unchanged_timeout'))`
-    - `retrieval_artefact_count integer NOT NULL DEFAULT 0`
-    - `retrieval_cost_cents integer NOT NULL DEFAULT 0`
-    - `generation_cost_cents integer NOT NULL DEFAULT 0` — generation cost stored separately from retrieval per AC-6
-- `src/lib/supabase/types.ts` — regenerate.
-
-**Acceptance:**
-
-- [ ] Schema diff empty.
-- [ ] All new columns NOT NULL with explicit defaults so existing rows are populated cleanly.
-
----
-
-#### §17.2b — GitHub scopes upgrade flow
-
-**Layer:** Backend + Frontend
-
-**Files to create:**
-
-- `src/app/api/organisations/[id]/agentic-retrieval/scopes/route.ts`
-- `src/app/api/organisations/[id]/agentic-retrieval/scopes/service.ts` — `getRequiredScopes(ctx, orgId)`, `markScopesGranted(ctx, orgId)`
-- `src/app/(authenticated)/organisation/agentic-retrieval-form.tsx` — UI: list required scopes, link to GitHub App installation upgrade page, "I've granted these scopes" confirmation
-- `tests/unit/api/organisations/agentic-retrieval-scopes.test.ts`
-
-**Files to modify:**
-
-- [src/app/(authenticated)/organisation/page.tsx](src/app/(authenticated)/organisation/page.tsx) — render the new form when `agentic_retrieval_enabled` toggle is on but scopes not granted.
-
-**Behavioural rule:** Opting in (`agentic_retrieval_enabled = true`) is rejected if `agentic_retrieval_scopes_granted = false`. The UI surfaces the required scopes list before the toggle becomes interactive.
-
-**BDD specs:**
-
-```
-describe('Agentic retrieval opt-in')
-  describe('Given scopes have not been granted')
-    it('then PATCH agentic_retrieval_enabled=true returns 412 Precondition Failed with required scopes')
-  describe('Given the user grants the scopes via GitHub')
-    it('then markScopesGranted is invoked and PATCH succeeds')
-  describe('Given the App installation later loses the scopes')
-    it('then a webhook handler resets agentic_retrieval_scopes_granted to false (covered by §17.2g if added)')
-```
-
-**Acceptance:**
-
-- [ ] Required scopes are surfaced before the toggle is enabled.
-- [ ] Opt-in is blocked until the grant is recorded.
-
----
-
-#### §17.2c — Retrieval orchestration framework (engine layer)
-
-**Layer:** Engine (pure logic + ports)
-
-**Files to create:**
-
-- `src/lib/engine/retrieval/index.ts` — barrel
-- `src/lib/engine/retrieval/orchestrator.ts` — `enrichWithRetrieval(input)`
-- `src/lib/engine/retrieval/registry.ts` — strategy registry
-- `src/lib/engine/retrieval/ports.ts` — `RetrievalStrategy` interface
-- `src/lib/engine/retrieval/budget.ts` — `CostBudgetTracker`, `WallClockBudget` (uses `AbortController`)
-- `tests/unit/engine/retrieval/orchestrator.test.ts`
-- `tests/unit/engine/retrieval/budget.test.ts`
-
-**Internal types:**
+**Port extension (`types.ts`):**
 
 ```typescript
-// src/lib/engine/retrieval/ports.ts
+export interface LLMClient {
+  generateStructured<T extends ZodType>(...): Promise<LLMResult<z.infer<T>>>;
 
-export interface RetrievalStrategy {
-  /** Artefact type from `additional_context_suggestions[].artefact_type` this strategy handles. */
-  readonly artefactType: string;
-  retrieve(input: RetrievalInput, signal: AbortSignal): Promise<RetrievalResult>;
+  generateWithTools<T extends ZodType>(
+    req: GenerateWithToolsRequest<T>,
+  ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>>;
 }
-
-export interface RetrievalInput {
-  suggestion: AdditionalContextSuggestion;
-  context: { orgName: string; repoName: string; pullRequest?: { number: number; body: string } };
-}
-
-export type RetrievalResult =
-  | { status: 'ok'; artefact: RetrievedArtefact; costCents: number }
-  | { status: 'failed'; reason: 'not_found' | 'permission' | 'timeout' | 'network'; costCents: number };
-
-// src/lib/engine/retrieval/orchestrator.ts
-
-export interface EnrichInput {
-  suggestions: AdditionalContextSuggestion[];
-  scopedSet: ReadonlySet<string>;       // resolved at call site from 17.1's report-derived constant
-  registry: StrategyRegistry;
-  budget: { wallClockMs: number; spendCapCents: number };
-  context: RetrievalInput['context'];
-}
-
-export type EnrichOutcome =
-  | { kind: 'enriched'; retrieved: RetrievedArtefact[]; costCents: number }
-  | { kind: 'unchanged_no_artefacts'; perTypeFailures: PerTypeFailure[]; costCents: number }
-  | { kind: 'unchanged_cap_breached'; costCents: number }
-  | { kind: 'unchanged_timeout'; partial: RetrievedArtefact[]; costCents: number };
 ```
 
-**Behavioural rules:**
+**Loop behaviour (implemented inside the OpenRouter adapter, §17.1c — this task defines the types only):**
 
-- The orchestrator iterates suggestions in input order. For each suggestion whose `artefact_type` is not in `scopedSet`, it logs `out_of_scope` and skips.
-- Per-suggestion strategy invocation is wrapped in the wall-clock `AbortSignal`; an individual strategy timeout aborts only that strategy, not the orchestrator.
-- `CostBudgetTracker` is checked **before** dispatching the next strategy — if charging the projected cost would exceed the cap, the orchestrator stops and returns `unchanged_cap_breached` (no partial enrichment, per AC-9 of Story 17.2: cap breach falls back to original questions).
-- If wall-clock budget expires, returns `unchanged_timeout`. Partial retrievals are recorded for telemetry but **not** used for re-generation (the full set was not retrieved, semantics of re-generation require the orchestrator's full output).
+1. Start wall-clock timer and controller combining caller's `signal` with internal timeout.
+2. Issue LLM call with tool definitions attached; collect tool-call requests from the response.
+3. For each tool call, check per-call bounds (`callCount < maxCalls`, `cumulativeBytes < maxBytes`). On breach, synthesise a `budget_exhausted` or `iteration_limit_reached` result, log it, and continue the LLM conversation (LLM should finalise next turn).
+4. Invoke `toolDef.handler(args, signal)`. Catch internally — never throw from handler.
+5. Append the tool result to the log; append to message history; loop.
+6. Exit when the LLM returns a final structured response or any breach forces finalisation.
+7. Return `GenerateWithToolsData` with tokens, tool-call log, and duration.
 
 **BDD specs:**
 
 ```
-describe('enrichWithRetrieval')
-  describe('Given two in-scope suggestions and both strategies succeed')
-    it('then outcome.kind = "enriched" and retrieved.length = 2')
-  describe('Given one suggestion is out of scope')
-    it('then it is skipped with logged reason and the in-scope one is retrieved')
-  describe('Given one strategy times out and one succeeds')
-    it('then the timeout is recorded; outcome.kind reflects the wall-clock state')
-  describe('Given charging the next strategy would exceed the spend cap')
-    it('then the orchestrator stops with outcome.kind = "unchanged_cap_breached"')
-  describe('Given zero suggestions are in scope')
-    it('then outcome.kind = "unchanged_no_artefacts" with perTypeFailures listing each out-of-scope reason')
-  describe('Given the wall-clock budget elapses mid-flight')
-    it('then outcome.kind = "unchanged_timeout" and partial artefacts are NOT used downstream')
-
-describe('CostBudgetTracker')
-  describe('Given a cap of 100 cents and a projected charge of 60')
-    it('then charge succeeds and remaining = 40')
-  describe('Given a remaining of 40 and a projected charge of 50')
-    it('then charge is rejected with reason "cap_exceeded"')
+describe('Tool loop — engine types')
+  it('DEFAULT_TOOL_LOOP_BOUNDS is 5/64KiB/10k/60s as per ADR-0023')
+  it('ToolResult discriminated union has exhaustive match — compile-time')
+  it('ToolCallLogEntry outcomes include the six documented enum values')
+  it('GenerateWithToolsRequest.bounds is partial — merges with defaults')
 ```
 
-**Acceptance:**
+**Acceptance criteria:**
 
-- [ ] Engine has zero I/O imports.
-- [ ] All BDD specs pass.
+- [ ] All types exported from `tools.ts`
+- [ ] `LLMClient` interface extended; no breaking change to `generateStructured`
+- [ ] Engine layer still has zero framework/I/O imports
 
 ---
 
-#### §17.2d — Re-generation flow + service integration
-
-**Layer:** Backend (API service path)
+### §17.1b — Path-safety + readFile + listDirectory handlers
 
 **Files to create:**
 
-- `src/lib/engine/generation/regenerate-questions.ts` — `regenerateQuestions(originalArtefacts, retrievedArtefacts, llmClient)` (the second LLM call)
-- `tests/unit/engine/generation/regenerate-questions.test.ts`
-- `tests/unit/api/fcs/service-retrieval.test.ts`
+- `src/lib/github/tools/path-safety.ts` — pure function: resolves and validates a repo-relative path
+- `src/lib/github/tools/read-file.ts` — tool definition using the Octokit contents API
+- `src/lib/github/tools/list-directory.ts` — tool definition using the Octokit contents API
+- `src/lib/github/tools/__tests__/path-safety.test.ts` — exhaustive path-safety matrix
+- `src/lib/github/tools/__tests__/read-file.test.ts`
+- `src/lib/github/tools/__tests__/list-directory.test.ts`
 
-**Files to modify:**
+**Path-safety contract:**
 
-- [src/app/api/fcs/service.ts](src/app/api/fcs/service.ts):
-  - After `generateRubric` succeeds, check if `assessment.retrieval_enabled_at_creation` is true.
-  - If yes, build a `StrategyRegistry` from the registered strategies (added by §17.2f tasks), construct `WallClockBudget(90_000ms)` and `CostBudgetTracker(getEffectiveSpendCap(orgId))`, call `enrichWithRetrieval(...)`.
-  - On `enriched` outcome, call `regenerateQuestions` and replace `result.rubric.questions` with the regenerated set.
-  - On any `unchanged_*` outcome, keep original questions, persist `retrieval_outcome`, do not show enrichment claim in UI.
-  - Persist costs (`retrieval_cost_cents`, `generation_cost_cents`) in `finalise_rubric_v3` (extended).
-- `supabase/schemas/functions.sql` — extend the RPC name from §17.1a (`finalise_rubric_v3`) to accept `p_retrieval_outcome`, `p_retrieval_artefact_count`, `p_retrieval_cost_cents`, `p_generation_cost_cents` — or introduce `finalise_rubric_v4`. Pick one in implementation; do not split the RPC across two PRs.
-- `src/app/api/fcs/service.ts` — also captures `assessments.retrieval_enabled_at_creation` at INSERT time (per Invariant 4).
-- `src/lib/supabase/types.ts` — regenerate.
+```typescript
+export type PathSafetyResult =
+  | { ok: true; normalised: string }
+  | { ok: false; reason: 'absolute' | 'traversal' | 'empty' | 'invalid_chars' };
 
-**Internal decomposition:** Service function `triggerRubricGeneration` already follows the controller/service split. The new logic remains in the service helper. The engine helpers (`enrichWithRetrieval`, `regenerateQuestions`) are pure and receive `LLMClient` + `StrategyRegistry` by injection.
+export function resolveRepoPath(raw: string): PathSafetyResult;
+```
+
+Rejections (non-exhaustive; the test matrix is the contract):
+
+- Absolute paths: `/etc/passwd`, `C:/Windows/System32`
+- Traversal: `../../../etc/passwd`, `docs/../../etc`
+- Empty: `""`, `"   "`
+- Null bytes, control characters
+- Symlink resolution is delegated to GitHub adapter (GitHub contents API will not follow them across repo boundary)
+
+**Handler pattern (readFile):**
+
+```typescript
+export function makeReadFileTool(octokit: Octokit, repo: RepoRef): ToolDefinition {
+  return {
+    name: 'readFile',
+    description: 'Read a file from the assessment repository by repo-relative path.',
+    inputSchema: z.object({ path: z.string() }),
+    handler: async ({ path }, signal) => {
+      const safe = resolveRepoPath(path);
+      if (!safe.ok) return { kind: 'forbidden_path', reason: safe.reason, bytes: 0 };
+      try {
+        const { data } = await octokit.rest.repos.getContent({ ...repo, path: safe.normalised, request: { signal } });
+        if (Array.isArray(data) || data.type !== 'file') {
+          return { kind: 'error', message: 'path is not a file', bytes: 0 };
+        }
+        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        return { kind: 'ok', content, bytes: content.length };
+      } catch (err) {
+        if (isNotFound(err)) {
+          const similar = await suggestSimilarPaths(octokit, repo, safe.normalised);
+          return { kind: 'not_found', similar_paths: similar, bytes: 0 };
+        }
+        return { kind: 'error', message: toMessage(err), bytes: 0 };
+      }
+    },
+  };
+}
+```
 
 **BDD specs:**
 
 ```
-describe('triggerRubricGeneration with retrieval enabled')
-  describe('Given retrieval enabled and orchestrator returns "enriched"')
-    it('then regenerateQuestions is invoked and the new question set is persisted')
-    it('then retrieval_outcome = "enriched" and retrieval_artefact_count = N')
-  describe('Given retrieval enabled and orchestrator returns "unchanged_cap_breached"')
-    it('then the original questions are persisted and retrieval_outcome reflects the breach')
-  describe('Given retrieval not enabled at creation')
-    it('then the orchestrator is never invoked and retrieval_outcome = "not_attempted"')
-  describe('Given regeneration LLM call fails after successful enrichment')
-    it('then the original questions are persisted and retrieval_outcome = "unchanged_*" (regen_failed sub-status optional)')
+describe('path-safety')
+  it('accepts docs/adr/0014-api-routes.md')
+  it('rejects /etc/passwd (absolute)')
+  it('rejects C:/Windows (absolute, Windows)')
+  it('rejects ../secrets')
+  it('rejects docs/../../etc')
+  it('rejects empty string')
+  it('rejects whitespace-only string')
+  it('rejects paths containing null bytes')
+  it('normalises docs//adr//0014.md to docs/adr/0014.md')
+
+describe('readFile tool')
+  it('returns kind=ok with content + bytes on valid path')
+  it('returns kind=forbidden_path when path-safety rejects')
+  it('returns kind=not_found with up to 5 similar paths on 404')
+  it('returns kind=error when the API call fails')
+  it('returns kind=error when the path resolves to a directory')
+  it('propagates AbortSignal to the Octokit request')
+  it('never throws — verified by a handler that always throws internally returning kind=error')
+
+describe('listDirectory tool')
+  it('returns entries as { name, kind } pairs')
+  it('returns kind=forbidden_path for unsafe paths')
+  it('returns kind=not_found for missing directories')
+  it('returns kind=error when the path resolves to a file')
+  it('never throws')
 ```
 
-**Acceptance:**
+**Acceptance criteria:**
 
-- [ ] All paths persist a determinate `retrieval_outcome`.
-- [ ] No path leaves `assessments.status` in `rubric_generation` after this code returns.
+- [ ] Path-safety module rejects every case in the test matrix
+- [ ] Both tools return typed results for every failure mode; no thrown exceptions reach the loop
+- [ ] `AbortSignal` flows into Octokit requests
+- [ ] All imports are inside `src/lib/github/tools/` or its test subdir; engine layer unaffected
 
 ---
 
-#### §17.2e — Results UI: enrichment notice + cost breakdown
-
-**Layer:** Frontend
+### §17.1c — OpenRouter adapter: generateWithTools
 
 **Files to modify:**
 
-- [src/app/assessments/[id]/results/page.tsx](src/app/assessments/[id]/results/page.tsx) — read `retrieval_outcome`, `retrieval_artefact_count`, `generation_cost_cents`, `retrieval_cost_cents`; render `RetrievalOutcomeNotice` at the top of the results body.
+- `src/lib/llm/openrouter-client.ts` (or equivalent existing adapter file) — add `generateWithTools` method
+- Add tests covering the loop mechanics using a fake HTTP client
 
-**Files to create:**
+**Loop implementation (pseudocode):**
 
-- `src/components/results/retrieval-outcome-notice.tsx`
+```typescript
+async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
+  const bounds = { ...DEFAULT_TOOL_LOOP_BOUNDS, ...req.bounds };
+  const start = Date.now();
+  const controller = combineSignals(req.signal, AbortSignal.timeout(bounds.timeoutMs));
+  let callCount = 0, cumulativeBytes = 0;
+  const toolCalls: ToolCallLogEntry[] = [];
+  const messages = [systemPrompt, userPrompt];
+  const toolDefsForAPI = req.tools.map(toOpenRouterToolDef);
 
-**Display rules:**
-
-- `enriched` (N ≥ 1): `"Questions enriched with N additional artefact(s) retrieved automatically."` (British pluralisation: 1 → "artefact"; otherwise → "artefacts").
-- `unchanged_no_artefacts`: no notice. (Per AC: do not claim enrichment.)
-- `unchanged_cap_breached`: admin-only notice `"Retrieval aborted — would have exceeded the per-assessment spend cap."`
-- `unchanged_timeout`: admin-only notice `"Retrieval aborted — exceeded the 90-second budget."`
-- `not_attempted`: no notice.
-
-Cost breakdown is shown in a small "i" tooltip under the score: `"LLM cost: generation $X.XX, retrieval $Y.YY"`.
+  while (true) {
+    const resp = await openrouterChat({ messages, tools: toolDefsForAPI, signal: controller.signal });
+    if (resp.tool_calls?.length) {
+      for (const tc of resp.tool_calls) {
+        if (callCount >= bounds.maxCalls) {
+          toolCalls.push({ tool_name: tc.name, argument_path: tc.args.path ?? '', bytes_returned: 0, outcome: 'iteration_limit_reached' });
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"iteration_limit_reached"}' });
+          continue;
+        }
+        if (cumulativeBytes >= bounds.maxBytes) {
+          toolCalls.push({ tool_name: tc.name, argument_path: tc.args.path ?? '', bytes_returned: 0, outcome: 'budget_exhausted' });
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"budget_exhausted"}' });
+          continue;
+        }
+        const def = req.tools.find(d => d.name === tc.name);
+        if (!def) {
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"unknown_tool"}' });
+          continue;
+        }
+        const parsed = def.inputSchema.safeParse(tc.args);
+        if (!parsed.success) { /* error entry, continue */ }
+        const result = await def.handler(parsed.data, controller.signal);
+        callCount += 1;
+        cumulativeBytes += result.bytes;
+        toolCalls.push({ tool_name: tc.name, argument_path: parsed.data.path, bytes_returned: result.bytes, outcome: result.kind });
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+      }
+      messages.push(resp.assistantMessage);
+      continue; // next LLM turn
+    }
+    // Final response — validate against schema
+    const parsed = req.schema.safeParse(resp.parsed);
+    if (!parsed.success) return { success: false, error: { code: 'malformed_response', ... } };
+    return {
+      success: true,
+      data: {
+        data: parsed.data,
+        usage: { inputTokens: resp.usage.input, outputTokens: resp.usage.output },
+        toolCalls,
+        durationMs: Date.now() - start,
+      },
+    };
+  }
+}
+```
 
 **BDD specs:**
 
 ```
-describe('RetrievalOutcomeNotice')
-  describe('Given retrieval_outcome = "enriched" with retrieval_artefact_count = 1')
-    it('renders "Questions enriched with 1 additional artefact retrieved automatically."')
-  describe('Given retrieval_outcome = "enriched" with retrieval_artefact_count = 3')
-    it('renders "Questions enriched with 3 additional artefacts retrieved automatically."')
-  describe('Given retrieval_outcome = "unchanged_cap_breached" and admin viewer')
-    it('renders the cap-breach notice')
-  describe('Given retrieval_outcome = "unchanged_cap_breached" and non-admin viewer')
-    it('renders no notice')
+describe('OpenRouter generateWithTools')
+  it('returns the final structured response when LLM does not call any tools')
+  it('invokes handlers for each tool call and feeds results back')
+  it('stops invoking handlers after maxCalls; logs iteration_limit_reached')
+  it('stops invoking handlers after maxBytes; logs budget_exhausted')
+  it('aborts in-flight handlers when timeoutMs elapses')
+  it('returns malformed_response error when LLM final output fails schema validation')
+  it('records input + output token usage from the LLM response')
+  it('records durationMs from wall-clock')
 ```
 
-**Acceptance:**
+**Acceptance criteria:**
 
-- [ ] All five outcome states render correctly.
-- [ ] Cost breakdown only shown to admins.
+- [ ] Method implemented on the OpenRouter adapter
+- [ ] All tests pass using a fake HTTP client (no real network)
+- [ ] No engine-layer imports leak into OpenRouter-specific types
+- [ ] Existing `generateStructured` behaviour unchanged
 
 ---
 
-#### §17.2f — Implement scoped retrieval strategies (placeholder spawner)
+### §17.1d — Schema: observability + flags + finalise_rubric_v3
 
-**Layer:** TBD per 17.1's report. **No implementation in this task.**
+**Files to modify:**
 
-**Purpose:** This task issue exists as a placeholder. After Story 17.1's report is approved, the assignee:
+- `supabase/schemas/tables.sql` — add columns to `assessments` and `org_config`
+- `supabase/schemas/functions.sql` — add `finalise_rubric_v3`
 
-1. Reads the scoped artefact type set from the report.
-2. For each scoped artefact type, opens a new `kind:task` issue titled `feat: retrieval strategy — <artefact_type>`.
-3. Each new task implements one `RetrievalStrategy` under `src/lib/github/retrieval/<type>-strategy.ts` (or another adapter directory if not GitHub-sourced) and registers it in the `StrategyRegistry` constructed at composition root.
-4. Each new task has its own BDD specs, integration test against a recorded fixture, and PR.
+**Column additions:**
 
-**Acceptance:**
+```sql
+-- assessments
+alter table assessments add column rubric_input_tokens integer null;
+alter table assessments add column rubric_output_tokens integer null;
+alter table assessments add column rubric_tool_call_count integer null;
+alter table assessments add column rubric_tool_calls jsonb null;
+alter table assessments add column rubric_duration_ms integer null;
 
-- [ ] After 17.1's report is approved, this task spawns N concrete strategy task issues (one per scoped artefact type) and is then closed as superseded.
-- [ ] If 17.1 returns "no-go", this task is closed as `wontfix` and §17.2 is rolled back.
+-- org_config
+alter table org_config add column tool_use_enabled boolean not null default false;
+alter table org_config add column rubric_cost_cap_cents integer not null default 20;
+```
+
+(Declarative: edit `supabase/schemas/tables.sql` directly; run `npx supabase db diff -f e17_observability_tool_use`.)
+
+**RPC:**
+
+```sql
+create or replace function finalise_rubric_v3(
+  p_assessment_id uuid,
+  p_questions jsonb,
+  p_artefact_quality_score integer,       -- from E11 if in main, else null
+  p_artefact_quality_dimensions jsonb,
+  p_additional_context_suggestions jsonb,
+  p_rubric_input_tokens integer,
+  p_rubric_output_tokens integer,
+  p_rubric_tool_call_count integer,
+  p_rubric_tool_calls jsonb,
+  p_rubric_duration_ms integer
+) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update assessments set
+    questions = p_questions,
+    artefact_quality_score = p_artefact_quality_score,
+    artefact_quality_dimensions = p_artefact_quality_dimensions,
+    additional_context_suggestions = p_additional_context_suggestions,
+    rubric_input_tokens = p_rubric_input_tokens,
+    rubric_output_tokens = p_rubric_output_tokens,
+    rubric_tool_call_count = p_rubric_tool_call_count,
+    rubric_tool_calls = p_rubric_tool_calls,
+    rubric_duration_ms = p_rubric_duration_ms,
+    status = 'ready'
+  where id = p_assessment_id;
+end;
+$$;
+```
+
+**BDD specs:**
+
+```
+describe('schema: E17 observability')
+  it('assessments.rubric_input_tokens defaults to null on legacy rows')
+  it('org_config.tool_use_enabled defaults to false')
+  it('org_config.rubric_cost_cap_cents defaults to 20')
+  it('finalise_rubric_v3 persists all observability fields in one call')
+  it('finalise_rubric_v3 accepts null for E11 columns (cross-epic ordering)')
+  it('legacy finalise_rubric_v2 still works (no breaking change)')
+```
+
+**Acceptance criteria:**
+
+- [ ] All new columns added declaratively
+- [ ] Migration generated via `npx supabase db diff`, not hand-authored
+- [ ] `db reset` + `db diff` shows zero drift after migration applied
+- [ ] RPC callable from the service layer
 
 ---
 
-### Cross-task ordering
+### §17.1e — Pipeline integration + observability persistence
 
-```mermaid
-graph LR
-  A1["§17.1a · Persist suggestions\n(DB+BE)"]
-  A2["§17.1b · Feasibility report\n(spike)"]
-  B1["§17.2a · Schema (config + state)\n(DB)"]
-  B2["§17.2b · Scopes upgrade flow\n(BE+FE)"]
-  B3["§17.2c · Orchestrator framework\n(engine)"]
-  B4["§17.2d · Re-generation + service\n(BE)"]
-  B5["§17.2e · Results UI notice\n(FE)"]
-  B6["§17.2f · Spawn scoped strategies\n(TBD)"]
-  DATA(["≥ 30 assessments accumulated"])
-  REPORT(["17.1b report approved (go)"])
+**Files to modify:**
 
-  A1 --> DATA
-  DATA -.-> A2
-  A2 --> REPORT
-  REPORT -.-> B1
-  REPORT -.-> B2
-  REPORT -.-> B3
-  REPORT -.-> B6
-  B1 --> B4
-  B2 --> B4
-  B3 --> B4
-  B6 --> B4
-  B4 --> B5
+- `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`
+- `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric
+- `src/app/api/fcs/service.ts` — wire concrete tools + call `finalise_rubric_v3`
+- Tests for both engine and service changes
+
+**Engine change (generate-questions.ts):**
+
+The existing function switches from `generateStructured` to `generateWithTools`, always. When tool-use is disabled for the org, the service layer passes `tools=[]` and the loop degenerates to a single-shot call. The engine layer has no awareness of the flag.
+
+```typescript
+export async function generateQuestions(request: GenerateQuestionsRequest): Promise<LLMResult<GenerateQuestionsData>> {
+  const result = await llmClient.generateWithTools({
+    systemPrompt,
+    prompt: userPrompt,
+    schema: QuestionGenerationResponseSchema,
+    tools: request.tools,     // empty array if org has flag off
+    bounds: request.bounds,   // optional override
+    signal: request.signal,
+    model,
+    maxTokens,
+  });
+  if (!result.success) return result;
+  // validation (question count) unchanged
+  return { success: true, data: { ...result.data.data, _usage: result.data.usage, _toolCalls: result.data.toolCalls, _durationMs: result.data.durationMs } };
+}
 ```
 
-§17.1a is the only task that can start immediately. Everything in §17.2 is gated on the 17.1b report.
+**Service change (fcs/service.ts):**
 
-### Verification across the epic
+```typescript
+const orgConfig = await ctx.supabase.from('org_config').select('tool_use_enabled, rubric_cost_cap_cents').eq('org_id', orgId).single();
+const tools = orgConfig.data?.tool_use_enabled
+  ? [makeReadFileTool(octokit, repo), makeListDirectoryTool(octokit, repo)]
+  : [];
+const bounds = orgConfig.data?.rubric_cost_cap_cents
+  ? { ...DEFAULT_TOOL_LOOP_BOUNDS, /* derive maxExtraInputTokens from cost cap */ }
+  : undefined;
+const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
+// ... on success:
+await ctx.adminSupabase.rpc('finalise_rubric_v3', {
+  p_assessment_id: id,
+  p_questions: rubric.questions,
+  p_artefact_quality_score: /* from E11 or null */,
+  p_artefact_quality_dimensions: /* from E11 or null */,
+  p_additional_context_suggestions: rubric.additional_context_suggestions ?? [],
+  p_rubric_input_tokens: rubric._usage.inputTokens,
+  p_rubric_output_tokens: rubric._usage.outputTokens,
+  p_rubric_tool_call_count: rubric._toolCalls.length,
+  p_rubric_tool_calls: rubric._toolCalls,
+  p_rubric_duration_ms: rubric._durationMs,
+});
+```
 
-| Command | Purpose |
-|---------|---------|
-| `npx vitest run tests/unit/engine/retrieval` | Orchestrator + budget unit tests |
-| `npx vitest run tests/unit/api/fcs/service-suggestions.test.ts` | Suggestion persistence |
-| `npx vitest run tests/unit/api/fcs/service-retrieval.test.ts` | Service integration with retrieval |
-| `npx vitest run tests/unit/api/organisations/agentic-retrieval-scopes.test.ts` | Scopes flow |
-| `npx tsc --noEmit` | Type integrity |
-| `npx supabase db reset && npx supabase db diff` | Schema cleanliness |
+**BDD specs:**
 
-### Out of scope for E17
+```
+describe('Pipeline integration — rubric generation')
+  it('passes empty tool set when tool_use_enabled is false')
+  it('passes readFile + listDirectory when tool_use_enabled is true')
+  it('persists rubric_input_tokens + rubric_output_tokens on every successful generation')
+  it('persists rubric_tool_call_count = 0 when no tools were called')
+  it('persists rubric_tool_calls as jsonb array matching the log entries')
+  it('persists rubric_duration_ms as a positive integer')
+  it('does not call finalise_rubric_v3 on generation failure — legacy error path unchanged')
+```
 
-- **Concrete retrieval strategies** — spawned by §17.2f after 17.1 approves.
-- **Real-time retrieval mid-assessment** — only at rubric generation time.
-- **Backfill of historical suggestions** — see "Open Questions".
-- **Cross-org retrieval (e.g. shared knowledge bases)** — V2 retrieval is org-scoped via the existing installation token.
-- **GitLab / Bitbucket sources** — V2 is GitHub-only, per V2 "Out of Scope" table.
+**Acceptance criteria:**
+
+- [ ] All rubric generations go through `generateWithTools` (no direct `generateStructured` for questions)
+- [ ] Observability persisted whether tool-use enabled or disabled
+- [ ] Failure modes unchanged from V1 (no new error paths visible to callers)
+
+---
+
+### §17.2a — Org settings UI: enable flag + cost cap input
+
+**Files to modify:**
+
+- `src/app/(app)/orgs/[orgId]/settings/page.tsx` — add two inputs
+- `src/app/api/orgs/[orgId]/settings/service.ts` — accept + persist
+- `src/lib/api/contracts/org-settings.ts` — extend Zod schema
+
+**BDD specs:**
+
+```
+describe('Org settings: tool-use + cost cap')
+  it('toggles tool_use_enabled on form submission (admins only)')
+  it('rejects rubric_cost_cap_cents below 0 or above 500')
+  it('non-admins cannot toggle or edit (RLS)')
+  it('shows current values on initial render')
+```
+
+**Acceptance criteria:**
+
+- [ ] Toggle + numeric input rendered
+- [ ] RLS-enforced admin-only edits
+- [ ] Values round-trip correctly
+
+---
+
+### §17.2b — Results page: tool-call log block
+
+**Files to modify/create:**
+
+- `src/app/(app)/assessments/[id]/page.tsx` — conditionally render the block
+- `src/components/assessment/ToolCallLogCard.tsx` — new component
+- `src/lib/api/contracts/assessment.ts` — extend response shape
+- `src/app/api/assessments/[id]/service.ts` — include observability fields in response
+
+**Component behaviour:**
+
+- Hidden when `rubric_tool_call_count === 0` OR `rubric_tool_call_count === null` (legacy).
+- Header row: total calls, total bytes, total extra tokens (approx), duration (ms).
+- Expandable list: each entry shown as `{ tool_name } { argument_path } → { outcome }`.
+- `forbidden_path` and `budget_exhausted` outcomes rendered with warning colour (yellow/red per the design system).
+
+**BDD specs:**
+
+```
+describe('Results page — tool-call log')
+  it('hides the block when rubric_tool_call_count is 0')
+  it('hides the block when rubric_tool_call_count is null (legacy assessment)')
+  it('shows the header with total calls + bytes + duration')
+  it('lists each call in the expandable section')
+  it('renders forbidden_path outcomes with warning styling')
+  it('renders budget_exhausted outcomes with warning styling')
+  it('renders ok outcomes with normal styling')
+```
+
+**Acceptance criteria:**
+
+- [ ] Block rendered only when data present
+- [ ] Warning colouring distinguishes policy breaches
+- [ ] Legacy assessments render without errors
+- [ ] Component tests cover every outcome variant
