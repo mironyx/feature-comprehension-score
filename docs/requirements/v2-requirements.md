@@ -4,17 +4,18 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
+| Version | 0.2 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
-| Last updated | 2026-03-25 |
+| Last updated | 2026-04-16 |
 
 ## Change Log
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | 2026-03-25 | LS / Claude | Initial draft — promoted from V1 V2 section, expanded with Storey triple-debt model insights, cognitive debt leading indicators, and intent debt roadmap. |
+| 0.2 | 2026-04-16 | LS / Claude | E11 and E17 review: rewrote Stories 11.1, 11.2, 17.1, 17.2 ACs in Given/When/Then. 11.1: fixed user role, specified intent-weighted aggregation (≥ 60% intent-adjacent), added evaluator-failure fallback, clarified `additional_context_suggestions` as calibration signal (not training). 11.2: added configurable artefact-quality low threshold (default 40%), completed flag matrix (healthy case), added `unavailable` fallback, explicit V1 Story 6.3 and V2 Story 12.1 dependencies. 17.1: reframed as spike with report deliverable, four concrete go/no-go criteria, and explicit scoping output for 17.2. 17.2: added hard dependency on 17.1, scoped-set semantics, retrieval-enabled-at-creation semantics, all-fail fallback, per-assessment LLM spend cap, additional GitHub scopes acknowledgement. |
 
 ---
 
@@ -279,22 +280,26 @@ Alongside the FCS score, surface a numerical score for the quality of artefacts 
 
 ### Story 11.1: Artefact Quality Evaluation
 
-**As the** system,
-**I want to** evaluate the quality of artefacts available for an assessment,
-**so that** teams can understand the upstream cause of thin questions.
+**As an** Org Admin,
+**I want** the system to evaluate the quality of artefacts available for an assessment,
+**so that** I can understand the upstream cause of thin questions.
 
 **Acceptance Criteria:**
 
-- At question generation time, the system evaluates artefact quality across these dimensions:
-  - PR description completeness (empty vs minimal vs detailed)
-  - Linked issues (none vs linked vs linked with acceptance criteria)
-  - Design document presence (none vs partial vs comprehensive)
-  - Commit message quality (one-liners vs descriptive)
-  - Test file coverage (no tests vs tests present vs BDD/behaviour tests present)
-  - ADR references (none vs referenced)
-- Evaluation is LLM-based (separate call from question generation), not a heuristic count.
-- Output: a numerical artefact quality score (0–100%) and a breakdown by dimension.
-- V1 already captures `additional_context_suggestions` as a proxy — these are used as training signal to validate the quality scorer.
+- Given an assessment is being generated, when the question-generation pipeline runs, then the system produces an **artefact quality score** (integer 0–100) alongside the generated questions.
+- Given an assessment is being generated, then the system evaluates six dimensions and records a per-dimension sub-score (0–100) and a category label:
+  - **PR description completeness** — categories: empty / minimal / detailed.
+  - **Linked issues** — categories: none / linked / linked with acceptance criteria.
+  - **Design document presence** — categories: none / partial / comprehensive.
+  - **Commit message quality** — categories: one-liners / descriptive.
+  - **Test file coverage** — categories: no tests / tests present / BDD/behaviour tests present.
+  - **ADR references** — categories: none / referenced.
+- Given the six dimension sub-scores, when the aggregate score is computed, then intent-adjacent dimensions (ADR references, linked issues with acceptance criteria, design document presence, PR description completeness) contribute **at least 60%** of the aggregate weight; code-adjacent dimensions (commit message quality, test file coverage) contribute the remainder. Exact weights are an implementation concern.
+- Given the evaluator runs, then it issues a separate LLM call from question generation (single-purpose prompt, dedicated schema) — it is not a deterministic heuristic count.
+- Given the evaluator LLM call fails or times out, then the assessment proceeds without an artefact quality score; the score field is recorded as `unavailable` and the assessment is not blocked.
+- Given V1 captured `additional_context_suggestions` for historical assessments, when the evaluator is calibrated, then those suggestions are used as ground-truth signal to validate dimension scoring (e.g., assessments whose suggestions asked for ADRs should score low on the ADR dimension). Calibration is a one-off analysis, not an online training loop.
+
+**Notes:** The 60% intent-adjacent floor is a requirements-level constraint reflecting Storey (2026) triple-debt framing; tuning the exact per-dimension weights is deferred to the LLD.
 
 ### Story 11.2: Artefact Quality Display
 
@@ -304,14 +309,18 @@ Alongside the FCS score, surface a numerical score for the quality of artefacts 
 
 **Acceptance Criteria:**
 
-- The FCS results page shows:
-  - FCS score (aggregate human comprehension)
-  - Artefact quality score (percentage, with dimension breakdown available on expand)
-  - Contextual interpretation: "Artefact quality: 45% — questions may not fully cover design intent. Consider adding ADRs and PR descriptions before the next assessment."
-- The Organisation Overview (Story 6.3) includes artefact quality as a sortable column.
-- Low artefact quality + low FCS score: flagged as "comprehension and documentation risk."
-- High artefact quality + low FCS score: flagged as "comprehension gap — artefacts exist but understanding is not transferring."
-- Low artefact quality + high FCS score: flagged as "tacit knowledge concentration — team understands but knowledge is not externalised."
+- Given an assessment has completed with an artefact quality score, when the Org Admin views the FCS results page, then the page shows the FCS score (aggregate human comprehension) and the artefact quality score (integer 0–100) with the per-dimension breakdown available on expand.
+- Given an artefact quality score below the low threshold, when the results page renders, then it displays contextual interpretation copy of the form: `"Artefact quality: {score}% — questions may not fully cover design intent. Consider adding ADRs and PR descriptions before the next assessment."`
+- Given the Org Admin navigates to the Organisation Overview (Story 6.3), then the artefact quality score appears as a sortable column alongside FCS score.
+- Given a configurable **artefact quality low threshold** (default: 40%) and the existing **FCS low threshold** (default: 60%, per Story 12.1), when an assessment is displayed, then the following flag matrix applies:
+  - artefact quality < low threshold AND FCS < low threshold → `"comprehension and documentation risk"`.
+  - artefact quality ≥ low threshold AND FCS < low threshold → `"comprehension gap — artefacts exist but understanding is not transferring"`.
+  - artefact quality < low threshold AND FCS ≥ low threshold → `"tacit knowledge concentration — team understands but knowledge is not externalised"`.
+  - artefact quality ≥ low threshold AND FCS ≥ low threshold → no risk flag shown (healthy).
+- Given an Org Admin opens organisation-level configuration, when they set the artefact quality low threshold, then it is persisted per organisation and takes effect for the next assessment displayed (not retroactively), matching the configuration semantics established in V1 Story 1.3.
+- Given an assessment's artefact quality score is recorded as `unavailable` (Story 11.1 fallback), when the results page renders, then the score field shows `"unavailable"` with hover explanation, no flag is computed, and the FCS score is still displayed unaffected.
+
+**Notes:** Dependency on V1 Story 6.3 (Organisation Overview) and V2 Story 12.1 (FCS low threshold default) — these must already be implemented or implemented in the same milestone.
 
 ---
 
@@ -535,11 +544,21 @@ V1 captures `additional_context_suggestions` from the LLM as passive metadata. V
 
 ### Story 17.1: Agentic Retrieval Feasibility Study (Research Spike)
 
-**Before implementation, validate feasibility:**
+**As a** Product Owner,
+**I want** a feasibility study for agentic artefact retrieval,
+**so that** we have an evidence-based go/no-go decision before investing in Story 17.2.
 
-- Analyse V1 `additional_context_suggestions` data to determine whether the LLM consistently requests the same artefact types (if the signal is noisy, the investment is not justified).
-- Map artefact types to retrieval strategies: ADRs → GitHub search in repo; design docs → linked Notion/Confluence pages from PR description; runbooks → repo wiki.
-- Assess cost implications: additional LLM and GitHub API calls per assessment. Estimate cost increase per assessment.
+**Acceptance Criteria:**
+
+- Given V1 production `additional_context_suggestions` data across at least 30 assessments, when the analysis runs, then a report is produced in `docs/reports/YYYY-MM-DD-agentic-retrieval-feasibility.md` containing the sections below.
+- Given the report, then it contains a **signal consistency analysis**: frequency of each requested artefact type, and a consistency measure defined as the percentage of assessments whose top-3 requested artefact types overlap with the overall top-3. Go criterion: ≥ 60% overlap.
+- Given the report, then it contains a **retrieval-strategy map** that assigns every requested artefact type to one of: (a) in-repo GitHub search (e.g., ADRs, docs/, wiki), (b) external link followed from PR body (e.g., Notion, Confluence), (c) no viable retrieval strategy. Go criterion: ≥ 70% of requested artefacts fall under (a) or (b).
+- Given the report, then it contains a **cost impact estimate**: additional LLM token spend and GitHub API calls per assessment under the proposed design, expressed as an absolute value and a percentage delta against the V1 baseline. Go criterion: ≤ 50% increase in per-assessment LLM cost.
+- Given the report, then it contains a **latency impact estimate**: projected added wall-clock time for retrieval + re-generation, expressed against V1's measured question-generation latency (captured from production telemetry).
+- Given the report, then it concludes with an explicit **go / no-go recommendation** citing each of the four criteria above, and — if go — the scoped set of artefact types and retrieval strategies to implement in Story 17.2.
+- Given a no-go outcome, then Story 17.2 is marked blocked pending re-evaluation, and the rationale is recorded in the report.
+
+**Notes:** This is a research spike; the deliverable is the report, not production code. No feature flags, UI, or migrations ship from this story. Thresholds (60% overlap, 70% strategy coverage, 50% cost) are directional anchors — a result modestly below them warrants a recorded decision, not automatic rejection.
 
 ### Story 17.2: Opt-In Agentic Retrieval
 
@@ -547,14 +566,22 @@ V1 captures `additional_context_suggestions` from the LLM as passive metadata. V
 **I want to** opt into automatic artefact retrieval for assessments,
 **so that** questions are enriched with context the system can find automatically.
 
+**Dependency:** Story 17.1 must reach a **go** recommendation before work on 17.2 begins. The scoped artefact types and retrieval strategies for V2 are those defined by 17.1's report.
+
 **Acceptance Criteria:**
 
-- Agentic retrieval is opt-in per organisation and disabled by default (cost and latency implications).
-- Given retrieval is enabled, after initial question generation, the system executes retrieval for each `additional_context_suggestions` item.
-- Retrieved artefacts are appended to the context and questions are re-generated in a second LLM call.
-- Time limit: total question generation (including retrieval) must complete within 90 seconds.
-- If retrieval fails for any artefact type, the system proceeds with available artefacts (no failure propagation).
-- The results page shows: "Questions enriched with [N] additional artefacts retrieved automatically."
+- Given the default organisation configuration, then agentic retrieval is **disabled**; no retrieval is performed until the Org Admin explicitly opts in.
+- Given the Org Admin enables agentic retrieval in organisation configuration, when the next assessment is generated, then the retrieval flow runs for that assessment and is recorded as enabled at assessment-creation time (later opt-outs do not retroactively disable completed assessments).
+- Given retrieval is enabled, when initial question generation completes, then the system iterates each `additional_context_suggestions` item whose artefact type is in the **V2 scoped set** (defined by Story 17.1) and invokes the matching retrieval strategy. Artefact types outside the scoped set are skipped with a logged reason.
+- Given retrieval returned at least one artefact, when question re-generation runs, then a second LLM call is issued with the original artefacts plus retrieved artefacts, and the re-generated questions replace the initial set before participants are notified.
+- Given retrieval returned zero artefacts (all lookups failed or all were out-of-scope), then the original questions are used unchanged, the assessment proceeds, and the user-facing copy **does not** claim enrichment occurred.
+- Given retrieval for an individual artefact type fails (network, permission, not-found, timeout), when the flow continues, then the failure is logged with type and reason, and the remaining retrievals proceed unaffected.
+- Given agentic retrieval is enabled, when the total assessment generation duration (initial generation + retrieval + re-generation) is measured end-to-end, then it completes within **90 seconds**, or the retrieval phase is abandoned and the original questions are used.
+- Given an organisation has enabled retrieval, when an assessment completes with `N ≥ 1` retrieved artefacts contributing to re-generation, then the results page shows: `"Questions enriched with {N} additional artefact(s) retrieved automatically."` (British English pluralisation).
+- Given an organisation has enabled retrieval, when the Org Admin sets a **per-assessment additional LLM spend cap** (configurable, default: twice the V1 baseline assessment cost), then any assessment whose projected added spend would exceed the cap falls back to the original questions and logs the cap breach; the per-assessment cost breakdown (required by the "LLM cost visibility" cross-cutting concern) attributes retrieval cost separately from generation cost.
+- Given retrieval requires GitHub scopes beyond those granted during V1 App installation (e.g., repository wiki read, repository contents read for non-PR paths), when the Org Admin opts in, then the UI lists the required additional scopes before enabling and the feature is blocked until the GitHub App installation grants them.
+
+**Notes:** The 90-second end-to-end budget must be validated against the latency baseline captured by Story 17.1. If 17.1 shows the budget is infeasible for the scoped artefact set, 17.2 is revisited before implementation.
 
 ---
 
