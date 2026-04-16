@@ -1,8 +1,7 @@
 import type { RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import type { PromptPair } from '@/lib/engine/prompts/prompt-builder';
 
-export const ARTEFACT_QUALITY_SYSTEM_PROMPT_ID = 'artefact-quality-v1';
-
+// Justification: exported for test assertions on prompt content (mirrors QUESTION_GENERATION_SYSTEM_PROMPT in prompt-builder.ts)
 export const ARTEFACT_QUALITY_SYSTEM_PROMPT = `You are an artefact quality evaluator. Your single task is to assess the quality of development artefacts attached to a code change and return per-dimension sub-scores.
 
 Do not generate questions. Do not score answers. Return dimension assessments only.

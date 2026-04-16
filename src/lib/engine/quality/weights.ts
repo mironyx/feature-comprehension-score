@@ -19,7 +19,8 @@ export const DIMENSION_WEIGHTS: Record<ArtefactQualityDimensionKey, number> = {
   commit_messages: 0.15,
 };
 
-/** Keys whose combined weight must be ≥ 0.60 per the intent-adjacent invariant. */
+// Justification: exported for test assertions on the ≥ 60% intent-adjacent weight invariant (LLD §Invariant 3)
+
 export const INTENT_ADJACENT_KEYS: readonly ArtefactQualityDimensionKey[] = [
   'adr_references',
   'linked_issues',

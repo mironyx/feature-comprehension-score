@@ -7,6 +7,7 @@ import type { RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { buildArtefactQualityPrompt } from './build-quality-prompt';
 import { aggregateDimensions } from './aggregate-dimensions';
 
+// Justification: extracted from the inline union for downstream consumers (§11.1c pipeline needs to match on reason)
 export type ArtefactQualityUnavailableReason =
   | 'llm_failed'
   | 'timeout'

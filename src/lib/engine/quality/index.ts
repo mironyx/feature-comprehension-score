@@ -5,7 +5,7 @@ export {
   type EvaluateQualityRequest,
 } from './evaluate-quality';
 
-export { buildArtefactQualityPrompt, ARTEFACT_QUALITY_SYSTEM_PROMPT_ID } from './build-quality-prompt';
+export { buildArtefactQualityPrompt, ARTEFACT_QUALITY_SYSTEM_PROMPT } from './build-quality-prompt';
 
 export { aggregateDimensions } from './aggregate-dimensions';
 
