@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-03-25 | LS / Claude | Initial draft — promoted from V1 V2 section, expanded with Storey triple-debt model insights, cognitive debt leading indicators, and intent debt roadmap. |
 | 0.2 | 2026-04-16 | LS / Claude | E11 and E17 review: rewrote Stories 11.1, 11.2, 17.1, 17.2 ACs in Given/When/Then. 11.1: fixed user role, specified intent-weighted aggregation (≥ 60% intent-adjacent), added evaluator-failure fallback, clarified `additional_context_suggestions` as calibration signal (not training). 11.2: added configurable artefact-quality low threshold (default 40%), completed flag matrix (healthy case), added `unavailable` fallback, explicit V1 Story 6.3 and V2 Story 12.1 dependencies. 17.1: reframed as spike with report deliverable, four concrete go/no-go criteria, and explicit scoping output for 17.2. 17.2: added hard dependency on 17.1, scoped-set semantics, retrieval-enabled-at-creation semantics, all-fail fallback, per-assessment LLM spend cap, additional GitHub scopes acknowledgement. |
+| 0.3 | 2026-04-16 | LS / Claude | E17 rearchitected: replaced deterministic-orchestrator framing with tool-use loop (ADR-0023). 17.1 rewritten as a concrete implementation story (two read-only tools: `readFile` + `listDirectory`, bounded loop with 5-call / 64 KiB / 10k-token caps, typed errors, full observability: tokens + call count + call log + duration). 17.2 rewritten as opt-in rollout + cost caps + call-log surfacing (off-by-default, 60s hard timeout, warning-coloured outcomes for policy breaches). Dropped: feasibility-study framing, suggestion-taxonomy analysis, additional GitHub scopes (existing V1 contents:read covers it). |
 
 ---
 
@@ -538,50 +539,54 @@ Evaluate OSS models (Llama, Mistral, DeepSeek) for question generation. Quality 
 
 ## Epic 17: Agentic Artefact Retrieval
 
-V1 captures `additional_context_suggestions` from the LLM as passive metadata. V2 evaluates an agentic approach where the system automatically retrieves suggested artefacts and re-generates questions with enriched context.
+V1 assembled a fixed artefact set upfront and asked the LLM to work with whatever was in the payload. When context was missing, the LLM could only hint via `additional_context_suggestions` as passive metadata. V2 gives the rubric-generation LLM **tools** so it can fetch additional artefacts on demand during the same call.
 
-**Motivation:** Storey (2026) identifies intent debt as arising from missing or incomplete artefacts. Agentic retrieval closes the loop: rather than noting "ADRs would improve question quality," the system attempts to find and retrieve them.
+**Motivation:** Tool-use is the 2026 default pattern for coding agents; this epic aligns rubric generation with that pattern. Storey (2026) identifies intent debt as arising from missing or incomplete artefacts — giving the LLM direct, bounded access to the repository closes the loop without a separate retrieval phase.
 
-### Story 17.1: Agentic Retrieval Feasibility Study (Research Spike)
+**Architectural decision recorded in:** ADR-0023 (Tool-use loop for rubric generation).
 
-**As a** Product Owner,
-**I want** a feasibility study for agentic artefact retrieval,
-**so that** we have an evidence-based go/no-go decision before investing in Story 17.2.
-
-**Acceptance Criteria:**
-
-- Given V1 production `additional_context_suggestions` data across at least 30 assessments, when the analysis runs, then a report is produced in `docs/reports/YYYY-MM-DD-agentic-retrieval-feasibility.md` containing the sections below.
-- Given the report, then it contains a **signal consistency analysis**: frequency of each requested artefact type, and a consistency measure defined as the percentage of assessments whose top-3 requested artefact types overlap with the overall top-3. Go criterion: ≥ 60% overlap.
-- Given the report, then it contains a **retrieval-strategy map** that assigns every requested artefact type to one of: (a) in-repo GitHub search (e.g., ADRs, docs/, wiki), (b) external link followed from PR body (e.g., Notion, Confluence), (c) no viable retrieval strategy. Go criterion: ≥ 70% of requested artefacts fall under (a) or (b).
-- Given the report, then it contains a **cost impact estimate**: additional LLM token spend and GitHub API calls per assessment under the proposed design, expressed as an absolute value and a percentage delta against the V1 baseline. Go criterion: ≤ 50% increase in per-assessment LLM cost.
-- Given the report, then it contains a **latency impact estimate**: projected added wall-clock time for retrieval + re-generation, expressed against V1's measured question-generation latency (captured from production telemetry).
-- Given the report, then it concludes with an explicit **go / no-go recommendation** citing each of the four criteria above, and — if go — the scoped set of artefact types and retrieval strategies to implement in Story 17.2.
-- Given a no-go outcome, then Story 17.2 is marked blocked pending re-evaluation, and the rationale is recorded in the report.
-
-**Notes:** This is a research spike; the deliverable is the report, not production code. No feature flags, UI, or migrations ship from this story. Thresholds (60% overlap, 70% strategy coverage, 50% cost) are directional anchors — a result modestly below them warrants a recorded decision, not automatic rejection.
-
-### Story 17.2: Opt-In Agentic Retrieval
+### Story 17.1: Tool-Based Context Retrieval During Rubric Generation
 
 **As an** Org Admin,
-**I want to** opt into automatic artefact retrieval for assessments,
-**so that** questions are enriched with context the system can find automatically.
-
-**Dependency:** Story 17.1 must reach a **go** recommendation before work on 17.2 begins. The scoped artefact types and retrieval strategies for V2 are those defined by 17.1's report.
+**I want** the rubric-generation LLM to fetch repository artefacts on demand via tools,
+**so that** questions are grounded in the right artefacts without the engineer having to hand-curate the initial context.
 
 **Acceptance Criteria:**
 
-- Given the default organisation configuration, then agentic retrieval is **disabled**; no retrieval is performed until the Org Admin explicitly opts in.
-- Given the Org Admin enables agentic retrieval in organisation configuration, when the next assessment is generated, then the retrieval flow runs for that assessment and is recorded as enabled at assessment-creation time (later opt-outs do not retroactively disable completed assessments).
-- Given retrieval is enabled, when initial question generation completes, then the system iterates each `additional_context_suggestions` item whose artefact type is in the **V2 scoped set** (defined by Story 17.1) and invokes the matching retrieval strategy. Artefact types outside the scoped set are skipped with a logged reason.
-- Given retrieval returned at least one artefact, when question re-generation runs, then a second LLM call is issued with the original artefacts plus retrieved artefacts, and the re-generated questions replace the initial set before participants are notified.
-- Given retrieval returned zero artefacts (all lookups failed or all were out-of-scope), then the original questions are used unchanged, the assessment proceeds, and the user-facing copy **does not** claim enrichment occurred.
-- Given retrieval for an individual artefact type fails (network, permission, not-found, timeout), when the flow continues, then the failure is logged with type and reason, and the remaining retrievals proceed unaffected.
-- Given agentic retrieval is enabled, when the total assessment generation duration (initial generation + retrieval + re-generation) is measured end-to-end, then it completes within **90 seconds**, or the retrieval phase is abandoned and the original questions are used.
-- Given an organisation has enabled retrieval, when an assessment completes with `N ≥ 1` retrieved artefacts contributing to re-generation, then the results page shows: `"Questions enriched with {N} additional artefact(s) retrieved automatically."` (British English pluralisation).
-- Given an organisation has enabled retrieval, when the Org Admin sets a **per-assessment additional LLM spend cap** (configurable, default: twice the V1 baseline assessment cost), then any assessment whose projected added spend would exceed the cap falls back to the original questions and logs the cap breach; the per-assessment cost breakdown (required by the "LLM cost visibility" cross-cutting concern) attributes retrieval cost separately from generation cost.
-- Given retrieval requires GitHub scopes beyond those granted during V1 App installation (e.g., repository wiki read, repository contents read for non-PR paths), when the Org Admin opts in, then the UI lists the required additional scopes before enabling and the feature is blocked until the GitHub App installation grants them.
+- Given a rubric-generation request, when the LLM runs, then it has access to two read-only tools bound to the assessment's repository:
+  - `readFile(path: string)` — returns file contents from a repo-relative path, or a structured `not_found` error containing up to 5 nearest matching paths.
+  - `listDirectory(path: string)` — returns the immediate entries (files and sub-directories) of a repo-relative directory.
+- Given the LLM invokes a tool, when the path is outside the repository root, is absolute, or traverses via `..`, then the tool returns a typed `forbidden_path` error and the assessment proceeds; the LLM is not terminated on a bad path.
+- Given the LLM is running, when the total tool-call count exceeds **5 per rubric generation**, then no further tool calls are honoured; remaining calls return a typed `iteration_limit_reached` error and the LLM is expected to finalise.
+- Given the LLM is running, when the cumulative bytes returned by tool calls exceeds **64 KiB per rubric generation** OR the cumulative extra input tokens from tool results exceeds **10 000 tokens**, then subsequent calls return a typed `budget_exhausted` error and the LLM finalises.
+- Given a rubric generation completes (success or budget-exhausted), when the assessment is persisted, then the following observability fields are stored on the assessment:
+  - **total input tokens**, **total output tokens**, and **tool-call count** for the rubric generation
+  - a **tool-call log**: ordered array of `{ tool_name, argument_path, bytes_returned, outcome }` entries (outcomes: `ok | not_found | forbidden_path | error`)
+  - **wall-clock duration** in milliseconds for the rubric generation
+- Given any tool call throws or times out, when the loop continues, then the failure is surfaced to the LLM as a typed error result (never a thrown exception) and recorded in the tool-call log; the assessment is not aborted.
+- Given rubric generation fails entirely (LLM error independent of tools), then the assessment behaves exactly as it does in V1 for the same failure — no new failure modes are introduced by the tool loop.
 
-**Notes:** The 90-second end-to-end budget must be validated against the latency baseline captured by Story 17.1. If 17.1 shows the budget is infeasible for the scoped artefact set, 17.2 is revisited before implementation.
+**Notes:** The starting tool set is deliberately minimal — two read-only file-system tools. Additional tools (e.g. `fetchIssue`, `listPullRequestCommits`) may be added in future stories based on observed call-log patterns. No network access outside the existing GitHub adapter. No write tools, ever.
+
+### Story 17.2: Opt-In Rollout, Cost Caps, and Call-Log Surfacing
+
+**As an** Org Admin,
+**I want** to control when tool-based retrieval runs and see what it fetched,
+**so that** I can audit cost, latency, and accuracy per assessment.
+
+**Dependency:** Story 17.1 is a hard prerequisite (the tool loop + observability fields must exist before any opt-in UX or surfacing can be built).
+
+**Acceptance Criteria:**
+
+- Given the default organisation configuration, then tool-based retrieval is **disabled**; rubric generation runs without tools until the Org Admin explicitly opts in.
+- Given the Org Admin enables tool-based retrieval, when the next assessment is generated, then the tool loop runs for that assessment and the enabled flag is recorded at assessment-creation time (later opt-outs do not retroactively disable completed assessments).
+- Given an organisation has retrieval enabled, when the Org Admin sets a **per-assessment additional LLM spend cap** (configurable, default: twice the V1 baseline assessment cost), then any rubric generation whose running cost would exceed the cap has further tool calls refused with a `budget_exhausted` error; the per-assessment cost breakdown attributes tool-driven token spend separately from base generation spend.
+- Given tool-based retrieval is enabled, when the rubric-generation wall-clock exceeds **60 seconds**, then the tool loop is aborted via `AbortSignal`, the LLM is expected to finalise, and the assessment proceeds with whatever questions the LLM produced before the abort.
+- Given an assessment has a non-empty tool-call log, when the Org Admin views the results page, then the page shows: total tool calls, total extra tokens consumed, total bytes read, and an expandable list of each call with `{ tool_name, argument_path, outcome }`.
+- Given an assessment was generated with tool-based retrieval **disabled**, when the Org Admin views the results page, then no tool-call block is shown.
+- Given any tool call returns `forbidden_path` or `budget_exhausted`, when the call log is surfaced, then those outcomes are visually distinct (warning colour) so audit readers can spot attempted policy breaches at a glance.
+
+**Notes:** No additional GitHub App scopes are required — the repository-contents read permission granted by the V1 installation already covers `readFile` and `listDirectory` via the existing GitHub adapter.
 
 ---
 
