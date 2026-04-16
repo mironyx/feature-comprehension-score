@@ -88,6 +88,7 @@ function makeAssessmentRow(overrides: Record<string, unknown> = {}) {
     feature_name: null,
     aggregate_score: 85,
     conclusion: 'success',
+    config_comprehension_depth: 'conceptual',
     created_at: '2026-01-01T00:00:00Z',
     repositories: { github_repo_name: 'my-repo' },
     ...overrides,
@@ -293,6 +294,38 @@ describe('GET /api/assessments', () => {
       expect(body.per_page).toBe(10);
       // range(10, 19) for page 2 with per_page 10
       expect(mockRange).toHaveBeenCalledWith(10, 19);
+    });
+  });
+
+  describe('Comprehension depth in response', () => {
+    // AC #4 [issue #225]: GET /api/assessments includes config_comprehension_depth in list response
+    it('each list item includes config_comprehension_depth from the row', async () => {
+      const rows = [
+        makeAssessmentRow({ id: 'assess-c', config_comprehension_depth: 'conceptual' }),
+        makeAssessmentRow({ id: 'assess-d', config_comprehension_depth: 'detailed' }),
+      ];
+      setupAssessmentsQuery(rows, 2);
+      setupParticipantsQuery([]);
+
+      const { GET } = await import('@/app/api/assessments/route');
+      const response = await GET(makeRequest());
+
+      const body = await response.json() as {
+        assessments: Array<{ id: string; config_comprehension_depth: 'conceptual' | 'detailed' }>;
+      };
+      expect(body.assessments[0]?.config_comprehension_depth).toBe('conceptual');
+      expect(body.assessments[1]?.config_comprehension_depth).toBe('detailed');
+    });
+
+    it('selects config_comprehension_depth from the assessments table', async () => {
+      setupAssessmentsQuery([makeAssessmentRow()], 1);
+      setupParticipantsQuery([]);
+
+      const { GET } = await import('@/app/api/assessments/route');
+      await GET(makeRequest());
+
+      const selectArg = mockSelect.mock.calls[0]?.[0] as string | undefined;
+      expect(selectArg).toContain('config_comprehension_depth');
     });
   });
 

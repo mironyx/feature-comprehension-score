@@ -22,6 +22,7 @@ export const QuestionSchema = z.object({
   weight: z.number().int().min(1).max(3),
   naur_layer: NaurLayerSchema,
   reference_answer: z.string(),
+  hint: z.string().max(200).nullable().optional(),
 });
 export type Question = z.infer<typeof QuestionSchema>;
 

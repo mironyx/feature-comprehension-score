@@ -73,6 +73,7 @@ function makeQuestion(n: number, overrides: Record<string, unknown> = {}) {
     weight: 1,
     aggregate_score: 0.6 + n * 0.1,
     reference_answer: `Reference answer ${n}`,
+    hint: null,
     ...overrides,
   };
 }
@@ -344,6 +345,158 @@ describe('FCS results page', () => {
       // A more targeted assertion: count occurrences should equal 1 (one per null question).
       const occurrences = (html.match(/Unable to score/g) ?? []).length;
       expect(occurrences).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Hint display — Issue #221 (Story 1.3)
+  // -------------------------------------------------------------------------
+
+  describe('Hint display', () => {
+    describe('Given a question with a non-null hint', () => {
+      it('then displays hint text alongside the question', async () => {
+        // Property 9 [lld §Story 1.3, AC #8]: hint text is rendered alongside question text
+        const html = await renderPage({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1, { hint: 'Describe the key design trade-offs in 2–3 sentences.' })],
+          participants: [makeParticipant('submitted')],
+        });
+        expect(html).toContain('Describe the key design trade-offs in 2–3 sentences.');
+      });
+    });
+
+    describe('Given a question with a null hint', () => {
+      it('then renders no hint text for that question', async () => {
+        // Property 10 [lld §Story 1.3, invariant #3]: null hint → no hint element rendered
+        const SENTINEL = 'HINT_SENTINEL_TEXT_THAT_SHOULD_NOT_APPEAR';
+        const html = await renderPage({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1, { hint: null })],
+          participants: [makeParticipant('submitted')],
+        });
+        // The question text itself is present — the page renders
+        expect(html).toContain('Question 1?');
+        // No sentinel hint text appears
+        expect(html).not.toContain(SENTINEL);
+      });
+    });
+
+    describe('Given multiple questions where only some have hints', () => {
+      it('then each question hint is scoped to its own question', async () => {
+        // Property 11 [lld §Story 1.3]: hint is per-question; absence on one must not bleed to others
+        const html = await renderPage({
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [
+            makeQuestion(1, { hint: 'Hint for question one only.' }),
+            makeQuestion(2, { hint: null }),
+          ],
+          participants: [makeParticipant('submitted')],
+        });
+        // Q1 hint is present
+        expect(html).toContain('Hint for question one only.');
+        // Q2 has no hint — verify the hint only appears once (not duplicated to Q2)
+        const occurrences = (html.match(/Hint for question one only\./g) ?? []).length;
+        expect(occurrences).toBe(1);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Comprehension depth display — Issue #225 (Story 2.4)
+  // -------------------------------------------------------------------------
+
+  describe('Comprehension depth display', () => {
+    const CONCEPTUAL_NOTE =
+      'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.';
+    const DETAILED_NOTE =
+      'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.';
+
+    const BASE_DEPTH: SecretClientOptions = {
+      assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      orgMembership: null,
+      participation: { id: 'part-001' },
+      questions: [makeQuestion(1)],
+      participants: [makeParticipant('submitted')],
+    };
+
+    // Property 1 [lld §Story 2.4, AC 8 / BDD]: badge shows "Depth: Conceptual" for conceptual depth
+    it('displays "Depth: Conceptual" badge when config_comprehension_depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).toContain('Depth: Conceptual');
+    });
+
+    // Property 2 [lld §Story 2.4 BDD]: badge shows "Depth: Detailed" for detailed depth
+    it('displays "Depth: Detailed" badge when config_comprehension_depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).toContain('Depth: Detailed');
+    });
+
+    // Property 3 [lld §Story 2.4 DEPTH_NOTES]: conceptual contextual note present for conceptual depth
+    it('displays the conceptual contextual note when config_comprehension_depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).toContain(CONCEPTUAL_NOTE);
+    });
+
+    // Property 4 [lld §Story 2.4 DEPTH_NOTES]: detailed contextual note present for detailed depth
+    it('displays the detailed contextual note when config_comprehension_depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).toContain(DETAILED_NOTE);
+    });
+
+    // Property 5 [lld §Story 2.4 BDD, invariant #2]: defaults to conceptual badge when field is null
+    it('displays "Depth: Conceptual" badge when config_comprehension_depth is null', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: null }),
+      });
+      expect(html).toContain('Depth: Conceptual');
+    });
+
+    // Property 6 [lld §Story 2.4 BDD, invariant #2]: defaults to conceptual note when field is null
+    it('displays the conceptual contextual note when config_comprehension_depth is null', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: null }),
+      });
+      expect(html).toContain(CONCEPTUAL_NOTE);
+    });
+
+    // Property 7 [lld §Story 2.4, task brief invariant]: "Detailed" label/note absent when depth is conceptual
+    it('does not display "Depth: Detailed" or the detailed note when depth is "conceptual"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'conceptual' }),
+      });
+      expect(html).not.toContain('Depth: Detailed');
+      expect(html).not.toContain(DETAILED_NOTE);
+    });
+
+    // Property 8 [lld §Story 2.4, task brief invariant]: "Conceptual" label/note absent when depth is detailed
+    it('does not display "Depth: Conceptual" or the conceptual note when depth is "detailed"', async () => {
+      const html = await renderPage({
+        ...BASE_DEPTH,
+        assessment: makeAssessment({ config_comprehension_depth: 'detailed' }),
+      });
+      expect(html).not.toContain('Depth: Conceptual');
+      expect(html).not.toContain(CONCEPTUAL_NOTE);
     });
   });
 

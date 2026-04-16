@@ -31,7 +31,8 @@ Respond with a JSON object matching this exact schema:
       "question_text": "Your question here",
       "weight": 1,
       "naur_layer": "world_to_program",
-      "reference_answer": "The expected answer derived from the artefacts"
+      "reference_answer": "The expected answer derived from the artefacts",
+      "hint": "Describe 2–3 scenarios and explain the design rationale"
     }
   ],
   "artefact_quality": "code_only",
@@ -50,6 +51,7 @@ Respond with a JSON object matching this exact schema:
 - weight: Integer 1-3 reflecting importance (3 = critical to understanding)
 - naur_layer: One of "world_to_program", "design_justification", "modification_capacity"
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts
+- hint: A 1–2 sentence guidance hint (max 200 characters) shown to participants alongside the question. The hint describes the expected answer depth and format (e.g. "Describe 2–3 specific scenarios and explain the design rationale") WITHOUT revealing any content from the reference answer. If you cannot generate a suitable hint, set it to null.
 - artefact_quality: One of "code_only", "code_and_tests", "code_and_requirements", "code_and_design", "code_requirements_and_design"
 - artefact_quality_note: Explain what categories of artefacts were available and any gaps
 - additional_context_suggestions: Optional array of objects describing extra artefacts that would improve question quality. Omit if the provided artefacts are sufficient. Each object has:
@@ -67,11 +69,35 @@ Respond with a JSON object matching this exact schema:
 - If the provided artefacts are missing context that would help you generate deeper or more targeted questions, include additional_context_suggestions describing what extra artefacts would help and why. Only suggest artefacts that would materially improve question quality — do not suggest artefacts for completeness. Omit the field entirely if the provided artefacts are sufficient.
 - Focus questions on architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not on low-level implementation details. A useful test: if a developer could answer the question by reading the code for 30 seconds (variable names, default values, specific syntax, line-level logic), the question is too shallow. Good questions test understanding that persists after the developer has moved on to other work — the kind of knowledge that matters when deciding whether a proposed change is safe, not when recalling how a function is currently implemented. This applies across all three Naur layers: even "modification capacity" questions should test reasoning about dependencies and risks, not recall of specific code paths.`;
 
+const CONCEPTUAL_DEPTH_INSTRUCTION = `## Comprehension Depth
+
+This assessment uses CONCEPTUAL depth. Generate questions and reference answers that test reasoning about approach, constraints, and rationale:
+
+- Reference answers should describe the approach, design reasoning, and constraints WITHOUT requiring specific identifier names, file paths, or function signatures.
+- Example good reference answer: "The sign-in flow uses a union type to represent outcomes, and adding a pending state requires extending this union and handling it in the UI."
+- Example bad reference answer: "Add 'pending' to the SigninOutcome union type in src/types/auth.ts."
+- Questions should ask "why" and "how would you approach" rather than "what is the exact name of".
+- Hints should guide toward reasoning: "Describe the approach and constraints."`;
+
+const DETAILED_DEPTH_INSTRUCTION = `## Comprehension Depth
+
+This assessment uses DETAILED depth. Generate questions and reference answers that test theory of the implementation at specific resolution — the reasoning behind particular type choices, how actual files and call sites compose, and what would change or break under concrete structural changes:
+
+- Use specific type names, file paths, and function signatures as the vocabulary that anchors each question. Identifiers are the probe's anchor — not the answer being elicited.
+- Reference answers should explain why a structure was chosen and how it composes, grounded in the concrete code — not merely restate the identifiers in the question.
+- Good question shapes: "Why is X modelled as a \`Y<Z>\` rather than a plain Z?", "What breaks if \`fooBar()\` in \`src/a/b.ts\` returns null instead of undefined?", "How do the \`X\` and \`Y\` types compose in the \`process()\` call site?"
+- Avoid recall shapes like "What is the exact name of the type that…" or "Which file contains…" — those test memory, not theory.
+- Hints should guide toward reasoning at specific resolution: "Reason about the chosen structure and its composition."`;
+
+export function depthInstruction(depth?: 'conceptual' | 'detailed'): string {
+  return depth === 'detailed' ? DETAILED_DEPTH_INSTRUCTION : CONCEPTUAL_DEPTH_INSTRUCTION;
+}
+
 export function buildQuestionGenerationPrompt(
   artefacts: AssembledArtefactSet,
 ): PromptPair {
   return {
-    systemPrompt: QUESTION_GENERATION_SYSTEM_PROMPT,
+    systemPrompt: `${QUESTION_GENERATION_SYSTEM_PROMPT}\n\n${depthInstruction(artefacts.comprehension_depth)}`,
     userPrompt: formatUserPrompt(artefacts),
   };
 }

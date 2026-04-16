@@ -31,6 +31,7 @@ interface ScoredQuestion {
   question_number: number;
   naur_layer: NaurLayer;
   question_text: string;
+  hint: string | null;
   aggregate_score: number | null;
   reference_answer: string;
 }
@@ -77,7 +78,7 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
         .maybeSingle(),
       adminSupabase
         .from('assessment_questions')
-        .select('id, question_number, naur_layer, question_text, aggregate_score, reference_answer')
+        .select('id, question_number, naur_layer, question_text, hint, aggregate_score, reference_answer')
         .eq('assessment_id', assessmentId)
         .order('question_number', { ascending: true }),
       adminSupabase
@@ -132,6 +133,18 @@ const NAUR_LABELS: Record<NaurLayer, string> = {
   modification_capacity: 'Modification Capacity',
 };
 
+const DEPTH_LABELS: Record<'conceptual' | 'detailed', string> = {
+  conceptual: 'Conceptual',
+  detailed: 'Detailed',
+};
+
+const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
+  conceptual:
+    'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.',
+  detailed:
+    'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.',
+};
+
 const ANSWERS_WITHHELD_MESSAGE =
   'Reference answers will be visible once all participants have submitted and scoring is complete.';
 
@@ -168,6 +181,14 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
         <p>
           Participants: {participantCompleted} of {participantTotal} completed
         </p>
+        <p>
+          <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
+            Depth: {DEPTH_LABELS[assessment.config_comprehension_depth ?? 'conceptual']}
+          </span>
+        </p>
+        <p className="text-caption text-text-secondary">
+          {DEPTH_NOTES[assessment.config_comprehension_depth ?? 'conceptual']}
+        </p>
       </section>
 
       <section>
@@ -189,6 +210,9 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
               <p>
                 <strong>Q{q.question_number}.</strong> {q.question_text}
               </p>
+              {q.hint && (
+                <p className="text-caption text-text-secondary italic">{q.hint}</p>
+              )}
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
               {assessment.scoring_incomplete && q.aggregate_score === null && (

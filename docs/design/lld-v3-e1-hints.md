@@ -5,6 +5,9 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
+| 2026-04-15 | Claude | Revised after Story 1.1 implementation (issue #219) |
+| 2026-04-15 | Claude | Revised after Story 1.2 implementation (issue #220) |
+| 2026-04-15 | Claude | Revised after Story 1.3 implementation (issue #221) |
 
 ## Part A — Human-Reviewable
 
@@ -99,15 +102,28 @@ describe('QuestionSchema')
   it('accepts a question with hint set to null')
   it('accepts a question with hint omitted')
   it('rejects a hint longer than 200 characters')
+  it('accepts a hint of exactly 200 characters (boundary inclusive)')
 
 describe('buildQuestionGenerationPrompt')
   it('includes hint generation instruction in system prompt')
+  it('instructs the LLM not to reveal reference answer content in hints')
+  it('instructs the LLM to set hint to null when generation is not possible')
 ```
+
+> **Implementation note (issue #219):** The first four BDD specs were covered by the
+> test-author sub-agent in `tests/lib/engine/llm/schemas.test.ts` and
+> `tests/lib/engine/prompts/prompt-builder.test.ts`. The remaining three specs
+> (200-char boundary, non-disclosure instruction, null-fallback instruction) were added
+> by the `feature-evaluator` sub-agent in `tests/evaluation/hint-generation.eval.test.ts`
+> after auditing this spec against Invariants #1 and #4. The loose "includes hint
+> generation instruction" phrasing in the original BDD spec under-specified Invariant
+> #1's non-disclosure requirement; the tightened wording here matches what is tested.
 
 #### Test files
 
-- `tests/lib/engine/llm/schemas.test.ts` (existing or new)
-- `tests/lib/engine/prompts/prompt-builder.test.ts` (existing or new)
+- `tests/lib/engine/llm/schemas.test.ts` (existing — appended `describe('QuestionSchema')` block)
+- `tests/lib/engine/prompts/prompt-builder.test.ts` (existing — appended hint instruction block)
+- `tests/evaluation/hint-generation.eval.test.ts` (new — boundary and invariant coverage)
 
 ---
 
@@ -150,18 +166,38 @@ FROM jsonb_array_elements(p_questions) AS q;
 
 Generate via `npx supabase db diff -f add-hint-and-comprehension-depth`. Single migration for both E1 and E2 schema changes (see E2 LLD).
 
+> **Implementation note (issue #220):** Shipped as a standalone migration
+> `20260415115537_add_hint_to_assessment_questions.sql` because Story 2.1 (#215) had not
+> started at the time Story 1.2 was implemented. Story 2.1 will add its own migration on
+> top rather than combine into this one. The combined-migration approach remains the
+> preferred pattern when related schema changes land in the same iteration.
+
 #### BDD specs
 
 ```
-describe('finalise_rubric RPC')
-  it('stores hint value when present in question JSON')
-  it('stores NULL hint when hint is absent from question JSON')
-  it('preserves existing questions without hint column (backward compat)')
+describe('finalise_rubric — hint column')
+  it('stores hint value when question JSON includes a non-null hint string')
+  it('stores NULL hint when the hint key is absent from question JSON')
+  it('stores NULL hint when hint is explicitly null in question JSON')
+  it('stores each question hint independently in a multi-question call')
+  it('preserves existing column values and sets assessment status to awaiting_responses when hints are present')
 ```
+
+> **Implementation note (issue #220):** The spec originally listed three cases (stored value,
+> NULL when absent, backward-compat). The implemented suite tightened this to five to cover
+> Invariant #3 explicitly: the explicit-`null` JSON case (distinct from key-absent), and
+> per-question independence in a multi-question call. The "backward compat" case was
+> re-framed as "preserves existing contract" — the existing column values are verified along
+> with the `awaiting_responses` status transition, since that transition is the observable
+> behaviour of `finalise_rubric` that must not regress.
 
 #### Test files
 
-- `tests/app/api/fcs.test.ts` (integration — verify hint flows through to DB)
+- `tests/helpers/transaction-functions.integration.test.ts` (integration — existing file
+  hosting all `finalise_rubric` RPC tests; a new `describe('finalise_rubric — hint column')`
+  block was appended). The original spec named `tests/app/api/fcs.test.ts`, but the RPC is
+  tested directly against Supabase in the helpers integration suite rather than through the
+  API route.
 
 ---
 
@@ -173,8 +209,10 @@ describe('finalise_rubric RPC')
 
 - `src/components/question-card.tsx` — add optional `hint` prop, render below question text
 - `src/app/assessments/[id]/answering-form.tsx` — pass `hint` from question data to `QuestionCard`
-- `src/app/assessments/[id]/results/page.tsx` — display hint alongside question on results page
-- `src/app/api/assessments/[id]/route.ts` or helpers — include `hint` in question response
+- `src/app/assessments/[id]/page.tsx` — add `hint` to the SELECT query and `AnsweringQuestion` Pick type so the field reaches the answering form
+- `src/app/assessments/[id]/results/page.tsx` — display hint alongside question on results page; add `hint` to SELECT and `ScoredQuestion`
+- `src/app/api/assessments/[id]/route.ts` — include `hint` in the questions SELECT
+- `src/app/api/assessments/[id]/helpers.ts` — add `hint: string | null` to `FilteredQuestion` and pass it through `filterQuestionFields`
 
 #### QuestionCard change
 
@@ -220,8 +258,19 @@ describe('Results page')
 
 #### Test files
 
-- `tests/components/question-card.test.tsx` (new or existing)
+- `tests/components/question-card.test.ts` (new — component unit tests for hint rendering)
+- `tests/app/api/assessments/[id].test.ts` (extended — `hint field passthrough` describe block verifies API response includes `hint`)
+- `tests/app/assessments/[id].answering.test.ts` (extended — `Hint passthrough` describe block verifies page → AnsweringForm → QuestionCard data flow)
+- `tests/app/assessments/results.test.ts` (extended — `Hint display` describe block verifies results page rendering)
 - E2E coverage deferred — manual verification sufficient for styling.
+
+> **Implementation note (issue #221):** Test file was created as `question-card.test.ts` (not
+> `.tsx`) because the test asserts on the JSON-serialised React element tree rather than rendering
+> to a DOM — matching the pattern used by sibling tests. The hint-passthrough tests were folded
+> into the existing `[id].answering.test.ts` rather than a separate eval file, to reuse the
+> `makeAssessment` / `makeParticipant` / `makeQuestion` / `makeSecretClient` / `makeServerClient`
+> factories that already existed there (see CLAUDE.md: "Read before writing — grep for existing
+> helpers").
 
 ---
 

@@ -25,6 +25,7 @@ interface FormState {
   repositoryId: string;
   prNumbers: string;
   participants: string;
+  comprehensionDepth: 'conceptual' | 'detailed';
 }
 
 interface AssessmentPayload {
@@ -34,6 +35,7 @@ interface AssessmentPayload {
   feature_description?: string;
   merged_pr_numbers: number[];
   participants: { github_username: string }[];
+  comprehension_depth: 'conceptual' | 'detailed';
 }
 
 const INITIAL_STATE: FormState = {
@@ -42,6 +44,7 @@ const INITIAL_STATE: FormState = {
   repositoryId: '',
   prNumbers: '',
   participants: '',
+  comprehensionDepth: 'conceptual',
 };
 
 function parsePrNumbers(raw: string): number[] {
@@ -124,6 +127,7 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
           feature_description: form.featureDescription.trim() || undefined,
           merged_pr_numbers: parsePrNumbers(form.prNumbers),
           participants: parseParticipants(form.participants),
+          comprehension_depth: form.comprehensionDepth,
         });
         if (result.error) { setErrors([result.error]); return; }
         router.push(`/assessments?created=${result.assessmentId}`);
@@ -169,6 +173,19 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
             rows={3}
             className={`${inputClasses} resize-y`}
           />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="comprehensionDepth" className="text-label text-text-secondary block">Comprehension Depth</label>
+          <select
+            id="comprehensionDepth"
+            value={form.comprehensionDepth}
+            onChange={handleChange('comprehensionDepth')}
+            className={inputClasses}
+          >
+            <option value="conceptual">Conceptual — Tests reasoning about approach, constraints, and rationale</option>
+            <option value="detailed">Detailed — Tests knowledge of specific types, files, and function signatures</option>
+          </select>
         </div>
 
         <div className="space-y-2">

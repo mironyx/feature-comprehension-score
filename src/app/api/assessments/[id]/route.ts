@@ -119,7 +119,7 @@ async function fetchParallelData(ctx: FetchContext): Promise<ParallelData> {
     { data: myParticipantRow, error: myParticipationError },
   ] = await Promise.all([
     supabase.from('user_organisations').select('github_role').eq('user_id', userId).eq('org_id', orgId).maybeSingle(),
-    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, aggregate_score').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
+    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, hint, aggregate_score').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
     adminSupabase.from('assessment_participants').select('id, status').eq('assessment_id', assessmentId),
     supabase.from('assessment_participants').select('id, status, submitted_at').eq('assessment_id', assessmentId).eq('user_id', userId).maybeSingle(),
   ]);

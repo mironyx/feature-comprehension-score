@@ -169,7 +169,34 @@ When all are received, summarise:
 
 **Only now** is the team fully done. Do not move board items — `/feature-end` handles that.
 
-**Immediately after summarising**, send a shutdown_request to every teammate:
+### Step 8: Write the team session log
+
+Per-teammate `/feature-end` logs capture per-issue work, but they miss the **lead's view** —
+orchestration decisions, cross-cutting changes, coordination events, and process observations
+that span multiple teammates. Write a team session log to capture this *before* shutting
+teammates down, while context is still fresh.
+
+Path: `docs/sessions/YYYY-MM-DD-team-<issues>-<short-slug>.md` (e.g.
+`2026-04-16-team-223-224-225-comprehension-depth.md`).
+
+Required sections:
+
+- **Issues shipped** — table of issue → story → PR → branch → merged-at.
+- **Cross-cutting decisions** — anything that affected multiple teammates (e.g. mid-cycle
+  scope changes, framing revisions, shared design choices). Per-issue logs cannot capture
+  these — only the team log can.
+- **Coordination events** — spawn pattern, blockers relayed, rebases, conflicts, CI flakes,
+  protocol deviations, anything where lead intervention shaped the run.
+- **What worked / what didn't** — short, candid. Decay fast otherwise.
+- **Process notes for `/retro`** — explicit hand-off so that the next retrospective can pick
+  up these observations without re-deriving them from git.
+
+Keep it concise (one screen typically). The goal is to preserve orchestration context that
+would otherwise have to be reconstructed from git, message logs, and PR threads.
+
+### Step 9: Shutdown teammates
+
+**Immediately after writing the team log**, send a shutdown_request to every teammate:
 ```
 SendMessage(to="teammate-<N>", message={"type": "shutdown_request", "reason": "Feature-end complete."})
 ```

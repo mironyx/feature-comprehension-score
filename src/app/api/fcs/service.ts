@@ -37,12 +37,13 @@ export const FcsCreateBodySchema = z.object({
   feature_description: z.string().optional(),
   merged_pr_numbers: z.array(z.number().int().positive()).min(1),
   participants: z.array(z.object({ github_username: z.string().min(1) })).min(1),
+  comprehension_depth: z.enum(['conceptual', 'detailed']).default('conceptual'),
 });
 
 export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
 // FcsCreateInput is the subset of fields passed to createAssessmentRecord (LLD §2.4 constraint).
 // Narrowed to only the fields the DB write needs, enforcing the design boundary.
-export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description'>;
+export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description' | 'comprehension_depth'>;
 
 export interface CreateFcsResponse {
   assessment_id: string;
@@ -93,6 +94,7 @@ interface RubricTriggerParams {
   assessmentId: AssessmentId;
   repoInfo: RepoInfo;
   prNumbers: number[];
+  comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +225,7 @@ async function createAssessmentWithParticipants(
       github_user_id: p.github_user_id,
       github_username: p.github_username,
     })) as unknown as Json,
+    p_config_comprehension_depth: body.comprehension_depth ?? 'conceptual',
   });
   if (error) {
     logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
@@ -279,7 +282,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
       source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
-    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context };
+    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: params.comprehensionDepth ?? 'conceptual' };
     await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
@@ -297,6 +300,7 @@ interface AssessmentRetryRow {
   repository_id: string;
   status: string;
   config_question_count: number;
+  config_comprehension_depth?: 'conceptual' | 'detailed' | null;
 }
 
 // Resets a rubric_failed assessment to rubric_generation and re-runs generation
@@ -313,7 +317,7 @@ export async function retriggerRubricForAssessment(
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
@@ -331,6 +335,6 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
   const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, participants });
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers, comprehensionDepth: body.comprehension_depth });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }

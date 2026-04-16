@@ -6,6 +6,11 @@
 |------|--------|---------|
 | 2026-04-14 | Claude | Initial LLD |
 | 2026-04-14 | Claude | Post-impl sync — #212 resolved by PR #216; base scoring prompt now carries the 0.0–1.0 scale anchors, so Story 2.3 calibration templates can drop their redundant scale line |
+| 2026-04-15 | Claude | Post-impl sync for Story 2.1 (#222, PR #229) — migration shipped standalone (E1 Story 1.2 already merged); `src/lib/supabase/types.ts` added to files-to-modify; test file names revised to match implementation |
+| 2026-04-16 | Claude | Post-impl sync for Story 2.4 (#225, PR #230) — `helpers.ts` added to files-to-modify; badge uses a `DEPTH_LABELS` constant rather than the inline ternary; tests shipped instead of deferred (server-component harness already available) |
+| 2026-04-16 | Claude | Story 2.2 (#223, PR #231) — revised detailed-depth instruction to keep Naur theory-building framing at higher resolution; identifiers now anchor probes rather than being the elicited answer |
+| 2026-04-16 | Claude | Story 2.3 detailed calibration revised pre-merge (#224, PR #232) — re-framed as *understanding at higher resolution* (Naur theory-building) rather than recall of implementation knowledge; tests updated in lockstep |
+| 2026-04-16 | Claude | Story 2.3 post-impl sync (#224, PR #232) — noted that `fetchScoringData` gained a third parallel query for `config_comprehension_depth` (the row wasn't previously fetched in the scoring path); added `tests/evaluation/comprehension-depth-story-2-3.eval.test.ts` to the test-files list |
 
 ## Part A — Human-Reviewable
 
@@ -99,6 +104,9 @@ sequenceDiagram
 - `src/app/api/fcs/service.ts` — add `comprehension_depth` to `FcsCreateBodySchema`, pass to RPC
 - `src/app/(authenticated)/assessments/new/create-assessment-form.tsx` — add depth selector
 - `src/lib/engine/prompts/artefact-types.ts` — add `comprehension_depth` to `AssembledArtefactSet`
+- `src/lib/supabase/types.ts` — add `config_comprehension_depth` to `assessments` Row/Insert/Update and `p_config_comprehension_depth` to `create_fcs_assessment` RPC Args (generated-looking file, but hand-maintained in this repo)
+
+> **Implementation note (issue #222):** The types file update was not called out in the original spec but is required — Supabase typegen is not run automatically, so the declarative schema change has to be mirrored by hand.
 
 #### Schema change (`tables.sql`)
 
@@ -202,7 +210,9 @@ Note: Story 2.1 adds the field. Story 2.2 wires the depth from the assessment re
 
 #### Migration
 
-Combined with E1 Story 1.2: `npx supabase db diff -f add-hint-and-comprehension-depth`.
+Standalone: `npx supabase db diff -f add-comprehension-depth`.
+
+> **Implementation note (issue #222):** E1 Story 1.2 (#220) merged before this story started, so the combined-migration plan in the initial LLD was obsolete. The migration shipped as `supabase/migrations/20260415143019_add-comprehension-depth.sql`.
 
 #### BDD specs
 
@@ -224,8 +234,11 @@ describe('CreateAssessmentForm')
 
 #### Test files
 
-- `tests/app/api/fcs.test.ts`
-- `tests/components/create-assessment-form.test.tsx` (new or existing)
+- `tests/app/api/comprehension-depth.test.ts` — Zod schema, `AssembledArtefactSetSchema`, and source-level form assertions (14 tests)
+- `tests/app/api/comprehension-depth.integration.test.ts` — `create_fcs_assessment` RPC cases requiring a local Supabase instance (2 tests)
+- `tests/evaluation/comprehension-depth-story-2-1.eval.test.ts` — feature-evaluator adversarial tests confirming service-layer threads `comprehension_depth` to RPC (2 tests)
+
+> **Implementation note (issue #222):** Test layout diverges from the initial spec (`fcs.test.ts` + `create-assessment-form.test.tsx`). Story 2.1 tests are co-located in a single `comprehension-depth.*` pair so the contract is easy to find, and the RPC cases are split into `*.integration.test.ts` to keep the unit-test CI job green when Supabase is not running. The project does not use React Testing Library, so form assertions are source-level reads of the JSX — the same pattern as `tests/app/assessments/create-assessment-styling.test.ts`.
 
 ---
 
@@ -237,6 +250,9 @@ describe('CreateAssessmentForm')
 
 - `src/lib/engine/prompts/prompt-builder.ts` — add depth-conditional section to system prompt and user prompt
 - `src/app/api/fcs/service.ts` — wire depth from assessment record to `AssembledArtefactSet`
+- `src/app/api/assessments/[id]/retry-rubric/service.ts` — select `config_comprehension_depth` from the assessment row so the retry path threads depth too
+
+> **Implementation note (issue #223):** The retry-rubric service was not called out in the original spec; the select query had to include `config_comprehension_depth` and the `AssessmentRetryRow` interface had to gain the field. Without this, retries for `rubric_failed` assessments silently defaulted to conceptual depth regardless of the assessment's stored value.
 
 #### Prompt change (`prompt-builder.ts`)
 
@@ -265,28 +281,33 @@ This assessment uses CONCEPTUAL depth. Generate questions and reference answers 
 **Detailed:**
 
 ```
-This assessment uses DETAILED depth. Generate questions and reference answers that test implementation knowledge:
+This assessment uses DETAILED depth. Generate questions and reference answers that test theory of the implementation at specific resolution — the reasoning behind particular type choices, how actual files and call sites compose, and what would change or break under concrete structural changes:
 
-- Reference answers should include specific type names, file paths, and function signatures where relevant.
-- Questions may ask about exact identifiers, module locations, and implementation specifics.
-- Hints should guide toward specifics: "Name the relevant types and files."
+- Use specific type names, file paths, and function signatures as the vocabulary that anchors each question. Identifiers are the probe's anchor — not the answer being elicited.
+- Reference answers should explain why a structure was chosen and how it composes, grounded in the concrete code — not merely restate the identifiers in the question.
+- Good question shapes: "Why is X modelled as a `Y<Z>` rather than a plain Z?", "What breaks if `fooBar()` in `src/a/b.ts` returns null instead of undefined?", "How do the `X` and `Y` types compose in the `process()` call site?"
+- Avoid recall shapes like "What is the exact name of the type that…" or "Which file contains…" — those test memory, not theory.
+- Hints should guide toward reasoning at specific resolution: "Reason about the chosen structure and its composition."
 ```
+
+> **Framing note:** Detailed depth is still *theory building* (Naur) — it measures understanding at higher resolution, not recall. Specific identifiers are the vocabulary anchoring each probe, not the answer being elicited. Teammate-225 flagged drift in the original wording; revised 2026-04-16.
 
 #### Implementation approach
 
-The system prompt is currently a single constant string. To make it depth-conditional:
+Extract the depth instruction as an exported function: `function depthInstruction(depth?: 'conceptual' | 'detailed'): string` — defaults to the conceptual block when `depth` is undefined. `buildQuestionGenerationPrompt` appends the returned block to the existing `QUESTION_GENERATION_SYSTEM_PROMPT` constant.
 
-1. Extract the depth instruction as a function: `function depthInstruction(depth: 'conceptual' | 'detailed'): string`
-2. Change `QUESTION_GENERATION_SYSTEM_PROMPT` from a `const` string to a function `buildSystemPrompt(depth?: 'conceptual' | 'detailed'): string` that appends the depth instruction.
-3. Update `buildQuestionGenerationPrompt` to call `buildSystemPrompt(artefacts.comprehension_depth)`.
+> **Implementation note (issue #223):** The original plan was to convert `QUESTION_GENERATION_SYSTEM_PROMPT` from a `const` string into a `buildSystemPrompt(depth?)` function. We kept the constant and append the depth instruction inline instead — simpler, preserves the existing assertion-by-identity tests, and avoids rippling the change through every caller. Callers can still reference the base constant; depth-awareness is the `buildQuestionGenerationPrompt` wrapper's concern.
 
 #### Service wiring (`service.ts`)
 
-In `triggerRubricGeneration`, read the depth from the assessment record. This requires fetching `config_comprehension_depth` from the assessment row. Options:
+In `triggerRubricGeneration`, read the depth from the assessment record. Depth is known at creation time (from the request body) and on retry (from the assessment row), so no extra DB query is needed on the creation path.
 
-- Pass depth through `RubricTriggerParams` (preferred — avoids extra DB query since depth is known at creation time).
+Add `comprehensionDepth` to `RubricTriggerParams`, thread from both entry points:
 
-Add `comprehensionDepth` to `RubricTriggerParams` and `RepoInfo`, thread from `createFcs` → `triggerRubricGeneration` → artefact assembly.
+- `createFcs` — pass `body.comprehension_depth` into `triggerRubricGeneration`.
+- `retriggerRubricForAssessment` — pass `assessment.config_comprehension_depth ?? 'conceptual'` (covers legacy rows with `null`).
+
+> **Implementation note (issue #223):** The initial spec said "add `comprehensionDepth` to `RubricTriggerParams` and `RepoInfo`". `RepoInfo` was omitted — depth is per-assessment, not per-repo, so threading it through a repo-scoped record would have been misleading. Only `RubricTriggerParams` carries it.
 
 #### BDD specs
 
@@ -358,12 +379,15 @@ Score on a scale from 0.0 to 1.0.
 ```
 ## Scoring Calibration — Detailed Depth
 
-This assessment measures detailed implementation knowledge:
-- Specificity is expected and valued — exact type names, file paths, and function signatures.
-- Vague answers that demonstrate only conceptual understanding should score lower than answers with precise implementation details.
+This assessment measures understanding of the implementation at the specific level: how the actual types, files, and call sites compose, why they were chosen, and what would change if they were different.
 
-Score on a scale from 0.0 to 1.0.
+- Specific identifiers (type names, file paths, function signatures) are the expected vocabulary — use them to anchor reasoning, not as the reasoning itself.
+- Accept answers that name the right identifiers and explain the role each plays; prefer them over answers that list names without context.
+- Score lower when answers remain conceptual where specifics matter, OR list specifics without demonstrating understanding of their role.
+- Purely recall-style answers ("the type is X") without reasoning about why or how should not score full marks.
 ```
+
+Rationale: the earlier wording framed detailed depth as recall ("implementation knowledge", "specifics expected") and drifted from Naur's theory-building frame. The revised wording keeps detailed depth as *understanding at higher resolution* — specific identifiers are the vocabulary, not the content, and pure recall scores lower than reasoning about the role those identifiers play.
 
 #### Pipeline threading
 
@@ -375,7 +399,9 @@ Add `comprehensionDepth` to:
 
 #### Service wiring (`answers/service.ts`)
 
-Read `config_comprehension_depth` from the assessment row (already fetched in the answer submission flow). Pass to the scoring pipeline.
+Read `config_comprehension_depth` from the assessment row and pass it to the scoring pipeline.
+
+> **Implementation note (issue #224):** the original spec assumed the assessment row was already fetched in the answer submission flow. It was not — the scoring path only fetched questions and participant answers. The implementation adds a third query to `fetchScoringData`'s `Promise.all` that selects `config_comprehension_depth` from `assessments` by id, and returns it alongside `questions` and `answers`. `triggerScoring` forwards the value to `scoreAnswers`. This keeps the fetch parallel with the existing queries and avoids a standalone helper.
 
 #### BDD specs
 
@@ -392,8 +418,9 @@ describe('scoreAnswers pipeline')
 
 #### Test files
 
-- `tests/lib/engine/scoring/score-answer.test.ts`
-- `tests/lib/engine/pipeline/assess-pipeline.test.ts`
+- `tests/lib/engine/scoring/score-answer.test.ts` — feature tests covering calibration content and default-to-conceptual behaviour
+- `tests/lib/engine/pipeline/assess-pipeline.test.ts` — pipeline threading tests
+- `tests/evaluation/comprehension-depth-story-2-3.eval.test.ts` — feature-evaluator adversarial tests asserting the answers-service layer forwards `config_comprehension_depth` to `scoreAnswers` (2 tests; prior coverage asserted call count but not arguments)
 
 ---
 
@@ -405,33 +432,38 @@ describe('scoreAnswers pipeline')
 
 - `src/app/assessments/[id]/results/page.tsx` — display depth badge and contextual note
 - `src/app/api/assessments/route.ts` — include `config_comprehension_depth` in list response (for future filtering)
+- `src/app/api/assessments/helpers.ts` — add `config_comprehension_depth` to `AssessmentListItem` and thread it through `toListItem`
+
+> **Implementation note (issue #225):** The route previously used `select('*, …')`, which silently propagated the new column. Switched to an explicit column list so `AssessmentListItem` is the contract of record and drift between DB and API shape surfaces via TypeScript.
 
 #### Results page change
 
-After the assessment title section, add a depth badge:
-
-```tsx
-<p>
-  <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
-    Depth: {assessment.config_comprehension_depth === 'conceptual' ? 'Conceptual' : 'Detailed'}
-  </span>
-</p>
-```
-
-Add contextual note below the badge:
+After the assessment title section, add a depth badge and contextual note:
 
 ```typescript
-const DEPTH_NOTES: Record<string, string> = {
+const DEPTH_LABELS: Record<'conceptual' | 'detailed', string> = {
+  conceptual: 'Conceptual',
+  detailed: 'Detailed',
+};
+
+const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
   conceptual: 'This assessment measured reasoning and design understanding. Participants were not expected to recall specific code identifiers.',
   detailed: 'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.',
 };
 ```
 
 ```tsx
+<p>
+  <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
+    Depth: {DEPTH_LABELS[assessment.config_comprehension_depth ?? 'conceptual']}
+  </span>
+</p>
 <p className="text-caption text-text-secondary">
   {DEPTH_NOTES[assessment.config_comprehension_depth ?? 'conceptual']}
 </p>
 ```
+
+> **Implementation note (issue #225):** The spec originally inlined a ternary for the badge label. Replaced with a `DEPTH_LABELS` constant keyed on the enum so badge and note share one source of truth and the `Record<'conceptual' | 'detailed', …>` type guards against future enum drift.
 
 #### List endpoint change
 
@@ -450,7 +482,10 @@ describe('Results page')
 
 #### Test files
 
-- E2E or component test for results page (deferred — manual verification sufficient for display-only change).
+- `tests/app/assessments/results.test.ts` — new `Comprehension depth display` describe block (8 tests) covering badge text, note text, null default, and cross-depth prohibition (reuses existing `renderPage` / `makeAssessment` fixtures)
+- `tests/app/api/assessments.test.ts` — new `Comprehension depth in response` describe block (2 tests) covering `AssessmentListItem.config_comprehension_depth` passthrough and the explicit select column
+
+> **Implementation note (issue #225):** The initial spec deferred tests ("manual verification sufficient for display-only change"). Server-component tests are cheap here because the existing `renderPage` harness already exists, so ten tests ship alongside the feature.
 
 ---
 

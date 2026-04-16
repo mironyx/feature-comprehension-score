@@ -136,6 +136,7 @@ function makeQuestion(overrides: Record<string, unknown> = {}) {
     weight: 2,
     reference_answer: 'It does X.',
     aggregate_score: 0.9,
+    hint: null,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
@@ -211,6 +212,44 @@ describe('filterQuestionFields', () => {
       question_text: 'What does this feature do?',
       weight: 2,
       aggregate_score: 0.9,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Hint field — Issue #221 (Story 1.3)
+  // -------------------------------------------------------------------------
+
+  describe('hint field passthrough', () => {
+    describe('Given a question with a non-null hint', () => {
+      it('then FilteredQuestion includes the hint value unchanged', () => {
+        // Property 6 & 7 [lld §Story 1.3]: hint is present in FilteredQuestion and passes through verbatim
+        const q = makeQuestion({ hint: 'Describe 2–3 specific scenarios.' }) as Parameters<typeof filterQuestionFields>[0][number];
+        const result = filterQuestionFields([q], 'fcs', 'admin', 'completed');
+        expect(result[0]).toHaveProperty('hint', 'Describe 2–3 specific scenarios.');
+      });
+    });
+
+    describe('Given a question with a null hint', () => {
+      it('then FilteredQuestion hint is null', () => {
+        // Property 8 [lld §Story 1.3, invariant #3]: null hint passes through unchanged
+        const q = makeQuestion({ hint: null }) as Parameters<typeof filterQuestionFields>[0][number];
+        const result = filterQuestionFields([q], 'fcs', 'admin', 'completed');
+        expect(result[0]).toHaveProperty('hint', null);
+      });
+    });
+
+    describe('Given a question with hint absent from the DB row', () => {
+      it('then FilteredQuestion hint is null (undefined coerced to null by DB type)', () => {
+        // Property 8 [lld §Story 1.3, invariant #3]: missing hint treated as null
+        // The DB column is nullable TEXT — the Row type returns string | null, never undefined.
+        // This test verifies the field is present in the output shape even when the value is null.
+        const q = makeQuestion() as Parameters<typeof filterQuestionFields>[0][number];
+        // makeQuestion does not set hint — it should default to null in the DB Row type
+        const result = filterQuestionFields([q], 'fcs', 'participant', 'awaiting_responses');
+        expect(result[0]).toHaveProperty('hint');
+        // value is null (DB nullable column, not set in makeQuestion fixture)
+        expect(result[0]?.hint == null).toBe(true);
+      });
     });
   });
 });

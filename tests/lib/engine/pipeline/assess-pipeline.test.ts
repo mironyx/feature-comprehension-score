@@ -162,4 +162,61 @@ describe('Assessment pipeline', () => {
       expect(result.error.retryable).toBe(true);
     });
   });
+
+  // Story 2.3 — depth-aware scoring calibration (#224)
+
+  describe('scoreAnswers pipeline', () => {
+    const rubric: Rubric = {
+      questions: questionGenerationFixture.valid.questions,
+      artefact_quality: questionGenerationFixture.valid.artefact_quality,
+      artefact_quality_note: questionGenerationFixture.valid.artefact_quality_note,
+    };
+
+    const answers: ParticipantAnswer[] = [
+      { questionIndex: 0, participantId: 'alice', answer: 'To fix the race condition.' },
+    ];
+
+    describe('Given comprehensionDepth is "detailed" in ScoreAnswersRequest', () => {
+      it('passes comprehensionDepth through to individual scoreAnswer calls — system prompt contains "Detailed Depth"', async () => {
+        const generateStructured = vi.fn()
+          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
+          .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
+        const llmClient: LLMClient = { generateStructured };
+
+        await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'detailed' });
+
+        // The second call is the scoring call; check its system prompt carries the detailed calibration.
+        const scoringCall = generateStructured.mock.calls[1][0];
+        expect(scoringCall.systemPrompt).toContain('Detailed Depth');
+      });
+    });
+
+    describe('Given comprehensionDepth is "conceptual" in ScoreAnswersRequest', () => {
+      it('passes comprehensionDepth through to individual scoreAnswer calls — system prompt contains "Conceptual Depth"', async () => {
+        const generateStructured = vi.fn()
+          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
+          .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
+        const llmClient: LLMClient = { generateStructured };
+
+        await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'conceptual' });
+
+        const scoringCall = generateStructured.mock.calls[1][0];
+        expect(scoringCall.systemPrompt).toContain('Conceptual Depth');
+      });
+    });
+
+    describe('Given comprehensionDepth is omitted from ScoreAnswersRequest', () => {
+      it('passes no depth — scoring call defaults to conceptual calibration, system prompt contains "Conceptual Depth"', async () => {
+        const generateStructured = vi.fn()
+          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
+          .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
+        const llmClient: LLMClient = { generateStructured };
+
+        await scoreAnswers({ rubric, answers, llmClient });
+
+        const scoringCall = generateStructured.mock.calls[1][0];
+        expect(scoringCall.systemPrompt).toContain('Conceptual Depth');
+      });
+    });
+  });
 });

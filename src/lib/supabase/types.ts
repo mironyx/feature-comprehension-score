@@ -264,6 +264,7 @@ export interface Database {
           config_score_threshold: number;
           config_question_count: number;
           config_min_pr_size: number;
+          config_comprehension_depth: 'conceptual' | 'detailed';
           skip_reason: string | null;
           skipped_by: string | null;
           skipped_at: string | null;
@@ -299,6 +300,7 @@ export interface Database {
           config_score_threshold: number;
           config_question_count: number;
           config_min_pr_size: number;
+          config_comprehension_depth?: 'conceptual' | 'detailed';
           skip_reason?: string | null;
           skipped_by?: string | null;
           skipped_at?: string | null;
@@ -334,6 +336,7 @@ export interface Database {
           config_score_threshold?: number;
           config_question_count?: number;
           config_min_pr_size?: number;
+          config_comprehension_depth?: 'conceptual' | 'detailed';
           skip_reason?: string | null;
           skipped_by?: string | null;
           skipped_at?: string | null;
@@ -353,6 +356,7 @@ export interface Database {
           question_text: string;
           weight: number;
           reference_answer: string;
+          hint: string | null;
           aggregate_score: number | null;
           created_at: string;
         };
@@ -365,6 +369,7 @@ export interface Database {
           question_text: string;
           weight: number;
           reference_answer: string;
+          hint?: string | null;
           aggregate_score?: number | null;
           created_at?: string;
         };
@@ -377,6 +382,7 @@ export interface Database {
           question_text?: string;
           weight?: number;
           reference_answer?: string;
+          hint?: string | null;
           aggregate_score?: number | null;
           created_at?: string;
         };
@@ -603,6 +609,7 @@ export interface Database {
           p_config_min_pr_size: number;
           p_merged_prs: Json;
           p_participants: Json;
+          p_config_comprehension_depth?: string;
         };
         Returns: string;
       };
