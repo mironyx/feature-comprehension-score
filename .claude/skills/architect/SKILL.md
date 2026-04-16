@@ -307,7 +307,11 @@ git commit -m "docs: design for #<issue> — <summary>"
 
 One commit per item for granular review. Do not batch.
 
-### Step 6: Report
+### Step 6: Write session log
+
+Follow `.claude/skills/shared/session-log.md`. Use `<skill>=architect` and a `<slug>` identifying the epics or plan sections processed (e.g. `architect-e11-e17`).
+
+### Step 7: Report
 
 After all in-scope epics are processed, summarise:
 

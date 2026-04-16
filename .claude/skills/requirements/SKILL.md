@@ -496,7 +496,10 @@ After Gate 2 approval:
    git add docs/requirements/v{N}-requirements.md
    git commit -m "docs: finalise v{N} requirements"
    ```
-5. Report to the user: what was produced, key decisions, and suggested next
+5. Write a session log following `.claude/skills/shared/session-log.md`. Use
+   `<skill>=requirements` and `<slug>=v{N}` (or a scope-specific slug if the
+   session was a partial rewrite, e.g. `requirements-v2-e17-revision`).
+6. Report to the user: what was produced, key decisions, and suggested next
    step.
 
 **Stop here.** Do not proceed to `/kickoff` automatically.

@@ -299,7 +299,11 @@ git add CLAUDE.md
 git commit -m "docs: CLAUDE.md — project-specific configuration"
 ```
 
-### Step 9: Report and stop
+### Step 9: Write session log
+
+Follow `.claude/skills/shared/session-log.md`. Use `<skill>=kickoff` and `<slug>=<project-slug>`. Include gate outcomes (drift scan verdicts from Steps 3 and 6) in the "What didn't go to plan" or a dedicated subsection.
+
+### Step 10: Report and stop
 
 Summarise to the user:
 
