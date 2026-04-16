@@ -130,7 +130,22 @@ CREATE TABLE assessments (
   -- Results
   aggregate_score          numeric(5,4),
   scoring_incomplete       boolean NOT NULL DEFAULT false,
+  -- Deprecated: legacy text bucket used only by V1 prompt-time classifier
+  -- (src/lib/engine/prompts/classify-quality.ts). Superseded by the numerical
+  -- artefact_quality_score / _status / _dimensions columns (V2 Story 11.1).
+  -- Kept until the prompt-side replacement lands; do not add new callers.
   artefact_quality         text,
+  -- V2 artefact quality (Story 11.1). Numerical 0–100 score, per-dimension
+  -- breakdown as JSONB array of { key, sub_score, category, rationale }.
+  artefact_quality_score      integer CHECK (
+                                artefact_quality_score IS NULL
+                                OR artefact_quality_score BETWEEN 0 AND 100
+                              ),
+  artefact_quality_status     text NOT NULL DEFAULT 'pending'
+                                CHECK (artefact_quality_status IN (
+                                  'pending', 'success', 'unavailable'
+                                )),
+  artefact_quality_dimensions jsonb,
   conclusion               text CHECK (conclusion IN (
                               'success', 'failure', 'neutral'
                            )),

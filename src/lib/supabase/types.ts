@@ -259,6 +259,9 @@ export interface Database {
           aggregate_score: number | null;
           scoring_incomplete: boolean;
           artefact_quality: string | null;
+          artefact_quality_score: number | null;
+          artefact_quality_status: 'pending' | 'success' | 'unavailable';
+          artefact_quality_dimensions: Json | null;
           conclusion: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -295,6 +298,9 @@ export interface Database {
           aggregate_score?: number | null;
           scoring_incomplete?: boolean;
           artefact_quality?: string | null;
+          artefact_quality_score?: number | null;
+          artefact_quality_status?: 'pending' | 'success' | 'unavailable';
+          artefact_quality_dimensions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -331,6 +337,9 @@ export interface Database {
           aggregate_score?: number | null;
           scoring_incomplete?: boolean;
           artefact_quality?: string | null;
+          artefact_quality_score?: number | null;
+          artefact_quality_status?: 'pending' | 'success' | 'unavailable';
+          artefact_quality_dimensions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode?: string;
           config_score_threshold?: number;
@@ -615,6 +624,17 @@ export interface Database {
       };
       finalise_rubric: {
         Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
+        Returns: void;
+      };
+      finalise_rubric_v2: {
+        Args: {
+          p_assessment_id: string;
+          p_org_id: string;
+          p_questions: Json;
+          p_quality_score: number | null;
+          p_quality_status: 'pending' | 'success' | 'unavailable';
+          p_quality_dimensions: Json | null;
+        };
         Returns: void;
       };
       persist_scoring_results: {
