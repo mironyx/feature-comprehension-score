@@ -9,8 +9,10 @@ import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { loadOrgThresholds } from '@/lib/supabase/org-thresholds';
 import { PageHeader } from '@/components/ui/page-header';
 import OrgContextForm from './org-context-form';
+import OrgThresholdsForm from './org-thresholds-form';
 import type { Database } from '@/lib/supabase/types';
 
 type MembershipRow = Pick<Database['public']['Tables']['user_organisations']['Row'], 'org_id' | 'github_role'>;
@@ -40,6 +42,7 @@ export default async function OrganisationPage() {
   if (!isAdmin) forbidden();
 
   const context = await loadOrgPromptContext(supabase, orgId);
+  const thresholds = await loadOrgThresholds(supabase, orgId);
 
   return (
     <div className="space-y-section-gap">
@@ -48,6 +51,7 @@ export default async function OrganisationPage() {
         subtitle="Manage assessment context settings"
       />
       <OrgContextForm orgId={orgId} initial={context ?? {}} />
+      <OrgThresholdsForm orgId={orgId} initial={thresholds} />
     </div>
   );
 }

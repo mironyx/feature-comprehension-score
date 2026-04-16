@@ -54,6 +54,8 @@ export interface Database {
           trivial_commit_threshold: number;
           exempt_file_patterns: string[];
           context_file_patterns: string[];
+          artefact_quality_threshold: number;
+          fcs_low_threshold: number;
           created_at: string;
           updated_at: string;
         };
@@ -70,6 +72,8 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
+          artefact_quality_threshold?: number;
+          fcs_low_threshold?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +90,8 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
+          artefact_quality_threshold?: number;
+          fcs_low_threshold?: number;
           created_at?: string;
           updated_at?: string;
         };
