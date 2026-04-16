@@ -15,11 +15,16 @@ export async function loadOrgThresholds(
   supabase: SupabaseClient<Database>,
   orgId: string,
 ): Promise<OrgThresholds> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('org_config')
     .select('artefact_quality_threshold, fcs_low_threshold')
     .eq('org_id', orgId)
     .maybeSingle();
+
+  if (error) {
+    console.error('loadOrgThresholds: DB query failed:', error.message);
+    return DEFAULT_ORG_THRESHOLDS;
+  }
 
   if (!data) return DEFAULT_ORG_THRESHOLDS;
 
