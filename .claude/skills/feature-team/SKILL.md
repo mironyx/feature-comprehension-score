@@ -16,9 +16,11 @@ Not supported in VS Code.
 **Usage:**
 - `/feature-team 101 102 103` — implement three specific task issues in parallel
 - `/feature-team -n 3` — implement the top 3 Todo task items from the project board
-- `/feature-team epic 45` — implement all tasks from epic #45 in parallel
+- `/feature-team epic 45` — implement all tasks from epic #45, wave-by-wave when the epic body declares dependencies
 
 For a single issue, use `/feature` instead. Epic issues (label `epic`) cannot be implemented directly — pass task issues or use `epic <N>` mode.
+
+**Wave handling:** When given an epic, the lead reads the epic body for an `## Execution Order` table or a `## Dependency graph` Mermaid diagram and spawns teammates wave-by-wave. Without either, all tasks spawn in parallel. See Step 1 for parsing rules.
 
 ## Lead Process
 
@@ -31,7 +33,14 @@ If `epic <N>` is given:
 2. Verify it has the `epic` label. If not, stop: "Issue #N is not an epic."
 3. Parse the task checklist from the body. Extract all unchecked task issue numbers.
 4. If no unchecked tasks, stop: "Epic #N has no remaining tasks."
-5. Check for an **Execution Order** section in the epic body. If present, parse the execution waves table and spawn teammates wave-by-wave (all tasks in Wave 1 first; when Wave 1 completes, spawn Wave 2, etc.). If no execution order section exists, spawn all tasks in parallel (legacy behaviour).
+5. Determine execution waves from the epic body, in this order of precedence:
+   1. **`## Execution Order` section with a waves table** — use as authored (explicit `Wave | Issues | Blocked by` rows).
+   2. **`## Dependency graph` section with a Mermaid diagram** — derive waves by topological sort: nodes with no incoming solid edges form Wave 1; once Wave 1 is complete, nodes whose remaining incoming edges all come from Wave 1 form Wave 2; continue until all nodes are placed. Treat dashed/soft-coupling edges (`-.->`) and external nodes (parenthesised `S63(["..."])`-style stadium nodes) as advisory — do not block on them. Any task whose only blockers are external/advisory belongs in Wave 1.
+   3. **Neither present** — spawn all tasks in parallel (legacy behaviour). Warn the user that the epic has no dependency information and races may occur on shared files.
+
+   Spawn teammates wave-by-wave: all tasks in Wave 1 in parallel; when every Wave 1 PR is merged (not just opened), spawn Wave 2; and so on. Tasks marked as deferred / externally blocked are not spawned at all — list them in the final report instead.
+
+   Before spawning each wave, echo the parsed wave plan back to the user (one line per wave with issue numbers) so the derivation is auditable.
 
 If `-n N` is given:
 ```bash
