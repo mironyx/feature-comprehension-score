@@ -204,7 +204,7 @@ describe('create_fcs_assessment', () => {
 // finalise_rubric
 // ---------------------------------------------------------------------------
 
-describe('finalise_rubric', () => {
+describe('finalise_rubric_v2 (legacy test migrated)', () => {
   let orgId: string;
 
   afterEach(async () => {
@@ -235,10 +235,13 @@ describe('finalise_rubric', () => {
       { question_number: 2, naur_layer: 'design_justification', question_text: 'Q2', weight: 1, reference_answer: 'A2' },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -252,10 +255,10 @@ describe('finalise_rubric', () => {
 });
 
 // ---------------------------------------------------------------------------
-// finalise_rubric — hint column (#220)
+// finalise_rubric_v2 — hint column (#220)
 // ---------------------------------------------------------------------------
 
-describe('finalise_rubric — hint column', () => {
+describe('finalise_rubric_v2 — hint column', () => {
   let orgId: string;
 
   // Shared helper: create a minimal assessment in rubric_generation status.
@@ -299,10 +302,13 @@ describe('finalise_rubric — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -334,10 +340,13 @@ describe('finalise_rubric — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -369,10 +378,13 @@ describe('finalise_rubric — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -420,10 +432,13 @@ describe('finalise_rubric — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -459,10 +474,13 @@ describe('finalise_rubric — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric', {
+    const { error } = await svc.rpc('finalise_rubric_v2', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
+      p_quality_score: null,
+      p_quality_status: 'pending',
+      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();

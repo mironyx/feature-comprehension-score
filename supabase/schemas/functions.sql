@@ -274,38 +274,9 @@ BEGIN
 END;
 $$;
 
--- finalise_rubric: atomically stores generated rubric questions and
--- transitions the assessment to awaiting_responses.
-CREATE OR REPLACE FUNCTION finalise_rubric(
-  p_assessment_id uuid,
-  p_org_id        uuid,
-  p_questions     jsonb
-)
-RETURNS void
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-BEGIN
-  INSERT INTO assessment_questions (
-    org_id, assessment_id, question_number,
-    naur_layer, question_text, weight, reference_answer, hint
-  )
-  SELECT p_org_id, p_assessment_id,
-    (q->>'question_number')::integer, q->>'naur_layer',
-    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer',
-    q->>'hint'
-  FROM jsonb_array_elements(p_questions) AS q;
-
-  UPDATE assessments
-  SET status = 'awaiting_responses', updated_at = now()
-  WHERE id = p_assessment_id;
-END;
-$$;
-
 -- finalise_rubric_v2: atomically stores generated rubric questions together
--- with the V2 artefact quality result (score, status, per-dimension breakdown),
--- and transitions the assessment to awaiting_responses. Added in §11.1b; the
--- legacy finalise_rubric is removed in §11.1c once all callers migrate.
+-- with the artefact quality result (score, status, per-dimension breakdown),
+-- and transitions the assessment to awaiting_responses.
 CREATE OR REPLACE FUNCTION finalise_rubric_v2(
   p_assessment_id      uuid,
   p_org_id             uuid,

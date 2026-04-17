@@ -628,10 +628,6 @@ export interface Database {
         };
         Returns: string;
       };
-      finalise_rubric: {
-        Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
-        Returns: void;
-      };
       finalise_rubric_v2: {
         Args: {
           p_assessment_id: string;
