@@ -10,6 +10,10 @@ import {
   type LLMResult,
   type RetryConfig,
 } from './types';
+import type {
+  GenerateWithToolsData,
+  GenerateWithToolsRequest,
+} from './tools';
 
 export const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-6';
 
@@ -45,6 +49,12 @@ export class OpenRouterClient implements LLMClient {
     this.defaultModel = config.defaultModel ?? DEFAULT_MODEL;
     this.retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig };
     this.logger = config.logger;
+  }
+
+  async generateWithTools<T extends z.ZodType>(
+    _request: GenerateWithToolsRequest<T>,
+  ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>> {
+    throw new Error('not implemented — see issue #250');
   }
 
   async generateStructured<T extends z.ZodType>(
