@@ -20,6 +20,10 @@ vi.mock('@/lib/supabase/org-prompt-context', () => ({
   loadOrgPromptContext: vi.fn(),
 }));
 
+vi.mock('@/lib/supabase/org-thresholds', () => ({
+  loadOrgThresholds: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -40,12 +44,14 @@ vi.mock('next/headers', () => ({
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { loadOrgThresholds } from '@/lib/supabase/org-thresholds';
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockLoadContext = vi.mocked(loadOrgPromptContext);
+const mockLoadThresholds = vi.mocked(loadOrgThresholds);
 const mockRedirect = vi.mocked(redirect);
 const mockForbidden = vi.mocked(forbidden);
 const mockCookies = vi.mocked(cookies);
@@ -90,6 +96,10 @@ describe('Organisation page', () => {
     mockCookies.mockResolvedValue(mockCookieStore as never);
     mockGetOrgId.mockReturnValue(ORG_ID);
     mockLoadContext.mockResolvedValue(undefined);
+    mockLoadThresholds.mockResolvedValue({
+      artefact_quality_threshold: 0.6,
+      fcs_low_threshold: 60,
+    });
   });
 
   describe('Given I am a regular user visiting /organisation', () => {
