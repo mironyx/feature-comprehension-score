@@ -55,26 +55,3 @@ export const RelevanceResponseSchema = z.object({
   explanation: z.string(),
 });
 export type RelevanceResponse = z.infer<typeof RelevanceResponseSchema>;
-
-export const ArtefactQualityDimensionKeySchema = z.enum([
-  'pr_description',
-  'linked_issues',
-  'design_documents',
-  'commit_messages',
-  'test_coverage',
-  'adr_references',
-]);
-export type ArtefactQualityDimensionKey = z.infer<typeof ArtefactQualityDimensionKeySchema>;
-
-export const ArtefactQualityDimensionSchema = z.object({
-  key: ArtefactQualityDimensionKeySchema,
-  sub_score: z.number().int().min(0).max(100),
-  category: z.string().min(1),
-  rationale: z.string().min(1),
-});
-export type ArtefactQualityDimension = z.infer<typeof ArtefactQualityDimensionSchema>;
-
-export const ArtefactQualityResponseSchema = z.object({
-  dimensions: z.array(ArtefactQualityDimensionSchema).length(6),
-});
-export type ArtefactQualityResponse = z.infer<typeof ArtefactQualityResponseSchema>;

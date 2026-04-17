@@ -5,9 +5,6 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-16 | Claude | Initial LLD covering V2 Stories 11.1 and 11.2 |
-| 2026-04-17 | Claude | Revised §11.1a post-implementation (issue #234) |
-| 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
-| 2026-04-17 | Claude | §11.1c revised post-implementation (issue #236) |
 
 ## Part A — Human-Reviewable
 
@@ -178,14 +175,10 @@ The epic decomposes into six tasks across two stories. Each task is sized for a 
 - `src/lib/engine/quality/evaluate-quality.ts` — `evaluateArtefactQuality(request)` function
 - `src/lib/engine/quality/build-quality-prompt.ts` — `buildArtefactQualityPrompt(raw)` returning `{ systemPrompt, userPrompt }`
 - `src/lib/engine/quality/aggregate-dimensions.ts` — pure `aggregateDimensions(dims)` with the 60/40 weight split
-- `src/lib/engine/quality/weights.ts` — exported constants `DIMENSION_WEIGHTS` and `INTENT_ADJACENT_KEYS`
-
-> **Implementation note (issue #234):** `INTENT_ADJACENT_KEYS` added as an exported constant for test assertions on the ≥ 60% intent-adjacent weight invariant (LLD §Invariant 3). `ARTEFACT_QUALITY_SYSTEM_PROMPT` exported from `build-quality-prompt.ts` for test assertions on prompt content (mirrors `QUESTION_GENERATION_SYSTEM_PROMPT` pattern).
-- `tests/lib/engine/quality/evaluate-quality.test.ts`
-- `tests/lib/engine/quality/aggregate-dimensions.test.ts`
-- `tests/lib/engine/quality/build-quality-prompt.test.ts`
-
-> **Implementation note (issue #234):** Test paths corrected from `tests/unit/` to `tests/lib/` to match the project convention used by all other engine tests.
+- `src/lib/engine/quality/weights.ts` — exported constant `DIMENSION_WEIGHTS` enforcing the 60/40 split
+- `tests/unit/engine/quality/evaluate-quality.test.ts`
+- `tests/unit/engine/quality/aggregate-dimensions.test.ts`
+- `tests/unit/engine/quality/build-quality-prompt.test.ts`
 
 **Files to modify:**
 
@@ -209,8 +202,8 @@ export type ArtefactQualityDimensionKey = z.infer<typeof ArtefactQualityDimensio
 export const ArtefactQualityDimensionSchema = z.object({
   key: ArtefactQualityDimensionKeySchema,
   sub_score: z.number().int().min(0).max(100),
-  category: z.string().min(1),       // e.g. "empty" / "minimal" / "detailed" — set by prompt
-  rationale: z.string().min(1),      // one-sentence justification
+  category: z.string(),       // e.g. "empty" / "minimal" / "detailed" — set by prompt
+  rationale: z.string(),      // one-sentence justification
 });
 export type ArtefactQualityDimension = z.infer<typeof ArtefactQualityDimensionSchema>;
 
@@ -223,16 +216,9 @@ export type ArtefactQualityResponse = z.infer<typeof ArtefactQualityResponseSche
 ```typescript
 // src/lib/engine/quality/evaluate-quality.ts
 
-export type ArtefactQualityUnavailableReason =
-  | 'llm_failed'
-  | 'timeout'
-  | 'validation_failed';
-
 export type ArtefactQualityResult =
   | { status: 'success'; aggregate: number; dimensions: ArtefactQualityDimension[] }
-  | { status: 'unavailable'; reason: ArtefactQualityUnavailableReason; error: LLMError };
-
-> **Implementation note (issue #234):** `ArtefactQualityUnavailableReason` extracted as a standalone exported type for downstream consumer ergonomics (§11.1c pipeline needs to match on reason). The LLM error-code → reason mapping is: `validation_failed`/`malformed_response` → `'validation_failed'`, `network_error` → `'timeout'`, everything else → `'llm_failed'`. A private `classifyReason(code)` function handles this mapping.
+  | { status: 'unavailable'; reason: 'llm_failed' | 'timeout' | 'validation_failed'; error: LLMError };
 
 export interface EvaluateQualityRequest {
   raw: RawArtefactSet;
@@ -295,9 +281,9 @@ describe('buildArtefactQualityPrompt')
 
 **Acceptance:**
 
-- [x] Engine has zero I/O imports (`grep -r "from '@/lib/supabase\|from '@/lib/github\|from 'next" src/lib/engine/quality/` returns nothing).
-- [x] `aggregateDimensions(dims)` invariant test: `intentTotal / overallTotal ≥ 0.60` for any non-trivial input.
-- [x] All BDD specs pass.
+- [ ] Engine has zero I/O imports (`grep -r "from '@/lib/supabase\|from '@/lib/github\|from 'next" src/lib/engine/quality/` returns nothing).
+- [ ] `aggregateDimensions(dims)` invariant test: `intentTotal / overallTotal ≥ 0.60` for any non-trivial input.
+- [ ] All BDD specs pass.
 
 ---
 
@@ -315,7 +301,7 @@ describe('buildArtefactQualityPrompt')
   - `artefact_quality_score integer CHECK (artefact_quality_score IS NULL OR artefact_quality_score BETWEEN 0 AND 100)`
   - `artefact_quality_status text NOT NULL DEFAULT 'pending' CHECK (artefact_quality_status IN ('pending', 'success', 'unavailable'))`
   - `artefact_quality_dimensions jsonb` — array of `{ key, sub_score, category, rationale }`
-- `supabase/schemas/functions.sql` — add `finalise_rubric_v2` taking `p_quality_score integer`, `p_quality_status text`, `p_quality_dimensions jsonb` alongside the existing parameters; old function kept temporarily, see migration plan below.
+- `supabase/schemas/functions.sql` — replace `finalise_rubric` with `finalise_rubric_v2` taking `p_quality_score integer`, `p_quality_status text`, `p_quality_dimensions jsonb` alongside the existing parameters; old function kept temporarily, see migration plan below.
 
 **Migration plan:**
 
@@ -341,9 +327,9 @@ describe('finalise_rubric_v2 RPC')
 
 **Acceptance:**
 
-- [x] `npx supabase db diff` produces the expected migration; no drift.
-- [x] `npx supabase db reset` succeeds; integration test (call `finalise_rubric_v2` from a test) succeeds.
-- [x] No production code yet calls the new RPC (that is §11.1c).
+- [ ] `npx supabase db diff` produces the expected migration; no drift.
+- [ ] `npx supabase db reset` succeeds; integration test (call `finalise_rubric_v2` from a test) succeeds.
+- [ ] No production code yet calls the new RPC (that is §11.1c).
 
 ---
 
@@ -357,20 +343,15 @@ describe('finalise_rubric_v2 RPC')
   - Run `evaluateArtefactQuality()` and `generateRubric()` in parallel via `Promise.all` (both share the same `RawArtefactSet`).
   - Call `finalise_rubric_v2` with the quality result.
   - On evaluator failure, persist `status = 'unavailable'` and continue.
+- [src/app/api/assessments/[id]/retry-rubric/service.ts](src/app/api/assessments/[id]/retry-rubric/service.ts) — same change.
 - `supabase/schemas/functions.sql` — remove `finalise_rubric` (kept in §11.1b).
 - `src/lib/supabase/types.ts` — regenerate via `supabase gen types`.
 
-> **Implementation note (issue #236):** `retry-rubric/service.ts` was not modified — `retriggerRubricForAssessment` already delegates to `triggerRubricGeneration` → `finaliseRubric`, so the retry path inherited the parallel evaluator call automatically. `types.ts` was regenerated but required hand-restoring narrow union types (`'fcs' | 'prcc'`, `'conceptual' | 'detailed'`, naur_layer unions) that `supabase gen types` widens to `string`.
-
 **Files to create:**
 
-- `tests/app/api/fcs/service-quality.test.ts` — covers parallel call + fallback paths.
-
-> **Implementation note (issue #236):** Test path corrected from `tests/unit/` to `tests/app/` to match the project convention used by all other FCS service tests.
+- `tests/unit/api/fcs/service-quality.test.ts` — covers parallel call + fallback paths.
 
 **Internal decomposition (controller / service):** No new route handler; this task modifies the existing `finaliseRubric` service helper. The existing route ([src/app/api/fcs/route.ts](src/app/api/fcs/route.ts)) already complies with the controller / service split (controller body is 6 lines, delegates to `createFcs`).
-
-> **Implementation note (issue #236):** `toQualityFields(result)` added as a private helper to map `ArtefactQualityResult` (discriminated union) to the flat `{score, status, dimensions}` shape needed by the `finalise_rubric_v2` RPC. Extracted to keep `finaliseRubric` under the 20-line function limit. Quality result is logged via a separate `logger.info` call (`'Rubric generation: quality result'`) rather than appending to the existing `logArtefactSummary` — avoids modifying the existing helper's signature.
 
 **BDD specs:**
 
@@ -388,9 +369,9 @@ describe('triggerRubricGeneration with artefact quality')
 
 **Acceptance:**
 
-- [x] `npx vitest run` green.
-- [x] No regression on existing FCS rubric generation tests.
-- [x] Logs include `artefactQualityStatus` and `artefactQualityScore` (when present) under the existing rubric summary log.
+- [ ] `npx vitest run` green.
+- [ ] No regression on existing FCS rubric generation tests.
+- [ ] Logs include `artefactQualityStatus` and `artefactQualityScore` (when present) under the existing rubric summary log.
 
 ---
 

@@ -204,7 +204,7 @@ describe('create_fcs_assessment', () => {
 // finalise_rubric
 // ---------------------------------------------------------------------------
 
-describe('finalise_rubric_v2 (legacy test migrated)', () => {
+describe('finalise_rubric', () => {
   let orgId: string;
 
   afterEach(async () => {
@@ -235,13 +235,10 @@ describe('finalise_rubric_v2 (legacy test migrated)', () => {
       { question_number: 2, naur_layer: 'design_justification', question_text: 'Q2', weight: 1, reference_answer: 'A2' },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -255,10 +252,10 @@ describe('finalise_rubric_v2 (legacy test migrated)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// finalise_rubric_v2 — hint column (#220)
+// finalise_rubric — hint column (#220)
 // ---------------------------------------------------------------------------
 
-describe('finalise_rubric_v2 — hint column', () => {
+describe('finalise_rubric — hint column', () => {
   let orgId: string;
 
   // Shared helper: create a minimal assessment in rubric_generation status.
@@ -302,13 +299,10 @@ describe('finalise_rubric_v2 — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -340,13 +334,10 @@ describe('finalise_rubric_v2 — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -378,13 +369,10 @@ describe('finalise_rubric_v2 — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -432,13 +420,10 @@ describe('finalise_rubric_v2 — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -474,13 +459,10 @@ describe('finalise_rubric_v2 — hint column', () => {
       },
     ];
 
-    const { error } = await svc.rpc('finalise_rubric_v2', {
+    const { error } = await svc.rpc('finalise_rubric', {
       p_assessment_id: assessmentId,
       p_org_id: orgId,
       p_questions: questions,
-      p_quality_score: null,
-      p_quality_status: 'pending',
-      p_quality_dimensions: null,
     });
 
     expect(error).toBeNull();
@@ -504,400 +486,6 @@ describe('finalise_rubric_v2 — hint column', () => {
     expect(qRows?.weight).toBe(2);
     expect(qRows?.reference_answer).toBe('The main function in index.ts.');
     expect(qRows?.hint).toBe('Name the file and describe what it does.');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// finalise_rubric_v2 (#235)
-// ---------------------------------------------------------------------------
-
-describe('finalise_rubric_v2', () => {
-  let orgId: string;
-
-  // Shared helper: create a minimal assessment in rubric_generation status.
-  async function createAssessment(svc: ReturnType<typeof secretClient>): Promise<{ assessmentId: string }> {
-    const repoId = await createTestRepo(svc, orgId);
-    const assessmentId = crypto.randomUUID();
-    await svc.from('assessments').insert({
-      id: assessmentId,
-      org_id: orgId,
-      repository_id: repoId,
-      type: 'fcs',
-      status: 'rubric_generation',
-      config_enforcement_mode: 'soft',
-      config_score_threshold: 70,
-      config_question_count: 3,
-      config_min_pr_size: 20,
-    });
-    return { assessmentId };
-  }
-
-  const sampleQuestions = [
-    { question_number: 1, naur_layer: 'world_to_program', question_text: 'Q1', weight: 2, reference_answer: 'A1' },
-    { question_number: 2, naur_layer: 'design_justification', question_text: 'Q2', weight: 1, reference_answer: 'A2' },
-  ];
-
-  const sampleDimensions = [
-    { key: 'pr_description', sub_score: 80, category: 'detailed', rationale: 'Good PR description.' },
-    { key: 'linked_issues', sub_score: 90, category: 'detailed', rationale: 'Issues linked.' },
-    { key: 'design_documents', sub_score: 70, category: 'minimal', rationale: 'Some design docs.' },
-    { key: 'commit_messages', sub_score: 60, category: 'minimal', rationale: 'Adequate commits.' },
-    { key: 'test_coverage', sub_score: 75, category: 'detailed', rationale: 'Good coverage.' },
-    { key: 'adr_references', sub_score: 85, category: 'detailed', rationale: 'ADRs referenced.' },
-  ];
-
-  afterEach(async () => {
-    const svc = secretClient();
-    if (orgId) await deleteTestOrg(svc, orgId);
-  });
-
-  // Property 1 [lld §11.1b]: A freshly-created assessment (before any RPC call) has
-  // artefact_quality_status = 'pending' due to the column DEFAULT.
-  it('sets artefact_quality_status to "pending" for a freshly-created assessment', async () => {
-    const svc = secretClient();
-    orgId = await createTestOrg(svc);
-    const { assessmentId } = await createAssessment(svc);
-
-    const { data: assessment } = await svc
-      .from('assessments')
-      .select('artefact_quality_status, artefact_quality_score, artefact_quality_dimensions')
-      .eq('id', assessmentId)
-      .single();
-
-    expect(assessment?.artefact_quality_status).toBe('pending');
-    expect(assessment?.artefact_quality_score).toBeNull();
-    expect(assessment?.artefact_quality_dimensions).toBeNull();
-  });
-
-  describe('Given questions and a successful quality result', () => {
-    // Property 2 [lld §11.1b]: The RPC returns no error when given valid inputs and a successful quality result.
-    it('returns no error', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      const { error } = await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      expect(error).toBeNull();
-    });
-
-    // Property 3 [lld §11.1b]: Questions are inserted into assessment_questions.
-    it('then questions are inserted', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: qRows } = await svc
-        .from('assessment_questions')
-        .select('question_number')
-        .eq('assessment_id', assessmentId)
-        .order('question_number');
-
-      expect(qRows).toHaveLength(2);
-      expect(qRows?.[0]?.question_number).toBe(1);
-      expect(qRows?.[1]?.question_number).toBe(2);
-    });
-
-    // Property 4 [lld §11.1b]: artefact_quality_score is persisted as the integer passed in.
-    it('then artefact_quality_score is persisted', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_score')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_score).toBe(78);
-    });
-
-    // Property 5 [lld §11.1b]: artefact_quality_status is set to 'success'.
-    it('then artefact_quality_status is "success"', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_status')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_status).toBe('success');
-    });
-
-    // Property 6 [lld §11.1b]: artefact_quality_dimensions is persisted as the exact JSONB array passed in.
-    it('then artefact_quality_dimensions is persisted as the exact array passed in', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_dimensions')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_dimensions).toEqual(sampleDimensions);
-    });
-
-    // Property 7 [lld §11.1b]: Assessment status transitions to 'awaiting_responses'.
-    it('then assessment status transitions to "awaiting_responses"', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 78,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('status')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.status).toBe('awaiting_responses');
-    });
-  });
-
-  describe('Given questions and an unavailable quality result', () => {
-    // Property 8 [lld §11.1b, issue]: Questions are inserted even when the quality result is unavailable.
-    it('then questions are inserted', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: null,
-        p_quality_status: 'unavailable',
-        p_quality_dimensions: null,
-      });
-
-      const { data: qRows } = await svc
-        .from('assessment_questions')
-        .select('question_number')
-        .eq('assessment_id', assessmentId);
-
-      expect(qRows).toHaveLength(2);
-    });
-
-    // Property 9 [lld §11.1b, issue]: artefact_quality_score is NULL when quality is unavailable.
-    it('then artefact_quality_score is NULL', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: null,
-        p_quality_status: 'unavailable',
-        p_quality_dimensions: null,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_score')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_score).toBeNull();
-    });
-
-    // Property 10 [lld §11.1b, issue]: artefact_quality_status is set to 'unavailable'.
-    it('then quality_status is "unavailable"', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: null,
-        p_quality_status: 'unavailable',
-        p_quality_dimensions: null,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_status')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_status).toBe('unavailable');
-    });
-
-    // Property 11 [lld §11.1b]: artefact_quality_dimensions is NULL when quality is unavailable.
-    it('then artefact_quality_dimensions is NULL', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: null,
-        p_quality_status: 'unavailable',
-        p_quality_dimensions: null,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('artefact_quality_dimensions')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.artefact_quality_dimensions).toBeNull();
-    });
-
-    // Property 12 [lld §11.1b, issue]: Assessment status transitions to 'awaiting_responses'
-    // even when the quality result is unavailable.
-    it('then assessment status transitions to "awaiting_responses"', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: null,
-        p_quality_status: 'unavailable',
-        p_quality_dimensions: null,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('status')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.status).toBe('awaiting_responses');
-    });
-  });
-
-  describe('Given a CHECK violation on score range', () => {
-    // Property 13 [lld §11.1b]: The RPC returns an error when p_quality_score violates the 0–100 CHECK.
-    it('then error is non-null', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      const { error } = await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 150,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      expect(error).not.toBeNull();
-    });
-
-    // Property 14 [lld §11.1b]: The transaction aborts — no questions are inserted.
-    it('then no questions are inserted (transaction aborts)', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 150,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: qRows } = await svc
-        .from('assessment_questions')
-        .select('id')
-        .eq('assessment_id', assessmentId);
-
-      expect(qRows).toHaveLength(0);
-    });
-
-    // Property 15 [lld §11.1b]: The assessment status stays at 'rubric_generation' (atomicity).
-    it('then the assessment status stays at "rubric_generation"', async () => {
-      const svc = secretClient();
-      orgId = await createTestOrg(svc);
-      const { assessmentId } = await createAssessment(svc);
-
-      await svc.rpc('finalise_rubric_v2', {
-        p_assessment_id: assessmentId,
-        p_org_id: orgId,
-        p_questions: sampleQuestions,
-        p_quality_score: 150,
-        p_quality_status: 'success',
-        p_quality_dimensions: sampleDimensions,
-      });
-
-      const { data: assessment } = await svc
-        .from('assessments')
-        .select('status')
-        .eq('id', assessmentId)
-        .single();
-
-      expect(assessment?.status).toBe('rubric_generation');
-    });
   });
 });
 

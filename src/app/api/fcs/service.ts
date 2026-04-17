@@ -11,11 +11,9 @@ import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import { generateRubric } from '@/lib/engine/pipeline';
-import { evaluateArtefactQuality } from '@/lib/engine/quality';
-import type { ArtefactQualityResult } from '@/lib/engine/quality';
 import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
-import type { AssembledArtefactSet, RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
+import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
 
@@ -248,42 +246,22 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
   }, 'Rubric generation: artefact summary');
 }
 
-function toQualityFields(result: ArtefactQualityResult): {
-  score: number | null;
-  status: 'success' | 'unavailable';
-  dimensions: Json | null;
-} {
-  if (result.status === 'success') {
-    return {
-      score: result.aggregate,
-      status: 'success',
-      dimensions: result.dimensions as unknown as Json,
-    };
-  }
-  return { score: null, status: 'unavailable', dimensions: null };
-}
-
+// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
+// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
 async function finaliseRubric(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
   orgId: OrgId,
   artefacts: AssembledArtefactSet,
-  raw: RawArtefactSet,
 ): Promise<void> {
   logArtefactSummary(artefacts);
   const llmClient = buildLlmClient(logger);
-  const [rubricResult, qualityResult] = await Promise.all([
-    generateRubric({ artefacts, llmClient }),
-    evaluateArtefactQuality({ raw, llmClient }),
-  ]);
-  if (rubricResult.status === 'generation_failed') {
-    throw new Error(`Rubric generation failed: ${rubricResult.error.code}`);
-  }
-  const quality = toQualityFields(qualityResult);
-  logger.info({ artefactQualityStatus: quality.status, artefactQualityScore: quality.score }, 'Rubric generation: quality result');
-  const { error } = await adminSupabase.rpc('finalise_rubric_v2', {
-    p_assessment_id: assessmentId, p_org_id: orgId, p_questions: rubricResult.rubric.questions,
-    p_quality_score: quality.score, p_quality_status: quality.status, p_quality_dimensions: quality.dimensions,
+  const result = await generateRubric({ artefacts, llmClient });
+  if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
+  const { error } = await adminSupabase.rpc('finalise_rubric', {
+    p_assessment_id: assessmentId,
+    p_org_id: orgId,
+    p_questions: result.rubric.questions,
   });
   if (error) throw new Error('Failed to finalise rubric');
 }
@@ -305,7 +283,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
     const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: params.comprehensionDepth ?? 'conceptual' };
-    await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts, raw);
+    await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
     await markRubricFailed(params.adminSupabase, params.assessmentId);

@@ -54,8 +54,6 @@ export interface Database {
           trivial_commit_threshold: number;
           exempt_file_patterns: string[];
           context_file_patterns: string[];
-          artefact_quality_threshold: number;
-          fcs_low_threshold: number;
           created_at: string;
           updated_at: string;
         };
@@ -72,8 +70,6 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
-          artefact_quality_threshold?: number;
-          fcs_low_threshold?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -90,8 +86,6 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
-          artefact_quality_threshold?: number;
-          fcs_low_threshold?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -265,9 +259,6 @@ export interface Database {
           aggregate_score: number | null;
           scoring_incomplete: boolean;
           artefact_quality: string | null;
-          artefact_quality_score: number | null;
-          artefact_quality_status: 'pending' | 'success' | 'unavailable';
-          artefact_quality_dimensions: Json | null;
           conclusion: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -304,9 +295,6 @@ export interface Database {
           aggregate_score?: number | null;
           scoring_incomplete?: boolean;
           artefact_quality?: string | null;
-          artefact_quality_score?: number | null;
-          artefact_quality_status?: 'pending' | 'success' | 'unavailable';
-          artefact_quality_dimensions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -343,9 +331,6 @@ export interface Database {
           aggregate_score?: number | null;
           scoring_incomplete?: boolean;
           artefact_quality?: string | null;
-          artefact_quality_score?: number | null;
-          artefact_quality_status?: 'pending' | 'success' | 'unavailable';
-          artefact_quality_dimensions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode?: string;
           config_score_threshold?: number;
@@ -628,15 +613,8 @@ export interface Database {
         };
         Returns: string;
       };
-      finalise_rubric_v2: {
-        Args: {
-          p_assessment_id: string;
-          p_org_id: string;
-          p_questions: Json;
-          p_quality_score: number | null;
-          p_quality_status: 'pending' | 'success' | 'unavailable';
-          p_quality_dimensions: Json | null;
-        };
+      finalise_rubric: {
+        Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
         Returns: void;
       };
       persist_scoring_results: {
