@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-16 | Claude | Initial LLD covering V2 Stories 11.1 and 11.2 |
+| 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
 
 ## Part A — Human-Reviewable
 
@@ -301,7 +302,7 @@ describe('buildArtefactQualityPrompt')
   - `artefact_quality_score integer CHECK (artefact_quality_score IS NULL OR artefact_quality_score BETWEEN 0 AND 100)`
   - `artefact_quality_status text NOT NULL DEFAULT 'pending' CHECK (artefact_quality_status IN ('pending', 'success', 'unavailable'))`
   - `artefact_quality_dimensions jsonb` — array of `{ key, sub_score, category, rationale }`
-- `supabase/schemas/functions.sql` — replace `finalise_rubric` with `finalise_rubric_v2` taking `p_quality_score integer`, `p_quality_status text`, `p_quality_dimensions jsonb` alongside the existing parameters; old function kept temporarily, see migration plan below.
+- `supabase/schemas/functions.sql` — add `finalise_rubric_v2` taking `p_quality_score integer`, `p_quality_status text`, `p_quality_dimensions jsonb` alongside the existing parameters; old function kept temporarily, see migration plan below.
 
 **Migration plan:**
 
@@ -327,9 +328,9 @@ describe('finalise_rubric_v2 RPC')
 
 **Acceptance:**
 
-- [ ] `npx supabase db diff` produces the expected migration; no drift.
-- [ ] `npx supabase db reset` succeeds; integration test (call `finalise_rubric_v2` from a test) succeeds.
-- [ ] No production code yet calls the new RPC (that is §11.1c).
+- [x] `npx supabase db diff` produces the expected migration; no drift.
+- [x] `npx supabase db reset` succeeds; integration test (call `finalise_rubric_v2` from a test) succeeds.
+- [x] No production code yet calls the new RPC (that is §11.1c).
 
 ---
 
