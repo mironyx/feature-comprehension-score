@@ -85,9 +85,7 @@ async function loadSimilarPaths(
 ): Promise<string[]> {
   const parent = parentDir(normalisedPath);
   try {
-    const data = parent === ''
-      ? await fetchContents(octokit, repo, '', signal)
-      : await fetchContents(octokit, repo, parent, signal);
+    const data = await fetchContents(octokit, repo, parent, signal);
     if (!Array.isArray(data)) return [];
     return data
       .map(entry => (typeof entry.name === 'string' ? entry.name : ''))
