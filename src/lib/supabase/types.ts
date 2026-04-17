@@ -56,6 +56,8 @@ export interface Database {
           context_file_patterns: string[];
           artefact_quality_threshold: number;
           fcs_low_threshold: number;
+          tool_use_enabled: boolean;
+          rubric_cost_cap_cents: number;
           created_at: string;
           updated_at: string;
         };
@@ -74,6 +76,8 @@ export interface Database {
           context_file_patterns?: string[];
           artefact_quality_threshold?: number;
           fcs_low_threshold?: number;
+          tool_use_enabled?: boolean;
+          rubric_cost_cap_cents?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -92,6 +96,8 @@ export interface Database {
           context_file_patterns?: string[];
           artefact_quality_threshold?: number;
           fcs_low_threshold?: number;
+          tool_use_enabled?: boolean;
+          rubric_cost_cap_cents?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -268,6 +274,11 @@ export interface Database {
           artefact_quality_score: number | null;
           artefact_quality_status: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions: Json | null;
+          rubric_input_tokens: number | null;
+          rubric_output_tokens: number | null;
+          rubric_tool_call_count: number | null;
+          rubric_tool_calls: Json | null;
+          rubric_duration_ms: number | null;
           conclusion: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -307,6 +318,11 @@ export interface Database {
           artefact_quality_score?: number | null;
           artefact_quality_status?: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions?: Json | null;
+          rubric_input_tokens?: number | null;
+          rubric_output_tokens?: number | null;
+          rubric_tool_call_count?: number | null;
+          rubric_tool_calls?: Json | null;
+          rubric_duration_ms?: number | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -346,6 +362,11 @@ export interface Database {
           artefact_quality_score?: number | null;
           artefact_quality_status?: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions?: Json | null;
+          rubric_input_tokens?: number | null;
+          rubric_output_tokens?: number | null;
+          rubric_tool_call_count?: number | null;
+          rubric_tool_calls?: Json | null;
+          rubric_duration_ms?: number | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode?: string;
           config_score_threshold?: number;
@@ -636,6 +657,22 @@ export interface Database {
           p_quality_score: number | null;
           p_quality_status: 'pending' | 'success' | 'unavailable';
           p_quality_dimensions: Json | null;
+        };
+        Returns: void;
+      };
+      finalise_rubric_v3: {
+        Args: {
+          p_assessment_id: string;
+          p_org_id: string;
+          p_questions: Json;
+          p_quality_score: number | null;
+          p_quality_status: 'pending' | 'success' | 'unavailable';
+          p_quality_dimensions: Json | null;
+          p_rubric_input_tokens: number | null;
+          p_rubric_output_tokens: number | null;
+          p_rubric_tool_call_count: number | null;
+          p_rubric_tool_calls: Json | null;
+          p_rubric_duration_ms: number | null;
         };
         Returns: void;
       };

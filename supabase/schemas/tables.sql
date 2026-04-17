@@ -42,6 +42,11 @@ CREATE TABLE org_config (
                               CHECK (artefact_quality_threshold BETWEEN 0.0 AND 1.0),
   fcs_low_threshold        integer NOT NULL DEFAULT 60
                               CHECK (fcs_low_threshold BETWEEN 0 AND 100),
+  -- E17 (ADR-0023): tool-use retrieval loop, off by default per org.
+  -- rubric_cost_cap_cents = 2× V1 baseline; loop bounds derive from this.
+  tool_use_enabled         boolean NOT NULL DEFAULT false,
+  rubric_cost_cap_cents    integer NOT NULL DEFAULT 20
+                              CHECK (rubric_cost_cap_cents >= 0),
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
@@ -150,6 +155,26 @@ CREATE TABLE assessments (
                                   'pending', 'success', 'unavailable'
                                 )),
   artefact_quality_dimensions jsonb,
+  -- E17 (ADR-0023): rubric generation observability. Populated on every
+  -- rubric generation, whether tool-use is enabled or not. Null on legacy
+  -- rows written before this schema existed.
+  rubric_input_tokens      integer CHECK (
+                              rubric_input_tokens IS NULL
+                              OR rubric_input_tokens >= 0
+                           ),
+  rubric_output_tokens     integer CHECK (
+                              rubric_output_tokens IS NULL
+                              OR rubric_output_tokens >= 0
+                           ),
+  rubric_tool_call_count   integer CHECK (
+                              rubric_tool_call_count IS NULL
+                              OR rubric_tool_call_count >= 0
+                           ),
+  rubric_tool_calls        jsonb,
+  rubric_duration_ms       integer CHECK (
+                              rubric_duration_ms IS NULL
+                              OR rubric_duration_ms >= 0
+                           ),
   conclusion               text CHECK (conclusion IN (
                               'success', 'failure', 'neutral'
                            )),
