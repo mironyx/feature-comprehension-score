@@ -1,4 +1,4 @@
-alter table "public"."org_config" add column "artefact_quality_threshold" numeric(3,2) not null default 0.60;
+alter table "public"."org_config" add column "artefact_quality_threshold" numeric(3,2) not null default 0.40;
 
 alter table "public"."org_config" add column "fcs_low_threshold" integer not null default 60;
 

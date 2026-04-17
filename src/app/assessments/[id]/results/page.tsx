@@ -1,12 +1,16 @@
 // FCS results page — aggregate comprehension score, per-question breakdown, reference answers.
 // Accessible to Org Admins and all participants. Reference answers revealed only once all
-// participants have submitted and scoring is complete. Issue: #104, #109
+// participants have submitted and scoring is complete. Issue: #104, #109, #238
 
 import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { shouldRevealReferenceAnswers } from '@/lib/engine/results';
-import type { Database } from '@/lib/supabase/types';
+import { computeArtefactQualityFlag } from '@/lib/engine/quality/compute-flag';
+import { ARTEFACT_QUALITY_THRESHOLD_DEFAULT, FCS_LOW_THRESHOLD_DEFAULT } from '@/lib/engine/org-thresholds';
+import { ArtefactQualityCard } from '@/components/results/artefact-quality-card';
+import type { ArtefactQualityDimension } from '@/lib/engine/llm/schemas';
+import type { Database, Json } from '@/lib/supabase/types';
 import { logger } from '@/lib/logger';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
@@ -36,11 +40,17 @@ interface ScoredQuestion {
   reference_answer: string;
 }
 
+interface OrgThresholds {
+  artefact_quality_threshold: number;
+  fcs_low_threshold: number;
+}
+
 interface ResultsData {
   assessment: AssessmentWithRelations;
   questions: ScoredQuestion[];
   participantTotal: number;
   participantCompleted: number;
+  thresholds: OrgThresholds;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +72,7 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
 
   if (assessment.type !== 'fcs') notFound();
 
-  const [orgMembershipResult, participationResult, questionsResult, participantsResult] =
+  const [orgMembershipResult, participationResult, questionsResult, participantsResult, orgConfigResult] =
     await Promise.all([
       adminSupabase
         .from('user_organisations')
@@ -85,6 +95,11 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
         .from('assessment_participants')
         .select('id, status')
         .eq('assessment_id', assessmentId),
+      adminSupabase
+        .from('org_config')
+        .select('artefact_quality_threshold, fcs_low_threshold')
+        .eq('org_id', assessment.org_id)
+        .maybeSingle(),
     ]);
 
   if (orgMembershipResult.error) {
@@ -102,11 +117,17 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
   const questions = (questionsResult.data ?? []) as ScoredQuestion[];
   const allParticipants = (participantsResult.data ?? []) as { id: string; status: string }[];
 
+  const thresholds: OrgThresholds = {
+    artefact_quality_threshold: Number(orgConfigResult.data?.artefact_quality_threshold ?? ARTEFACT_QUALITY_THRESHOLD_DEFAULT),
+    fcs_low_threshold: orgConfigResult.data?.fcs_low_threshold ?? FCS_LOW_THRESHOLD_DEFAULT,
+  };
+
   return {
     assessment,
     questions,
     participantTotal: allParticipants.length,
     participantCompleted: allParticipants.filter(p => p.status === 'submitted').length,
+    thresholds,
   };
 }
 
@@ -145,6 +166,11 @@ const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
     'This assessment measured detailed implementation knowledge including specific types, files, and function signatures.',
 };
 
+function parseDimensions(raw: Json | null | undefined): ArtefactQualityDimension[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw as unknown as ArtefactQualityDimension[];
+}
+
 const ANSWERS_WITHHELD_MESSAGE =
   'Reference answers will be visible once all participants have submitted and scoring is complete.';
 
@@ -159,10 +185,19 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const { assessment, questions, participantTotal, participantCompleted } =
+  const { assessment, questions, participantTotal, participantCompleted, thresholds } =
     await fetchResultsData(assessmentId, user.id);
 
   const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
+  const qualityStatus = assessment.artefact_quality_status ?? 'pending';
+  const qualityDimensions = parseDimensions(assessment.artefact_quality_dimensions);
+  const flag = computeArtefactQualityFlag({
+    fcs_score: assessment.aggregate_score,
+    artefact_quality_score: assessment.artefact_quality_score ?? null,
+    artefact_quality_status: qualityStatus,
+    artefact_quality_low_threshold: thresholds.artefact_quality_threshold,
+    fcs_low_threshold: thresholds.fcs_low_threshold,
+  });
   const revealAnswers = shouldRevealReferenceAnswers({
     participantCompleted,
     participantTotal,
@@ -200,6 +235,13 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           <p>Note: scoring incomplete — some answers could not be scored.</p>
         )}
       </section>
+
+      <ArtefactQualityCard
+        score={assessment.artefact_quality_score ?? null}
+        status={qualityStatus}
+        dimensions={qualityDimensions}
+        flag={flag}
+      />
 
       <section>
         <h2>Question Breakdown</h2>

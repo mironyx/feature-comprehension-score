@@ -331,7 +331,7 @@ describe('GET /api/organisations/[id]/thresholds', () => {
 
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.artefact_quality_threshold).toBe(0.6);
+      expect(body.artefact_quality_threshold).toBe(0.4);
       expect(body.fcs_low_threshold).toBe(60);
     });
   });
