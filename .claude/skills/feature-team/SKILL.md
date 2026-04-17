@@ -168,6 +168,18 @@ When all teammates have reported their PR URLs, summarise:
 When the user runs `/feature-end <N>` in the lead pane, forward it to the relevant teammate
 via SendMessage: "Please run `/feature-end <N>`."
 
+**Human review gate (critical):** The lead MUST NOT send `/feature-end` to any teammate
+autonomously. Every PR requires human review before merge. The flow is:
+
+1. Teammate reports PR → lead summarises to user
+2. User reviews the PR (outside the lead session)
+3. User says `/feature-end <N>` or equivalent → lead forwards to teammate
+
+**Wave progression after merge:** Once all PRs in a wave have been merged via `/feature-end`,
+the lead auto-spawns the next wave's teammates without waiting for further user input. The
+human gate is per-PR (review before merge), not per-wave (no extra approval to start the next
+wave).
+
 ### Step 7: Final summary
 
 Wait for all teammates to send their "Feature-end complete for #N" messages.
