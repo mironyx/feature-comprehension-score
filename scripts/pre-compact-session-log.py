@@ -176,6 +176,32 @@ def _build_file_map(tool_uses: list[dict]) -> dict[str, str]:
     return result
 
 
+def _infer_project_root(tool_uses: list[dict]) -> str | None:
+    """Derive the project root from Write/Edit file paths in the transcript.
+
+    In worktree sessions the process CWD stays at the main repo, but Write/Edit
+    paths point into the worktree.  We find the common prefix of all written
+    paths that contain a known project marker directory.
+    """
+    markers = {"src", "tests", "docs", "supabase", "scripts"}
+    roots: list[str] = []
+    for tu in tool_uses:
+        if tu["name"] not in ("Write", "Edit"):
+            continue
+        fp = tu["input"].get("file_path", "")
+        if not fp:
+            continue
+        parts = pathlib.Path(fp).parts
+        for i, part in enumerate(parts):
+            if part in markers and i > 0:
+                roots.append(str(pathlib.Path(*parts[:i])))
+                break
+    if not roots:
+        return None
+    # Most common root wins (ignores occasional reads from main repo)
+    return Counter(roots).most_common(1)[0][0]
+
+
 def extract_facts(data: dict) -> dict:
     """Derive human-readable facts from parsed transcript data."""
     tool_uses = data.get("tool_uses", [])
@@ -199,6 +225,7 @@ def extract_facts(data: dict) -> dict:
         "git_commits": acc.commits,
         "git_pushes": acc.pushes,
         "agent_spawns": agents,
+        "project_root": _infer_project_root(tool_uses),
     }
 
 
@@ -323,15 +350,19 @@ def main() -> None:
         sys.stderr.write("pre-compact-session-log: no transcript_path in event\n")
         return
 
-    sessions_dir = pathlib.Path(cwd) / "docs" / "sessions"
-    if not sessions_dir.exists():
-        return  # Not a project with session logs — skip silently
-
     data = parse_transcript(transcript_path)
     if not data:
         return
 
     facts = extract_facts(data)
+
+    # Use project root inferred from Write/Edit paths (worktree-aware),
+    # falling back to event.cwd for non-worktree sessions.
+    project_root = facts.get("project_root") or cwd
+    sessions_dir = pathlib.Path(project_root) / "docs" / "sessions"
+    if not sessions_dir.exists():
+        return  # Not a project with session logs — skip silently
+
     section = render_section(facts, session_id, compact_time)
     draft_path = find_or_create_draft_path(sessions_dir, session_id)
     write_draft(draft_path, section, session_id)
