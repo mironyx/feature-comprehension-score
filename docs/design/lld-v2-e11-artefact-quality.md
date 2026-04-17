@@ -7,6 +7,7 @@
 | 2026-04-16 | Claude | Initial LLD covering V2 Stories 11.1 and 11.2 |
 | 2026-04-17 | Claude | Revised §11.1a post-implementation (issue #234) |
 | 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
+| 2026-04-17 | Claude | §11.1c revised post-implementation (issue #236) |
 
 ## Part A — Human-Reviewable
 
@@ -356,15 +357,20 @@ describe('finalise_rubric_v2 RPC')
   - Run `evaluateArtefactQuality()` and `generateRubric()` in parallel via `Promise.all` (both share the same `RawArtefactSet`).
   - Call `finalise_rubric_v2` with the quality result.
   - On evaluator failure, persist `status = 'unavailable'` and continue.
-- [src/app/api/assessments/[id]/retry-rubric/service.ts](src/app/api/assessments/[id]/retry-rubric/service.ts) — same change.
 - `supabase/schemas/functions.sql` — remove `finalise_rubric` (kept in §11.1b).
 - `src/lib/supabase/types.ts` — regenerate via `supabase gen types`.
 
+> **Implementation note (issue #236):** `retry-rubric/service.ts` was not modified — `retriggerRubricForAssessment` already delegates to `triggerRubricGeneration` → `finaliseRubric`, so the retry path inherited the parallel evaluator call automatically. `types.ts` was regenerated but required hand-restoring narrow union types (`'fcs' | 'prcc'`, `'conceptual' | 'detailed'`, naur_layer unions) that `supabase gen types` widens to `string`.
+
 **Files to create:**
 
-- `tests/unit/api/fcs/service-quality.test.ts` — covers parallel call + fallback paths.
+- `tests/app/api/fcs/service-quality.test.ts` — covers parallel call + fallback paths.
+
+> **Implementation note (issue #236):** Test path corrected from `tests/unit/` to `tests/app/` to match the project convention used by all other FCS service tests.
 
 **Internal decomposition (controller / service):** No new route handler; this task modifies the existing `finaliseRubric` service helper. The existing route ([src/app/api/fcs/route.ts](src/app/api/fcs/route.ts)) already complies with the controller / service split (controller body is 6 lines, delegates to `createFcs`).
+
+> **Implementation note (issue #236):** `toQualityFields(result)` added as a private helper to map `ArtefactQualityResult` (discriminated union) to the flat `{score, status, dimensions}` shape needed by the `finalise_rubric_v2` RPC. Extracted to keep `finaliseRubric` under the 20-line function limit. Quality result is logged via a separate `logger.info` call (`'Rubric generation: quality result'`) rather than appending to the existing `logArtefactSummary` — avoids modifying the existing helper's signature.
 
 **BDD specs:**
 
@@ -382,9 +388,9 @@ describe('triggerRubricGeneration with artefact quality')
 
 **Acceptance:**
 
-- [ ] `npx vitest run` green.
-- [ ] No regression on existing FCS rubric generation tests.
-- [ ] Logs include `artefactQualityStatus` and `artefactQualityScore` (when present) under the existing rubric summary log.
+- [x] `npx vitest run` green.
+- [x] No regression on existing FCS rubric generation tests.
+- [x] Logs include `artefactQualityStatus` and `artefactQualityScore` (when present) under the existing rubric summary log.
 
 ---
 
