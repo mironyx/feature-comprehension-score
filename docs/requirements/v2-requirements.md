@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.3 |
+| Version | 0.4 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
-| Last updated | 2026-04-16 |
+| Last updated | 2026-04-17 |
 
 ## Change Log
 
@@ -17,6 +17,7 @@
 | 0.1 | 2026-03-25 | LS / Claude | Initial draft — promoted from V1 V2 section, expanded with Storey triple-debt model insights, cognitive debt leading indicators, and intent debt roadmap. |
 | 0.2 | 2026-04-16 | LS / Claude | E11 and E17 review: rewrote Stories 11.1, 11.2, 17.1, 17.2 ACs in Given/When/Then. 11.1: fixed user role, specified intent-weighted aggregation (≥ 60% intent-adjacent), added evaluator-failure fallback, clarified `additional_context_suggestions` as calibration signal (not training). 11.2: added configurable artefact-quality low threshold (default 40%), completed flag matrix (healthy case), added `unavailable` fallback, explicit V1 Story 6.3 and V2 Story 12.1 dependencies. 17.1: reframed as spike with report deliverable, four concrete go/no-go criteria, and explicit scoping output for 17.2. 17.2: added hard dependency on 17.1, scoped-set semantics, retrieval-enabled-at-creation semantics, all-fail fallback, per-assessment LLM spend cap, additional GitHub scopes acknowledgement. |
 | 0.3 | 2026-04-16 | LS / Claude | E17 rearchitected: replaced deterministic-orchestrator framing with tool-use loop (ADR-0023). 17.1 rewritten as a concrete implementation story (two read-only tools: `readFile` + `listDirectory`, bounded loop with 5-call / 64 KiB / 10k-token caps, typed errors, full observability: tokens + call count + call log + duration). 17.2 rewritten as opt-in rollout + cost caps + call-log surfacing (off-by-default, 60s hard timeout, warning-coloured outcomes for policy breaches). Dropped: feasibility-study framing, suggestion-taxonomy analysis, additional GitHub scopes (existing V1 contents:read covers it). |
+| 0.4 | 2026-04-17 | LS / Claude | Design review: (1) E17 reframed as "augment not replace" — existing artefacts are primary context, tools only for gaps. (2) E11 quality evaluation consolidated into rubric-generation call (ADR-0023) — Story 11.1 AC updated, Story 17.1 gains combined-quality + prompt-guidance ACs. (3) Preparing for clean reimplementation of E11 + E17. |
 
 ---
 
@@ -296,7 +297,7 @@ Alongside the FCS score, surface a numerical score for the quality of artefacts 
   - **Test file coverage** — categories: no tests / tests present / BDD/behaviour tests present.
   - **ADR references** — categories: none / referenced.
 - Given the six dimension sub-scores, when the aggregate score is computed, then intent-adjacent dimensions (ADR references, linked issues with acceptance criteria, design document presence, PR description completeness) contribute **at least 60%** of the aggregate weight; code-adjacent dimensions (commit message quality, test file coverage) contribute the remainder. Exact weights are an implementation concern.
-- Given the evaluator runs, then it produces the quality score via an LLM call (not a deterministic heuristic count). ~~Originally specified as a separate single-purpose call; consolidated into the rubric-generation call by [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call) to avoid sending the artefact set twice.~~ Quality fields are optional in the response schema; if omitted, the score falls back to `unavailable`.
+- Given the evaluator runs, then artefact quality is produced by the **rubric-generation LLM call** as optional fields in the response schema (not a separate LLM call — [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call)). The LLM evaluates quality from the same artefact context it uses to generate questions, avoiding a redundant second pass over the artefact payload. If the model omits the quality fields, the score falls back to `unavailable`.
 - Given the evaluator LLM call fails or times out, then the assessment proceeds without an artefact quality score; the score field is recorded as `unavailable` and the assessment is not blocked.
 - Given V1 captured `additional_context_suggestions` for historical assessments, when the evaluator is calibrated, then those suggestions are used as ground-truth signal to validate dimension scoring (e.g., assessments whose suggestions asked for ADRs should score low on the ADR dimension). Calibration is a one-off analysis, not an online training loop.
 
@@ -539,7 +540,7 @@ Evaluate OSS models (Llama, Mistral, DeepSeek) for question generation. Quality 
 
 ## Epic 17: Agentic Artefact Retrieval
 
-V1 assembled a fixed artefact set upfront and asked the LLM to work with whatever was in the payload. When context was missing, the LLM could only hint via `additional_context_suggestions` as passive metadata. V2 gives the rubric-generation LLM **tools** so it can fetch additional artefacts on demand during the same call.
+V1 assembled a fixed artefact set upfront and asked the LLM to work with whatever was in the payload. When context was missing, the LLM could only hint via `additional_context_suggestions` as passive metadata. V2 **augments** the existing artefact assembly with on-demand retrieval: the rubric-generation LLM receives the fixed artefact set as before and should exhaust it first; it may then use read-only **tools** to fetch additional artefacts only when the provided context is insufficient to generate high-quality, specific questions.
 
 **Motivation:** Tool-use is the 2026 default pattern for coding agents; this epic aligns rubric generation with that pattern. Storey (2026) identifies intent debt as arising from missing or incomplete artefacts — giving the LLM direct, bounded access to the repository closes the loop without a separate retrieval phase.
 
@@ -567,6 +568,8 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
   - **wall-clock duration** in milliseconds for the rubric generation
 - Given any tool call throws or times out, when the loop continues, then the failure is surfaced to the LLM as a typed error result (never a thrown exception) and recorded in the tool-call log; the assessment is not aborted.
 - Given rubric generation fails entirely (LLM error independent of tools), then the assessment behaves exactly as it does in V1 for the same failure — no new failure modes are introduced by the tool loop.
+- Given the rubric-generation call completes successfully, when the response includes artefact quality fields (dimensions + aggregate score), then those fields are persisted alongside the questions in the same transaction. If the model omits the quality fields, the artefact quality score is recorded as `unavailable` (Epic 11 fallback semantics).
+- Given the rubric-generation prompt, then it instructs the LLM to: (1) generate questions from the provided artefacts first, (2) only use tools when the supplied context is insufficient, and (3) evaluate artefact quality from the same context. This ensures tools are not called eagerly when the existing artefact set already contains everything needed.
 
 **Notes:** The starting tool set is deliberately minimal — two read-only file-system tools. Additional tools (e.g. `fetchIssue`, `listPullRequestCommits`) may be added in future stories based on observed call-log patterns. No network access outside the existing GitHub adapter. No write tools, ever.
 
