@@ -71,6 +71,30 @@ def find_session_jsonl_via_proc(claude_dir: pathlib.Path) -> pathlib.Path | None
     return None
 
 
+def _first_user_message_text(jsonl_path: pathlib.Path) -> str:
+    """Return the concatenated text of the first user message in a JSONL, or ''."""
+    try:
+        with open(jsonl_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("type") != "user":
+                    continue
+                content = entry.get("message", {}).get("content", "")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return " ".join(
+                        c.get("text", "") for c in content if isinstance(c, dict)
+                    )
+                return ""
+    except OSError:
+        pass
+    return ""
+
+
 def find_session_jsonl(claude_dir: pathlib.Path, issue_hint: str | None = None) -> pathlib.Path | None:
     all_jsonl = sorted(claude_dir.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
     if not all_jsonl:
@@ -78,19 +102,18 @@ def find_session_jsonl(claude_dir: pathlib.Path, issue_hint: str | None = None) 
     if not issue_hint or len(all_jsonl) == 1:
         return all_jsonl[0]
 
-    # Parallel mode: each teammate's spawn prompt contains "issue #N" and "FCS-N" in the
-    # first user message. Search recently-modified JSONL files for our issue number so
-    # that simultaneous agent-team starts don't collide on the same file.
+    # Parallel mode: each teammate's spawn prompt contains "issue #N" and "FCS-N" as the
+    # first user message. The lead's JSONL also contains these strings (in Agent tool-call
+    # payloads later in the file), so we must only match against the FIRST user message —
+    # which for teammates is the spawn prompt, and for the lead is the human's input.
     search_terms = [f"issue #{issue_hint}", f"FCS-{issue_hint}"]
     cutoff = time.time() - 600  # only consider sessions started in the last 10 minutes
     recent = [f for f in all_jsonl if os.path.getmtime(f) > cutoff]
 
     for jsonl in recent:
-        try:
-            if any(t in jsonl.read_text(encoding="utf-8", errors="replace") for t in search_terms):
-                return jsonl
-        except OSError:
-            continue
+        first_msg = _first_user_message_text(jsonl)
+        if any(t in first_msg for t in search_terms):
+            return jsonl
 
     return all_jsonl[0]  # fall back to newest
 

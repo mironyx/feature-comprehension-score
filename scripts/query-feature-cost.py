@@ -25,7 +25,8 @@ from datetime import datetime, timezone
 import os
 
 _PROM_HOST = os.environ.get("WINDOWS_IP", "localhost")
-PROM = f"http://{_PROM_HOST}:9090/api/v1/query"
+_PROM_PORT = os.environ.get("PROM_PORT", "9090")
+PROM = f"http://{_PROM_HOST}:{_PROM_PORT}/api/v1/query"
 
 
 def git_root() -> pathlib.Path:
@@ -117,18 +118,37 @@ class UsageMetrics:
     cc: float
 
 
-def query_metrics(session_ids: list[str]) -> UsageMetrics | None:
-    """Query Prometheus for all usage metrics; returns None if unreachable."""
-    sid_regex = "|".join(session_ids)
-    s = f'session_id=~"{sid_regex}"'
-    cost = query_prom(f'sum(claude_code_cost_usage_USD_total{{{s}}})')
+def query_metrics(feature_id: str) -> UsageMetrics | None:
+    """Query Prometheus for per-feature usage via the session->feature mapping gauge.
+
+    Mirrors the Grafana dashboard's PromQL: join claude_code_* metrics with
+    claude_session_feature on session_id, then sum by feature_id. This correctly
+    splits cost when one session touches multiple features (agent-team runs).
+    """
+    f = f'feature_id="{feature_id}"'
+    cost_q = (
+        f'sum by (feature_id) ('
+        f'  claude_session_feature{{{f}}}'
+        f'  * on(session_id) group_left()'
+        f'  sum by (session_id) (claude_code_cost_usage_USD_total)'
+        f')'
+    )
+    cost = query_prom(cost_q)
     if cost is None:
         return None
-    inp = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="input"}})') or 0.0
-    out = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="output"}})') or 0.0
-    cr  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheRead"}})') or 0.0
-    cc  = query_prom(f'sum(claude_code_token_usage_tokens_total{{{s},type="cacheCreation"}})') or 0.0
-    return UsageMetrics(cost=cost, inp=inp, out=out, cr=cr, cc=cc)
+
+    def tok(typ: str) -> float:
+        q = (
+            f'sum by (feature_id) ('
+            f'  claude_session_feature{{{f}}}'
+            f'  * on(session_id) group_left()'
+            f'  sum by (session_id) (claude_code_token_usage_tokens_total{{type="{typ}"}})'
+            f')'
+        )
+        return query_prom(q) or 0.0
+
+    return UsageMetrics(cost=cost, inp=tok("input"), out=tok("output"),
+                        cr=tok("cacheRead"), cc=tok("cacheCreation"))
 
 
 def build_time_line(feature_id: str, pr: int) -> str:
@@ -222,7 +242,7 @@ def main() -> None:
         print(f"## {heading}Usage\n- No session data found for {args.feature_id} — session tagging may not have run")
         sys.exit(0)
 
-    metrics = query_metrics(session_ids)
+    metrics = query_metrics(args.feature_id)
     if metrics is None:
         print(f"## {heading}Usage\n- Prometheus unreachable at {PROM} — is the monitoring stack running?")
         sys.exit(0)
