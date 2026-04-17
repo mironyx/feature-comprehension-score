@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-16 | Claude | Initial LLD covering V2 Stories 11.1 and 11.2 |
+| 2026-04-17 | Claude | Revised §11.1a post-implementation (issue #234) |
 | 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
 
 ## Part A — Human-Reviewable
@@ -176,10 +177,14 @@ The epic decomposes into six tasks across two stories. Each task is sized for a 
 - `src/lib/engine/quality/evaluate-quality.ts` — `evaluateArtefactQuality(request)` function
 - `src/lib/engine/quality/build-quality-prompt.ts` — `buildArtefactQualityPrompt(raw)` returning `{ systemPrompt, userPrompt }`
 - `src/lib/engine/quality/aggregate-dimensions.ts` — pure `aggregateDimensions(dims)` with the 60/40 weight split
-- `src/lib/engine/quality/weights.ts` — exported constant `DIMENSION_WEIGHTS` enforcing the 60/40 split
-- `tests/unit/engine/quality/evaluate-quality.test.ts`
-- `tests/unit/engine/quality/aggregate-dimensions.test.ts`
-- `tests/unit/engine/quality/build-quality-prompt.test.ts`
+- `src/lib/engine/quality/weights.ts` — exported constants `DIMENSION_WEIGHTS` and `INTENT_ADJACENT_KEYS`
+
+> **Implementation note (issue #234):** `INTENT_ADJACENT_KEYS` added as an exported constant for test assertions on the ≥ 60% intent-adjacent weight invariant (LLD §Invariant 3). `ARTEFACT_QUALITY_SYSTEM_PROMPT` exported from `build-quality-prompt.ts` for test assertions on prompt content (mirrors `QUESTION_GENERATION_SYSTEM_PROMPT` pattern).
+- `tests/lib/engine/quality/evaluate-quality.test.ts`
+- `tests/lib/engine/quality/aggregate-dimensions.test.ts`
+- `tests/lib/engine/quality/build-quality-prompt.test.ts`
+
+> **Implementation note (issue #234):** Test paths corrected from `tests/unit/` to `tests/lib/` to match the project convention used by all other engine tests.
 
 **Files to modify:**
 
@@ -203,8 +208,8 @@ export type ArtefactQualityDimensionKey = z.infer<typeof ArtefactQualityDimensio
 export const ArtefactQualityDimensionSchema = z.object({
   key: ArtefactQualityDimensionKeySchema,
   sub_score: z.number().int().min(0).max(100),
-  category: z.string(),       // e.g. "empty" / "minimal" / "detailed" — set by prompt
-  rationale: z.string(),      // one-sentence justification
+  category: z.string().min(1),       // e.g. "empty" / "minimal" / "detailed" — set by prompt
+  rationale: z.string().min(1),      // one-sentence justification
 });
 export type ArtefactQualityDimension = z.infer<typeof ArtefactQualityDimensionSchema>;
 
@@ -217,9 +222,16 @@ export type ArtefactQualityResponse = z.infer<typeof ArtefactQualityResponseSche
 ```typescript
 // src/lib/engine/quality/evaluate-quality.ts
 
+export type ArtefactQualityUnavailableReason =
+  | 'llm_failed'
+  | 'timeout'
+  | 'validation_failed';
+
 export type ArtefactQualityResult =
   | { status: 'success'; aggregate: number; dimensions: ArtefactQualityDimension[] }
-  | { status: 'unavailable'; reason: 'llm_failed' | 'timeout' | 'validation_failed'; error: LLMError };
+  | { status: 'unavailable'; reason: ArtefactQualityUnavailableReason; error: LLMError };
+
+> **Implementation note (issue #234):** `ArtefactQualityUnavailableReason` extracted as a standalone exported type for downstream consumer ergonomics (§11.1c pipeline needs to match on reason). The LLM error-code → reason mapping is: `validation_failed`/`malformed_response` → `'validation_failed'`, `network_error` → `'timeout'`, everything else → `'llm_failed'`. A private `classifyReason(code)` function handles this mapping.
 
 export interface EvaluateQualityRequest {
   raw: RawArtefactSet;
@@ -282,9 +294,9 @@ describe('buildArtefactQualityPrompt')
 
 **Acceptance:**
 
-- [ ] Engine has zero I/O imports (`grep -r "from '@/lib/supabase\|from '@/lib/github\|from 'next" src/lib/engine/quality/` returns nothing).
-- [ ] `aggregateDimensions(dims)` invariant test: `intentTotal / overallTotal ≥ 0.60` for any non-trivial input.
-- [ ] All BDD specs pass.
+- [x] Engine has zero I/O imports (`grep -r "from '@/lib/supabase\|from '@/lib/github\|from 'next" src/lib/engine/quality/` returns nothing).
+- [x] `aggregateDimensions(dims)` invariant test: `intentTotal / overallTotal ≥ 0.60` for any non-trivial input.
+- [x] All BDD specs pass.
 
 ---
 
