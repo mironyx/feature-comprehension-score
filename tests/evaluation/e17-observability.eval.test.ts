@@ -17,27 +17,6 @@ function secretClient() {
   return createClient<Database>(SUPABASE_LOCAL_URL, SUPABASE_LOCAL_SECRET_KEY);
 }
 
-async function createAssessment(
-  svc: ReturnType<typeof secretClient>,
-  orgId: string,
-): Promise<{ assessmentId: string }> {
-  const repoId = await createTestRepo(svc, orgId);
-  const assessmentId = crypto.randomUUID();
-  const { error } = await svc.from('assessments').insert({
-    id: assessmentId,
-    org_id: orgId,
-    repository_id: repoId,
-    type: 'fcs',
-    status: 'rubric_generation',
-    config_enforcement_mode: 'soft',
-    config_score_threshold: 70,
-    config_question_count: 3,
-    config_min_pr_size: 20,
-  });
-  if (error) throw new Error(`createAssessment failed: ${error.message}`);
-  return { assessmentId };
-}
-
 // ---------------------------------------------------------------------------
 // CHECK constraint — assessments.rubric_input_tokens >= 0
 //

@@ -506,38 +506,60 @@ alter table org_config add column rubric_cost_cap_cents integer not null default
 
 (Declarative: edit `supabase/schemas/tables.sql` directly; run `npx supabase db diff -f e17_observability_tool_use`.)
 
-**RPC:**
+**RPC (as implemented in #243):**
+
+The implemented signature rebases onto `finalise_rubric_v2` (E11) rather than the earlier illustrative sketch. Differences from the sketch below are intentional and load-bearing — downstream tasks (§17.1e pipeline integration, §17.2a org settings UI) must follow the implemented signature, not the sketch.
 
 ```sql
 create or replace function finalise_rubric_v3(
   p_assessment_id uuid,
+  p_org_id uuid,
   p_questions jsonb,
-  p_artefact_quality_score integer,       -- from E11 if in main, else null
-  p_artefact_quality_dimensions jsonb,
-  p_additional_context_suggestions jsonb,
+  p_quality_score integer,
+  p_quality_status text,
+  p_quality_dimensions jsonb,
   p_rubric_input_tokens integer,
   p_rubric_output_tokens integer,
   p_rubric_tool_call_count integer,
   p_rubric_tool_calls jsonb,
   p_rubric_duration_ms integer
 ) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql set search_path = public as $$
 begin
+  insert into assessment_questions (
+    org_id, assessment_id, question_number,
+    naur_layer, question_text, weight, reference_answer, hint
+  )
+  select p_org_id, p_assessment_id,
+    (q->>'question_number')::integer, q->>'naur_layer',
+    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer',
+    q->>'hint'
+  from jsonb_array_elements(p_questions) as q;
+
   update assessments set
-    questions = p_questions,
-    artefact_quality_score = p_artefact_quality_score,
-    artefact_quality_dimensions = p_artefact_quality_dimensions,
-    additional_context_suggestions = p_additional_context_suggestions,
-    rubric_input_tokens = p_rubric_input_tokens,
-    rubric_output_tokens = p_rubric_output_tokens,
-    rubric_tool_call_count = p_rubric_tool_call_count,
-    rubric_tool_calls = p_rubric_tool_calls,
-    rubric_duration_ms = p_rubric_duration_ms,
-    status = 'ready'
+    status                      = 'awaiting_responses',
+    artefact_quality_score      = p_quality_score,
+    artefact_quality_status     = p_quality_status,
+    artefact_quality_dimensions = p_quality_dimensions,
+    rubric_input_tokens         = p_rubric_input_tokens,
+    rubric_output_tokens        = p_rubric_output_tokens,
+    rubric_tool_call_count      = p_rubric_tool_call_count,
+    rubric_tool_calls           = p_rubric_tool_calls,
+    rubric_duration_ms          = p_rubric_duration_ms,
+    updated_at                  = now()
   where id = p_assessment_id;
 end;
 $$;
 ```
+
+Notes vs the earlier sketch:
+
+- Parameter names follow E11 (`p_quality_*`), not `p_artefact_quality_*`.
+- `p_org_id` is required (used to insert `assessment_questions` rows).
+- Questions are inserted into `assessment_questions` (row-per-question), not written to a JSONB `questions` column.
+- `status` transitions to `'awaiting_responses'` (the valid CHECK value), not `'ready'`.
+- `p_additional_context_suggestions` is deferred to issue #241 — the column does not exist yet.
+- `SECURITY INVOKER` (default) is used so RLS applies to the caller; `SET search_path = public` is retained as defence-in-depth.
 
 **BDD specs:**
 
