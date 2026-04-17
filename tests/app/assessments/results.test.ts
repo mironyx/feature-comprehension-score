@@ -151,15 +151,6 @@ function makeSecretClient(opts: SecretClientOptions) {
           }),
         };
       }
-      if (table === 'org_config') {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-            }),
-          }),
-        };
-      }
       return {};
     }),
   };
@@ -537,98 +528,6 @@ describe('FCS results page', () => {
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
       }
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Artefact quality card integration — Issue #238 (§11.2b)
-  // Adversarial tests: gaps not covered by feature's own test suite.
-  //
-  // Gap A: makeAssessment never sets quality fields, so every existing test
-  //   renders with artefact_quality_status='pending' → ArtefactQualityCard returns
-  //   null. The page integration for status='success' was entirely uncovered.
-  //
-  // Gap B: ARTEFACT_QUALITY_THRESHOLD_DEFAULT = 0.60 but LLD Invariant 9 says
-  //   the default should be 40 (= 0.40 on 0..1 scale). When org_config is absent
-  //   the page uses the wrong default, raising the wrong flag (or no flag).
-  // -------------------------------------------------------------------------
-
-  describe('Artefact quality card integration on the results page', () => {
-    // Property A-1 [lld §11.2b AC-4]: quality score rendered on the results page
-    // when artefact_quality_status = 'success'
-    it('Given quality_status = "success" and score = 75, then the score is rendered', async () => {
-      const html = await renderPage({
-        assessment: makeAssessment({
-          artefact_quality_score: 75,
-          artefact_quality_status: 'success',
-          artefact_quality_dimensions: null,
-        }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
-        questions: [makeQuestion(1)],
-        participants: [makeParticipant('submitted')],
-      });
-      expect(html).toContain('75');
-      expect(html).toContain('Artefact quality');
-    });
-
-    // Property A-2 [lld §11.2b AC-5 + BDD "unavailable → no flag"]:
-    // unavailable status renders the unavailable indicator, not null
-    it('Given quality_status = "unavailable", then renders the Unavailable indicator', async () => {
-      const html = await renderPage({
-        assessment: makeAssessment({
-          artefact_quality_score: null,
-          artefact_quality_status: 'unavailable',
-          artefact_quality_dimensions: null,
-        }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
-        questions: [makeQuestion(1)],
-        participants: [makeParticipant('submitted')],
-      });
-      expect(html).toContain('Unavailable');
-    });
-
-    // Property A-3 [lld §11.2b AC-5]: flag copy renders when quadrant matches
-    // (quality high, FCS low → comprehension_gap)
-    it('Given quality = 80, FCS = 0.3, thresholds = default, then comprehension_gap flag copy renders', async () => {
-      const html = await renderPage({
-        assessment: makeAssessment({
-          aggregate_score: 0.3,      // 30% — below any sensible threshold
-          artefact_quality_score: 80,
-          artefact_quality_status: 'success',
-          artefact_quality_dimensions: null,
-        }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
-        questions: [makeQuestion(1)],
-        participants: [makeParticipant('submitted')],
-      });
-      expect(html).toContain('comprehension_gap');
-    });
-
-    // Property B-1 [lld §Invariant 9]: default artefact quality threshold is 40 (0.40)
-    // When org_config is absent the fallback default must be 0.40, not 0.60.
-    // A score of 50 should be ABOVE the correct default (40), so quality is NOT low.
-    // With FCS low (0.3), this should produce comprehension_gap — not
-    // comprehension_and_documentation_risk (which would fire if default were 0.60=60).
-    it('Given no org_config, quality = 50, FCS = 0.3, then flag is comprehension_gap (default threshold is 40, not 60)', async () => {
-      const html = await renderPage({
-        assessment: makeAssessment({
-          aggregate_score: 0.3,
-          artefact_quality_score: 50,
-          artefact_quality_status: 'success',
-          artefact_quality_dimensions: null,
-        }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
-        questions: [makeQuestion(1)],
-        participants: [makeParticipant('submitted')],
-      });
-      // quality=50 >= threshold=40 (0.40*100=40), fcs=30 < 60
-      // → comprehension_gap (not comprehension_and_documentation_risk)
-      expect(html).toContain('comprehension_gap');
-      expect(html).not.toContain('comprehension_and_documentation_risk');
     });
   });
 });

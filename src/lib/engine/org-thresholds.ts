@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 
-export const ARTEFACT_QUALITY_THRESHOLD_DEFAULT = 0.40;
+export const ARTEFACT_QUALITY_THRESHOLD_DEFAULT = 0.60;
 export const FCS_LOW_THRESHOLD_DEFAULT = 60;
 
 export const OrgThresholdsSchema = z.object({

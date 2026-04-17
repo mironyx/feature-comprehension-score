@@ -8,8 +8,6 @@
 | 2026-04-17 | Claude | Revised §11.1a post-implementation (issue #234) |
 | 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
 | 2026-04-17 | Claude | §11.1c revised post-implementation (issue #236) |
-| 2026-04-17 | Claude | §11.2b revised post-implementation (issue #238) |
-| 2026-04-17 | LS / Claude | Note: separate `evaluateArtefactQuality()` call superseded by E17 combined call (ADR-0023). Quality dimensions, weights, and intent-adjacency invariant preserved; only the call boundary changes. See [LLD E17 §17.1e](lld-v2-e17-agentic-retrieval.md). |
 
 ## Part A — Human-Reviewable
 
@@ -18,8 +16,6 @@
 Surface a numerical **artefact quality score** (0–100) alongside the FCS aggregate score so Org Admins can distinguish "team doesn't understand" from "we didn't write it down". The score is produced by a **dedicated single-purpose LLM call** that evaluates six dimensions of the input artefacts (PR description, linked issues, design docs, commit messages, test coverage, ADR references) and returns per-dimension sub-scores plus an aggregate. Intent-adjacent dimensions weight ≥ 60% of the aggregate (Storey 2026 triple-debt framing).
 
 The display side surfaces the score on the FCS results page (with per-dimension breakdown on expand), introduces an organisation-level **artefact quality low threshold** and **FCS low threshold**, and computes a four-quadrant **flag matrix** that contextualises the combination of the two scores. The Org Overview sortable column is designed but its implementation is gated on V1 Story 6.3 (Organisation Assessment Overview) landing.
-
-> **Superseded (2026-04-17):** The separate `evaluateArtefactQuality()` LLM call described below is consolidated into E17's rubric-generation call per [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call). The quality dimensions, weights, intent-adjacency invariant, prompt guidance, display logic, and flag matrix are all preserved — only the call boundary changes. The artefact quality fields become optional in the rubric-generation response schema; if the model omits them, quality falls back to `unavailable` (same resilience). E11 implementation code remains in the codebase until E17 §17.1e lands and removes the parallel call.
 
 ### Behavioural Flows
 
@@ -486,10 +482,7 @@ describe('PATCH /api/organisations/{id}/thresholds')
 
 - `src/lib/engine/quality/compute-flag.ts` — `computeArtefactQualityFlag(input)` pure function returning flag key + copy
 - `src/components/results/artefact-quality-card.tsx` — score, dimensions accordion, flag copy
-- `tests/lib/engine/quality/compute-flag.test.ts`
-- `tests/components/results/artefact-quality-card.test.ts`
-
-> **Implementation note (issue #238):** Test paths corrected from `tests/unit/` to `tests/lib/` and `tests/components/` to match the project convention. Component test file added — not in original spec.
+- `tests/unit/engine/quality/compute-flag.test.ts`
 
 **Files to modify:**
 
@@ -510,11 +503,9 @@ export interface FlagInput {
   fcs_score: number | null;          // 0..1 (existing scale) — coerced for compare
   artefact_quality_score: number | null;
   artefact_quality_status: 'success' | 'unavailable' | 'pending';
-  artefact_quality_low_threshold: number;  // 0..1 (DB convention)
+  artefact_quality_low_threshold: number;  // 0..100
   fcs_low_threshold: number;               // 0..100
 }
-
-> **Implementation note (issue #238):** `artefact_quality_low_threshold` scale corrected from `0..100` to `0..1` to match the DB column (`numeric(3,2)`) and `OrgThresholdsSchema`. The function multiplies by 100 internally for comparison against the 0–100 `artefact_quality_score`. `ARTEFACT_QUALITY_THRESHOLD_DEFAULT` corrected from `0.60` to `0.40` per Invariant 9.
 
 export interface FlagResult {
   key: ArtefactQualityFlagKey;
@@ -551,9 +542,9 @@ describe('Results page artefact quality card')
 
 **Acceptance:**
 
-- [x] All four flag-matrix quadrants and the unavailable case render correctly (visual smoke + unit tests).
-- [x] Per-dimension breakdown is collapsed by default; expanding reveals six dimension rows ordered: ADR references, linked issues, design documents, PR description, test coverage, commit messages.
-- [x] No layout regression on the existing FCS-only view (rendered when quality is `pending`).
+- [ ] All four flag-matrix quadrants and the unavailable case render correctly (visual smoke + unit tests).
+- [ ] Per-dimension breakdown is collapsed by default; expanding reveals six dimension rows ordered: ADR references, linked issues, design documents, PR description, test coverage, commit messages.
+- [ ] No layout regression on the existing FCS-only view (rendered when quality is `pending`).
 
 ---
 

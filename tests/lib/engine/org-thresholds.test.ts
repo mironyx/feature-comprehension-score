@@ -15,8 +15,11 @@ import {
 
 describe('OrgThresholds default constants', () => {
   describe('Given the exported ARTEFACT_QUALITY_THRESHOLD_DEFAULT constant', () => {
-    it('then it equals 0.4 (LLD §Invariant 9: default artefact_quality_low = 40)', () => {
-      expect(ARTEFACT_QUALITY_THRESHOLD_DEFAULT).toBe(0.4);
+    it('then it equals 0.6 (issue #237 contract — [0,1] scale)', () => {
+      // NOTE: v2-requirements Story 11.2 says "default 40%" on a 0–100 scale.
+      // Issue #237 (authoritative) specifies 0.6 on a [0,1] scale.
+      // We follow the issue. See Test Author Report for the discrepancy.
+      expect(ARTEFACT_QUALITY_THRESHOLD_DEFAULT).toBe(0.6);
     });
   });
 

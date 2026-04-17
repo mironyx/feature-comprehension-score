@@ -38,7 +38,7 @@ CREATE TABLE org_config (
                               CHECK (trivial_commit_threshold > 0),
   exempt_file_patterns     text[] NOT NULL DEFAULT '{}',
   context_file_patterns    text[] NOT NULL DEFAULT '{}',
-  artefact_quality_threshold numeric(3,2) NOT NULL DEFAULT 0.40
+  artefact_quality_threshold numeric(3,2) NOT NULL DEFAULT 0.60
                               CHECK (artefact_quality_threshold BETWEEN 0.0 AND 1.0),
   fcs_low_threshold        integer NOT NULL DEFAULT 60
                               CHECK (fcs_low_threshold BETWEEN 0 AND 100),
