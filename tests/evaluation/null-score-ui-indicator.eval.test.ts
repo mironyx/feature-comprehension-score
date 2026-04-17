@@ -135,6 +135,15 @@ function makeSecretClient(opts: SecretClientOptions) {
           }),
         };
       }
+      if (table === 'org_config') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
       return {};
     }),
   };

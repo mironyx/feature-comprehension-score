@@ -77,10 +77,8 @@ describe('org_config threshold columns — DB defaults', () => {
     createdOrgIds.length = 0;
   });
 
-  it('defaults artefact_quality_threshold to 0.6 when org_config row is created', async () => {
-    // Issue #237 contract: default 0.6 on [0,1] scale.
-    // NOTE: v2-requirements Story 11.2 says "default 40%" on a 0–100 scale —
-    // this test follows the issue as the authoritative contract.
+  it('defaults artefact_quality_threshold to 0.4 when org_config row is created', async () => {
+    // LLD §Invariant 9: default artefact_quality_low = 40 (= 0.40 on [0,1] scale).
     const svc = secretClient();
     const orgId = await createTestOrg(svc);
     createdOrgIds.push(orgId);
@@ -92,7 +90,7 @@ describe('org_config threshold columns — DB defaults', () => {
       .single();
 
     expect(error).toBeNull();
-    expect(Number(data?.artefact_quality_threshold)).toBeCloseTo(0.6);
+    expect(Number(data?.artefact_quality_threshold)).toBeCloseTo(0.4);
   });
 
   it('defaults fcs_low_threshold to 60 when org_config row is created', async () => {
