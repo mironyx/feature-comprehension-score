@@ -21,7 +21,7 @@ We need an architectural decision before rewriting the Epic 17 LLD and task issu
 
 ## Decision
 
-Extend the `LLMClient` port with a tool-use-capable method and implement rubric generation as a **single multi-turn LLM call with bounded tool-use**, not a two-phase orchestrator.
+Extend the `LLMClient` port with a tool-use-capable method and implement rubric generation as a **single multi-turn LLM call with bounded tool-use**, not a two-phase orchestrator. The existing artefact set (PR diff, PR body, linked issues, commits) remains the primary context; tools augment it when the LLM determines the provided information is insufficient.
 
 ### Tool set (initial)
 
@@ -60,6 +60,19 @@ These fields are added unconditionally (not gated on the retrieval feature flag)
 
 - **In:** Rubric generation (question generation from artefacts).
 - **Out:** Per-answer scoring — already has a reference answer, adding tools would explode cost for no signal gain. Relevance detection — trivially small inputs, no benefit.
+
+### Artefact quality evaluation (E11) — combined call
+
+E11 introduced a **separate** LLM call (`evaluateArtefactQuality`) that runs in parallel with question generation, receiving the same artefact set. With E17, this consolidates into a **single call**: the rubric-generation prompt produces both questions and artefact quality assessment in one structured response.
+
+**Rationale:**
+
+- The artefact set is the expensive part of the input. Sending it twice doubles input-token cost for no additional signal — the model is already deeply analysing the artefacts to generate questions and naturally forms a quality judgement.
+- Fewer network round-trips, fewer failure modes.
+
+**Resilience:** The quality assessment fields are **optional** in the response schema. If the model omits or malforms them, question generation still succeeds and artefact quality falls back to `unavailable` — the same resilience the parallel-call design provided.
+
+**Migration:** The existing `evaluateArtefactQuality()` function and its dedicated prompt/schema (E11) remain in the codebase until §17.1e lands. At that point, §17.1e removes the separate call from the pipeline and folds the quality dimensions into the rubric generation response schema. E11's quality dimensions, weights, and intent-adjacency invariant (≥ 60%) are preserved — only the call boundary changes.
 
 ## Options Considered
 
@@ -123,6 +136,7 @@ Embed all repo artefacts; retrieve top-K on a query derived from the PR; pass to
 - `additional_context_suggestions` becomes a diagnostic/analytics artefact, not load-bearing infrastructure. It can stay in the LLM schema as an optional output for post-hoc analysis.
 - Observability lands alongside the feature rather than as a follow-on story — we will have token and call-log data from day one.
 - Two concrete tools + one bounded loop replace a registry + taxonomy + multiple strategy implementations; the E17 LLD and issue list collapse significantly.
+- E11 artefact quality evaluation consolidates into the same call, halving input-token cost for the artefact payload.
 
 ### Negative
 

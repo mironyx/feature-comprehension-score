@@ -296,7 +296,7 @@ Alongside the FCS score, surface a numerical score for the quality of artefacts 
   - **Test file coverage** — categories: no tests / tests present / BDD/behaviour tests present.
   - **ADR references** — categories: none / referenced.
 - Given the six dimension sub-scores, when the aggregate score is computed, then intent-adjacent dimensions (ADR references, linked issues with acceptance criteria, design document presence, PR description completeness) contribute **at least 60%** of the aggregate weight; code-adjacent dimensions (commit message quality, test file coverage) contribute the remainder. Exact weights are an implementation concern.
-- Given the evaluator runs, then it issues a separate LLM call from question generation (single-purpose prompt, dedicated schema) — it is not a deterministic heuristic count.
+- Given the evaluator runs, then it produces the quality score via an LLM call (not a deterministic heuristic count). ~~Originally specified as a separate single-purpose call; consolidated into the rubric-generation call by [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call) to avoid sending the artefact set twice.~~ Quality fields are optional in the response schema; if omitted, the score falls back to `unavailable`.
 - Given the evaluator LLM call fails or times out, then the assessment proceeds without an artefact quality score; the score field is recorded as `unavailable` and the assessment is not blocked.
 - Given V1 captured `additional_context_suggestions` for historical assessments, when the evaluator is calibrated, then those suggestions are used as ground-truth signal to validate dimension scoring (e.g., assessments whose suggestions asked for ADRs should score low on the ADR dimension). Calibration is a one-off analysis, not an online training loop.
 
@@ -544,6 +544,8 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 **Motivation:** Tool-use is the 2026 default pattern for coding agents; this epic aligns rubric generation with that pattern. Storey (2026) identifies intent debt as arising from missing or incomplete artefacts — giving the LLM direct, bounded access to the repository closes the loop without a separate retrieval phase.
 
 **Architectural decision recorded in:** ADR-0023 (Tool-use loop for rubric generation).
+
+**E11 consolidation:** The rubric-generation call also produces the artefact quality score (Epic 11), eliminating the separate quality-evaluation LLM call. This halves input-token cost for the artefact payload. Quality fields are optional in the response schema; if omitted, quality falls back to `unavailable`. See [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call).
 
 ### Story 17.1: Tool-Based Context Retrieval During Rubric Generation
 

@@ -9,6 +9,7 @@
 | 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
 | 2026-04-17 | Claude | §11.1c revised post-implementation (issue #236) |
 | 2026-04-17 | Claude | §11.2b revised post-implementation (issue #238) |
+| 2026-04-17 | LS / Claude | Note: separate `evaluateArtefactQuality()` call superseded by E17 combined call (ADR-0023). Quality dimensions, weights, and intent-adjacency invariant preserved; only the call boundary changes. See [LLD E17 §17.1e](lld-v2-e17-agentic-retrieval.md). |
 
 ## Part A — Human-Reviewable
 
@@ -17,6 +18,8 @@
 Surface a numerical **artefact quality score** (0–100) alongside the FCS aggregate score so Org Admins can distinguish "team doesn't understand" from "we didn't write it down". The score is produced by a **dedicated single-purpose LLM call** that evaluates six dimensions of the input artefacts (PR description, linked issues, design docs, commit messages, test coverage, ADR references) and returns per-dimension sub-scores plus an aggregate. Intent-adjacent dimensions weight ≥ 60% of the aggregate (Storey 2026 triple-debt framing).
 
 The display side surfaces the score on the FCS results page (with per-dimension breakdown on expand), introduces an organisation-level **artefact quality low threshold** and **FCS low threshold**, and computes a four-quadrant **flag matrix** that contextualises the combination of the two scores. The Org Overview sortable column is designed but its implementation is gated on V1 Story 6.3 (Organisation Assessment Overview) landing.
+
+> **Superseded (2026-04-17):** The separate `evaluateArtefactQuality()` LLM call described below is consolidated into E17's rubric-generation call per [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call). The quality dimensions, weights, intent-adjacency invariant, prompt guidance, display logic, and flag matrix are all preserved — only the call boundary changes. The artefact quality fields become optional in the rubric-generation response schema; if the model omits them, quality falls back to `unavailable` (same resilience). E11 implementation code remains in the codebase until E17 §17.1e lands and removes the parallel call.
 
 ### Behavioural Flows
 

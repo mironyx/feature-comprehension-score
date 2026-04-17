@@ -6,6 +6,7 @@
 |------|--------|---------|
 | 2026-04-16 | LS / Claude | Initial LLD — deterministic orchestrator over strategy registry. |
 | 2026-04-16 | LS / Claude | Rewritten around tool-use loop per ADR-0023. Replaces orchestrator + strategy framework with two read-only tools (`readFile`, `listDirectory`), a bounded multi-turn loop, and observability (tokens + call log + duration) on every rubric generation. Drops feasibility-spike framing, suggestion-taxonomy analysis, additional GitHub scopes. |
+| 2026-04-17 | LS / Claude | Design review: (1) reframed as "augment" not "replace" — existing artefacts remain primary context, tools for gaps only. (2) Resolved all open questions. (3) E11 artefact quality evaluation consolidated into rubric generation call (ADR-0023) — §17.1e updated with combined schema, prompt guidance, and E11 removal. |
 
 ---
 
@@ -13,7 +14,7 @@
 
 ### Purpose
 
-Replace V1's fixed, snapshot-only artefact assembly with a **tool-use loop**: the rubric-generation LLM receives two read-only tools — `readFile` and `listDirectory` — and calls them on demand during question generation. No second LLM pass, no batch-suggest-then-fulfil phase, no strategy registry.
+Augment V1's artefact assembly with **on-demand retrieval via a tool-use loop**: the rubric-generation LLM receives the existing artefact set (PR diff, PR body, linked issues, commits) as before, plus two read-only tools — `readFile` and `listDirectory` — that it may call when the provided context is insufficient to generate high-quality questions. The LLM should exhaust the supplied artefacts first and only reach for tools when it identifies gaps. No second LLM pass, no batch-suggest-then-fulfil phase, no strategy registry.
 
 This epic also lands the observability layer (token counts, tool-call log, wall-clock duration) on every rubric generation, whether tool-use is enabled or not.
 
@@ -150,9 +151,9 @@ classDiagram
 
 ### Open Questions
 
-1. **Tokenizer choice for the `maxExtraInputTokens` cap.** The LLM's reported input-token count (from the OpenRouter response) is authoritative at finalisation but unavailable mid-loop. Pre-flight estimation is needed. Candidates: (a) simple heuristic `bytes / 4`, (b) a local tokenizer matching the target model, (c) just cap on bytes and drop the token cap. **Proposed:** go with `bytes / 4` heuristic and cap on bytes as the primary gate; token cap becomes a soft post-hoc check. Revisit after production telemetry.
-2. **Whether to expose tool-call log to participants or admin-only.** Participants could find it distracting; admins want auditability. **Proposed:** admin-only for V2. Revisit if surveyed.
-3. **Interaction with the E11 artefact-quality evaluator.** E11 runs a separate LLM call that also reads the artefact set. Should it get tools too? **Proposed:** not in this epic. E11's evaluator is a single-purpose classification call; adding tools doubles cost for no signal. Revisit if call-log analysis of rubric generation shows value.
+1. **Tokenizer choice for the `maxExtraInputTokens` cap.** The LLM's reported input-token count (from the OpenRouter response) is authoritative at finalisation but unavailable mid-loop. Pre-flight estimation is needed. Candidates: (a) simple heuristic `bytes / 4`, (b) a local tokenizer matching the target model, (c) just cap on bytes and drop the token cap. **Resolved:** go with `bytes / 4` heuristic and cap on bytes as the primary gate; token cap becomes a soft post-hoc check. Revisit after production telemetry.
+2. **Whether to expose tool-call log to participants or admin-only.** Participants could find it distracting; admins want auditability. **Resolved:** admin-only for V2. Revisit if surveyed.
+3. **Interaction with the E11 artefact-quality evaluator.** E11 runs a separate LLM call that also reads the artefact set, doubling input-token cost for the same artefact payload. **Resolved:** consolidate into a single call. The rubric-generation prompt produces both questions and artefact quality assessment in one structured response. Quality fields are optional in the schema — if the model omits them, quality falls back to `unavailable`. E11's dimensions, weights, and intent-adjacency invariant are preserved. The separate `evaluateArtefactQuality()` call is removed from the pipeline in §17.1e. See [ADR-0023 § Artefact quality evaluation](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call).
 
 ---
 
@@ -560,14 +561,34 @@ describe('schema: E17 observability')
 
 ---
 
-### §17.1e — Pipeline integration + observability persistence
+### §17.1e — Pipeline integration + observability persistence + E11 consolidation
 
 **Files to modify:**
 
-- `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`
-- `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric
+- `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`; extend response schema to include artefact quality fields
+- `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric; remove parallel `evaluateArtefactQuality()` call
 - `src/app/api/fcs/service.ts` — wire concrete tools + call `finalise_rubric_v3`
-- Tests for both engine and service changes
+- `src/lib/engine/llm/schemas.ts` — extend `QuestionGenerationResponseSchema` with optional quality dimensions
+- Tests for engine, service, and combined-call fallback behaviour
+
+**Prompt guidance (augment, not replace):**
+
+The rubric-generation system prompt must instruct the LLM to treat the provided artefacts as primary context and only use tools when the supplied information is insufficient to generate high-quality, specific questions. This prevents eager tool calls when the PR diff + issues already contain everything needed.
+
+**E11 consolidation (combined call):**
+
+The separate `evaluateArtefactQuality()` LLM call is removed from the pipeline. Artefact quality assessment is folded into the rubric-generation response schema as **optional fields**:
+
+```typescript
+// Added to QuestionGenerationResponseSchema
+artefact_quality_score: z.number().int().min(0).max(100).optional(),
+artefact_quality_dimensions: z.array(ArtefactQualityDimensionSchema).optional(),
+```
+
+- If the model produces quality fields → use them (same dimensions, weights, and intent-adjacency invariant as E11).
+- If the model omits them → `artefact_quality_score = null` (renders as `unavailable` on the results page, same as E11's failure fallback).
+- E11's prompt guidance for the six dimensions and intent-adjacent weighting (≥ 60%) is incorporated into the rubric-generation system prompt.
+- The existing `evaluateArtefactQuality()` function is deleted along with its dedicated test file.
 
 **Engine change (generate-questions.ts):**
 
@@ -578,7 +599,7 @@ export async function generateQuestions(request: GenerateQuestionsRequest): Prom
   const result = await llmClient.generateWithTools({
     systemPrompt,
     prompt: userPrompt,
-    schema: QuestionGenerationResponseSchema,
+    schema: RubricGenerationResponseSchema, // extended with optional quality fields
     tools: request.tools,     // empty array if org has flag off
     bounds: request.bounds,   // optional override
     signal: request.signal,
@@ -586,8 +607,15 @@ export async function generateQuestions(request: GenerateQuestionsRequest): Prom
     maxTokens,
   });
   if (!result.success) return result;
-  // validation (question count) unchanged
-  return { success: true, data: { ...result.data.data, _usage: result.data.usage, _toolCalls: result.data.toolCalls, _durationMs: result.data.durationMs } };
+  return {
+    success: true,
+    data: {
+      ...result.data.data,
+      _usage: result.data.usage,
+      _toolCalls: result.data.toolCalls,
+      _durationMs: result.data.durationMs,
+    },
+  };
 }
 ```
 
@@ -601,13 +629,14 @@ const tools = orgConfig.data?.tool_use_enabled
 const bounds = orgConfig.data?.rubric_cost_cap_cents
   ? { ...DEFAULT_TOOL_LOOP_BOUNDS, /* derive maxExtraInputTokens from cost cap */ }
   : undefined;
+// Single call — produces questions + artefact quality (optional)
 const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
 // ... on success:
 await ctx.adminSupabase.rpc('finalise_rubric_v3', {
   p_assessment_id: id,
   p_questions: rubric.questions,
-  p_artefact_quality_score: /* from E11 or null */,
-  p_artefact_quality_dimensions: /* from E11 or null */,
+  p_artefact_quality_score: rubric.artefact_quality_score ?? null,
+  p_artefact_quality_dimensions: rubric.artefact_quality_dimensions ?? null,
   p_additional_context_suggestions: rubric.additional_context_suggestions ?? [],
   p_rubric_input_tokens: rubric._usage.inputTokens,
   p_rubric_output_tokens: rubric._usage.outputTokens,
@@ -628,6 +657,13 @@ describe('Pipeline integration — rubric generation')
   it('persists rubric_tool_calls as jsonb array matching the log entries')
   it('persists rubric_duration_ms as a positive integer')
   it('does not call finalise_rubric_v3 on generation failure — legacy error path unchanged')
+
+describe('Pipeline integration — E11 quality in combined call')
+  it('persists artefact_quality_score when model produces it')
+  it('persists artefact_quality_dimensions with all six dimensions')
+  it('sets artefact_quality_score to null when model omits quality fields')
+  it('intent-adjacent dimensions contribute >= 60% of aggregate weight')
+  it('does not invoke evaluateArtefactQuality as a separate call')
 ```
 
 **Acceptance criteria:**
@@ -635,6 +671,9 @@ describe('Pipeline integration — rubric generation')
 - [ ] All rubric generations go through `generateWithTools` (no direct `generateStructured` for questions)
 - [ ] Observability persisted whether tool-use enabled or disabled
 - [ ] Failure modes unchanged from V1 (no new error paths visible to callers)
+- [ ] Artefact quality produced by the same call; optional schema fields fall back to `unavailable`
+- [ ] Separate `evaluateArtefactQuality()` call removed from the pipeline
+- [ ] E11 quality dimensions and intent-adjacency invariant preserved in prompt
 
 ---
 
