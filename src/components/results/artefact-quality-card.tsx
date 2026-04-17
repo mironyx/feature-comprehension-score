@@ -22,7 +22,10 @@ const DIMENSION_ORDER: ArtefactQualityDimension['key'][] = [
 ];
 
 function sortedDimensions(dims: ArtefactQualityDimension[]): ArtefactQualityDimension[] {
-  return DIMENSION_ORDER.map(k => dims.find(d => d.key === k)!).filter(Boolean);
+  return DIMENSION_ORDER.flatMap(k => {
+    const d = dims.find(dim => dim.key === k);
+    return d ? [d] : [];
+  });
 }
 
 export function ArtefactQualityCard(props: ArtefactQualityCardProps): React.ReactElement | null {

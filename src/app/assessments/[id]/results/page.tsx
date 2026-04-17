@@ -108,6 +108,9 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
   if (participationResult.error) {
     logger.error({ err: participationResult.error }, 'results page: participation query failed');
   }
+  if (orgConfigResult.error) {
+    logger.error({ err: orgConfigResult.error }, 'results page: org config query failed');
+  }
 
   const isAdmin = (orgMembershipResult.data as { github_role: string } | null)?.github_role === 'admin';
   const isParticipant = !!participationResult.data;
@@ -168,6 +171,8 @@ const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
 
 function parseDimensions(raw: Json | null | undefined): ArtefactQualityDimension[] | null {
   if (!Array.isArray(raw)) return null;
+  // Justification: JSON column written by finalise_rubric_v2 which validates via
+  // ArtefactQualityDimensionSchema before persisting — safe to cast at read time.
   return raw as unknown as ArtefactQualityDimension[];
 }
 
