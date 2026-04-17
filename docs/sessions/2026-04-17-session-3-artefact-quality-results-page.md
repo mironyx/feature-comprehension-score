@@ -2,11 +2,11 @@
 
 ## Issue
 
-#238 — feat: artefact-quality results page block + flag matrix (Epic #233, Wave 3)
+\#238 — feat: artefact-quality results page block + flag matrix (Epic #233, Wave 3)
 
 ## PR
 
-#256 — <https://github.com/mironyx/feature-comprehension-score/pull/256>
+\#256 — <https://github.com/mironyx/feature-comprehension-score/pull/256>
 
 ## Work completed
 
