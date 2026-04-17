@@ -99,9 +99,12 @@ interface FetchContext {
   orgId: string;
 }
 
-// Analytics field (Issue #241): the column is jsonb and may be null on legacy
-// rows. Write-side persists an array; read-side coerces any other shape to null
-// so malformed rows do not poison the response.
+// Analytics field (Issue #241): the jsonb column is null on legacy rows and an
+// array on new rows (the write path always calls `?? []`). Non-array values are
+// coerced to null so a malformed jsonb object cannot break the response shape;
+// array contents are trusted because the write side is the only producer.
+// Justification: private helper; GET /api/assessments/[id] LLD (§2.4) has no
+// Internal decomposition section, so this is tracked as an LLD gap for sync.
 function parseSuggestions(raw: unknown): AdditionalContextSuggestionDto[] | null {
   return Array.isArray(raw) ? (raw as AdditionalContextSuggestionDto[]) : null;
 }
