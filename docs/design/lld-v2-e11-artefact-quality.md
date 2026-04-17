@@ -8,6 +8,7 @@
 | 2026-04-17 | Claude | Revised §11.1a post-implementation (issue #234) |
 | 2026-04-17 | Claude | §11.1b revised post-implementation (issue #235) |
 | 2026-04-17 | Claude | §11.1c revised post-implementation (issue #236) |
+| 2026-04-17 | Claude | §11.2b revised post-implementation (issue #238) |
 
 ## Part A — Human-Reviewable
 
@@ -482,7 +483,10 @@ describe('PATCH /api/organisations/{id}/thresholds')
 
 - `src/lib/engine/quality/compute-flag.ts` — `computeArtefactQualityFlag(input)` pure function returning flag key + copy
 - `src/components/results/artefact-quality-card.tsx` — score, dimensions accordion, flag copy
-- `tests/unit/engine/quality/compute-flag.test.ts`
+- `tests/lib/engine/quality/compute-flag.test.ts`
+- `tests/components/results/artefact-quality-card.test.ts`
+
+> **Implementation note (issue #238):** Test paths corrected from `tests/unit/` to `tests/lib/` and `tests/components/` to match the project convention. Component test file added — not in original spec.
 
 **Files to modify:**
 
@@ -503,9 +507,11 @@ export interface FlagInput {
   fcs_score: number | null;          // 0..1 (existing scale) — coerced for compare
   artefact_quality_score: number | null;
   artefact_quality_status: 'success' | 'unavailable' | 'pending';
-  artefact_quality_low_threshold: number;  // 0..100
+  artefact_quality_low_threshold: number;  // 0..1 (DB convention)
   fcs_low_threshold: number;               // 0..100
 }
+
+> **Implementation note (issue #238):** `artefact_quality_low_threshold` scale corrected from `0..100` to `0..1` to match the DB column (`numeric(3,2)`) and `OrgThresholdsSchema`. The function multiplies by 100 internally for comparison against the 0–100 `artefact_quality_score`. `ARTEFACT_QUALITY_THRESHOLD_DEFAULT` corrected from `0.60` to `0.40` per Invariant 9.
 
 export interface FlagResult {
   key: ArtefactQualityFlagKey;
@@ -542,9 +548,9 @@ describe('Results page artefact quality card')
 
 **Acceptance:**
 
-- [ ] All four flag-matrix quadrants and the unavailable case render correctly (visual smoke + unit tests).
-- [ ] Per-dimension breakdown is collapsed by default; expanding reveals six dimension rows ordered: ADR references, linked issues, design documents, PR description, test coverage, commit messages.
-- [ ] No layout regression on the existing FCS-only view (rendered when quality is `pending`).
+- [x] All four flag-matrix quadrants and the unavailable case render correctly (visual smoke + unit tests).
+- [x] Per-dimension breakdown is collapsed by default; expanding reveals six dimension rows ordered: ADR references, linked issues, design documents, PR description, test coverage, commit messages.
+- [x] No layout regression on the existing FCS-only view (rendered when quality is `pending`).
 
 ---
 
