@@ -268,6 +268,7 @@ export interface Database {
           artefact_quality_score: number | null;
           artefact_quality_status: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions: Json | null;
+          additional_context_suggestions: Json | null;
           conclusion: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -307,6 +308,7 @@ export interface Database {
           artefact_quality_score?: number | null;
           artefact_quality_status?: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions?: Json | null;
+          additional_context_suggestions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode: string;
           config_score_threshold: number;
@@ -346,6 +348,7 @@ export interface Database {
           artefact_quality_score?: number | null;
           artefact_quality_status?: 'pending' | 'success' | 'unavailable';
           artefact_quality_dimensions?: Json | null;
+          additional_context_suggestions?: Json | null;
           conclusion?: 'success' | 'failure' | 'neutral' | null;
           config_enforcement_mode?: string;
           config_score_threshold?: number;
@@ -636,6 +639,7 @@ export interface Database {
           p_quality_score: number | null;
           p_quality_status: 'pending' | 'success' | 'unavailable';
           p_quality_dimensions: Json | null;
+          p_additional_context_suggestions?: Json | null;
         };
         Returns: void;
       };

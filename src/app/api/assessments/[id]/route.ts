@@ -40,6 +40,12 @@ interface MyParticipation {
   submitted_at: string | null;
 }
 
+export interface AdditionalContextSuggestionDto {
+  artefact_type: string;
+  description: string;
+  expected_benefit: string;
+}
+
 interface AssessmentDetailResponse {
   id: string;
   type: 'prcc' | 'fcs';
@@ -53,6 +59,7 @@ interface AssessmentDetailResponse {
   aggregate_score: number | null;
   scoring_incomplete: boolean;
   artefact_quality: string | null;
+  additional_context_suggestions: AdditionalContextSuggestionDto[] | null;
   conclusion: AssessmentRow['conclusion'];
   config: { enforcement_mode: string; score_threshold: number; question_count: number };
   questions: FilteredQuestion[];
@@ -90,6 +97,13 @@ interface FetchContext {
   assessmentId: string;
   userId: string;
   orgId: string;
+}
+
+// Analytics field (Issue #241): the column is jsonb and may be null on legacy
+// rows. Write-side persists an array; read-side coerces any other shape to null
+// so malformed rows do not poison the response.
+function parseSuggestions(raw: unknown): AdditionalContextSuggestionDto[] | null {
+  return Array.isArray(raw) ? (raw as AdditionalContextSuggestionDto[]) : null;
 }
 
 function assertNoDbError(error: unknown, label: string): void {
@@ -162,6 +176,7 @@ function buildResponse(
     aggregate_score: assessment.aggregate_score,
     scoring_incomplete: assessment.scoring_incomplete,
     artefact_quality: assessment.artefact_quality,
+    additional_context_suggestions: parseSuggestions(assessment.additional_context_suggestions),
     conclusion: assessment.conclusion,
     config: {
       enforcement_mode: assessment.config_enforcement_mode,

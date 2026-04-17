@@ -150,6 +150,10 @@ CREATE TABLE assessments (
                                   'pending', 'success', 'unavailable'
                                 )),
   artefact_quality_dimensions jsonb,
+  -- Analytics signal (Story 17 / Issue #241): the LLM's "wish list" of additional
+  -- artefacts it would have liked. Null on legacy rows; new assessments store the
+  -- array (empty array when the LLM returned no suggestions).
+  additional_context_suggestions jsonb,
   conclusion               text CHECK (conclusion IN (
                               'success', 'failure', 'neutral'
                            )),

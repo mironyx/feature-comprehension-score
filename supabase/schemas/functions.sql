@@ -276,14 +276,17 @@ $$;
 
 -- finalise_rubric_v2: atomically stores generated rubric questions together
 -- with the artefact quality result (score, status, per-dimension breakdown),
--- and transitions the assessment to awaiting_responses.
+-- the LLM's additional-context suggestions (Story 17 / Issue #241), and
+-- transitions the assessment to awaiting_responses.
+-- p_additional_context_suggestions has a default so legacy callers keep working.
 CREATE OR REPLACE FUNCTION finalise_rubric_v2(
-  p_assessment_id      uuid,
-  p_org_id             uuid,
-  p_questions          jsonb,
-  p_quality_score      integer,
-  p_quality_status     text,
-  p_quality_dimensions jsonb
+  p_assessment_id                  uuid,
+  p_org_id                         uuid,
+  p_questions                      jsonb,
+  p_quality_score                  integer,
+  p_quality_status                 text,
+  p_quality_dimensions             jsonb,
+  p_additional_context_suggestions jsonb DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -301,11 +304,12 @@ BEGIN
   FROM jsonb_array_elements(p_questions) AS q;
 
   UPDATE assessments
-  SET status                      = 'awaiting_responses',
-      artefact_quality_score      = p_quality_score,
-      artefact_quality_status     = p_quality_status,
-      artefact_quality_dimensions = p_quality_dimensions,
-      updated_at                  = now()
+  SET status                         = 'awaiting_responses',
+      artefact_quality_score         = p_quality_score,
+      artefact_quality_status        = p_quality_status,
+      artefact_quality_dimensions    = p_quality_dimensions,
+      additional_context_suggestions = p_additional_context_suggestions,
+      updated_at                     = now()
   WHERE id = p_assessment_id;
 END;
 $$;

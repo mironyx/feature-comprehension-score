@@ -421,4 +421,159 @@ describe('GET /api/assessments/[id]', () => {
       expect(response.status).toBe(404);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // additional_context_suggestions field — Issue #241
+  // ---------------------------------------------------------------------------
+
+  describe('Given a DB row with a non-empty additional_context_suggestions array', () => {
+    it('then the response includes additional_context_suggestions as an array of suggestion objects', async () => {
+      // Property 5 [issue #241]: suggestions persisted on new assessments are exposed in the GET response.
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'ready',
+          pr_number: null,
+          additional_context_suggestions: [
+            {
+              artefact_type: 'adr',
+              description: 'ADR documenting the caching strategy',
+              expected_benefit: 'Would clarify the trade-off rationale',
+            },
+          ],
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(Array.isArray(body['additional_context_suggestions'])).toBe(true);
+      const suggestions = body['additional_context_suggestions'] as Array<Record<string, unknown>>;
+      expect(suggestions).toHaveLength(1);
+      expect(suggestions[0]).toMatchObject({
+        artefact_type: 'adr',
+        description: 'ADR documenting the caching strategy',
+        expected_benefit: 'Would clarify the trade-off rationale',
+      });
+    });
+  });
+
+  describe('Given a legacy DB row where additional_context_suggestions is null', () => {
+    it('then the response returns additional_context_suggestions as null (backwards-compatible)', async () => {
+      // Property 6 [issue #241]: old RPC still works; legacy rows have null and the route must not error.
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'completed',
+          pr_number: null,
+          additional_context_suggestions: null,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['additional_context_suggestions']).toBeNull();
+    });
+  });
+
+  describe('Given a DB row where additional_context_suggestions is an empty array', () => {
+    it('then the response returns additional_context_suggestions as [] (LLM returned nothing)', async () => {
+      // Property 7 [issue #241]: empty array from the LLM is persisted as [] and returned verbatim.
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'ready',
+          pr_number: null,
+          additional_context_suggestions: [],
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['additional_context_suggestions']).toEqual([]);
+    });
+  });
+
+  describe('Given a DB row where additional_context_suggestions is a non-array JSON value (malformed jsonb)', () => {
+    it('then the response coerces additional_context_suggestions to null (adversarial — eval #241)', async () => {
+      // parseSuggestions promises: "coerces any other shape to null so malformed rows do not poison the response"
+      // This guards the explicit implementation contract stated in the route comment.
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'completed',
+          pr_number: null,
+          // Simulate a jsonb object accidentally stored rather than an array.
+          additional_context_suggestions: { artefact_type: 'adr' } as unknown,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['additional_context_suggestions']).toBeNull();
+    });
+  });
+
+  describe('Given a valid assessment response', () => {
+    it('then additional_context_suggestions is present at the top level of the response (not nested)', async () => {
+      // Property 8 [issue #241, lld §17.1d]: field must be top-level in AssessmentDetailResponse.
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'completed',
+          pr_number: null,
+          additional_context_suggestions: null,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      // Key is present directly on the root object, not inside a nested field.
+      expect(Object.prototype.hasOwnProperty.call(body, 'additional_context_suggestions')).toBe(true);
+    });
+  });
 });

@@ -281,9 +281,11 @@ async function finaliseRubric(
   }
   const quality = toQualityFields(qualityResult);
   logger.info({ artefactQualityStatus: quality.status, artefactQualityScore: quality.score }, 'Rubric generation: quality result');
+  const suggestions = (rubricResult.rubric.additional_context_suggestions ?? []) as unknown as Json;
   const { error } = await adminSupabase.rpc('finalise_rubric_v2', {
     p_assessment_id: assessmentId, p_org_id: orgId, p_questions: rubricResult.rubric.questions,
     p_quality_score: quality.score, p_quality_status: quality.status, p_quality_dimensions: quality.dimensions,
+    p_additional_context_suggestions: suggestions,
   });
   if (error) throw new Error('Failed to finalise rubric');
 }
