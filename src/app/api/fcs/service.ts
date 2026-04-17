@@ -280,17 +280,10 @@ async function finaliseRubric(
     throw new Error(`Rubric generation failed: ${rubricResult.error.code}`);
   }
   const quality = toQualityFields(qualityResult);
-  logger.info({
-    artefactQualityStatus: quality.status,
-    artefactQualityScore: quality.score,
-  }, 'Rubric generation: quality result');
+  logger.info({ artefactQualityStatus: quality.status, artefactQualityScore: quality.score }, 'Rubric generation: quality result');
   const { error } = await adminSupabase.rpc('finalise_rubric_v2', {
-    p_assessment_id: assessmentId,
-    p_org_id: orgId,
-    p_questions: rubricResult.rubric.questions,
-    p_quality_score: quality.score,
-    p_quality_status: quality.status,
-    p_quality_dimensions: quality.dimensions,
+    p_assessment_id: assessmentId, p_org_id: orgId, p_questions: rubricResult.rubric.questions,
+    p_quality_score: quality.score, p_quality_status: quality.status, p_quality_dimensions: quality.dimensions,
   });
   if (error) throw new Error('Failed to finalise rubric');
 }
