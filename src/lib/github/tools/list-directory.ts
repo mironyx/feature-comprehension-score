@@ -1,5 +1,6 @@
 import type { Octokit } from '@octokit/rest';
 import { z } from 'zod';
+import { fetchContents, isNotFound, toErrorMessage } from './octokit-contents';
 import { resolveRepoPath } from './path-safety';
 import type { RepoRef } from './read-file';
 import type { ToolDefinition } from './types';
@@ -29,44 +30,13 @@ export function makeListDirectoryTool(octokit: Octokit, repo: RepoRef): ToolDefi
         return { kind: 'ok', content, bytes: content.length };
       } catch (err) {
         if (isNotFound(err)) return { kind: 'not_found', similar_paths: [], bytes: 0 };
-        return { kind: 'error', message: toMessage(err), bytes: 0 };
+        return { kind: 'error', message: toErrorMessage(err), bytes: 0 };
       }
     },
   };
 }
 
-function encodeRepoPath(normalised: string): string {
-  return normalised.split('/').map(encodeURIComponent).join('/');
-}
-
-async function fetchContents(
-  octokit: Octokit,
-  repo: RepoRef,
-  normalised: string,
-  signal: AbortSignal,
-): Promise<unknown> {
-  const response = await octokit.request(
-    `GET /repos/{owner}/{repo}/contents/${encodeRepoPath(normalised)}`,
-    {
-      owner: repo.owner,
-      repo: repo.repo,
-      ...(repo.ref !== undefined ? { ref: repo.ref } : {}),
-      request: { signal },
-    },
-  );
-  return response.data;
-}
-
 function toEntry(raw: unknown): DirectoryEntry {
   const { name, type } = raw as { name: string; type: string };
   return { name, kind: type === 'dir' ? 'dir' : 'file' };
-}
-
-function isNotFound(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'status' in err && (err as { status: unknown }).status === 404;
-}
-
-function toMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
 }
