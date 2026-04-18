@@ -294,6 +294,11 @@ describe('POST /api/fcs', () => {
       );
     });
 
+    it('passes the numeric installation ID to createGithubClient', async () => {
+      await callPost(VALID_BODY);
+      expect(createGithubClient).toHaveBeenCalledWith(42);
+    });
+
     it('stores assessment, merged PRs, and participants atomically via RPC', async () => {
       await callPost(VALID_BODY);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
