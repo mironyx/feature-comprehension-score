@@ -84,8 +84,8 @@ actual practice and eliminates a recurring amber finding.
 
 **Observation:** Multiple instances of teammates auto-running `/feature-end` before lead
 instruction (documented in E15 and E11 team sessions). Premature lead `/feature-end` on
-#236 also occurred. The `/feature-team` skill was updated with a human review gate, but
-enforcement is inconsistent.
+issue #236 also occurred. The `/feature-team` skill was updated with a human review gate,
+but enforcement is inconsistent.
 
 **Resolution:** The skill update is the right fix. Monitor in next period. If it recurs,
 add an explicit "wait for lead" instruction in the teammate spawn prompt.

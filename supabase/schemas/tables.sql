@@ -38,6 +38,12 @@ CREATE TABLE org_config (
                               CHECK (trivial_commit_threshold > 0),
   exempt_file_patterns     text[] NOT NULL DEFAULT '{}',
   context_file_patterns    text[] NOT NULL DEFAULT '{}',
+  -- Agentic retrieval (V2 Epic 17). See docs/design/lld-v2-e17-agentic-retrieval.md §17.1d.
+  tool_use_enabled         boolean NOT NULL DEFAULT false,
+  rubric_cost_cap_cents    integer NOT NULL DEFAULT 20
+                              CHECK (rubric_cost_cap_cents BETWEEN 0 AND 500),
+  retrieval_timeout_seconds integer NOT NULL DEFAULT 120
+                              CHECK (retrieval_timeout_seconds BETWEEN 10 AND 600),
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
@@ -150,6 +156,14 @@ CREATE TABLE assessments (
 
   -- Invalidation chain (Story 2.8)
   superseded_by            uuid REFERENCES assessments(id),
+
+  -- Rubric-generation observability (V2 Epic 17). Populated on every rubric
+  -- generation, regardless of tool-use flag. See docs/design/lld-v2-e17-agentic-retrieval.md §17.1d.
+  rubric_input_tokens      integer,
+  rubric_output_tokens     integer,
+  rubric_tool_call_count   integer,
+  rubric_tool_calls        jsonb,
+  rubric_duration_ms       integer,
 
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()

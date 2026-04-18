@@ -8,6 +8,7 @@
 | 2026-04-16 | LS / Claude | Rewritten around tool-use loop per ADR-0023. Replaces orchestrator + strategy framework with two read-only tools (`readFile`, `listDirectory`), a bounded multi-turn loop, and observability (tokens + call log + duration) on every rubric generation. Drops feasibility-spike framing, suggestion-taxonomy analysis, additional GitHub scopes. |
 | 2026-04-17 | LS / Claude | Design review: (1) reframed as "augment" not "replace" — existing artefacts remain primary context, tools for gaps only. (2) Resolved all open questions. (3) E11 artefact quality evaluation consolidated into rubric generation call (ADR-0023) — §17.1e updated with combined schema, prompt guidance, and E11 removal. |
 | 2026-04-18 | LS / Claude | Requirements v0.5 alignment: (1) E11 cancelled — stripped all quality-scoring refs from §17.1d, §17.1e, invariants, ACs. (2) Tool-call log replaces quality scoring as feedback mechanism (`not_found` → "Missing artefacts" summary). (3) Timeout split: 120s whole-loop default (configurable per org) + 10s per-call fixed. (4) Added `retrieval_timeout_seconds` to org_config + §17.2a UI. (5) Added "Missing artefacts" summary to §17.2b. (6) Added actor clarification (GitHub App installation token) and repo-scoping AC to §17.1b. (7) Added `warn`-level logging for `iteration_limit_reached`. |
+| 2026-04-19 | LS / Claude | §17.1d sync (issue #243): corrected RPC signature to match implementation — added `p_org_id`, removed non-existent `p_additional_context_suggestions`, changed status target from `'ready'` to `'awaiting_responses'`, documented that questions are inserted into `assessment_questions` (not updated as a column), added CHECK bounds on the two numeric org_config columns, noted the PostgreSQL overload (legacy 3-arg form preserved). |
 
 ---
 
@@ -545,40 +546,69 @@ alter table assessments add column rubric_duration_ms integer null;
 
 -- org_config
 alter table org_config add column tool_use_enabled boolean not null default false;
-alter table org_config add column rubric_cost_cap_cents integer not null default 20;
-alter table org_config add column retrieval_timeout_seconds integer not null default 120;
+alter table org_config add column rubric_cost_cap_cents integer not null default 20
+  check (rubric_cost_cap_cents between 0 and 500);
+alter table org_config add column retrieval_timeout_seconds integer not null default 120
+  check (retrieval_timeout_seconds between 10 and 600);
 ```
 
 (Declarative: edit `supabase/schemas/tables.sql` directly; run `npx supabase db diff -f e17_observability_tool_use`.)
 
+> **Implementation note (issue #243):** CHECK bounds from §17.2a were co-located with the column
+> definitions (single source of truth) rather than added as a separate step.
+
 **RPC:**
+
+The 8-arg overload extends the existing 3-arg `finalise_rubric` via **PostgreSQL function
+overloading** — same name, different argument list. The legacy 3-arg form is preserved
+untouched so existing callers (V1 rubric generation) continue to work while the V2 tool-use
+path calls the 8-arg form.
 
 ```sql
 create or replace function finalise_rubric(
-  p_assessment_id uuid,
-  p_questions jsonb,
-  p_additional_context_suggestions jsonb,
-  p_rubric_input_tokens integer,
-  p_rubric_output_tokens integer,
+  p_assessment_id          uuid,
+  p_org_id                 uuid,
+  p_questions              jsonb,
+  p_rubric_input_tokens    integer,
+  p_rubric_output_tokens   integer,
   p_rubric_tool_call_count integer,
-  p_rubric_tool_calls jsonb,
-  p_rubric_duration_ms integer
+  p_rubric_tool_calls      jsonb,
+  p_rubric_duration_ms     integer
 ) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql set search_path = public as $$
 begin
+  insert into assessment_questions (
+    org_id, assessment_id, question_number,
+    naur_layer, question_text, weight, reference_answer, hint
+  )
+  select p_org_id, p_assessment_id,
+    (q->>'question_number')::integer, q->>'naur_layer',
+    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer',
+    q->>'hint'
+  from jsonb_array_elements(p_questions) as q;
+
   update assessments set
-    questions = p_questions,
-    additional_context_suggestions = p_additional_context_suggestions,
-    rubric_input_tokens = p_rubric_input_tokens,
-    rubric_output_tokens = p_rubric_output_tokens,
+    status                 = 'awaiting_responses',
+    rubric_input_tokens    = p_rubric_input_tokens,
+    rubric_output_tokens   = p_rubric_output_tokens,
     rubric_tool_call_count = p_rubric_tool_call_count,
-    rubric_tool_calls = p_rubric_tool_calls,
-    rubric_duration_ms = p_rubric_duration_ms,
-    status = 'ready'
+    rubric_tool_calls      = p_rubric_tool_calls,
+    rubric_duration_ms     = p_rubric_duration_ms,
+    updated_at             = now()
   where id = p_assessment_id;
 end;
 $$;
 ```
+
+> **Implementation note (issue #243):** the original draft of this section specified
+> `p_additional_context_suggestions` and `status = 'ready'`, and a single-statement UPDATE
+> against an `assessments.questions` column. Neither matches the real schema: questions are
+> stored in a separate `assessment_questions` table, there is no
+> `additional_context_suggestions` column, and the post-rubric status is `awaiting_responses`
+> (ready-for-response collection), not `ready`. The RPC also takes `p_org_id` so the INSERT
+> can set the owning org without a sub-select. `security definer` was dropped — the RPC is
+> called by the service-role client which already bypasses RLS, so the extra privilege escalation
+> wasn't needed. Legacy 3-arg `finalise_rubric` kept unchanged via overload.
 
 **BDD specs:**
 
@@ -594,10 +624,12 @@ describe('schema: E17 observability')
 
 **Acceptance criteria:**
 
-- [ ] All new columns added declaratively
-- [ ] Migration generated via `npx supabase db diff`, not hand-authored
-- [ ] `db reset` + `db diff` shows zero drift after migration applied
-- [ ] RPC callable from the service layer
+- [x] All new columns added declaratively
+- [x] Migration generated via `npx supabase db diff`, not hand-authored
+- [x] `db reset` + `db diff` shows zero drift after migration applied
+- [x] RPC callable from the service layer (21 integration tests in `tests/helpers/e17-observability-schema.integration.test.ts`)
+
+_Shipped in [#243 / PR #264](https://github.com/mironyx/feature-comprehension-score/pull/264)._
 
 ---
 
@@ -661,8 +693,8 @@ const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
 // ... on success:
 await ctx.adminSupabase.rpc('finalise_rubric', {
   p_assessment_id: id,
+  p_org_id: orgId,
   p_questions: rubric.questions,
-  p_additional_context_suggestions: rubric.additional_context_suggestions ?? [],
   p_rubric_input_tokens: rubric._usage.inputTokens,
   p_rubric_output_tokens: rubric._usage.outputTokens,
   p_rubric_tool_call_count: rubric._toolCalls.length,
