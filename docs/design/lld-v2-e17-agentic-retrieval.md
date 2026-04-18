@@ -94,6 +94,14 @@ classDiagram
     maxBytes: number
     maxExtraInputTokens: number
     timeoutMs: number
+    perToolCallTimeoutMs: number
+  }
+  class ToolCallLogEntry {
+    <<type>>
+    tool_name: string
+    argument_path: string
+    bytes_returned: number
+    outcome: ok | not_found | forbidden_path | error | budget_exhausted | iteration_limit_reached
   }
   class RubricGenerationResult {
     <<type>>
@@ -104,13 +112,18 @@ classDiagram
     durationMs: number
   }
   class ReadFileTool {
-    +handle(path, signal)
+    +handle(path, signal) ToolResult
   }
   class ListDirectoryTool {
-    +handle(path, signal)
+    +handle(path, signal) ToolResult
   }
   class PathSafety {
     +resolveRepoPath(path) Result
+  }
+  class RetrievalDetailsCard {
+    <<component>>
+    +toolCalls: ToolCallLogEntry[]
+    +missingArtefacts(): string[]
   }
 
   LLMClient <|.. OpenRouterClient : implements
@@ -118,6 +131,8 @@ classDiagram
   ListDirectoryTool ..> PathSafety : uses
   ReadFileTool ..|> ToolDefinition
   ListDirectoryTool ..|> ToolDefinition
+  RubricGenerationResult --> ToolCallLogEntry : contains
+  RetrievalDetailsCard --> ToolCallLogEntry : reads not_found outcomes
 ```
 
 - **Engine layer** (`src/lib/engine/llm/`, `src/lib/engine/generation/`): port types, loop, schemas. No I/O.
