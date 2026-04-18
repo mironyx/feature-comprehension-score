@@ -46,6 +46,7 @@ Treat future-version requirements as a **source of ideas**, not an immediate gap
 - Most recent `docs/reports/backlog/*-backlog-grooming.md` — to track which proposals were actioned.
 - Most recent `docs/reports/drift/*-drift-report.md` — extract Critical/Warning findings not yet tracked by an issue.
 - Most recent `docs/reports/retro/*-process-retro.md` — extract "New actions" rows not yet tracked by an issue.
+- Most recent `docs/reports/baseline/*-baseline.md` — authoritative picture of what is actually built. Use this to distinguish genuine coverage gaps from already-delivered work when assessing requirements.
 
 **Design / decisions:**
 - `docs/adr/` — browse for recent ADRs that may imply follow-up work (superseded decisions, accepted proposals).
