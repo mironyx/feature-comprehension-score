@@ -9,6 +9,7 @@
 | 2026-04-17 | LS / Claude | Design review: (1) reframed as "augment" not "replace" — existing artefacts remain primary context, tools for gaps only. (2) Resolved all open questions. (3) E11 artefact quality evaluation consolidated into rubric generation call (ADR-0023) — §17.1e updated with combined schema, prompt guidance, and E11 removal. |
 | 2026-04-18 | LS / Claude | Requirements v0.5 alignment: (1) E11 cancelled — stripped all quality-scoring refs from §17.1d, §17.1e, invariants, ACs. (2) Tool-call log replaces quality scoring as feedback mechanism (`not_found` → "Missing artefacts" summary). (3) Timeout split: 120s whole-loop default (configurable per org) + 10s per-call fixed. (4) Added `retrieval_timeout_seconds` to org_config + §17.2a UI. (5) Added "Missing artefacts" summary to §17.2b. (6) Added actor clarification (GitHub App installation token) and repo-scoping AC to §17.1b. (7) Added `warn`-level logging for `iteration_limit_reached`. |
 | 2026-04-19 | LS / Claude | §17.1d sync (issue #243): corrected RPC signature to match implementation — added `p_org_id`, removed non-existent `p_additional_context_suggestions`, changed status target from `'ready'` to `'awaiting_responses'`, documented that questions are inserted into `assessment_questions` (not updated as a column), added CHECK bounds on the two numeric org_config columns, noted the PostgreSQL overload (legacy 3-arg form preserved). |
+| 2026-04-19 | LS / Claude | Post-implementation sync for issue #249: §17.1b aligned with adapter as built — test files under `tests/lib/github/tools/` (project convention), shared `octokit-contents.ts` helper extracted during dedup, manual URL-segment encoding via `octokit.request` (Octokit's `{path}` placeholder encodes `/` as `%2F` and mis-routes), adapter-local `types.ts` for `ToolResult`/`ToolDefinition` while engine port (#245) is parallel. Future enhancement #266 tracked: batched multi-file retrieval via GraphQL. |
 
 ---
 
@@ -335,9 +336,14 @@ describe('Tool loop — engine types')
 - `src/lib/github/tools/path-safety.ts` — pure function: resolves and validates a repo-relative path
 - `src/lib/github/tools/read-file.ts` — tool definition using the Octokit contents API
 - `src/lib/github/tools/list-directory.ts` — tool definition using the Octokit contents API
-- `src/lib/github/tools/__tests__/path-safety.test.ts` — exhaustive path-safety matrix
-- `src/lib/github/tools/__tests__/read-file.test.ts`
-- `src/lib/github/tools/__tests__/list-directory.test.ts`
+- `src/lib/github/tools/octokit-contents.ts` — shared helper: `fetchContents`, `isNotFound`, `toErrorMessage`, `RepoRef` (extracted during dedup — issue #249)
+- `src/lib/github/tools/types.ts` — adapter-local `ToolResult` / `ToolDefinition` (retained until §17.1a engine port lands, then imports switch to `src/lib/engine/ports/llm.ts`)
+- `tests/lib/github/tools/path-safety.test.ts` — exhaustive path-safety matrix
+- `tests/lib/github/tools/read-file.test.ts`
+- `tests/lib/github/tools/list-directory.test.ts`
+
+> **Implementation note (issue #249):** Tests live under `tests/lib/github/tools/` (mirrors the
+> `tests/` tree convention used elsewhere in this repo), not `src/lib/github/tools/__tests__/`.
 
 **Path-safety contract:**
 
@@ -371,23 +377,32 @@ export function makeReadFileTool(octokit: Octokit, repo: RepoRef): ToolDefinitio
       const safe = resolveRepoPath(path);
       if (!safe.ok) return { kind: 'forbidden_path', reason: safe.reason, bytes: 0 };
       try {
-        const { data } = await octokit.rest.repos.getContent({ ...repo, path: safe.normalised, request: { signal } });
-        if (Array.isArray(data) || data.type !== 'file') {
+        const data = await fetchContents(octokit, repo, safe.normalised, signal);
+        if (Array.isArray(data) || !isFileContent(data)) {
           return { kind: 'error', message: 'path is not a file', bytes: 0 };
         }
-        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        const content = Buffer.from(String(data.content).replaceAll('\n', ''), 'base64').toString('utf-8');
         return { kind: 'ok', content, bytes: content.length };
       } catch (err) {
         if (isNotFound(err)) {
-          const similar = await suggestSimilarPaths(octokit, repo, safe.normalised);
+          const similar = await suggestSimilarPaths(octokit, repo, safe.normalised, signal);
           return { kind: 'not_found', similar_paths: similar, bytes: 0 };
         }
-        return { kind: 'error', message: toMessage(err), bytes: 0 };
+        return { kind: 'error', message: toErrorMessage(err), bytes: 0 };
       }
     },
   };
 }
 ```
+
+> **Implementation note (issue #249):** Initial implementation used
+> `octokit.rest.repos.getContent({ path })`, which passes `path` through the `{path}` URL
+> placeholder and encodes `/` as `%2F`. This mis-routes requests both in MSW-backed tests and
+> against real GitHub. The adapter now goes through the shared `fetchContents` helper in
+> `octokit-contents.ts`, which calls `octokit.request(\`GET /repos/{owner}/{repo}/contents/${encodeRepoPath(normalised)}\`, ...)`
+> with segment-by-segment `encodeURIComponent` so `/` is preserved as a path separator. This
+> matches the pattern already in `src/lib/github/artefact-source.ts`. The base64 decode also
+> strips newline separators before decoding (Octokit returns wrapped base64).
 
 **BDD specs:**
 
