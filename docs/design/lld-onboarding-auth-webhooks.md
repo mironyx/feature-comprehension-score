@@ -151,7 +151,7 @@ describe('handleWebhookEvent dispatch', () => {
 ## 8. Acceptance criteria
 
 - [x] All six event types (`installation.{created,deleted,suspend,unsuspend}`, `installation_repositories.{added,removed}`) are handled.
-- [ ] `organisations.installer_github_user_id` is populated from `sender.id` on `installation.created`. _(deferred → follow-up pending #179 merge)_
+- [x] ~~`organisations.installer_github_user_id` is populated from `sender.id` on `installation.created`.~~ _(descoped — first-install-race mitigation was descoped in lld-onboarding-auth-cutover.md §6; column never added to schema)_
 - [x] `installation.deleted` deletes `user_organisations` for the affected org.
 - [x] Replaying any event is a no-op (verified by tests calling the handler twice with the same payload).
 - [x] Signature verification in the route handler is unchanged.

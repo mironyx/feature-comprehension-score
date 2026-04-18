@@ -166,6 +166,6 @@ Declarative schema: `supabase/schemas/` is source of truth; migrations are gener
 ## Conventions
 
 - ADR format: `docs/adr/NNNN-title.md`
-- Commits: conventional (`feat:`, `docs:`, `fix:`, `chore:`). **No Co-Authored-By trailers.**
+- Commits: conventional (`feat:`, `docs:`, `fix:`, `chore:`). **No Co-Authored-By trailers.** Harness/skill/session commits (`docs(sessions):`, `docs(skill):`, `chore:` for tooling) are exempt from issue-reference requirement.
 - Branches: `feat/short-description`, `docs/short-description`
 - **API route contracts** — every `route.ts` declares query/path params and response shapes as inline TypeScript interfaces. See [ADR-0014](docs/adr/0014-api-route-contract-types.md).

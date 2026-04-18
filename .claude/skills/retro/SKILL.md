@@ -75,10 +75,23 @@ Save to `docs/reports/retro/YYYY-MM-DD-process-retro.md` using this structure:
 | Multi-agent readiness | Green / Amber / Red | |
 ```
 
-### 4. Summarise
+### 4. Run drift scan
+
+After writing the retro report, run `/drift-scan` to produce a fresh drift report. Reference
+the drift findings in the retro report's "What needs improving" section if any Critical or
+Warning items are found. This replaces the previous practice of carrying "run drift scan" as
+a retro action.
+
+### 5. Execute quick-win actions in-session
+
+Any retro action that takes <5 minutes (e.g., move issues on board, update a status field,
+add a CLAUDE.md line) should be executed during the retro session itself, not carried as
+future work. Update the actions table to show them as **Done**.
+
+### 6. Summarise
 
 Present:
 - The health scorecard
-- Top 3 actions to take
+- Top 3 actions to take (max 3 — if it doesn't make the cut, do it now or drop it)
 - Comparison with previous retro (if one exists)
 - The file path to the full report
