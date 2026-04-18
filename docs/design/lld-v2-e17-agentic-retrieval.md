@@ -272,6 +272,14 @@ export const DEFAULT_TOOL_LOOP_BOUNDS: ToolLoopBounds = {
   perToolCallTimeoutMs: 10_000,
 };
 
+export type ToolCallOutcome =
+  | 'ok'
+  | 'not_found'
+  | 'forbidden_path'
+  | 'error'
+  | 'budget_exhausted'
+  | 'iteration_limit_reached';
+
 export interface ToolCallLogEntry {
   readonly tool_name: string;
   readonly argument_path: string;
@@ -310,7 +318,14 @@ export interface LLMClient {
 }
 ```
 
-> **Implementation note (issue #245):** The concrete `OpenRouterClient.generateWithTools` ships as an explicit stub that throws `'generateWithTools not implemented — see §17.1c'`. This preserves the port contract — the interface is fully satisfied — while deferring runtime tool-loop behaviour to §17.1c. Mock clients follow the same pattern.
+> **Implementation note (issue #245):** Types in `tools.ts` are exported with `readonly`
+> modifiers throughout to make the contract immutable at the type level. A named
+> `ToolCallOutcome` type alias was extracted from the original inline literal union so
+> consumers can reference the outcome set by name; the six literals are otherwise
+> unchanged. The concrete `OpenRouterClient.generateWithTools` lands as an explicit stub
+> throwing `not implemented — see §17.1c` to preserve the port contract while runtime
+> behaviour is deferred; matching stubs were added to the test mock client and inline
+> `LLMClient` literals in the pipeline tests.
 
 **Loop behaviour (implemented inside the OpenRouter adapter, §17.1c — this task defines the types only):**
 
