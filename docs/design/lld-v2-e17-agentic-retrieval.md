@@ -220,7 +220,7 @@ export interface ToolLoopBounds {
   readonly maxBytes: number;
   readonly maxExtraInputTokens: number;
   readonly timeoutMs: number;
-  readonly perCallTimeoutMs: number;
+  readonly perToolCallTimeoutMs: number;
 }
 
 export const DEFAULT_TOOL_LOOP_BOUNDS: ToolLoopBounds = {
@@ -228,7 +228,7 @@ export const DEFAULT_TOOL_LOOP_BOUNDS: ToolLoopBounds = {
   maxBytes: 64 * 1024,
   maxExtraInputTokens: 10_000,
   timeoutMs: 120_000,
-  perCallTimeoutMs: 10_000,
+  perToolCallTimeoutMs: 10_000,
 };
 
 export interface ToolCallLogEntry {
@@ -438,7 +438,7 @@ async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
         }
         const parsed = def.inputSchema.safeParse(tc.args);
         if (!parsed.success) { /* error entry, continue */ }
-        const callSignal = combineSignals(loopController.signal, AbortSignal.timeout(bounds.perCallTimeoutMs));
+        const callSignal = combineSignals(loopController.signal, AbortSignal.timeout(bounds.perToolCallTimeoutMs));
         const result = await def.handler(parsed.data, callSignal);
         callCount += 1;
         cumulativeBytes += result.bytes;
@@ -473,7 +473,7 @@ describe('OpenRouter generateWithTools')
   it('stops invoking handlers after maxCalls; logs iteration_limit_reached')
   it('stops invoking handlers after maxBytes; logs budget_exhausted')
   it('aborts in-flight handlers when whole-loop timeoutMs elapses')
-  it('aborts a single slow handler after perCallTimeoutMs without consuming the whole budget')
+  it('aborts a single slow handler after perToolCallTimeoutMs without consuming the whole budget')
   it('returns malformed_response error when LLM final output fails schema validation')
   it('records input + output token usage from the LLM response')
   it('records durationMs from wall-clock')
