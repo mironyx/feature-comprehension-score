@@ -63,6 +63,8 @@ For each epic/story in the requirements docs, determine its actual status by cro
 
 **Code is primary.** When code and docs disagree, record what the code does and flag the discrepancy. Do not silently adopt the doc version.
 
+**Verify before reporting.** When a prior drift report or design doc claims a bug or missing code exists, **read the actual source file and check whether the problem is still present**. Code may have been fixed since the report was written. Do not parrot claims from old reports without verification. This is especially critical for findings you intend to classify as Critical or Divergent — every such finding must include a line reference to the current code that demonstrates the problem still exists. If the code has already been fixed, note it as resolved.
+
 ### 3. Identify emergent features
 
 Scan the code for capabilities not tracked by any requirement or design doc:
@@ -160,8 +162,12 @@ Save to `docs/reports/baseline/YYYY-MM-DD-baseline.md` using this structure:
 
 ## Discrepancies (doc ↔ code)
 
-| # | Location | Doc says | Code does | Severity | Recommendation |
-|---|----------|----------|-----------|----------|---------------|
+Every discrepancy must be verified against the current source code. Include the file path
+and line number where the problem was confirmed. If a prior report claimed a problem that
+has since been fixed, list it under "Resolved since last report" instead.
+
+| # | Location | Doc says | Code does | Verified at | Severity | Recommendation |
+|---|----------|----------|-----------|-------------|----------|---------------|
 
 ## Delta from Previous Baseline
 

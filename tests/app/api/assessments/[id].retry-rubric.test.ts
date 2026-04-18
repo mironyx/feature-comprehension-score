@@ -207,6 +207,11 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
     expect(body['status']).toBe('rubric_generation');
   });
 
+  it('passes the numeric installation ID to createGithubClient', async () => {
+    await callPost();
+    expect(createGithubClient).toHaveBeenCalledWith(42);
+  });
+
   it('returns 404 for non-existent assessment', async () => {
     assessmentResult = { data: null, error: null };
     const { status } = await callPost();
