@@ -1,5 +1,10 @@
 import type { Octokit } from '@octokit/rest';
-import type { RepoRef } from './read-file';
+
+export interface RepoRef {
+  owner: string;
+  repo: string;
+  ref?: string;
+}
 
 // Encode each segment individually to preserve `/` as URL separator — Octokit's
 // {path} parameter encodes slashes to %2F, which mis-routes both MSW and GitHub.

@@ -1,16 +1,10 @@
 import type { Octokit } from '@octokit/rest';
 import { z } from 'zod';
-import { fetchContents, isNotFound, toErrorMessage } from './octokit-contents';
+import { fetchContents, isNotFound, toErrorMessage, type RepoRef } from './octokit-contents';
 import { resolveRepoPath } from './path-safety';
 import type { ToolDefinition, ToolResult } from './types';
 
 const MAX_SIMILAR_PATHS = 5;
-
-export interface RepoRef {
-  owner: string;
-  repo: string;
-  ref?: string;
-}
 
 const inputSchema = z.object({ path: z.string() });
 
@@ -63,4 +57,4 @@ async function suggestSimilarPaths(
   }
 }
 
-export type { ToolResult };
+export type { RepoRef, ToolResult };

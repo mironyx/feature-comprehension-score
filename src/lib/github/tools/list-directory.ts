@@ -1,8 +1,7 @@
 import type { Octokit } from '@octokit/rest';
 import { z } from 'zod';
-import { fetchContents, isNotFound, toErrorMessage } from './octokit-contents';
+import { fetchContents, isNotFound, toErrorMessage, type RepoRef } from './octokit-contents';
 import { resolveRepoPath } from './path-safety';
-import type { RepoRef } from './read-file';
 import type { ToolDefinition } from './types';
 
 interface DirectoryEntry {
