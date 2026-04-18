@@ -28,22 +28,22 @@ This epic also lands the observability layer (token counts, tool-call log, wall-
 ```mermaid
 sequenceDiagram
   participant Caller as Assess pipeline
-  participant Loop as tool-use loop<br/>(engine)
+  participant Orch as Tool-use orchestrator (engine)
   participant LLM as LLM (OpenRouter)
-  participant Tools as Tool handlers<br/>(adapter)
+  participant Tools as Tool handlers (adapter)
 
-  Caller->>Loop: generateRubric(artefacts, tools, bounds)
-  Loop->>LLM: system + user prompt + tool defs
-  LLM-->>Loop: tool_call readFile("docs/adr/0014...")
-  Loop->>Tools: readFile(path)
-  Tools-->>Loop: { content } or { error }
-  Loop->>LLM: tool_result
-  LLM-->>Loop: tool_call listDirectory("docs/design")
-  Loop->>Tools: listDirectory(path)
-  Tools-->>Loop: { entries }
-  Loop->>LLM: tool_result
-  LLM-->>Loop: final structured response (rubric)
-  Loop-->>Caller: { rubric, tokens, tool_calls, duration_ms }
+  Caller->>Orch: generateRubric(artefacts, tools, bounds)
+  Orch->>LLM: system + user prompt + tool defs
+  LLM-->>Orch: tool_call readFile("docs/adr/0014...")
+  Orch->>Tools: readFile(path)
+  Tools-->>Orch: { content } or { error }
+  Orch->>LLM: tool_result
+  LLM-->>Orch: tool_call listDirectory("docs/design")
+  Orch->>Tools: listDirectory(path)
+  Tools-->>Orch: { entries }
+  Orch->>LLM: tool_result
+  LLM-->>Orch: final structured response (rubric)
+  Orch-->>Caller: { rubric, tokens, tool_calls, duration_ms }
 ```
 
 Bounds enforced at the loop boundary, not the LLM:
@@ -61,13 +61,13 @@ On breach the loop returns a typed error to the LLM (not an exception) and the L
 ```mermaid
 sequenceDiagram
   participant Caller as Assess pipeline
-  participant Loop as tool-use loop<br/>(engine)
+  participant Orch as Tool-use orchestrator (engine)
   participant LLM as LLM (OpenRouter)
 
-  Caller->>Loop: generateRubric(artefacts, tools=[], bounds)
-  Loop->>LLM: system + user prompt (no tool defs)
-  LLM-->>Loop: final structured response
-  Loop-->>Caller: { rubric, tokens, tool_calls=[], duration_ms }
+  Caller->>Orch: generateRubric(artefacts, tools=[], bounds)
+  Orch->>LLM: system + user prompt (no tool defs)
+  LLM-->>Orch: final structured response
+  Orch-->>Caller: { rubric, tokens, tool_calls=[], duration_ms }
 ```
 
 The tool-use loop is always the code path; passing an empty tool set is equivalent to the V1 single-shot call. Observability fields (tokens, empty call log, duration) are populated regardless.
