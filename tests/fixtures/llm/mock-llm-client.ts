@@ -37,6 +37,9 @@ function failure(error: LLMError) {
 
 export function createMockLLMClient(options?: MockLLMClientOptions): LLMClient {
   return {
+    generateWithTools: async () => {
+      throw new Error('generateWithTools not implemented in mock — see §17.1c');
+    },
     generateStructured: async (request) => {
       if (options?.error) {
         return failure({
