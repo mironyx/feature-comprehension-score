@@ -302,6 +302,46 @@ BEGIN
 END;
 $$;
 
+-- finalise_rubric (observability overload): inserts questions, updates status,
+-- and persists rubric-generation observability fields in a single transaction.
+-- V2 Epic 17. See docs/design/lld-v2-e17-agentic-retrieval.md §17.1d.
+CREATE OR REPLACE FUNCTION finalise_rubric(
+  p_assessment_id          uuid,
+  p_org_id                 uuid,
+  p_questions              jsonb,
+  p_rubric_input_tokens    integer,
+  p_rubric_output_tokens   integer,
+  p_rubric_tool_call_count integer,
+  p_rubric_tool_calls      jsonb,
+  p_rubric_duration_ms     integer
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO assessment_questions (
+    org_id, assessment_id, question_number,
+    naur_layer, question_text, weight, reference_answer, hint
+  )
+  SELECT p_org_id, p_assessment_id,
+    (q->>'question_number')::integer, q->>'naur_layer',
+    q->>'question_text', (q->>'weight')::integer, q->>'reference_answer',
+    q->>'hint'
+  FROM jsonb_array_elements(p_questions) AS q;
+
+  UPDATE assessments
+  SET status                 = 'awaiting_responses',
+      rubric_input_tokens    = p_rubric_input_tokens,
+      rubric_output_tokens   = p_rubric_output_tokens,
+      rubric_tool_call_count = p_rubric_tool_call_count,
+      rubric_tool_calls      = p_rubric_tool_calls,
+      rubric_duration_ms     = p_rubric_duration_ms,
+      updated_at             = now()
+  WHERE id = p_assessment_id;
+END;
+$$;
+
 -- persist_scoring_results: atomically updates the assessment aggregate score
 -- and individual answer scores after scoring completes.
 CREATE OR REPLACE FUNCTION persist_scoring_results(

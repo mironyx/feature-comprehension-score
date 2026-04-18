@@ -54,6 +54,9 @@ export interface Database {
           trivial_commit_threshold: number;
           exempt_file_patterns: string[];
           context_file_patterns: string[];
+          tool_use_enabled: boolean;
+          rubric_cost_cap_cents: number;
+          retrieval_timeout_seconds: number;
           created_at: string;
           updated_at: string;
         };
@@ -70,6 +73,9 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
+          tool_use_enabled?: boolean;
+          rubric_cost_cap_cents?: number;
+          retrieval_timeout_seconds?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +92,9 @@ export interface Database {
           trivial_commit_threshold?: number;
           exempt_file_patterns?: string[];
           context_file_patterns?: string[];
+          tool_use_enabled?: boolean;
+          rubric_cost_cap_cents?: number;
+          retrieval_timeout_seconds?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -269,6 +278,11 @@ export interface Database {
           skipped_by: string | null;
           skipped_at: string | null;
           superseded_by: string | null;
+          rubric_input_tokens: number | null;
+          rubric_output_tokens: number | null;
+          rubric_tool_call_count: number | null;
+          rubric_tool_calls: Json | null;
+          rubric_duration_ms: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -305,6 +319,11 @@ export interface Database {
           skipped_by?: string | null;
           skipped_at?: string | null;
           superseded_by?: string | null;
+          rubric_input_tokens?: number | null;
+          rubric_output_tokens?: number | null;
+          rubric_tool_call_count?: number | null;
+          rubric_tool_calls?: Json | null;
+          rubric_duration_ms?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -341,6 +360,11 @@ export interface Database {
           skipped_by?: string | null;
           skipped_at?: string | null;
           superseded_by?: string | null;
+          rubric_input_tokens?: number | null;
+          rubric_output_tokens?: number | null;
+          rubric_tool_call_count?: number | null;
+          rubric_tool_calls?: Json | null;
+          rubric_duration_ms?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -613,10 +637,24 @@ export interface Database {
         };
         Returns: string;
       };
-      finalise_rubric: {
-        Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
-        Returns: void;
-      };
+      finalise_rubric:
+        | {
+            Args: { p_assessment_id: string; p_org_id: string; p_questions: Json };
+            Returns: void;
+          }
+        | {
+            Args: {
+              p_assessment_id: string;
+              p_org_id: string;
+              p_questions: Json;
+              p_rubric_input_tokens: number;
+              p_rubric_output_tokens: number;
+              p_rubric_tool_call_count: number;
+              p_rubric_tool_calls: Json;
+              p_rubric_duration_ms: number;
+            };
+            Returns: void;
+          };
       persist_scoring_results: {
         Args: {
           p_assessment_id: string;
