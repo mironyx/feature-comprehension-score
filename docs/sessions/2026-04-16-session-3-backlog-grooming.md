@@ -1,3 +1,4 @@
+
 # Session 3 — 2026-04-16 — Backlog Grooming
 
 ## Summary
