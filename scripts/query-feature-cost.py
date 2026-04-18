@@ -89,6 +89,30 @@ def _extract_session_id(line: str, feature_id: str) -> str | None:
 
 
 def read_session_ids(feature_id: str) -> list[str]:
+    """Look up session IDs for a feature, querying Prometheus first, file as fallback."""
+    ids = _read_session_ids_from_prom(feature_id)
+    if ids:
+        return ids
+    return _read_session_ids_from_file(feature_id)
+
+
+def _read_session_ids_from_prom(feature_id: str) -> list[str]:
+    """Query Prometheus for session IDs mapped to this feature."""
+    try:
+        q = f'claude_session_feature{{feature_id="{feature_id}"}}'
+        url = PROM + "?" + urllib.parse.urlencode({"query": q})
+        rows = (
+            json.loads(urllib.request.urlopen(url, timeout=3).read())
+            .get("data", {})
+            .get("result", [])
+        )
+        return [r["metric"]["session_id"] for r in rows if "session_id" in r.get("metric", {})]
+    except Exception:
+        return []
+
+
+def _read_session_ids_from_file(feature_id: str) -> list[str]:
+    """Fallback: read session IDs from the local .prom textfile."""
     prom_file = git_root() / "monitoring" / "textfile_collector" / "session_feature.prom"
     if not prom_file.exists():
         return []
