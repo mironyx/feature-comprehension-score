@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
+| Version | 0.5 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
-| Last updated | 2026-04-17 |
+| Last updated | 2026-04-18 |
 
 ## Change Log
 
@@ -18,6 +18,7 @@
 | 0.2 | 2026-04-16 | LS / Claude | E11 and E17 review: rewrote Stories 11.1, 11.2, 17.1, 17.2 ACs in Given/When/Then. 11.1: fixed user role, specified intent-weighted aggregation (≥ 60% intent-adjacent), added evaluator-failure fallback, clarified `additional_context_suggestions` as calibration signal (not training). 11.2: added configurable artefact-quality low threshold (default 40%), completed flag matrix (healthy case), added `unavailable` fallback, explicit V1 Story 6.3 and V2 Story 12.1 dependencies. 17.1: reframed as spike with report deliverable, four concrete go/no-go criteria, and explicit scoping output for 17.2. 17.2: added hard dependency on 17.1, scoped-set semantics, retrieval-enabled-at-creation semantics, all-fail fallback, per-assessment LLM spend cap, additional GitHub scopes acknowledgement. |
 | 0.3 | 2026-04-16 | LS / Claude | E17 rearchitected: replaced deterministic-orchestrator framing with tool-use loop (ADR-0023). 17.1 rewritten as a concrete implementation story (two read-only tools: `readFile` + `listDirectory`, bounded loop with 5-call / 64 KiB / 10k-token caps, typed errors, full observability: tokens + call count + call log + duration). 17.2 rewritten as opt-in rollout + cost caps + call-log surfacing (off-by-default, 60s hard timeout, warning-coloured outcomes for policy breaches). Dropped: feasibility-study framing, suggestion-taxonomy analysis, additional GitHub scopes (existing V1 contents:read covers it). |
 | 0.4 | 2026-04-17 | LS / Claude | Design review: (1) E17 reframed as "augment not replace" — existing artefacts are primary context, tools only for gaps. (2) E11 quality evaluation consolidated into rubric-generation call (ADR-0023) — Story 11.1 AC updated, Story 17.1 gains combined-quality + prompt-guidance ACs. (3) Preparing for clean reimplementation of E11 + E17. |
+| 0.5 | 2026-04-18 | LS / Claude | E17 review comments addressed: (1) Removed all E11 artefact-quality references — E11 cancelled. (2) Replaced quality scoring with tool-call-log-as-feedback: `not_found` outcomes surfaced as "Missing artefacts" summary. (3) Added actor clarification — tool calls use GitHub App installation token, not Org Admin credentials. (4) Added explicit repo-scoping AC — installation token provides isolation, no cross-repo access. (5) Added `warn`-level logging for `iteration_limit_reached`. (6) Specified configuration UI — Organisation Settings page "Retrieval" section with toggle, spend cap, and timeout fields. (7) Split timeout: 120s whole-loop default (configurable) + 10s per-call fixed. (8) Specified display: collapsible "Retrieval details" section on assessment results page. |
 
 ---
 
@@ -546,7 +547,7 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 
 **Architectural decision recorded in:** ADR-0023 (Tool-use loop for rubric generation).
 
-**E11 consolidation:** The rubric-generation call also produces the artefact quality score (Epic 11), eliminating the separate quality-evaluation LLM call. This halves input-token cost for the artefact payload. Quality fields are optional in the response schema; if omitted, quality falls back to `unavailable`. See [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call).
+**Feedback via tool-call log:** Rather than scoring artefact quality (deferred with Epic 11), the tool-call log itself serves as the feedback mechanism. When the LLM attempts to read artefacts that do not exist (e.g., ADRs, design docs), `not_found` outcomes in the log are surfaced as a brief "missing artefacts" summary on the results page, giving the Org Admin actionable signals about what to create or improve. No separate quality scoring system required.
 
 ### Story 17.1: Tool-Based Context Retrieval During Rubric Generation
 
@@ -554,24 +555,26 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 **I want** the rubric-generation LLM to fetch repository artefacts on demand via tools,
 **so that** questions are grounded in the right artefacts without the engineer having to hand-curate the initial context.
 
+**Note on actor:** The Org Admin is the beneficiary of this capability. Tool calls execute via the **GitHub App installation token** scoped to repositories the installation has access to. The Org Admin does not authenticate tool calls directly.
+
 **Acceptance Criteria:**
 
-- Given a rubric-generation request, when the LLM runs, then it has access to two read-only tools bound to the assessment's repository:
+- Given a rubric-generation request, when the LLM runs, then it has access to two read-only tools bound to the assessment's repository via the GitHub App installation token:
   - `readFile(path: string)` — returns file contents from a repo-relative path, or a structured `not_found` error containing up to 5 nearest matching paths.
   - `listDirectory(path: string)` — returns the immediate entries (files and sub-directories) of a repo-relative directory.
+- Given the tools are bound to a repository, then all tool calls are scoped to **only** the repository associated with the assessment. The GitHub App installation token provides repository-level isolation; tool implementations must not accept repository identifiers as parameters or allow cross-repository access.
 - Given the LLM invokes a tool, when the path is outside the repository root, is absolute, or traverses via `..`, then the tool returns a typed `forbidden_path` error and the assessment proceeds; the LLM is not terminated on a bad path.
-- Given the LLM is running, when the total tool-call count exceeds **5 per rubric generation**, then no further tool calls are honoured; remaining calls return a typed `iteration_limit_reached` error and the LLM is expected to finalise.
+- Given the LLM is running, when the total tool-call count exceeds **5 per rubric generation**, then no further tool calls are honoured; remaining calls return a typed `iteration_limit_reached` error, the event is logged at `warn` level with the assessment ID, and the LLM is expected to finalise.
 - Given the LLM is running, when the cumulative bytes returned by tool calls exceeds **64 KiB per rubric generation** OR the cumulative extra input tokens from tool results exceeds **10 000 tokens**, then subsequent calls return a typed `budget_exhausted` error and the LLM finalises.
 - Given a rubric generation completes (success or budget-exhausted), when the assessment is persisted, then the following observability fields are stored on the assessment:
   - **total input tokens**, **total output tokens**, and **tool-call count** for the rubric generation
-  - a **tool-call log**: ordered array of `{ tool_name, argument_path, bytes_returned, outcome }` entries (outcomes: `ok | not_found | forbidden_path | error`)
+  - a **tool-call log**: ordered array of `{ tool_name, argument_path, bytes_returned, outcome }` entries (outcomes: `ok | not_found | forbidden_path | iteration_limit_reached | budget_exhausted | error`)
   - **wall-clock duration** in milliseconds for the rubric generation
 - Given any tool call throws or times out, when the loop continues, then the failure is surfaced to the LLM as a typed error result (never a thrown exception) and recorded in the tool-call log; the assessment is not aborted.
 - Given rubric generation fails entirely (LLM error independent of tools), then the assessment behaves exactly as it does in V1 for the same failure — no new failure modes are introduced by the tool loop.
-- Given the rubric-generation call completes successfully, when the response includes artefact quality fields (dimensions + aggregate score), then those fields are persisted alongside the questions in the same transaction. If the model omits the quality fields, the artefact quality score is recorded as `unavailable` (Epic 11 fallback semantics).
-- Given the rubric-generation prompt, then it instructs the LLM to: (1) generate questions from the provided artefacts first, (2) only use tools when the supplied context is insufficient, and (3) evaluate artefact quality from the same context. This ensures tools are not called eagerly when the existing artefact set already contains everything needed.
+- Given the rubric-generation prompt, then it instructs the LLM to: (1) generate questions from the provided artefacts first, (2) only use tools when the supplied context is insufficient. This ensures tools are not called eagerly when the existing artefact set already contains everything needed.
 
-**Notes:** The starting tool set is deliberately minimal — two read-only file-system tools. Additional tools (e.g. `fetchIssue`, `listPullRequestCommits`) may be added in future stories based on observed call-log patterns. No network access outside the existing GitHub adapter. No write tools, ever.
+**Notes:** The starting tool set is deliberately minimal — two read-only file-system tools. Additional tools (e.g. `fetchIssue`, `listPullRequestCommits`) may be added in future stories based on observed call-log patterns. No network access outside the existing GitHub adapter. No write tools, ever. The tool-call log doubles as the artefact-gap feedback mechanism: `not_found` outcomes indicate artefacts the LLM expected but could not find — surfaced in Story 17.2.
 
 ### Story 17.2: Opt-In Rollout, Cost Caps, and Call-Log Surfacing
 
@@ -583,15 +586,28 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 
 **Acceptance Criteria:**
 
-- Given the default organisation configuration, then tool-based retrieval is **disabled**; rubric generation runs without tools until the Org Admin explicitly opts in.
-- Given the Org Admin enables tool-based retrieval, when the next assessment is generated, then the tool loop runs for that assessment and the enabled flag is recorded at assessment-creation time (later opt-outs do not retroactively disable completed assessments).
-- Given an organisation has retrieval enabled, when the Org Admin sets a **per-assessment additional LLM spend cap** (configurable, default: twice the V1 baseline assessment cost), then any rubric generation whose running cost would exceed the cap has further tool calls refused with a `budget_exhausted` error; the per-assessment cost breakdown attributes tool-driven token spend separately from base generation spend.
-- Given tool-based retrieval is enabled, when the rubric-generation wall-clock exceeds **60 seconds**, then the tool loop is aborted via `AbortSignal`, the LLM is expected to finalise, and the assessment proceeds with whatever questions the LLM produced before the abort.
-- Given an assessment has a non-empty tool-call log, when the Org Admin views the results page, then the page shows: total tool calls, total extra tokens consumed, total bytes read, and an expandable list of each call with `{ tool_name, argument_path, outcome }`.
-- Given an assessment was generated with tool-based retrieval **disabled**, when the Org Admin views the results page, then no tool-call block is shown.
-- Given any tool call returns `forbidden_path` or `budget_exhausted`, when the call log is surfaced, then those outcomes are visually distinct (warning colour) so audit readers can spot attempted policy breaches at a glance.
+**Configuration (Organisation Settings page — "Retrieval" section):**
 
-**Notes:** No additional GitHub App scopes are required — the repository-contents read permission granted by the V1 installation already covers `readFile` and `listDirectory` via the existing GitHub adapter.
+- Given the Organisation Settings page, then it includes a **"Retrieval"** section with the following controls:
+  - **Enable tool-based retrieval** — toggle (default: off).
+  - **Per-assessment spend cap** — numeric input in USD (`retrieval_spend_cap_usd`, default: twice the V1 baseline assessment cost). Sets the maximum additional LLM spend from tool-driven tokens per assessment.
+  - **Loop timeout** — numeric input in seconds (`retrieval_timeout_seconds`, default: 120). Sets the wall-clock limit for the entire tool loop including LLM thinking time.
+- Given the default organisation configuration, then tool-based retrieval is **disabled**; rubric generation runs without tools until the Org Admin explicitly enables it via the toggle.
+- Given the Org Admin enables tool-based retrieval, when the next assessment is generated, then the tool loop runs for that assessment and the enabled flag is recorded at assessment-creation time (later opt-outs do not retroactively disable completed assessments).
+
+**Cost and timeout enforcement:**
+
+- Given an organisation has retrieval enabled and a spend cap configured, when a rubric generation's running tool-driven token spend would exceed the cap, then further tool calls are refused with a `budget_exhausted` error; the per-assessment cost breakdown attributes tool-driven token spend separately from base generation spend.
+- Given tool-based retrieval is enabled, when the rubric-generation wall-clock exceeds the configured **loop timeout** (default: **120 seconds** for the entire loop), then the tool loop is aborted via `AbortSignal`, the LLM is expected to finalise, and the assessment proceeds with whatever questions the LLM produced before the abort. Individual tool calls have a fixed **10-second** per-call timeout; a single slow call does not consume the entire budget.
+
+**Results page — "Retrieval details" section:**
+
+- Given an assessment has a non-empty tool-call log, when the Org Admin views the **assessment results page**, then a collapsible **"Retrieval details"** section appears below the FCS score showing: total tool calls, total extra tokens consumed, total bytes read, and an expandable list of each call with `{ tool_name, argument_path, outcome }`.
+- Given the tool-call log contains `not_found` outcomes, when the retrieval details section renders, then a brief **"Missing artefacts"** summary appears at the top of the section listing the paths that were not found (e.g., "2 artefacts not found: `docs/adr/0001-...`, `docs/design/...`").
+- Given any tool call returns `forbidden_path` or `budget_exhausted`, when the call log is surfaced, then those outcomes are visually distinct (warning colour) so audit readers can spot policy-breach attempts at a glance.
+- Given an assessment was generated with tool-based retrieval **disabled**, when the Org Admin views the results page, then no retrieval details section is shown.
+
+**Notes:** No additional GitHub App scopes are required — the repository-contents read permission granted by the V1 installation already covers `readFile` and `listDirectory` via the existing GitHub adapter. All configuration fields follow the same organisation-settings pattern established in V1 Story 1.3.
 
 ---
 
