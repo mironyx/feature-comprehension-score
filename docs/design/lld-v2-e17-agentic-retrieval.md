@@ -7,6 +7,7 @@
 | 2026-04-16 | LS / Claude | Initial LLD — deterministic orchestrator over strategy registry. |
 | 2026-04-16 | LS / Claude | Rewritten around tool-use loop per ADR-0023. Replaces orchestrator + strategy framework with two read-only tools (`readFile`, `listDirectory`), a bounded multi-turn loop, and observability (tokens + call log + duration) on every rubric generation. Drops feasibility-spike framing, suggestion-taxonomy analysis, additional GitHub scopes. |
 | 2026-04-17 | LS / Claude | Design review: (1) reframed as "augment" not "replace" — existing artefacts remain primary context, tools for gaps only. (2) Resolved all open questions. (3) E11 artefact quality evaluation consolidated into rubric generation call (ADR-0023) — §17.1e updated with combined schema, prompt guidance, and E11 removal. |
+| 2026-04-18 | LS / Claude | Requirements v0.5 alignment: (1) E11 cancelled — stripped all quality-scoring refs from §17.1d, §17.1e, invariants, ACs. (2) Tool-call log replaces quality scoring as feedback mechanism (`not_found` → "Missing artefacts" summary). (3) Timeout split: 120s whole-loop default (configurable per org) + 10s per-call fixed. (4) Added `retrieval_timeout_seconds` to org_config + §17.2a UI. (5) Added "Missing artefacts" summary to §17.2b. (6) Added actor clarification (GitHub App installation token) and repo-scoping AC to §17.1b. (7) Added `warn`-level logging for `iteration_limit_reached`. |
 
 ---
 
@@ -14,9 +15,9 @@
 
 ### Purpose
 
-Augment V1's artefact assembly with **on-demand retrieval via a tool-use loop**: the rubric-generation LLM receives the existing artefact set (PR diff, PR body, linked issues, commits) as before, plus two read-only tools — `readFile` and `listDirectory` — that it may call when the provided context is insufficient to generate high-quality questions. The LLM should exhaust the supplied artefacts first and only reach for tools when it identifies gaps. No second LLM pass, no batch-suggest-then-fulfil phase, no strategy registry.
+Augment V1's artefact assembly with **on-demand retrieval via a tool-use loop**: the rubric-generation LLM receives the existing artefact set (PR diff, PR body, linked issues, commits) as before, plus two read-only tools — `readFile` and `listDirectory` — that it may call when the provided context is insufficient to generate high-quality questions. The LLM should exhaust the supplied artefacts first and only reach for tools when it identifies gaps. Tool calls execute via the **GitHub App installation token** scoped to the assessment's repository. No second LLM pass, no batch-suggest-then-fulfil phase, no strategy registry.
 
-This epic also lands the observability layer (token counts, tool-call log, wall-clock duration) on every rubric generation, whether tool-use is enabled or not.
+This epic also lands the observability layer (token counts, tool-call log, wall-clock duration) on every rubric generation, whether tool-use is enabled or not. The tool-call log doubles as the artefact-quality feedback mechanism: `not_found` outcomes indicate artefacts the LLM expected but could not find, surfaced as a "Missing artefacts" summary on the results page.
 
 **Architectural decision:** [ADR-0023](../adr/0023-tool-use-loop-rubric-generation.md).
 
@@ -50,9 +51,10 @@ Bounds enforced at the loop boundary, not the LLM:
 - call count ≤ 5
 - cumulative bytes ≤ 64 KiB
 - extra input tokens ≤ 10 000
-- wall-clock ≤ 60 s (AbortSignal)
+- whole-loop wall-clock ≤ 120 s (configurable per org via `retrieval_timeout_seconds`; enforced via `AbortSignal`)
+- per-call timeout: 10 s fixed (a single slow call does not consume the entire budget)
 
-On breach the loop returns a typed error to the LLM (not an exception) and the LLM is expected to finalise with what it has.
+On breach the loop returns a typed error to the LLM (not an exception) and the LLM is expected to finalise with what it has. `iteration_limit_reached` breaches are logged at `warn` level with the assessment ID.
 
 ### Behavioural Flow — Rubric Generation With Tool-Use Disabled
 
@@ -133,40 +135,37 @@ classDiagram
 | 5 | Observability fields are populated on every rubric generation, including disabled path and failure paths. | Test: four scenarios (enabled/disabled × success/error) all persist non-null tokens + duration. |
 | 6 | The loop is pure engine code — no `import` from `@/lib/github`, `@/lib/supabase`, or `next/*`. | CI check: grep engine dir for forbidden imports. |
 | 7 | Tool-use is off by default per organisation. | Test: new org row has `tool_use_enabled = false`; pipeline reads flag before attaching tools. |
-| 8 | Abort on timeout must propagate into in-flight tool calls via `AbortSignal`. | Test: a slow tool handler is cancelled when the loop's controller aborts. |
+| 8 | Abort on timeout must propagate into in-flight tool calls via `AbortSignal`. Whole-loop timeout is configurable (default 120s); per-call timeout is fixed at 10s. | Test: a slow tool handler is cancelled when the loop's controller aborts; per-call timeout fires before whole-loop timeout. |
 | 9 | The LLM port's `generateWithTools` method must never leak OpenRouter-specific types into the engine layer. | Type check: signature uses Zod schemas and port-owned tool types only. |
 | 10 | Path allow-list logic is implemented once, in `path-safety.ts`; no ad-hoc path joins elsewhere. | Grep: `path.resolve` and `path.join` appear only inside `path-safety.ts`. |
 
 ### Acceptance Criteria (rolled up for Part B to split into tasks)
 
 - [ ] `LLMClient` port gains `generateWithTools<T>(req): Promise<LLMResult<{ data: T, usage, toolCalls }>>`; OpenRouter adapter implements it.
-- [ ] Engine-layer tool-use loop exists with 5-call / 64 KiB / 10k-token / 60s caps and typed errors for each breach.
-- [ ] Adapter-layer `readFile` and `listDirectory` handlers exist, share a single `path-safety` module, and handle every case in the path-safety test matrix.
+- [ ] Engine-layer tool-use loop exists with 5-call / 64 KiB / 10k-token / 120s caps and typed errors for each breach. Per-call timeout 10s fixed.
+- [ ] Adapter-layer `readFile` and `listDirectory` handlers exist, share a single `path-safety` module, and handle every case in the path-safety test matrix. Tool calls scoped to the assessment's repository via GitHub App installation token.
 - [ ] Rubric generation flows through `generateWithTools` unconditionally; tool-use-disabled orgs pass an empty tool set.
 - [ ] `assessments` table gains `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls` (jsonb), `rubric_duration_ms` columns (all populated on every rubric generation).
-- [ ] `org_config` gains `tool_use_enabled boolean not null default false` and `rubric_cost_cap_cents integer not null default 20` (2× V1 baseline).
-- [ ] Results page renders tool-call log when non-empty; hides the block when empty/disabled.
+- [ ] `org_config` gains `tool_use_enabled boolean not null default false`, `rubric_cost_cap_cents integer not null default 20` (2× V1 baseline), and `retrieval_timeout_seconds integer not null default 120`.
+- [ ] Results page renders tool-call log in a collapsible "Retrieval details" section when non-empty; hides the block when empty/disabled.
+- [ ] "Missing artefacts" summary appears at the top of the retrieval details section when `not_found` outcomes exist.
 - [ ] Warning-coloured rendering for `forbidden_path` and `budget_exhausted` outcomes.
 - [ ] `finalise_rubric_v3` RPC persists all new fields in one transaction.
+- [ ] `iteration_limit_reached` logged at `warn` level with assessment ID.
 
 ### Open Questions
 
 1. **Tokenizer choice for the `maxExtraInputTokens` cap.** The LLM's reported input-token count (from the OpenRouter response) is authoritative at finalisation but unavailable mid-loop. Pre-flight estimation is needed. Candidates: (a) simple heuristic `bytes / 4`, (b) a local tokenizer matching the target model, (c) just cap on bytes and drop the token cap. **Resolved:** go with `bytes / 4` heuristic and cap on bytes as the primary gate; token cap becomes a soft post-hoc check. Revisit after production telemetry.
 2. **Whether to expose tool-call log to participants or admin-only.** Participants could find it distracting; admins want auditability. **Resolved:** admin-only for V2. Revisit if surveyed.
-3. **Interaction with the E11 artefact-quality evaluator.** E11 runs a separate LLM call that also reads the artefact set, doubling input-token cost for the same artefact payload. **Resolved:** consolidate into a single call. The rubric-generation prompt produces both questions and artefact quality assessment in one structured response. Quality fields are optional in the schema — if the model omits them, quality falls back to `unavailable`. E11's dimensions, weights, and intent-adjacency invariant are preserved. The separate `evaluateArtefactQuality()` call is removed from the pipeline in §17.1e. See [ADR-0023 § Artefact quality evaluation](../adr/0023-tool-use-loop-rubric-generation.md#artefact-quality-evaluation-e11--combined-call).
+3. **Interaction with the E11 artefact-quality evaluator.** **Resolved:** E11 cancelled (2026-04-18). Artefact quality feedback comes from the tool-call log — `not_found` outcomes are surfaced as a "Missing artefacts" summary on the results page. No quality-scoring LLM call required.
 
 ---
 
 ## Part B — Agent-Implementable
 
-### Cross-epic ordering with E11
+### Cross-epic note
 
-E11 (#233) adds `finalise_rubric_v2` with artefact-quality columns. E17 (#240) adds `finalise_rubric_v3` with observability + tool-use columns. The implementing agent should check `main` at branch creation:
-
-- If `finalise_rubric_v2` is already in `main`, add `_v3` that extends it with E17 fields.
-- If `_v2` is not yet in `main`, create `_v3` that supersedes V1 directly and E11 will rebase onto it.
-
-Either ordering is fine; the RPC is the serialisation point.
+E11 (#233, Artefact Quality Scoring) is cancelled. `finalise_rubric_v3` supersedes V1's `finalise_rubric` directly — no E11 columns. If `finalise_rubric_v2` exists in `main` from prior E11 work, `_v3` replaces it.
 
 ### Task breakdown
 
@@ -176,9 +175,9 @@ Either ordering is fine; the RPC is the serialisation point.
 | §17.1b — Path-safety module + `readFile` + `listDirectory` tool handlers | adapter | ~140 lines | — |
 | §17.1c — OpenRouter adapter: implement `generateWithTools` (multi-turn, tool-use API) | adapter | ~160 lines | §17.1a |
 | §17.1d — Schema: observability columns + `tool_use_enabled` + `rubric_cost_cap_cents` + `finalise_rubric_v3` | DB | ~120 lines | — |
-| §17.1e — Pipeline integration: route rubric generation through `generateWithTools`, persist observability via `_v3` | engine+BE | ~140 lines | §17.1a, §17.1b, §17.1c, §17.1d |
-| §17.2a — Org settings UI: enable flag + cost cap input | FE | ~100 lines | §17.1d |
-| §17.2b — Results page: tool-call log block with warning styling | FE | ~160 lines | §17.1e |
+| §17.1e — Pipeline integration: route rubric generation through `generateWithTools`, persist observability via `_v3` | engine+BE | ~120 lines | §17.1a, §17.1b, §17.1c, §17.1d |
+| §17.2a — Org settings UI: "Retrieval" section (toggle + cost cap + loop timeout) | FE | ~120 lines | §17.1d |
+| §17.2b — Results page: collapsible "Retrieval details" section + "Missing artefacts" summary | FE | ~180 lines | §17.1e |
 
 Seven tasks. Each ≤ 200 lines. Wave plan in the epic body.
 
@@ -221,13 +220,15 @@ export interface ToolLoopBounds {
   readonly maxBytes: number;
   readonly maxExtraInputTokens: number;
   readonly timeoutMs: number;
+  readonly perCallTimeoutMs: number;
 }
 
 export const DEFAULT_TOOL_LOOP_BOUNDS: ToolLoopBounds = {
   maxCalls: 5,
   maxBytes: 64 * 1024,
   maxExtraInputTokens: 10_000,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
+  perCallTimeoutMs: 10_000,
 };
 
 export interface ToolCallLogEntry {
@@ -282,7 +283,7 @@ export interface LLMClient {
 
 ```
 describe('Tool loop — engine types')
-  it('DEFAULT_TOOL_LOOP_BOUNDS is 5/64KiB/10k/60s as per ADR-0023')
+  it('DEFAULT_TOOL_LOOP_BOUNDS is 5/64KiB/10k/120s/10s-per-call as per requirements v0.5')
   it('ToolResult discriminated union has exhaustive match — compile-time')
   it('ToolCallLogEntry outcomes include the six documented enum values')
   it('GenerateWithToolsRequest.bounds is partial — merges with defaults')
@@ -324,6 +325,8 @@ Rejections (non-exhaustive; the test matrix is the contract):
 - Empty: `""`, `"   "`
 - Null bytes, control characters
 - Symlink resolution is delegated to GitHub adapter (GitHub contents API will not follow them across repo boundary)
+
+**Actor and repo scoping:** Tool calls execute via the **GitHub App installation token** scoped to the assessment's repository. The installation token provides repository-level isolation; tool implementations must not accept repository identifiers as parameters or allow cross-repository access. The `octokit` instance passed to `makeReadFileTool` / `makeListDirectoryTool` is already scoped to the correct repository via the installation token.
 
 **Handler pattern (readFile):**
 
@@ -408,14 +411,14 @@ describe('listDirectory tool')
 async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
   const bounds = { ...DEFAULT_TOOL_LOOP_BOUNDS, ...req.bounds };
   const start = Date.now();
-  const controller = combineSignals(req.signal, AbortSignal.timeout(bounds.timeoutMs));
+  const loopController = combineSignals(req.signal, AbortSignal.timeout(bounds.timeoutMs));
   let callCount = 0, cumulativeBytes = 0;
   const toolCalls: ToolCallLogEntry[] = [];
   const messages = [systemPrompt, userPrompt];
   const toolDefsForAPI = req.tools.map(toOpenRouterToolDef);
 
   while (true) {
-    const resp = await openrouterChat({ messages, tools: toolDefsForAPI, signal: controller.signal });
+    const resp = await openrouterChat({ messages, tools: toolDefsForAPI, signal: loopController.signal });
     if (resp.tool_calls?.length) {
       for (const tc of resp.tool_calls) {
         if (callCount >= bounds.maxCalls) {
@@ -435,7 +438,8 @@ async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
         }
         const parsed = def.inputSchema.safeParse(tc.args);
         if (!parsed.success) { /* error entry, continue */ }
-        const result = await def.handler(parsed.data, controller.signal);
+        const callSignal = combineSignals(loopController.signal, AbortSignal.timeout(bounds.perCallTimeoutMs));
+        const result = await def.handler(parsed.data, callSignal);
         callCount += 1;
         cumulativeBytes += result.bytes;
         toolCalls.push({ tool_name: tc.name, argument_path: parsed.data.path, bytes_returned: result.bytes, outcome: result.kind });
@@ -468,7 +472,8 @@ describe('OpenRouter generateWithTools')
   it('invokes handlers for each tool call and feeds results back')
   it('stops invoking handlers after maxCalls; logs iteration_limit_reached')
   it('stops invoking handlers after maxBytes; logs budget_exhausted')
-  it('aborts in-flight handlers when timeoutMs elapses')
+  it('aborts in-flight handlers when whole-loop timeoutMs elapses')
+  it('aborts a single slow handler after perCallTimeoutMs without consuming the whole budget')
   it('returns malformed_response error when LLM final output fails schema validation')
   it('records input + output token usage from the LLM response')
   it('records durationMs from wall-clock')
@@ -503,6 +508,7 @@ alter table assessments add column rubric_duration_ms integer null;
 -- org_config
 alter table org_config add column tool_use_enabled boolean not null default false;
 alter table org_config add column rubric_cost_cap_cents integer not null default 20;
+alter table org_config add column retrieval_timeout_seconds integer not null default 120;
 ```
 
 (Declarative: edit `supabase/schemas/tables.sql` directly; run `npx supabase db diff -f e17_observability_tool_use`.)
@@ -513,8 +519,6 @@ alter table org_config add column rubric_cost_cap_cents integer not null default
 create or replace function finalise_rubric_v3(
   p_assessment_id uuid,
   p_questions jsonb,
-  p_artefact_quality_score integer,       -- from E11 if in main, else null
-  p_artefact_quality_dimensions jsonb,
   p_additional_context_suggestions jsonb,
   p_rubric_input_tokens integer,
   p_rubric_output_tokens integer,
@@ -526,8 +530,6 @@ language plpgsql security definer set search_path = public as $$
 begin
   update assessments set
     questions = p_questions,
-    artefact_quality_score = p_artefact_quality_score,
-    artefact_quality_dimensions = p_artefact_quality_dimensions,
     additional_context_suggestions = p_additional_context_suggestions,
     rubric_input_tokens = p_rubric_input_tokens,
     rubric_output_tokens = p_rubric_output_tokens,
@@ -547,9 +549,9 @@ describe('schema: E17 observability')
   it('assessments.rubric_input_tokens defaults to null on legacy rows')
   it('org_config.tool_use_enabled defaults to false')
   it('org_config.rubric_cost_cap_cents defaults to 20')
+  it('org_config.retrieval_timeout_seconds defaults to 120')
   it('finalise_rubric_v3 persists all observability fields in one call')
-  it('finalise_rubric_v3 accepts null for E11 columns (cross-epic ordering)')
-  it('legacy finalise_rubric_v2 still works (no breaking change)')
+  it('legacy finalise_rubric still works (no breaking change)')
 ```
 
 **Acceptance criteria:**
@@ -561,34 +563,18 @@ describe('schema: E17 observability')
 
 ---
 
-### §17.1e — Pipeline integration + observability persistence + E11 consolidation
+### §17.1e — Pipeline integration + observability persistence
 
 **Files to modify:**
 
-- `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`; extend response schema to include artefact quality fields
-- `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric; remove parallel `evaluateArtefactQuality()` call
+- `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`
+- `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric
 - `src/app/api/fcs/service.ts` — wire concrete tools + call `finalise_rubric_v3`
-- `src/lib/engine/llm/schemas.ts` — extend `QuestionGenerationResponseSchema` with optional quality dimensions
-- Tests for engine, service, and combined-call fallback behaviour
+- Tests for engine and service
 
 **Prompt guidance (augment, not replace):**
 
 The rubric-generation system prompt must instruct the LLM to treat the provided artefacts as primary context and only use tools when the supplied information is insufficient to generate high-quality, specific questions. This prevents eager tool calls when the PR diff + issues already contain everything needed.
-
-**E11 consolidation (combined call):**
-
-The separate `evaluateArtefactQuality()` LLM call is removed from the pipeline. Artefact quality assessment is folded into the rubric-generation response schema as **optional fields**:
-
-```typescript
-// Added to QuestionGenerationResponseSchema
-artefact_quality_score: z.number().int().min(0).max(100).optional(),
-artefact_quality_dimensions: z.array(ArtefactQualityDimensionSchema).optional(),
-```
-
-- If the model produces quality fields → use them (same dimensions, weights, and intent-adjacency invariant as E11).
-- If the model omits them → `artefact_quality_score = null` (renders as `unavailable` on the results page, same as E11's failure fallback).
-- E11's prompt guidance for the six dimensions and intent-adjacent weighting (≥ 60%) is incorporated into the rubric-generation system prompt.
-- The existing `evaluateArtefactQuality()` function is deleted along with its dedicated test file.
 
 **Engine change (generate-questions.ts):**
 
@@ -599,7 +585,7 @@ export async function generateQuestions(request: GenerateQuestionsRequest): Prom
   const result = await llmClient.generateWithTools({
     systemPrompt,
     prompt: userPrompt,
-    schema: RubricGenerationResponseSchema, // extended with optional quality fields
+    schema: RubricGenerationResponseSchema,
     tools: request.tools,     // empty array if org has flag off
     bounds: request.bounds,   // optional override
     signal: request.signal,
@@ -622,21 +608,22 @@ export async function generateQuestions(request: GenerateQuestionsRequest): Prom
 **Service change (fcs/service.ts):**
 
 ```typescript
-const orgConfig = await ctx.supabase.from('org_config').select('tool_use_enabled, rubric_cost_cap_cents').eq('org_id', orgId).single();
+const orgConfig = await ctx.supabase.from('org_config')
+  .select('tool_use_enabled, rubric_cost_cap_cents, retrieval_timeout_seconds')
+  .eq('org_id', orgId).single();
 const tools = orgConfig.data?.tool_use_enabled
   ? [makeReadFileTool(octokit, repo), makeListDirectoryTool(octokit, repo)]
   : [];
-const bounds = orgConfig.data?.rubric_cost_cap_cents
-  ? { ...DEFAULT_TOOL_LOOP_BOUNDS, /* derive maxExtraInputTokens from cost cap */ }
-  : undefined;
-// Single call — produces questions + artefact quality (optional)
+const bounds = {
+  ...DEFAULT_TOOL_LOOP_BOUNDS,
+  timeoutMs: (orgConfig.data?.retrieval_timeout_seconds ?? 120) * 1000,
+  /* derive maxExtraInputTokens from cost cap if set */
+};
 const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
 // ... on success:
 await ctx.adminSupabase.rpc('finalise_rubric_v3', {
   p_assessment_id: id,
   p_questions: rubric.questions,
-  p_artefact_quality_score: rubric.artefact_quality_score ?? null,
-  p_artefact_quality_dimensions: rubric.artefact_quality_dimensions ?? null,
   p_additional_context_suggestions: rubric.additional_context_suggestions ?? [],
   p_rubric_input_tokens: rubric._usage.inputTokens,
   p_rubric_output_tokens: rubric._usage.outputTokens,
@@ -652,18 +639,12 @@ await ctx.adminSupabase.rpc('finalise_rubric_v3', {
 describe('Pipeline integration — rubric generation')
   it('passes empty tool set when tool_use_enabled is false')
   it('passes readFile + listDirectory when tool_use_enabled is true')
+  it('reads retrieval_timeout_seconds from org config and passes as bounds.timeoutMs')
   it('persists rubric_input_tokens + rubric_output_tokens on every successful generation')
   it('persists rubric_tool_call_count = 0 when no tools were called')
   it('persists rubric_tool_calls as jsonb array matching the log entries')
   it('persists rubric_duration_ms as a positive integer')
   it('does not call finalise_rubric_v3 on generation failure — legacy error path unchanged')
-
-describe('Pipeline integration — E11 quality in combined call')
-  it('persists artefact_quality_score when model produces it')
-  it('persists artefact_quality_dimensions with all six dimensions')
-  it('sets artefact_quality_score to null when model omits quality fields')
-  it('intent-adjacent dimensions contribute >= 60% of aggregate weight')
-  it('does not invoke evaluateArtefactQuality as a separate call')
 ```
 
 **Acceptance criteria:**
@@ -671,50 +652,59 @@ describe('Pipeline integration — E11 quality in combined call')
 - [ ] All rubric generations go through `generateWithTools` (no direct `generateStructured` for questions)
 - [ ] Observability persisted whether tool-use enabled or disabled
 - [ ] Failure modes unchanged from V1 (no new error paths visible to callers)
-- [ ] Artefact quality produced by the same call; optional schema fields fall back to `unavailable`
-- [ ] Separate `evaluateArtefactQuality()` call removed from the pipeline
-- [ ] E11 quality dimensions and intent-adjacency invariant preserved in prompt
+- [ ] `retrieval_timeout_seconds` from org config used as loop timeout
 
 ---
 
-### §17.2a — Org settings UI: enable flag + cost cap input
+### §17.2a — Org settings UI: "Retrieval" section
 
 **Files to modify:**
 
-- `src/app/(app)/orgs/[orgId]/settings/page.tsx` — add two inputs
+- `src/app/(app)/orgs/[orgId]/settings/page.tsx` — add "Retrieval" section with three inputs
 - `src/app/api/orgs/[orgId]/settings/service.ts` — accept + persist
-- `src/lib/api/contracts/org-settings.ts` — extend Zod schema
+- `src/lib/api/contracts/org-settings.ts` — extend Zod schema with `tool_use_enabled`, `rubric_cost_cap_cents`, `retrieval_timeout_seconds`
+
+**UI fields:**
+
+- **Enable tool-based retrieval** — toggle (default: off)
+- **Per-assessment spend cap** — numeric input in cents (`rubric_cost_cap_cents`, default: 20, range: 0–500)
+- **Loop timeout** — numeric input in seconds (`retrieval_timeout_seconds`, default: 120, range: 10–600)
 
 **BDD specs:**
 
 ```
-describe('Org settings: tool-use + cost cap')
+describe('Org settings: retrieval section')
   it('toggles tool_use_enabled on form submission (admins only)')
   it('rejects rubric_cost_cap_cents below 0 or above 500')
+  it('rejects retrieval_timeout_seconds below 10 or above 600')
   it('non-admins cannot toggle or edit (RLS)')
   it('shows current values on initial render')
+  it('persists defaults (false, 20, 120) when no row exists yet')
 ```
 
 **Acceptance criteria:**
 
-- [ ] Toggle + numeric input rendered
+- [ ] Toggle + two numeric inputs rendered with validation
 - [ ] RLS-enforced admin-only edits
 - [ ] Values round-trip correctly
+- [ ] All three fields in the "Retrieval" section
 
 ---
 
-### §17.2b — Results page: tool-call log block
+### §17.2b — Results page: collapsible "Retrieval details" section
 
 **Files to modify/create:**
 
-- `src/app/(app)/assessments/[id]/page.tsx` — conditionally render the block
-- `src/components/assessment/ToolCallLogCard.tsx` — new component
+- `src/app/(app)/assessments/[id]/page.tsx` — conditionally render the section
+- `src/components/assessment/RetrievalDetailsCard.tsx` — new component
 - `src/lib/api/contracts/assessment.ts` — extend response shape
 - `src/app/api/assessments/[id]/service.ts` — include observability fields in response
 
 **Component behaviour:**
 
-- Hidden when `rubric_tool_call_count === 0` OR `rubric_tool_call_count === null` (legacy).
+- Hidden when `rubric_tool_call_count === 0` OR `rubric_tool_call_count === null` (legacy/disabled).
+- Collapsible section below the FCS score titled **"Retrieval details"**.
+- **"Missing artefacts" summary** at the top of the section when `not_found` outcomes exist: lists the paths that were not found (e.g., "2 artefacts not found: `docs/adr/0001-...`, `docs/design/...`").
 - Header row: total calls, total bytes, total extra tokens (approx), duration (ms).
 - Expandable list: each entry shown as `{ tool_name } { argument_path } → { outcome }`.
 - `forbidden_path` and `budget_exhausted` outcomes rendered with warning colour (yellow/red per the design system).
@@ -722,19 +712,24 @@ describe('Org settings: tool-use + cost cap')
 **BDD specs:**
 
 ```
-describe('Results page — tool-call log')
-  it('hides the block when rubric_tool_call_count is 0')
-  it('hides the block when rubric_tool_call_count is null (legacy assessment)')
+describe('Results page — retrieval details')
+  it('hides the section when rubric_tool_call_count is 0')
+  it('hides the section when rubric_tool_call_count is null (legacy assessment)')
   it('shows the header with total calls + bytes + duration')
+  it('shows "Missing artefacts" summary when not_found outcomes exist')
+  it('does not show "Missing artefacts" summary when no not_found outcomes')
   it('lists each call in the expandable section')
   it('renders forbidden_path outcomes with warning styling')
   it('renders budget_exhausted outcomes with warning styling')
   it('renders ok outcomes with normal styling')
+  it('renders not_found outcomes with neutral styling')
+  it('renders iteration_limit_reached outcomes with warning styling')
 ```
 
 **Acceptance criteria:**
 
-- [ ] Block rendered only when data present
+- [ ] Section rendered only when data present, collapsible
+- [ ] "Missing artefacts" summary appears when `not_found` outcomes exist
 - [ ] Warning colouring distinguishes policy breaches
 - [ ] Legacy assessments render without errors
 - [ ] Component tests cover every outcome variant

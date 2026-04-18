@@ -61,18 +61,9 @@ These fields are added unconditionally (not gated on the retrieval feature flag)
 - **In:** Rubric generation (question generation from artefacts).
 - **Out:** Per-answer scoring — already has a reference answer, adding tools would explode cost for no signal gain. Relevance detection — trivially small inputs, no benefit.
 
-### Artefact quality evaluation (E11) — combined call
+### Artefact quality feedback — tool-call log (E11 cancelled)
 
-E11 introduced a **separate** LLM call (`evaluateArtefactQuality`) that runs in parallel with question generation, receiving the same artefact set. With E17, this consolidates into a **single call**: the rubric-generation prompt produces both questions and artefact quality assessment in one structured response.
-
-**Rationale:**
-
-- The artefact set is the expensive part of the input. Sending it twice doubles input-token cost for no additional signal — the model is already deeply analysing the artefacts to generate questions and naturally forms a quality judgement.
-- Fewer network round-trips, fewer failure modes.
-
-**Resilience:** The quality assessment fields are **optional** in the response schema. If the model omits or malforms them, question generation still succeeds and artefact quality falls back to `unavailable` — the same resilience the parallel-call design provided.
-
-**Migration:** The existing `evaluateArtefactQuality()` function and its dedicated prompt/schema (E11) remain in the codebase until §17.1e lands. At that point, §17.1e removes the separate call from the pipeline and folds the quality dimensions into the rubric generation response schema. E11's quality dimensions, weights, and intent-adjacency invariant (≥ 60%) are preserved — only the call boundary changes.
+E11 (Artefact Quality Scoring) was cancelled (2026-04-18). Rather than scoring artefact quality via a separate or combined LLM call, the tool-call log itself serves as the feedback mechanism. When the LLM attempts to read artefacts that do not exist (e.g., ADRs, design docs), `not_found` outcomes in the log are surfaced as a brief "Missing artefacts" summary on the results page, giving the Org Admin actionable signals about what to create or improve. No separate quality scoring system is required.
 
 ## Options Considered
 
@@ -136,7 +127,7 @@ Embed all repo artefacts; retrieve top-K on a query derived from the PR; pass to
 - `additional_context_suggestions` becomes a diagnostic/analytics artefact, not load-bearing infrastructure. It can stay in the LLM schema as an optional output for post-hoc analysis.
 - Observability lands alongside the feature rather than as a follow-on story — we will have token and call-log data from day one.
 - Two concrete tools + one bounded loop replace a registry + taxonomy + multiple strategy implementations; the E17 LLD and issue list collapse significantly.
-- E11 artefact quality evaluation consolidates into the same call, halving input-token cost for the artefact payload.
+- Tool-call log provides organic artefact quality signal (`not_found` outcomes) without a dedicated quality-scoring system (E11 cancelled).
 
 ### Negative
 
