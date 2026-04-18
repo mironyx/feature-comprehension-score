@@ -11,13 +11,19 @@ V2 requirements v0.5 updated E17 (Agentic Artefact Retrieval) with 8 changes fol
 - **ADR-0023**: Replaced "Artefact quality evaluation (E11) — combined call" section with cancellation note. Updated consequence line.
 - **LLD lld-v2-e17-agentic-retrieval.md** (13 edits):
   - Stripped all E11 references (purpose, §17.1d RPC params, §17.1e title/content/BDD specs/ACs, cross-epic ordering, open question #3)
-  - Updated timeouts: 60s → 120s whole-loop (configurable) + 10s per-call fixed
+  - Updated timeouts: 60s → 120s whole-loop (configurable) + 10s per-tool-call fixed
   - Added `retrieval_timeout_seconds` to org_config schema and §17.2a UI
-  - Added `perCallTimeoutMs` to `ToolLoopBounds` type and `DEFAULT_TOOL_LOOP_BOUNDS`
+  - Added `perToolCallTimeoutMs` to `ToolLoopBounds` type and `DEFAULT_TOOL_LOOP_BOUNDS`
   - Added actor clarification (GitHub App installation token) and repo-scoping to §17.1b
   - Added "Missing artefacts" summary to §17.2b + renamed component to `RetrievalDetailsCard`
   - Added `warn`-level logging for `iteration_limit_reached`
   - Updated task breakdown table descriptions
+  - Restructured structural overview with Engine/Adapter/UI namespace layers
+  - Added `ToolCallLogEntry` type and `RetrievalDetailsCard` to structural diagram
+  - Extracted `executeToolCall` helper from inline for-loop in §17.1c pseudocode
+  - Added multi-turn happy-path BDD spec
+  - Renamed `finalise_rubric_v3` → `finalise_rubric` throughout (no v2 shipped)
+  - Renamed all `perCallTimeoutMs` → `perToolCallTimeoutMs` and `per-call` → `per-tool-call`
 
 ### GitHub issue patches
 
@@ -31,11 +37,19 @@ V2 requirements v0.5 updated E17 (Agentic Artefact Retrieval) with 8 changes fol
 ## Commits
 
 - `edaad0c` — docs: align E17 design artefacts with v2-requirements v0.5
+- `ebbbeb1` — docs(sessions): architect E17 design alignment session log
+- `ac10d29` — fix: remove HTML tags from Mermaid sequence diagram participant aliases
+- `473e035` — docs: rename perCallTimeoutMs → perToolCallTimeoutMs in E17 LLD
+- `3e44b3a` — docs: add not_found flow and ToolCallLogEntry to E17 structural overview
+- `59a7941` — docs: LLD review fixes — extract helper, happy-path spec, rename RPC, per-tool-call consistency
 
 ## Decisions
 
 - Patched rather than rewrote — ~70% of existing content was correct.
 - ADR-0023 E11 section replaced with cancellation note rather than deleted, to preserve the decision trail.
+- Renamed `perCallTimeoutMs` → `perToolCallTimeoutMs` to disambiguate tool handler vs LLM call timeout.
+- Dropped `_v3` suffix from `finalise_rubric` — E11 cancelled before `_v2` shipped, no version suffix needed.
+- Structural overview restructured with Mermaid `namespace` blocks for ports-and-adapters clarity.
 
 ## Open items
 
