@@ -1,6 +1,8 @@
 import type { ZodType } from 'zod';
 import { z } from 'zod';
 
+import type { GenerateWithToolsData, GenerateWithToolsRequest } from './tools';
+
 export const LLMErrorCode = z.enum([
   'rate_limit',
   'server_error',
@@ -31,6 +33,10 @@ export interface LLMClient {
     model?: string;
     maxTokens?: number;
   }): Promise<LLMResult<z.infer<T>>>;
+
+  generateWithTools<T extends ZodType>(
+    request: GenerateWithToolsRequest<T>,
+  ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>>;
 }
 
 // Justification: LLMLogger is a port interface for structured logging at the LLM call

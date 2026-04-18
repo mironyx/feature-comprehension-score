@@ -107,6 +107,7 @@ describe('Assessment pipeline', () => {
           .mockResolvedValueOnce({ success: false, error: { code: 'server_error', message: 'LLM unavailable', retryable: true } })
           .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid }),
+        generateWithTools: vi.fn(),
       };
 
       const result = await scoreAnswers({ rubric, answers, llmClient: failingClient });
@@ -181,7 +182,7 @@ describe('Assessment pipeline', () => {
         const generateStructured = vi.fn()
           .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
-        const llmClient: LLMClient = { generateStructured };
+        const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'detailed' });
 
@@ -196,7 +197,7 @@ describe('Assessment pipeline', () => {
         const generateStructured = vi.fn()
           .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
-        const llmClient: LLMClient = { generateStructured };
+        const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'conceptual' });
 
@@ -210,7 +211,7 @@ describe('Assessment pipeline', () => {
         const generateStructured = vi.fn()
           .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
-        const llmClient: LLMClient = { generateStructured };
+        const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient });
 

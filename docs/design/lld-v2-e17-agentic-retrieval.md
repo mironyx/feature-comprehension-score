@@ -10,6 +10,7 @@
 | 2026-04-18 | LS / Claude | Requirements v0.5 alignment: (1) E11 cancelled — stripped all quality-scoring refs from §17.1d, §17.1e, invariants, ACs. (2) Tool-call log replaces quality scoring as feedback mechanism (`not_found` → "Missing artefacts" summary). (3) Timeout split: 120s whole-loop default (configurable per org) + 10s per-call fixed. (4) Added `retrieval_timeout_seconds` to org_config + §17.2a UI. (5) Added "Missing artefacts" summary to §17.2b. (6) Added actor clarification (GitHub App installation token) and repo-scoping AC to §17.1b. (7) Added `warn`-level logging for `iteration_limit_reached`. |
 | 2026-04-19 | LS / Claude | §17.1d sync (issue #243): corrected RPC signature to match implementation — added `p_org_id`, removed non-existent `p_additional_context_suggestions`, changed status target from `'ready'` to `'awaiting_responses'`, documented that questions are inserted into `assessment_questions` (not updated as a column), added CHECK bounds on the two numeric org_config columns, noted the PostgreSQL overload (legacy 3-arg form preserved). |
 | 2026-04-19 | LS / Claude | Post-implementation sync for issue #249: §17.1b aligned with adapter as built — test files under `tests/lib/github/tools/` (project convention), shared `octokit-contents.ts` helper extracted during dedup, manual URL-segment encoding via `octokit.request` (Octokit's `{path}` placeholder encodes `/` as `%2F` and mis-routes), adapter-local `types.ts` for `ToolResult`/`ToolDefinition` while engine port (#245) is parallel. Future enhancement #266 tracked: batched multi-file retrieval via GraphQL. |
+| 2026-04-19 | Claude | §17.1a sync (issue #245): (1) promoted `ToolCallOutcome` to a named type alias — not in the original spec; keeps the six outcome literals single-sourced across `ToolResult.kind`, `ToolCallLogEntry.outcome`, and the logging/metric paths. (2) All type fields marked `readonly` for type-level immutability. (3) Concrete `OpenRouterClient.generateWithTools` ships as an explicit stub throwing `'not implemented — see §17.1c'` so the port contract is honoured while runtime behaviour is deferred to §17.1c. |
 
 ---
 
@@ -241,11 +242,19 @@ export interface ToolDefinition<TInput extends ZodType = ZodType> {
   ) => Promise<ToolResult>;
 }
 
+export type ToolCallOutcome =
+  | 'ok'
+  | 'not_found'
+  | 'forbidden_path'
+  | 'error'
+  | 'budget_exhausted'
+  | 'iteration_limit_reached';
+
 export type ToolResult =
-  | { kind: 'ok'; content: string; bytes: number }
-  | { kind: 'not_found'; similar_paths: string[]; bytes: number }
-  | { kind: 'forbidden_path'; reason: string; bytes: number }
-  | { kind: 'error'; message: string; bytes: number };
+  | { readonly kind: 'ok'; readonly content: string; readonly bytes: number }
+  | { readonly kind: 'not_found'; readonly similar_paths: readonly string[]; readonly bytes: number }
+  | { readonly kind: 'forbidden_path'; readonly reason: string; readonly bytes: number }
+  | { readonly kind: 'error'; readonly message: string; readonly bytes: number };
 
 export interface ToolLoopBounds {
   readonly maxCalls: number;
@@ -267,7 +276,7 @@ export interface ToolCallLogEntry {
   readonly tool_name: string;
   readonly argument_path: string;
   readonly bytes_returned: number;
-  readonly outcome: 'ok' | 'not_found' | 'forbidden_path' | 'error' | 'budget_exhausted' | 'iteration_limit_reached';
+  readonly outcome: ToolCallOutcome;
 }
 
 export interface GenerateWithToolsRequest<TSchema extends ZodType> {
@@ -300,6 +309,8 @@ export interface LLMClient {
   ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>>;
 }
 ```
+
+> **Implementation note (issue #245):** The concrete `OpenRouterClient.generateWithTools` ships as an explicit stub that throws `'generateWithTools not implemented — see §17.1c'`. This preserves the port contract — the interface is fully satisfied — while deferring runtime tool-loop behaviour to §17.1c. Mock clients follow the same pattern.
 
 **Loop behaviour (implemented inside the OpenRouter adapter, §17.1c — this task defines the types only):**
 
