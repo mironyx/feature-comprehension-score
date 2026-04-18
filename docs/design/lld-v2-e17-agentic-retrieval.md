@@ -52,7 +52,7 @@ Bounds enforced at the loop boundary, not the LLM:
 - cumulative bytes ≤ 64 KiB
 - extra input tokens ≤ 10 000
 - whole-loop wall-clock ≤ 120 s (configurable per org via `retrieval_timeout_seconds`; enforced via `AbortSignal`)
-- per-call timeout: 10 s fixed (a single slow call does not consume the entire budget)
+- per-tool-call timeout: 10 s fixed (a single slow tool handler does not consume the entire budget)
 
 On breach the loop returns a typed error to the LLM (not an exception) and the LLM is expected to finalise with what it has. `iteration_limit_reached` breaches are logged at `warn` level with the assessment ID.
 
@@ -76,68 +76,83 @@ The tool-use loop is always the code path; passing an empty tool set is equivale
 
 ```mermaid
 classDiagram
-  class LLMClient {
-    <<interface>>
-    +generateStructured(req) LLMResult
-    +generateWithTools(req) LLMResult
+  namespace Engine {
+    class LLMClient {
+      <<port>>
+      +generateStructured(req) LLMResult
+      +generateWithTools(req) LLMResult
+    }
+    class ToolDefinition {
+      <<port>>
+      name: string
+      inputSchema: ZodType
+      handler: (input, signal) Promise~ToolResult~
+    }
+    class ToolLoopBounds {
+      <<type>>
+      maxCalls: number
+      maxBytes: number
+      maxExtraInputTokens: number
+      timeoutMs: number
+      perToolCallTimeoutMs: number
+    }
+    class ToolCallLogEntry {
+      <<type>>
+      tool_name: string
+      argument_path: string
+      bytes_returned: number
+      outcome: string
+    }
+    class RubricGenerationResult {
+      <<type>>
+      rubric: Rubric
+      inputTokens: number
+      outputTokens: number
+      toolCalls: ToolCallLogEntry[]
+      durationMs: number
+    }
   }
-  class ToolDefinition {
-    <<type>>
-    name: string
-    description: string
-    inputSchema: ZodType
-    handler: (input, signal) => Promise<ToolResult>
+
+  namespace Adapter {
+    class OpenRouterClient {
+      <<adapter>>
+      +generateWithTools(req) LLMResult
+    }
+    class ReadFileTool {
+      <<adapter>>
+      +handle(path, signal) ToolResult
+    }
+    class ListDirectoryTool {
+      <<adapter>>
+      +handle(path, signal) ToolResult
+    }
+    class PathSafety {
+      <<module>>
+      +resolveRepoPath(path) Result
+    }
   }
-  class ToolLoopBounds {
-    <<type>>
-    maxCalls: number
-    maxBytes: number
-    maxExtraInputTokens: number
-    timeoutMs: number
-    perToolCallTimeoutMs: number
-  }
-  class ToolCallLogEntry {
-    <<type>>
-    tool_name: string
-    argument_path: string
-    bytes_returned: number
-    outcome: ok | not_found | forbidden_path | error | budget_exhausted | iteration_limit_reached
-  }
-  class RubricGenerationResult {
-    <<type>>
-    rubric: Rubric
-    inputTokens: number
-    outputTokens: number
-    toolCalls: ToolCallLogEntry[]
-    durationMs: number
-  }
-  class ReadFileTool {
-    +handle(path, signal) ToolResult
-  }
-  class ListDirectoryTool {
-    +handle(path, signal) ToolResult
-  }
-  class PathSafety {
-    +resolveRepoPath(path) Result
-  }
-  class RetrievalDetailsCard {
-    <<component>>
-    +toolCalls: ToolCallLogEntry[]
-    +missingArtefacts(): string[]
+
+  namespace UI {
+    class RetrievalDetailsCard {
+      <<component>>
+      +toolCalls: ToolCallLogEntry[]
+      +missingArtefacts() string[]
+    }
   }
 
   LLMClient <|.. OpenRouterClient : implements
-  ReadFileTool ..> PathSafety : uses
-  ListDirectoryTool ..> PathSafety : uses
-  ReadFileTool ..|> ToolDefinition
-  ListDirectoryTool ..|> ToolDefinition
+  ReadFileTool ..|> ToolDefinition : implements
+  ListDirectoryTool ..|> ToolDefinition : implements
+  ReadFileTool ..> PathSafety : validates paths
+  ListDirectoryTool ..> PathSafety : validates paths
   RubricGenerationResult --> ToolCallLogEntry : contains
   RetrievalDetailsCard --> ToolCallLogEntry : reads not_found outcomes
 ```
 
-- **Engine layer** (`src/lib/engine/llm/`, `src/lib/engine/generation/`): port types, loop, schemas. No I/O.
-- **Adapter layer** (`src/lib/github/tools/`): concrete tool handlers + path-safety module. I/O allowed.
-- **Composition root** (`src/app/api/fcs/service.ts`): wires concrete tools into the generate-rubric call.
+- **Engine** (`src/lib/engine/llm/`, `src/lib/engine/generation/`): ports + types. No I/O, no framework imports.
+- **Adapter** (`src/lib/github/tools/`, `src/lib/llm/openrouter/`): concrete tool handlers, path-safety, OpenRouter client. I/O allowed.
+- **UI** (`src/app/.../RetrievalDetailsCard.tsx`): reads `ToolCallLogEntry[]`, derives "Missing artefacts" from `not_found` outcomes.
+- **Composition root** (`src/app/api/fcs/service.ts`): wires adapter tools into the engine's `generateWithTools` call.
 
 ### Invariants
 
@@ -150,14 +165,14 @@ classDiagram
 | 5 | Observability fields are populated on every rubric generation, including disabled path and failure paths. | Test: four scenarios (enabled/disabled × success/error) all persist non-null tokens + duration. |
 | 6 | The loop is pure engine code — no `import` from `@/lib/github`, `@/lib/supabase`, or `next/*`. | CI check: grep engine dir for forbidden imports. |
 | 7 | Tool-use is off by default per organisation. | Test: new org row has `tool_use_enabled = false`; pipeline reads flag before attaching tools. |
-| 8 | Abort on timeout must propagate into in-flight tool calls via `AbortSignal`. Whole-loop timeout is configurable (default 120s); per-call timeout is fixed at 10s. | Test: a slow tool handler is cancelled when the loop's controller aborts; per-call timeout fires before whole-loop timeout. |
+| 8 | Abort on timeout must propagate into in-flight tool calls via `AbortSignal`. Whole-loop timeout is configurable (default 120s); per-tool-call timeout is fixed at 10s. | Test: a slow tool handler is cancelled when the loop's controller aborts; per-tool-call timeout fires before whole-loop timeout. |
 | 9 | The LLM port's `generateWithTools` method must never leak OpenRouter-specific types into the engine layer. | Type check: signature uses Zod schemas and port-owned tool types only. |
 | 10 | Path allow-list logic is implemented once, in `path-safety.ts`; no ad-hoc path joins elsewhere. | Grep: `path.resolve` and `path.join` appear only inside `path-safety.ts`. |
 
 ### Acceptance Criteria (rolled up for Part B to split into tasks)
 
 - [ ] `LLMClient` port gains `generateWithTools<T>(req): Promise<LLMResult<{ data: T, usage, toolCalls }>>`; OpenRouter adapter implements it.
-- [ ] Engine-layer tool-use loop exists with 5-call / 64 KiB / 10k-token / 120s caps and typed errors for each breach. Per-call timeout 10s fixed.
+- [ ] Engine-layer tool-use loop exists with 5-call / 64 KiB / 10k-token / 120s caps and typed errors for each breach. Per-tool-call timeout 10s fixed.
 - [ ] Adapter-layer `readFile` and `listDirectory` handlers exist, share a single `path-safety` module, and handle every case in the path-safety test matrix. Tool calls scoped to the assessment's repository via GitHub App installation token.
 - [ ] Rubric generation flows through `generateWithTools` unconditionally; tool-use-disabled orgs pass an empty tool set.
 - [ ] `assessments` table gains `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls` (jsonb), `rubric_duration_ms` columns (all populated on every rubric generation).
@@ -165,7 +180,7 @@ classDiagram
 - [ ] Results page renders tool-call log in a collapsible "Retrieval details" section when non-empty; hides the block when empty/disabled.
 - [ ] "Missing artefacts" summary appears at the top of the retrieval details section when `not_found` outcomes exist.
 - [ ] Warning-coloured rendering for `forbidden_path` and `budget_exhausted` outcomes.
-- [ ] `finalise_rubric_v3` RPC persists all new fields in one transaction.
+- [ ] `finalise_rubric` RPC persists all new fields in one transaction.
 - [ ] `iteration_limit_reached` logged at `warn` level with assessment ID.
 
 ### Open Questions
@@ -180,7 +195,7 @@ classDiagram
 
 ### Cross-epic note
 
-E11 (#233, Artefact Quality Scoring) is cancelled. `finalise_rubric_v3` supersedes V1's `finalise_rubric` directly — no E11 columns. If `finalise_rubric_v2` exists in `main` from prior E11 work, `_v3` replaces it.
+E11 (#233, Artefact Quality Scoring) is cancelled. The existing `finalise_rubric` RPC is extended with observability params via `CREATE OR REPLACE` — no E11 columns, no version suffix needed.
 
 ### Task breakdown
 
@@ -189,7 +204,7 @@ E11 (#233, Artefact Quality Scoring) is cancelled. `finalise_rubric_v3` supersed
 | §17.1a — Extend `LLMClient` port with `generateWithTools` + tool types + bounded loop + typed error taxonomy | engine | ~180 lines | — |
 | §17.1b — Path-safety module + `readFile` + `listDirectory` tool handlers | adapter | ~140 lines | — |
 | §17.1c — OpenRouter adapter: implement `generateWithTools` (multi-turn, tool-use API) | adapter | ~160 lines | §17.1a |
-| §17.1d — Schema: observability columns + `tool_use_enabled` + `rubric_cost_cap_cents` + `finalise_rubric_v3` | DB | ~120 lines | — |
+| §17.1d — Schema: observability columns + `tool_use_enabled` + `rubric_cost_cap_cents` + `finalise_rubric` | DB | ~120 lines | — |
 | §17.1e — Pipeline integration: route rubric generation through `generateWithTools`, persist observability via `_v3` | engine+BE | ~120 lines | §17.1a, §17.1b, §17.1c, §17.1d |
 | §17.2a — Org settings UI: "Retrieval" section (toggle + cost cap + loop timeout) | FE | ~120 lines | §17.1d |
 | §17.2b — Results page: collapsible "Retrieval details" section + "Missing artefacts" summary | FE | ~180 lines | §17.1e |
@@ -288,7 +303,7 @@ export interface LLMClient {
 
 1. Start wall-clock timer and controller combining caller's `signal` with internal timeout.
 2. Issue LLM call with tool definitions attached; collect tool-call requests from the response.
-3. For each tool call, check per-call bounds (`callCount < maxCalls`, `cumulativeBytes < maxBytes`). On breach, synthesise a `budget_exhausted` or `iteration_limit_reached` result, log it, and continue the LLM conversation (LLM should finalise next turn).
+3. For each tool call, check per-tool-call bounds (`callCount < maxCalls`, `cumulativeBytes < maxBytes`). On breach, synthesise a `budget_exhausted` or `iteration_limit_reached` result, log it, and continue the LLM conversation (LLM should finalise next turn).
 4. Invoke `toolDef.handler(args, signal)`. Catch internally — never throw from handler.
 5. Append the tool result to the log; append to message history; loop.
 6. Exit when the LLM returns a final structured response or any breach forces finalisation.
@@ -298,7 +313,7 @@ export interface LLMClient {
 
 ```
 describe('Tool loop — engine types')
-  it('DEFAULT_TOOL_LOOP_BOUNDS is 5/64KiB/10k/120s/10s-per-call as per requirements v0.5')
+  it('DEFAULT_TOOL_LOOP_BOUNDS is 5/64KiB/10k/120s/10s-per-tool-call as per requirements v0.5')
   it('ToolResult discriminated union has exhaustive match — compile-time')
   it('ToolCallLogEntry outcomes include the six documented enum values')
   it('GenerateWithToolsRequest.bounds is partial — merges with defaults')
@@ -423,45 +438,52 @@ describe('listDirectory tool')
 **Loop implementation (pseudocode):**
 
 ```typescript
+/** Execute a single tool call: check bounds, invoke handler, log result. */
+function executeToolCall(
+  tc: LLMToolCall, tools: ToolDefinition[], bounds: ToolLoopBounds,
+  state: { callCount: number; cumulativeBytes: number },
+  loopSignal: AbortSignal,
+): { logEntry: ToolCallLogEntry; toolMessage: ToolMessage } {
+  if (state.callCount >= bounds.maxCalls)
+    return breach(tc, 'iteration_limit_reached');
+  if (state.cumulativeBytes >= bounds.maxBytes)
+    return breach(tc, 'budget_exhausted');
+
+  const def = tools.find(d => d.name === tc.name);
+  if (!def) return errorEntry(tc, 'unknown_tool');
+
+  const parsed = def.inputSchema.safeParse(tc.args);
+  if (!parsed.success) return errorEntry(tc, 'invalid_args');
+
+  const callSignal = combineSignals(loopSignal, AbortSignal.timeout(bounds.perToolCallTimeoutMs));
+  const result = await def.handler(parsed.data, callSignal);
+  state.callCount += 1;
+  state.cumulativeBytes += result.bytes;
+
+  return {
+    logEntry: { tool_name: tc.name, argument_path: parsed.data.path, bytes_returned: result.bytes, outcome: result.kind },
+    toolMessage: { role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) },
+  };
+}
+
 async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
   const bounds = { ...DEFAULT_TOOL_LOOP_BOUNDS, ...req.bounds };
   const start = Date.now();
-  const loopController = combineSignals(req.signal, AbortSignal.timeout(bounds.timeoutMs));
-  let callCount = 0, cumulativeBytes = 0;
+  const loopSignal = combineSignals(req.signal, AbortSignal.timeout(bounds.timeoutMs));
+  const state = { callCount: 0, cumulativeBytes: 0 };
   const toolCalls: ToolCallLogEntry[] = [];
   const messages = [systemPrompt, userPrompt];
-  const toolDefsForAPI = req.tools.map(toOpenRouterToolDef);
 
   while (true) {
-    const resp = await openrouterChat({ messages, tools: toolDefsForAPI, signal: loopController.signal });
+    const resp = await openrouterChat({ messages, tools: req.tools.map(toOpenRouterToolDef), signal: loopSignal });
     if (resp.tool_calls?.length) {
       for (const tc of resp.tool_calls) {
-        if (callCount >= bounds.maxCalls) {
-          toolCalls.push({ tool_name: tc.name, argument_path: tc.args.path ?? '', bytes_returned: 0, outcome: 'iteration_limit_reached' });
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"iteration_limit_reached"}' });
-          continue;
-        }
-        if (cumulativeBytes >= bounds.maxBytes) {
-          toolCalls.push({ tool_name: tc.name, argument_path: tc.args.path ?? '', bytes_returned: 0, outcome: 'budget_exhausted' });
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"budget_exhausted"}' });
-          continue;
-        }
-        const def = req.tools.find(d => d.name === tc.name);
-        if (!def) {
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"unknown_tool"}' });
-          continue;
-        }
-        const parsed = def.inputSchema.safeParse(tc.args);
-        if (!parsed.success) { /* error entry, continue */ }
-        const callSignal = combineSignals(loopController.signal, AbortSignal.timeout(bounds.perToolCallTimeoutMs));
-        const result = await def.handler(parsed.data, callSignal);
-        callCount += 1;
-        cumulativeBytes += result.bytes;
-        toolCalls.push({ tool_name: tc.name, argument_path: parsed.data.path, bytes_returned: result.bytes, outcome: result.kind });
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+        const { logEntry, toolMessage } = executeToolCall(tc, req.tools, bounds, state, loopSignal);
+        toolCalls.push(logEntry);
+        messages.push(toolMessage);
       }
       messages.push(resp.assistantMessage);
-      continue; // next LLM turn
+      continue;
     }
     // Final response — validate against schema
     const parsed = req.schema.safeParse(resp.parsed);
@@ -484,7 +506,8 @@ async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
 ```
 describe('OpenRouter generateWithTools')
   it('returns the final structured response when LLM does not call any tools')
-  it('invokes handlers for each tool call and feeds results back')
+  it('multi-turn: LLM calls tools, receives results, and produces final rubric')
+  it('executeToolCall delegates to the matched handler and returns logEntry + toolMessage')
   it('stops invoking handlers after maxCalls; logs iteration_limit_reached')
   it('stops invoking handlers after maxBytes; logs budget_exhausted')
   it('aborts in-flight handlers when whole-loop timeoutMs elapses')
@@ -503,12 +526,12 @@ describe('OpenRouter generateWithTools')
 
 ---
 
-### §17.1d — Schema: observability + flags + finalise_rubric_v3
+### §17.1d — Schema: observability + flags + finalise_rubric
 
 **Files to modify:**
 
 - `supabase/schemas/tables.sql` — add columns to `assessments` and `org_config`
-- `supabase/schemas/functions.sql` — add `finalise_rubric_v3`
+- `supabase/schemas/functions.sql` — add `finalise_rubric`
 
 **Column additions:**
 
@@ -531,7 +554,7 @@ alter table org_config add column retrieval_timeout_seconds integer not null def
 **RPC:**
 
 ```sql
-create or replace function finalise_rubric_v3(
+create or replace function finalise_rubric(
   p_assessment_id uuid,
   p_questions jsonb,
   p_additional_context_suggestions jsonb,
@@ -565,7 +588,7 @@ describe('schema: E17 observability')
   it('org_config.tool_use_enabled defaults to false')
   it('org_config.rubric_cost_cap_cents defaults to 20')
   it('org_config.retrieval_timeout_seconds defaults to 120')
-  it('finalise_rubric_v3 persists all observability fields in one call')
+  it('finalise_rubric persists all observability fields in one call')
   it('legacy finalise_rubric still works (no breaking change)')
 ```
 
@@ -584,7 +607,7 @@ describe('schema: E17 observability')
 
 - `src/lib/engine/generation/generate-questions.ts` — route through `generateWithTools`
 - `src/lib/engine/pipeline/assess-pipeline.ts` — thread observability into the persisted rubric
-- `src/app/api/fcs/service.ts` — wire concrete tools + call `finalise_rubric_v3`
+- `src/app/api/fcs/service.ts` — wire concrete tools + call `finalise_rubric`
 - Tests for engine and service
 
 **Prompt guidance (augment, not replace):**
@@ -636,7 +659,7 @@ const bounds = {
 };
 const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
 // ... on success:
-await ctx.adminSupabase.rpc('finalise_rubric_v3', {
+await ctx.adminSupabase.rpc('finalise_rubric', {
   p_assessment_id: id,
   p_questions: rubric.questions,
   p_additional_context_suggestions: rubric.additional_context_suggestions ?? [],
@@ -659,7 +682,7 @@ describe('Pipeline integration — rubric generation')
   it('persists rubric_tool_call_count = 0 when no tools were called')
   it('persists rubric_tool_calls as jsonb array matching the log entries')
   it('persists rubric_duration_ms as a positive integer')
-  it('does not call finalise_rubric_v3 on generation failure — legacy error path unchanged')
+  it('does not call finalise_rubric on generation failure — legacy error path unchanged')
 ```
 
 **Acceptance criteria:**
