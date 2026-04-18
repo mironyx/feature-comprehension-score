@@ -43,9 +43,9 @@ Treat future-version requirements as a **source of ideas**, not an immediate gap
 - `git log --oneline --since="<date of last grooming or 14d ago>"` — commit cadence.
 
 **Reports:**
-- Most recent `docs/reports/*-backlog-grooming.md` — to track which proposals were actioned.
-- Most recent `docs/reports/*-drift-report.md` — extract Critical/Warning findings not yet tracked by an issue.
-- Most recent `docs/reports/*-process-retro.md` — extract "New actions" rows not yet tracked by an issue.
+- Most recent `docs/reports/backlog/*-backlog-grooming.md` — to track which proposals were actioned.
+- Most recent `docs/reports/drift/*-drift-report.md` — extract Critical/Warning findings not yet tracked by an issue.
+- Most recent `docs/reports/retro/*-process-retro.md` — extract "New actions" rows not yet tracked by an issue.
 
 **Design / decisions:**
 - `docs/adr/` — browse for recent ADRs that may imply follow-up work (superseded decisions, accepted proposals).
@@ -134,7 +134,7 @@ If fewer than 10 existing issues are viable, fill the remaining slots with **pro
 
 ### 7. Write the report
 
-Save to `docs/reports/YYYY-MM-DD-backlog-grooming.md` using this structure:
+Save to `docs/reports/backlog/YYYY-MM-DD-backlog-grooming.md` using this structure:
 
 ```markdown
 # Backlog Grooming
