@@ -2,6 +2,7 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
 import type { GenerateWithToolsData, GenerateWithToolsRequest } from './tools';
+import { runToolLoop, type SdkRequest, type SdkResponse } from './tool-loop';
 import {
   DEFAULT_RETRY_CONFIG,
   type LLMClient,
@@ -49,9 +50,15 @@ export class OpenRouterClient implements LLMClient {
   }
 
   generateWithTools<T extends z.ZodType>(
-    _request: GenerateWithToolsRequest<T>,
+    request: GenerateWithToolsRequest<T>,
   ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>> {
-    throw new Error('generateWithTools not implemented — see §17.1c');
+    return runToolLoop({
+      req: request,
+      chatCall: (args: SdkRequest) =>
+        this.client.chat.completions.create(args as never) as unknown as Promise<SdkResponse>,
+      defaultModel: this.defaultModel,
+      startMs: Date.now(),
+    });
   }
 
   async generateStructured<T extends z.ZodType>(
