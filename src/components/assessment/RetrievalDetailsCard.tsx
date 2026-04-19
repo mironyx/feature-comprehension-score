@@ -45,7 +45,7 @@ function MissingArtefactsSummary({ paths }: { readonly paths: readonly string[] 
       <strong>Missing artefacts</strong>
       {`: ${paths.length} not found — `}
       {paths.map((p, i) => (
-        <span key={p}>
+        <span key={`${i}-${p}`}>
           {i > 0 && ', '}
           <code>{p}</code>
         </span>

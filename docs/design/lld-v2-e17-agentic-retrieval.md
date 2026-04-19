@@ -792,7 +792,7 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
 }
 ```
 
-The legacy error path is unchanged: any throw from `finaliseRubric` (generation failure *or*
+The legacy error path is unchanged: any throw from `finaliseRubric` (generation failure _or_
 RPC failure) propagates to `triggerRubricGeneration`'s outer catch, which logs and calls
 `markRubricFailed(assessmentId)` to transition the assessment to `rubric_failed`.
 
