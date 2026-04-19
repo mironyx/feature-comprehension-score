@@ -11,6 +11,7 @@
 | 2026-04-19 | LS / Claude | §17.1d sync (issue #243): corrected RPC signature to match implementation — added `p_org_id`, removed non-existent `p_additional_context_suggestions`, changed status target from `'ready'` to `'awaiting_responses'`, documented that questions are inserted into `assessment_questions` (not updated as a column), added CHECK bounds on the two numeric org_config columns, noted the PostgreSQL overload (legacy 3-arg form preserved). |
 | 2026-04-19 | LS / Claude | Post-implementation sync for issue #249: §17.1b aligned with adapter as built — test files under `tests/lib/github/tools/` (project convention), shared `octokit-contents.ts` helper extracted during dedup, manual URL-segment encoding via `octokit.request` (Octokit's `{path}` placeholder encodes `/` as `%2F` and mis-routes), adapter-local `types.ts` for `ToolResult`/`ToolDefinition` while engine port (#245) is parallel. Future enhancement #266 tracked: batched multi-file retrieval via GraphQL. |
 | 2026-04-19 | Claude | §17.1a sync (issue #245): (1) promoted `ToolCallOutcome` to a named type alias — not in the original spec; keeps the six outcome literals single-sourced across `ToolResult.kind`, `ToolCallLogEntry.outcome`, and the logging/metric paths. (2) All type fields marked `readonly` for type-level immutability. (3) Concrete `OpenRouterClient.generateWithTools` ships as an explicit stub throwing `'not implemented — see §17.1c'` so the port contract is honoured while runtime behaviour is deferred to §17.1c. |
+| 2026-04-19 | LS / Claude | §17.2a sync (issue #251): corrected file paths — implementation lives under `(authenticated)/organisation/` + `api/organisations/[id]/retrieval-settings/` (sibling to `context/` route) with the Zod schema in `src/lib/supabase/org-retrieval-settings.ts`. Original LLD paths (`(app)/orgs/[orgId]/settings/…`, `src/lib/api/contracts/org-settings.ts`) did not match the codebase. Added explicit internal decomposition: service re-exports schema/type/defaults per ADR-0014; page uses `loadOrgRetrievalSettings` for SSR hydration. |
 
 ---
 
@@ -771,9 +772,20 @@ describe('Pipeline integration — rubric generation')
 
 **Files to modify:**
 
-- `src/app/(app)/orgs/[orgId]/settings/page.tsx` — add "Retrieval" section with three inputs
-- `src/app/api/orgs/[orgId]/settings/service.ts` — accept + persist
-- `src/lib/api/contracts/org-settings.ts` — extend Zod schema with `tool_use_enabled`, `rubric_cost_cap_cents`, `retrieval_timeout_seconds`
+- `src/app/(authenticated)/organisation/page.tsx` — render new "Retrieval" card alongside existing `OrgContextForm`
+- `src/app/(authenticated)/organisation/retrieval-settings-form.tsx` — client form (toggle + 2 number inputs + submit)
+- `src/app/(authenticated)/organisation/retrieval-settings-validation.ts` — pure client-side range/integer validator
+- `src/app/api/organisations/[id]/retrieval-settings/route.ts` — `GET`/`PATCH` handlers
+- `src/app/api/organisations/[id]/retrieval-settings/service.ts` — admin-gated `loadRetrievalSettings` / `updateRetrievalSettings` (re-exports schema + types per ADR-0014)
+- `src/lib/supabase/org-retrieval-settings.ts` — owns `RetrievalSettingsSchema`, `RetrievalSettings`, `DEFAULT_RETRIEVAL_SETTINGS`, and `loadOrgRetrievalSettings` (SSR loader for the page)
+
+> **Implementation note (issue #251):** the original file list pointed at
+> `src/app/(app)/orgs/[orgId]/settings/…` + `src/lib/api/contracts/org-settings.ts`, none of
+> which exist in the codebase. Implementation followed the established `(authenticated)/organisation/`
+> + `api/organisations/[id]/<resource>/` layout (sibling to the existing `context/` route) and
+> the `src/lib/supabase/org-*.ts` loader convention (sibling to `org-prompt-context.ts`). Schema
+> lives in a dedicated `RetrievalSettingsSchema` rather than extending a single `org-settings`
+> schema — the latter would require introducing a contracts directory that doesn't yet exist.
 
 **UI fields:**
 
