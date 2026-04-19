@@ -243,9 +243,11 @@ Parse the `state` field from the raw JSON output. If `"state":"MERGED"`, skip th
 Otherwise merge immediately — **no user prompt**. Invoking `/feature-end` is itself the approval:
 
 ```bash
-gh pr merge <number> --squash --delete-branch 2>&1 || true
-# gh pr merge may emit a non-fatal error when run inside a worktree (cannot checkout base branch
-# locally — another worktree already holds it). The merge itself succeeds on GitHub. Verify:
+gh pr merge <number> --squash 2>&1 || true
+# Do NOT pass --delete-branch here — deleting the local branch ref while inside the worktree
+# makes the worktree prunable; if git worktree prune runs (hook or concurrent process) the
+# directory disappears and all subsequent Bash calls fail. Branch deletion is handled in Step 5+6
+# after cd-ing to the main repo. Verify the merge succeeded:
 gh pr view <number> --json state --jq .state
 ```
 
