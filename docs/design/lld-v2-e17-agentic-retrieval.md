@@ -14,6 +14,7 @@
 | 2026-04-19 | LS / Claude | §17.2a sync (issue #251): corrected file paths — implementation lives under `(authenticated)/organisation/` + `api/organisations/[id]/retrieval-settings/` (sibling to `context/` route) with the Zod schema in `src/lib/supabase/org-retrieval-settings.ts`. Original LLD paths (`(app)/orgs/[orgId]/settings/…`, `src/lib/api/contracts/org-settings.ts`) did not match the codebase. Added explicit internal decomposition: service re-exports schema/type/defaults per ADR-0014; page uses `loadOrgRetrievalSettings` for SSR hydration. |
 | 2026-04-19 | Claude | §17.1c sync (issue #250): loop extracted to a dedicated pure module `src/lib/engine/llm/tool-loop.ts` (adapter file became a thin delegator); internal SDK-shape types (`SdkRequest`/`SdkResponse`/`SdkAssistantMessage`/`SdkToolCallRequest`/`SdkUsage`/`ChatCallFn`) keep OpenAI types out of the loop module; decomposed `executeToolCall` into sub-helpers (`parseToolInput`, `runHandler`, `recordOutcome`, `pushToolMessage`, `breach`, `processOneToolCall`) to fit the 20-line function budget; budget check switched to predictive heuristic (`cumulativeBytes + lastBytesReturned >= maxBytes`); manual `setTimeout + AbortController` instead of `AbortSignal.timeout()` (vitest fake timers don't mock the latter) with `.unref()` so the timer does not hold the Node event loop open; turn cap `maxCalls + 2` replaces the `while (true)` sketch; message ordering corrected — assistant message pushed before tool responses (OpenAI Chat Completions requires the assistant-with-tool_calls turn to precede the matching `role:'tool'` messages). |
 | 2026-04-19 | LS / Claude | §17.1e sync (issue #246): engine emits flat observability fields (`inputTokens`, `outputTokens`, `toolCalls`, `durationMs`) via a `GenerateQuestionsData = QuestionGenerationResponse & { ... }` intersection — not the `_usage`/`_toolCalls`/`_durationMs` shape sketched in the LLD; schema reference corrected to `QuestionGenerationResponseSchema`; service reads org settings via `loadOrgRetrievalSettings` helper rather than an inline `org_config` query; service decomposed into `buildRubricTools` + `persistRubricFinalisation` helpers to keep `finaliseRubric` under the 20-line budget; `bounds` is a `Partial<ToolLoopBounds>` with only `timeoutMs` set (cost-cap → `maxExtraInputTokens` derivation not wired — deferred); `src/lib/github/tools/types.ts` now re-exports `ToolDefinition`/`ToolResult` from `@/lib/engine/llm/tools` (the adapter-local duplicate would break handler variance when composed through the engine's `GenerateWithToolsRequest`). |
+| 2026-04-19 | LS / Claude | §17.2b sync (issue #247): corrected results-page path — the FCS results page is `src/app/assessments/[id]/results/page.tsx` (no `(app)` route group) and reads the observability columns directly from Supabase via the secret server client, so no changes were required to `src/lib/api/contracts/assessment.ts` or `src/app/api/assessments/[id]/service.ts`. Component imports `ToolCallLogEntry`/`ToolCallOutcome` from `@/lib/engine/llm/tools` and narrows the `rubric_tool_calls` JSONB column at the page boundary. Warning styling uses Tailwind `text-destructive`; `iteration_limit_reached` included alongside `forbidden_path` and `budget_exhausted` in the warning set (the LLD component-behaviour bullet omitted it but the BDD specs required it). |
 
 ---
 
@@ -792,7 +793,7 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
 }
 ```
 
-The legacy error path is unchanged: any throw from `finaliseRubric` (generation failure *or*
+The legacy error path is unchanged: any throw from `finaliseRubric` (generation failure _or_
 RPC failure) propagates to `triggerRubricGeneration`'s outer catch, which logs and calls
 `markRubricFailed(assessmentId)` to transition the assessment to `rubric_failed`.
 
@@ -875,19 +876,20 @@ describe('Org settings: retrieval section')
 
 **Files to modify/create:**
 
-- `src/app/(app)/assessments/[id]/page.tsx` — conditionally render the section
+- `src/app/assessments/[id]/results/page.tsx` — conditionally render the section (server component; reads observability columns directly via the secret Supabase client)
 - `src/components/assessment/RetrievalDetailsCard.tsx` — new component
-- `src/lib/api/contracts/assessment.ts` — extend response shape
-- `src/app/api/assessments/[id]/service.ts` — include observability fields in response
+- `tests/components/retrieval-details-card.test.ts` — component tests
+
+> **Implementation note (issue #247):** the LLD originally listed `src/app/(app)/assessments/[id]/page.tsx`, `src/lib/api/contracts/assessment.ts`, and `src/app/api/assessments/[id]/service.ts`. The FCS results page does not live under an `(app)` route group and does not go through the API route — it is server-rendered and reads Supabase directly, so the API contract and service files were not modified. The component narrows the `rubric_tool_calls` JSONB column via `readonly ToolCallLogEntry[] | null` at the call site.
 
 **Component behaviour:**
 
 - Hidden when `rubric_tool_call_count === 0` OR `rubric_tool_call_count === null` (legacy/disabled).
 - Collapsible section below the FCS score titled **"Retrieval details"**.
 - **"Missing artefacts" summary** at the top of the section when `not_found` outcomes exist: lists the paths that were not found (e.g., "2 artefacts not found: `docs/adr/0001-...`, `docs/design/...`").
-- Header row: total calls, total bytes, total extra tokens (approx), duration (ms).
+- Header row: total calls, total bytes, total extra input tokens (approx), duration (ms).
 - Expandable list: each entry shown as `{ tool_name } { argument_path } → { outcome }`.
-- `forbidden_path` and `budget_exhausted` outcomes rendered with warning colour (yellow/red per the design system).
+- `forbidden_path`, `budget_exhausted`, and `iteration_limit_reached` outcomes rendered with warning colour (`text-destructive`); `ok`, `not_found`, and `error` render with normal/neutral styling.
 
 **BDD specs:**
 
