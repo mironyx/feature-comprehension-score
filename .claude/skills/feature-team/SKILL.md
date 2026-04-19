@@ -176,9 +176,10 @@ autonomously. Every PR requires human review before merge. The flow is:
 3. User says `/feature-end <N>` or equivalent → lead forwards to teammate
 
 **Wave progression after merge:** Once all PRs in a wave have been merged via `/feature-end`,
-the lead auto-spawns the next wave's teammates without waiting for further user input. The
-human gate is per-PR (review before merge), not per-wave (no extra approval to start the next
-wave).
+the lead **immediately shuts down that wave's teammates** (parallel `SendMessage` with
+`shutdown_request`) and then auto-spawns the next wave's teammates — no further user input
+needed. The human gate is per-PR (review before merge), not per-wave (no extra approval to
+start the next wave). Do not leave completed-wave teammates running while later waves execute.
 
 ### Step 7: Final summary
 
@@ -192,10 +193,13 @@ When all are received, summarise:
 
 ### Step 8: Write the team session log
 
+Write this log only **after all waves are complete** — not after each wave. It captures the
+lead's view across the entire run.
+
 Per-teammate `/feature-end` logs capture per-issue work, but they miss the **lead's view** —
 orchestration decisions, cross-cutting changes, coordination events, and process observations
 that span multiple teammates. Write a team session log to capture this *before* shutting
-teammates down, while context is still fresh.
+the final wave's teammates down, while context is still fresh.
 
 Path: `docs/sessions/YYYY-MM-DD-team-<issues>-<short-slug>.md` (e.g.
 `2026-04-16-team-223-224-225-comprehension-depth.md`).
