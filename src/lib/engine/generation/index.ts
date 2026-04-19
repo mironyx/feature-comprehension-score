@@ -1,1 +1,5 @@
-export { generateQuestions, type GenerateQuestionsRequest } from './generate-questions';
+export {
+  generateQuestions,
+  type GenerateQuestionsRequest,
+  type GenerateQuestionsData,
+} from './generate-questions';
