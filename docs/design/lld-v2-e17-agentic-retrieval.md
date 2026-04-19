@@ -805,9 +805,9 @@ describe('Pipeline integration — rubric generation')
 - `src/lib/supabase/org-retrieval-settings.ts` — owns `RetrievalSettingsSchema`, `RetrievalSettings`, `DEFAULT_RETRIEVAL_SETTINGS`, and `loadOrgRetrievalSettings` (SSR loader for the page)
 
 > **Implementation note (issue #251):** the original file list pointed at
-> `src/app/(app)/orgs/[orgId]/settings/…` + `src/lib/api/contracts/org-settings.ts`, none of
-> which exist in the codebase. Implementation followed the established `(authenticated)/organisation/`
-> + `api/organisations/[id]/<resource>/` layout (sibling to the existing `context/` route) and
+> `src/app/(app)/orgs/[orgId]/settings/…` and `src/lib/api/contracts/org-settings.ts`, neither of
+> which exists in the codebase. Implementation followed the established `(authenticated)/organisation/`
+> and `api/organisations/[id]/<resource>/` layout (sibling to the existing `context/` route) and
 > the `src/lib/supabase/org-*.ts` loader convention (sibling to `org-prompt-context.ts`). Schema
 > lives in a dedicated `RetrievalSettingsSchema` rather than extending a single `org-settings`
 > schema — the latter would require introducing a contracts directory that doesn't yet exist.
