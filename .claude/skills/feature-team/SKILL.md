@@ -42,6 +42,11 @@ If `epic <N>` is given:
 
    Before spawning each wave, echo the parsed wave plan back to the user (one line per wave with issue numbers) so the derivation is auditable.
 
+6. Move the epic itself to In Progress on the project board:
+   ```bash
+   bash scripts/gh-project-status.sh add <epic-number> "in progress"
+   ```
+
 If `-n N` is given:
 ```bash
 gh project item-list 2 --owner mironyx --format json \
@@ -189,7 +194,13 @@ When all are received, summarise:
 - Each issue → PR merged → board/issue closed
 - Any notes from individual feature-ends (rebases, review fixes, etc.)
 
-**Only now** is the team fully done. Do not move board items — `/feature-end` handles that.
+**Only now** is the team fully done. Individual task board items are handled by `/feature-end`.
+
+**If running in `epic` mode**, close the epic itself now that all tasks are shipped:
+```bash
+bash scripts/gh-project-status.sh <epic-number> done
+gh issue close <epic-number> --comment "All tasks shipped. Closing epic."
+```
 
 ### Step 8: Write the team session log
 
