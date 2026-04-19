@@ -75,7 +75,8 @@ export function toOpenAIToolSpec(def: ToolDefinition): {
 
 function makeTimeoutSignal(ms: number): AbortSignal {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), ms);
+  const timer = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), ms);
+  timer.unref?.();
   return controller.signal;
 }
 
@@ -170,6 +171,9 @@ async function runHandler(
 }
 
 function isBudgetBreached(state: LoopState, bounds: ToolLoopBounds): boolean {
+  // Predictive check: refuse the next call if another result of the same size as the last
+  // one would push cumulative bytes past the budget. Keeps a single oversized result from
+  // blowing the budget on the call *after* it lands.
   return state.cumulativeBytes + state.lastBytesReturned >= bounds.maxBytes;
 }
 
