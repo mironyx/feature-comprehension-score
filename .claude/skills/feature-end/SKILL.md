@@ -90,7 +90,13 @@ In both cases:
 
 ### Step 1.5: Sync the LLD — MANDATORY
 
-**Do not skip.** Run `/lld-sync <issue-number>` to update the Low-Level Design document with
+**Idempotency check:** Before running, check whether lld-sync was already completed this run:
+```bash
+git log --oneline origin/main..HEAD | grep -i "lld-sync\|lld sync" | head -1
+```
+If a matching commit exists, skip this step and note "lld-sync already committed" in the session log.
+
+Otherwise run `/lld-sync <issue-number>` to update the Low-Level Design document with
 implementation learnings before writing the session log. The sync report feeds directly into the
 session log's "Decisions made" section.
 
@@ -98,6 +104,12 @@ Only skip if no LLD covers this issue (chore or infrastructure task) — note th
 session log.
 
 ### Step 2: Write session log — MANDATORY
+
+**Idempotency check:** Before writing, check whether a session log for this issue already exists:
+```bash
+grep -rl "#<issue-number>\|closes #<issue-number>" docs/sessions/ 2>/dev/null | head -1
+```
+If a matching file exists, skip writing and proceed to Step 2.5.
 
 **Do not skip.** A session log must always be written, even for small changes.
 
@@ -137,6 +149,12 @@ session log.
 4. Stage the session log (and the draft deletion if applicable).
 
 ### Step 2.5: Query final feature cost
+
+**Idempotency check:** Skip if the `ai-cost-final` label is already on the issue:
+```bash
+gh issue view <issue-number> --json labels --jq '.labels[].name' | grep -q "^ai-cost-final" && echo "SKIP" || echo "RUN"
+```
+If `SKIP`, note "cost already labelled" in the session log and proceed to Step 2.6.
 
 Query Prometheus for the full feature total (all sessions since `/feature` started — same
 session IDs registered in the textfile). This is the **final** cost snapshot; comparing it
@@ -225,10 +243,13 @@ Parse the `state` field from the raw JSON output. If `"state":"MERGED"`, skip th
 Otherwise merge immediately — **no user prompt**. Invoking `/feature-end` is itself the approval:
 
 ```bash
-gh pr merge <number> --squash --delete-branch
+gh pr merge <number> --squash --delete-branch 2>&1 || true
+# gh pr merge may emit a non-fatal error when run inside a worktree (cannot checkout base branch
+# locally — another worktree already holds it). The merge itself succeeds on GitHub. Verify:
+gh pr view <number> --json state --jq .state
 ```
 
-If the merge fails (conflict, required checks missing, permission denied), stop and report per the Blocker policy.
+If the state is `MERGED`, proceed. If it is still `OPEN` (merge genuinely failed), stop and report per the Blocker policy.
 
 **All steps must run automatically without user approval — only stop for a real blocker.**
 ### Step 5 + 6: Clean up, sync, and update project board
