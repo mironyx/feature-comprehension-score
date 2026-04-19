@@ -43,7 +43,7 @@ From `/lld-sync` post-implementation pass:
 - **Corrections.** The LLD named paths that don't exist in this codebase
   (`src/app/(app)/orgs/[orgId]/settings/page.tsx`, `src/app/api/orgs/[orgId]/settings/service.ts`,
   `src/lib/api/contracts/org-settings.ts`). Implementation followed the real `(authenticated)/organisation/`
-  + `api/organisations/[id]/<resource>/` layout (sibling to the existing `context/` route) and
+  and `api/organisations/[id]/<resource>/` layout (sibling to the existing `context/` route) and
   placed the Zod schema beside `org-prompt-context.ts`. LLD paths updated and a Revised row added.
 - **Additions.** Shipped `retrieval-settings-validation.ts` as a pure module (no React import)
   to keep the form component thin and to make the validator trivially unit-testable. Added
@@ -86,8 +86,8 @@ design-doc drift (this session's LLD sync addresses them).
 
 ## Cost retrospective
 
-_Prometheus unreachable from this Linux host (memory: textfile collector runs on a Windows box;
-cross-host scrape not configured). No numeric cost figures for this feature._
+*Prometheus unreachable from this Linux host (memory: textfile collector runs on a Windows box;
+cross-host scrape not configured). No numeric cost figures for this feature.*
 
 ### Qualitative drivers observed
 
