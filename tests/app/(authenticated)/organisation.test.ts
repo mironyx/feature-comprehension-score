@@ -20,6 +20,10 @@ vi.mock('@/lib/supabase/org-prompt-context', () => ({
   loadOrgPromptContext: vi.fn(),
 }));
 
+vi.mock('@/lib/supabase/org-retrieval-settings', () => ({
+  loadOrgRetrievalSettings: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -40,12 +44,20 @@ vi.mock('next/headers', () => ({
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockLoadContext = vi.mocked(loadOrgPromptContext);
+const mockLoadRetrieval = vi.mocked(loadOrgRetrievalSettings);
+
+const DEFAULT_RETRIEVAL = {
+  tool_use_enabled: false,
+  rubric_cost_cap_cents: 20,
+  retrieval_timeout_seconds: 120,
+};
 const mockRedirect = vi.mocked(redirect);
 const mockForbidden = vi.mocked(forbidden);
 const mockCookies = vi.mocked(cookies);
@@ -90,6 +102,7 @@ describe('Organisation page', () => {
     mockCookies.mockResolvedValue(mockCookieStore as never);
     mockGetOrgId.mockReturnValue(ORG_ID);
     mockLoadContext.mockResolvedValue(undefined);
+    mockLoadRetrieval.mockResolvedValue(DEFAULT_RETRIEVAL);
   });
 
   describe('Given I am a regular user visiting /organisation', () => {
