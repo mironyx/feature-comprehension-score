@@ -12,6 +12,7 @@
 | 2026-04-19 | LS / Claude | Post-implementation sync for issue #249: §17.1b aligned with adapter as built — test files under `tests/lib/github/tools/` (project convention), shared `octokit-contents.ts` helper extracted during dedup, manual URL-segment encoding via `octokit.request` (Octokit's `{path}` placeholder encodes `/` as `%2F` and mis-routes), adapter-local `types.ts` for `ToolResult`/`ToolDefinition` while engine port (#245) is parallel. Future enhancement #266 tracked: batched multi-file retrieval via GraphQL. |
 | 2026-04-19 | Claude | §17.1a sync (issue #245): (1) promoted `ToolCallOutcome` to a named type alias — not in the original spec; keeps the six outcome literals single-sourced across `ToolResult.kind`, `ToolCallLogEntry.outcome`, and the logging/metric paths. (2) All type fields marked `readonly` for type-level immutability. (3) Concrete `OpenRouterClient.generateWithTools` ships as an explicit stub throwing `'not implemented — see §17.1c'` so the port contract is honoured while runtime behaviour is deferred to §17.1c. |
 | 2026-04-19 | LS / Claude | §17.2a sync (issue #251): corrected file paths — implementation lives under `(authenticated)/organisation/` + `api/organisations/[id]/retrieval-settings/` (sibling to `context/` route) with the Zod schema in `src/lib/supabase/org-retrieval-settings.ts`. Original LLD paths (`(app)/orgs/[orgId]/settings/…`, `src/lib/api/contracts/org-settings.ts`) did not match the codebase. Added explicit internal decomposition: service re-exports schema/type/defaults per ADR-0014; page uses `loadOrgRetrievalSettings` for SSR hydration. |
+| 2026-04-19 | Claude | §17.1c sync (issue #250): loop extracted to a dedicated pure module `src/lib/engine/llm/tool-loop.ts` (adapter file became a thin delegator); internal SDK-shape types (`SdkRequest`/`SdkResponse`/`SdkAssistantMessage`/`SdkToolCallRequest`/`SdkUsage`/`ChatCallFn`) keep OpenAI types out of the loop module; decomposed `executeToolCall` into sub-helpers (`parseToolInput`, `runHandler`, `recordOutcome`, `pushToolMessage`, `breach`, `processOneToolCall`) to fit the 20-line function budget; budget check switched to predictive heuristic (`cumulativeBytes + lastBytesReturned >= maxBytes`); manual `setTimeout + AbortController` instead of `AbortSignal.timeout()` (vitest fake timers don't mock the latter) with `.unref()` so the timer does not hold the Node event loop open; turn cap `maxCalls + 2` replaces the `while (true)` sketch; message ordering corrected — assistant message pushed before tool responses (OpenAI Chat Completions requires the assistant-with-tool_calls turn to precede the matching `role:'tool'` messages). |
 
 ---
 
@@ -473,10 +474,21 @@ describe('listDirectory tool')
 
 ### §17.1c — OpenRouter adapter: generateWithTools
 
-**Files to modify:**
+> **Implementation note (issue #250):** the loop was extracted to a dedicated pure module
+> `src/lib/engine/llm/tool-loop.ts` that the adapter delegates to via a `ChatCallFn` adapter.
+> The adapter file (`src/lib/engine/llm/client.ts`) keeps the SDK-shape boundary; the loop
+> module imports only `zod` and the engine's own `tools`/`types`. SDK-shape types (`SdkRequest`,
+> `SdkResponse`, `SdkAssistantMessage`, `SdkToolCallRequest`, `SdkUsage`, `ChatCallFn`) live
+> inside the loop module and describe a minimal subset of the OpenAI Chat Completions shape
+> — no `openai` imports cross into the loop. The pseudocode below is retained as a
+> specification; the divergences are called out inline.
 
-- `src/lib/llm/openrouter-client.ts` (or equivalent existing adapter file) — add `generateWithTools` method
-- Add tests covering the loop mechanics using a fake HTTP client
+**Files to modify (as built):**
+
+- `src/lib/engine/llm/client.ts` — `generateWithTools` delegates to `runToolLoop`
+- `src/lib/engine/llm/tool-loop.ts` — **new** pure module housing the loop
+- `tests/lib/engine/llm/generate-with-tools.test.ts` — 31 contract tests via a mocked OpenAI client
+- `tests/evaluation/e17-llmclient-tool-loop.eval.test.ts` — 2 adversarial `error`-outcome tests
 
 **Loop implementation (pseudocode):**
 
@@ -489,6 +501,9 @@ function executeToolCall(
 ): { logEntry: ToolCallLogEntry; toolMessage: ToolMessage } {
   if (state.callCount >= bounds.maxCalls)
     return breach(tc, 'iteration_limit_reached');
+  // Implemented as predictive heuristic: cumulativeBytes + lastBytesReturned >= maxBytes —
+  // refuses the next call if another result of the last call's size would overflow the
+  // budget, so a single oversized result cannot push total bytes past maxBytes.
   if (state.cumulativeBytes >= bounds.maxBytes)
     return breach(tc, 'budget_exhausted');
 
@@ -498,6 +513,10 @@ function executeToolCall(
   const parsed = def.inputSchema.safeParse(tc.args);
   if (!parsed.success) return errorEntry(tc, 'invalid_args');
 
+  // Implemented via AbortSignal.any([loopSignal, makeTimeoutSignal(...)]) where
+  // makeTimeoutSignal wraps setTimeout + AbortController (and calls timer.unref()).
+  // AbortSignal.timeout() is not mocked by vitest fake timers, so the manual form is
+  // needed to make the abort-in-flight tests deterministic.
   const callSignal = combineSignals(loopSignal, AbortSignal.timeout(bounds.perToolCallTimeoutMs));
   const result = await def.handler(parsed.data, callSignal);
   state.callCount += 1;
@@ -517,15 +536,21 @@ async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
   const toolCalls: ToolCallLogEntry[] = [];
   const messages = [systemPrompt, userPrompt];
 
+  // Implemented with a turn cap `maxTurns = bounds.maxCalls + 2` in place of `while (true)`.
+  // The cap is a defence against a stuck LLM that keeps returning empty tool_calls; if we
+  // hit it, the caller sees `{ code: 'malformed_response', message: 'loop turn cap exceeded' }`.
+  // Message ordering: the assistant message (with `tool_calls`) is pushed BEFORE the
+  // `role:'tool'` response messages. OpenAI Chat Completions requires this order — each
+  // tool_call_id must be answered by a tool message that follows the assistant turn.
   while (true) {
     const resp = await openrouterChat({ messages, tools: req.tools.map(toOpenRouterToolDef), signal: loopSignal });
     if (resp.tool_calls?.length) {
+      messages.push(resp.assistantMessage);
       for (const tc of resp.tool_calls) {
         const { logEntry, toolMessage } = executeToolCall(tc, req.tools, bounds, state, loopSignal);
         toolCalls.push(logEntry);
         messages.push(toolMessage);
       }
-      messages.push(resp.assistantMessage);
       continue;
     }
     // Final response — validate against schema
@@ -562,10 +587,10 @@ describe('OpenRouter generateWithTools')
 
 **Acceptance criteria:**
 
-- [ ] Method implemented on the OpenRouter adapter
-- [ ] All tests pass using a fake HTTP client (no real network)
-- [ ] No engine-layer imports leak into OpenRouter-specific types
-- [ ] Existing `generateStructured` behaviour unchanged
+- [x] Method implemented on the OpenRouter adapter
+- [x] All tests pass using a fake HTTP client (no real network) — 31 contract tests + 2 adversarial
+- [x] No engine-layer imports leak into OpenRouter-specific types — `openai` is only imported by `client.ts`; `tool-loop.ts` owns minimal SDK-shape types
+- [x] Existing `generateStructured` behaviour unchanged — 15 existing tests still pass
 
 ---
 
