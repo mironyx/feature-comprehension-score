@@ -7,7 +7,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { shouldRevealReferenceAnswers } from '@/lib/engine/results';
 import type { Database } from '@/lib/supabase/types';
+import type { ToolCallLogEntry } from '@/lib/engine/llm/tools';
 import { logger } from '@/lib/logger';
+import RetrievalDetailsCard from '@/components/assessment/RetrievalDetailsCard';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -200,6 +202,14 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           <p>Note: scoring incomplete — some answers could not be scored.</p>
         )}
       </section>
+
+      <RetrievalDetailsCard
+        rubric_tool_call_count={assessment.rubric_tool_call_count}
+        rubric_tool_calls={assessment.rubric_tool_calls as readonly ToolCallLogEntry[] | null}
+        rubric_input_tokens={assessment.rubric_input_tokens}
+        rubric_output_tokens={assessment.rubric_output_tokens}
+        rubric_duration_ms={assessment.rubric_duration_ms}
+      />
 
       <section>
         <h2>Question Breakdown</h2>
