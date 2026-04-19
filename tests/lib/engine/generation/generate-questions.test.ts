@@ -200,11 +200,16 @@ describe('generateQuestions', () => {
 
   describe('Given optional model and maxTokens overrides', () => {
     it('then it passes them through to the LLM client', async () => {
-      const generateStructured = vi.fn().mockResolvedValue({
+      const generateWithTools = vi.fn().mockResolvedValue({
         success: true,
-        data: questionGenerationFixture.valid,
+        data: {
+          data: questionGenerationFixture.valid,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          toolCalls: [],
+          durationMs: 1,
+        },
       });
-      const llmClient = { generateStructured };
+      const llmClient = { generateStructured: vi.fn(), generateWithTools };
 
       await generateQuestions({
         artefacts: codeOnlyArtefacts,
@@ -213,7 +218,7 @@ describe('generateQuestions', () => {
         maxTokens: 8192,
       });
 
-      expect(generateStructured).toHaveBeenCalledWith(
+      expect(generateWithTools).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'claude-opus-4-20250514',
           maxTokens: 8192,
@@ -224,22 +229,90 @@ describe('generateQuestions', () => {
 
   describe('Given the LLM client is called', () => {
     it('then it passes the correct prompt and schema', async () => {
-      const generateStructured = vi.fn().mockResolvedValue({
+      const generateWithTools = vi.fn().mockResolvedValue({
         success: true,
-        data: questionGenerationFixture.valid,
+        data: {
+          data: questionGenerationFixture.valid,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          toolCalls: [],
+          durationMs: 1,
+        },
       });
-      const llmClient = { generateStructured };
+      const llmClient = { generateStructured: vi.fn(), generateWithTools };
 
       await generateQuestions({
         artefacts: codeOnlyArtefacts,
         llmClient,
       });
 
-      expect(generateStructured).toHaveBeenCalledOnce();
-      const call = generateStructured.mock.calls[0]![0];
+      expect(generateWithTools).toHaveBeenCalledOnce();
+      const call = generateWithTools.mock.calls[0]![0];
       expect(call.systemPrompt).toContain('software comprehension assessor');
       expect(call.prompt).toContain('Question count: 3');
       expect(call.schema).toBe(QuestionGenerationResponseSchema);
+    });
+  });
+
+  describe('Given tool-use is enabled for the organisation', () => {
+    it('then it passes the tools array through to generateWithTools', async () => {
+      const generateWithTools = vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          data: questionGenerationFixture.valid,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          toolCalls: [],
+          durationMs: 1,
+        },
+      });
+      const llmClient = { generateStructured: vi.fn(), generateWithTools };
+      const tools = [
+        {
+          name: 'readFile',
+          description: 'Read a file',
+          inputSchema: QuestionGenerationResponseSchema,
+          handler: vi.fn(),
+        },
+      ];
+
+      await generateQuestions({
+        artefacts: codeOnlyArtefacts,
+        llmClient,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double
+        tools: tools as any,
+      });
+
+      expect(generateWithTools).toHaveBeenCalledWith(
+        expect.objectContaining({ tools }),
+      );
+    });
+  });
+
+  describe('Given a successful generation', () => {
+    it('then it returns observability fields alongside the response data', async () => {
+      const generateWithTools = vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          data: questionGenerationFixture.valid,
+          usage: { inputTokens: 1234, outputTokens: 567 },
+          toolCalls: [
+            { tool_name: 'readFile', argument_path: 'docs/adr/0001.md', bytes_returned: 42, outcome: 'ok' },
+          ],
+          durationMs: 2500,
+        },
+      });
+      const llmClient = { generateStructured: vi.fn(), generateWithTools };
+
+      const result = await generateQuestions({
+        artefacts: codeOnlyArtefacts,
+        llmClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.inputTokens).toBe(1234);
+      expect(result.data.outputTokens).toBe(567);
+      expect(result.data.toolCalls).toHaveLength(1);
+      expect(result.data.durationMs).toBe(2500);
     });
   });
 });

@@ -35,37 +35,51 @@ function failure(error: LLMError) {
   return { success: false as const, error };
 }
 
-export function createMockLLMClient(options?: MockLLMClientOptions): LLMClient {
+function resolveFixtureResponse(
+  schema: ZodType,
+  responses: Map<ZodType, unknown> | undefined,
+): unknown {
+  const override = responses?.get(schema);
+  if (override !== undefined) return override;
+  return defaultResponses.get(schema);
+}
+
+function toFailure(options: MockLLMClientOptions): LLMError | null {
+  if (!options.error) return null;
   return {
-    generateWithTools: async () => {
-      throw new Error('generateWithTools not implemented in mock — see §17.1c');
+    code: options.error.code,
+    message: options.error.message ?? 'Mocked error',
+    retryable: RETRYABLE_CODES.has(options.error.code),
+  };
+}
+
+export function createMockLLMClient(options?: MockLLMClientOptions): LLMClient {
+  const opts = options ?? {};
+  return {
+    generateWithTools: async (request) => {
+      const fail = toFailure(opts);
+      if (fail) return failure(fail);
+      const fixture = resolveFixtureResponse(request.schema, opts.responses);
+      if (fixture === undefined) {
+        return failure({ code: 'unknown', message: 'No fixture registered for schema', retryable: false });
+      }
+      return success({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
+        data: fixture as any,
+        usage: { inputTokens: 100, outputTokens: 50 },
+        toolCalls: [],
+        durationMs: 10,
+      });
     },
     generateStructured: async (request) => {
-      if (options?.error) {
-        return failure({
-          code: options.error.code,
-          message: options.error.message ?? 'Mocked error',
-          retryable: RETRYABLE_CODES.has(options.error.code),
-        });
+      const fail = toFailure(opts);
+      if (fail) return failure(fail);
+      const fixture = resolveFixtureResponse(request.schema, opts.responses);
+      if (fixture === undefined) {
+        return failure({ code: 'unknown', message: 'No fixture registered for schema', retryable: false });
       }
-
-      const overrideResponse = options?.responses?.get(request.schema);
-      if (overrideResponse !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
-        return success(overrideResponse as any);
-      }
-
-      const defaultResponse = defaultResponses.get(request.schema);
-      if (defaultResponse !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
-        return success(defaultResponse as any);
-      }
-
-      return failure({
-        code: 'unknown',
-        message: 'No fixture registered for schema',
-        retryable: false,
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double; Map<ZodType, unknown> can't satisfy generic output<T>
+      return success(fixture as any);
     },
   };
 }

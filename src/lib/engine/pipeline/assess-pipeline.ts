@@ -1,4 +1,9 @@
 import type { LLMClient, LLMError } from '@/lib/engine/llm/types';
+import type {
+  ToolCallLogEntry,
+  ToolDefinition,
+  ToolLoopBounds,
+} from '@/lib/engine/llm/tools';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import type { Question, ArtefactQuality, AdditionalContextSuggestion } from '@/lib/engine/llm/schemas';
 import { generateQuestions } from '@/lib/engine/generation';
@@ -13,8 +18,19 @@ export interface Rubric {
   additional_context_suggestions?: AdditionalContextSuggestion[];
 }
 
+export interface RubricObservability {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly toolCalls: readonly ToolCallLogEntry[];
+  readonly durationMs: number;
+}
+
 export type GenerateRubricResult =
-  | { status: 'success'; rubric: Rubric }
+  | {
+      status: 'success';
+      rubric: Rubric;
+      observability: RubricObservability;
+    }
   | { status: 'generation_failed'; error: LLMError };
 
 export interface GenerateRubricRequest {
@@ -22,6 +38,9 @@ export interface GenerateRubricRequest {
   llmClient: LLMClient;
   model?: string;
   maxTokens?: number;
+  tools?: readonly ToolDefinition[];
+  bounds?: Partial<ToolLoopBounds>;
+  signal?: AbortSignal;
 }
 
 export async function generateRubric(
@@ -40,6 +59,12 @@ export async function generateRubric(
       artefact_quality: result.data.artefact_quality,
       artefact_quality_note: result.data.artefact_quality_note,
       additional_context_suggestions: result.data.additional_context_suggestions,
+    },
+    observability: {
+      inputTokens: result.data.inputTokens,
+      outputTokens: result.data.outputTokens,
+      toolCalls: result.data.toolCalls,
+      durationMs: result.data.durationMs,
     },
   };
 }

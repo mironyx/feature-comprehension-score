@@ -5,6 +5,7 @@ export {
   type GenerateRubricRequest,
   type GenerateRubricResult,
   type Rubric,
+  type RubricObservability,
   type ScoreAnswersRequest,
   type ScoreAnswersResult,
   type ParticipantAnswer,

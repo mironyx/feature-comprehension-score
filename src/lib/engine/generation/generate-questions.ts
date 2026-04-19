@@ -1,4 +1,9 @@
 import type { LLMClient, LLMResult } from '@/lib/engine/llm/types';
+import type {
+  ToolCallLogEntry,
+  ToolDefinition,
+  ToolLoopBounds,
+} from '@/lib/engine/llm/tools';
 import {
   QuestionGenerationResponseSchema,
   type QuestionGenerationResponse,
@@ -11,38 +16,59 @@ export interface GenerateQuestionsRequest {
   llmClient: LLMClient;
   model?: string;
   maxTokens?: number;
+  tools?: readonly ToolDefinition[];
+  bounds?: Partial<ToolLoopBounds>;
+  signal?: AbortSignal;
 }
+
+export type GenerateQuestionsData = QuestionGenerationResponse & {
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: readonly ToolCallLogEntry[];
+  durationMs: number;
+};
 
 export async function generateQuestions(
   request: GenerateQuestionsRequest,
-): Promise<LLMResult<QuestionGenerationResponse>> {
-  const { artefacts, llmClient, model, maxTokens } = request;
+): Promise<LLMResult<GenerateQuestionsData>> {
+  const { artefacts, llmClient, model, maxTokens, tools, bounds, signal } = request;
   const { systemPrompt, userPrompt } = buildQuestionGenerationPrompt(artefacts);
 
-  const result = await llmClient.generateStructured<typeof QuestionGenerationResponseSchema>({
+  const result = await llmClient.generateWithTools<typeof QuestionGenerationResponseSchema>({
     systemPrompt,
     prompt: userPrompt,
     schema: QuestionGenerationResponseSchema,
+    tools: tools ?? [],
+    bounds,
     model,
     maxTokens,
+    signal,
   });
 
   if (!result.success) {
     return result;
   }
 
-  const actual = result.data.questions.length;
-  const expected = artefacts.question_count;
-  if (actual !== expected) {
+  const response = result.data.data;
+  if (response.questions.length !== artefacts.question_count) {
     return {
       success: false,
       error: {
         code: 'validation_failed',
-        message: `Expected ${expected} questions but received ${actual}`,
+        message: `Expected ${artefacts.question_count} questions but received ${response.questions.length}`,
         retryable: true,
       },
     };
   }
 
-  return result;
+  return {
+    success: true,
+    data: {
+      ...response,
+      inputTokens: result.data.usage.inputTokens,
+      outputTokens: result.data.usage.outputTokens,
+      toolCalls: result.data.toolCalls,
+      durationMs: result.data.durationMs,
+    },
+  };
 }

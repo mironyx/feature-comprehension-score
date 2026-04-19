@@ -69,6 +69,7 @@ vi.mock('@/lib/engine/pipeline', () => ({
   generateRubric: vi.fn().mockResolvedValue({
     status: 'success',
     rubric: { questions: [{ question_text: 'Q1', reference_answer: 'A1', weight: 1 }] },
+    observability: { inputTokens: 100, outputTokens: 50, toolCalls: [], durationMs: 1 },
   }),
 }));
 
@@ -105,6 +106,7 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     select: vi.fn(),
     eq: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
+    maybeSingle: vi.fn(() => Promise.resolve(resolver())),
     update: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
@@ -173,6 +175,7 @@ beforeEach(() => {
   vi.mocked(generateRubric).mockResolvedValue({
     status: 'success',
     rubric: { questions: [{ question_text: 'Q1', reference_answer: 'A1', weight: 1 }] },
+    observability: { inputTokens: 100, outputTokens: 50, toolCalls: [], durationMs: 1 },
   });
 
   assessmentResult = {

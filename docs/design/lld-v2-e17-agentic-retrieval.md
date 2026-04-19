@@ -13,6 +13,7 @@
 | 2026-04-19 | Claude | §17.1a sync (issue #245): (1) promoted `ToolCallOutcome` to a named type alias — not in the original spec; keeps the six outcome literals single-sourced across `ToolResult.kind`, `ToolCallLogEntry.outcome`, and the logging/metric paths. (2) All type fields marked `readonly` for type-level immutability. (3) Concrete `OpenRouterClient.generateWithTools` ships as an explicit stub throwing `'not implemented — see §17.1c'` so the port contract is honoured while runtime behaviour is deferred to §17.1c. |
 | 2026-04-19 | LS / Claude | §17.2a sync (issue #251): corrected file paths — implementation lives under `(authenticated)/organisation/` + `api/organisations/[id]/retrieval-settings/` (sibling to `context/` route) with the Zod schema in `src/lib/supabase/org-retrieval-settings.ts`. Original LLD paths (`(app)/orgs/[orgId]/settings/…`, `src/lib/api/contracts/org-settings.ts`) did not match the codebase. Added explicit internal decomposition: service re-exports schema/type/defaults per ADR-0014; page uses `loadOrgRetrievalSettings` for SSR hydration. |
 | 2026-04-19 | Claude | §17.1c sync (issue #250): loop extracted to a dedicated pure module `src/lib/engine/llm/tool-loop.ts` (adapter file became a thin delegator); internal SDK-shape types (`SdkRequest`/`SdkResponse`/`SdkAssistantMessage`/`SdkToolCallRequest`/`SdkUsage`/`ChatCallFn`) keep OpenAI types out of the loop module; decomposed `executeToolCall` into sub-helpers (`parseToolInput`, `runHandler`, `recordOutcome`, `pushToolMessage`, `breach`, `processOneToolCall`) to fit the 20-line function budget; budget check switched to predictive heuristic (`cumulativeBytes + lastBytesReturned >= maxBytes`); manual `setTimeout + AbortController` instead of `AbortSignal.timeout()` (vitest fake timers don't mock the latter) with `.unref()` so the timer does not hold the Node event loop open; turn cap `maxCalls + 2` replaces the `while (true)` sketch; message ordering corrected — assistant message pushed before tool responses (OpenAI Chat Completions requires the assistant-with-tool_calls turn to precede the matching `role:'tool'` messages). |
+| 2026-04-19 | LS / Claude | §17.1e sync (issue #246): engine emits flat observability fields (`inputTokens`, `outputTokens`, `toolCalls`, `durationMs`) via a `GenerateQuestionsData = QuestionGenerationResponse & { ... }` intersection — not the `_usage`/`_toolCalls`/`_durationMs` shape sketched in the LLD; schema reference corrected to `QuestionGenerationResponseSchema`; service reads org settings via `loadOrgRetrievalSettings` helper rather than an inline `org_config` query; service decomposed into `buildRubricTools` + `persistRubricFinalisation` helpers to keep `finaliseRubric` under the 20-line budget; `bounds` is a `Partial<ToolLoopBounds>` with only `timeoutMs` set (cost-cap → `maxExtraInputTokens` derivation not wired — deferred); `src/lib/github/tools/types.ts` now re-exports `ToolDefinition`/`ToolResult` from `@/lib/engine/llm/tools` (the adapter-local duplicate would break handler variance when composed through the engine's `GenerateWithToolsRequest`). |
 
 ---
 
@@ -718,57 +719,88 @@ The rubric-generation system prompt must instruct the LLM to treat the provided 
 The existing function switches from `generateStructured` to `generateWithTools`, always. When tool-use is disabled for the org, the service layer passes `tools=[]` and the loop degenerates to a single-shot call. The engine layer has no awareness of the flag.
 
 ```typescript
+export type GenerateQuestionsData = QuestionGenerationResponse & {
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: readonly ToolCallLogEntry[];
+  durationMs: number;
+};
+
 export async function generateQuestions(request: GenerateQuestionsRequest): Promise<LLMResult<GenerateQuestionsData>> {
-  const result = await llmClient.generateWithTools({
+  const result = await llmClient.generateWithTools<typeof QuestionGenerationResponseSchema>({
     systemPrompt,
     prompt: userPrompt,
-    schema: RubricGenerationResponseSchema,
-    tools: request.tools,     // empty array if org has flag off
-    bounds: request.bounds,   // optional override
+    schema: QuestionGenerationResponseSchema,
+    tools: request.tools ?? [],  // empty array if org has flag off
+    bounds: request.bounds,       // optional override
     signal: request.signal,
     model,
     maxTokens,
   });
   if (!result.success) return result;
+  // Validate question count matches what was requested (retryable on mismatch).
+  const response = result.data.data;
+  if (response.questions.length !== request.artefacts.question_count) {
+    return { success: false, error: { code: 'validation_failed', message: '...', retryable: true } };
+  }
   return {
     success: true,
     data: {
-      ...result.data.data,
-      _usage: result.data.usage,
-      _toolCalls: result.data.toolCalls,
-      _durationMs: result.data.durationMs,
+      ...response,
+      inputTokens: result.data.usage.inputTokens,
+      outputTokens: result.data.usage.outputTokens,
+      toolCalls: result.data.toolCalls,
+      durationMs: result.data.durationMs,
     },
   };
 }
 ```
 
+> **Implementation note (issue #246):** observability fields are exposed as flat keys
+> (`inputTokens`, `outputTokens`, `toolCalls`, `durationMs`) via an intersection type
+> rather than the sketch's underscore-prefixed nested shape. The flat form composes cleanly
+> with `QuestionGenerationResponse` and avoids a second level of destructuring at callers
+> (`assess-pipeline.ts`, `fcs/service.ts`). The question-count validation is preserved from
+> the pre-#246 implementation — this is not new behaviour, only moved through the tool-use path.
+
 **Service change (fcs/service.ts):**
 
+Decomposed into three helpers so `finaliseRubric` fits the 20-line function budget:
+
+- `buildRubricTools(octokit, repoRef, toolUseEnabled)` — returns `[]` when disabled, otherwise
+  `[makeReadFileTool, makeListDirectoryTool]`.
+- `persistRubricFinalisation(adminSupabase, { assessmentId, orgId, questions, observability })`
+  — calls the 8-arg `finalise_rubric` RPC and throws on error.
+- `finaliseRubric({ adminSupabase, assessmentId, orgId, artefacts, octokit, repoRef })` —
+  orchestrates: load retrieval settings → build tools → `generateRubric` → persist.
+
 ```typescript
-const orgConfig = await ctx.supabase.from('org_config')
-  .select('tool_use_enabled, rubric_cost_cap_cents, retrieval_timeout_seconds')
-  .eq('org_id', orgId).single();
-const tools = orgConfig.data?.tool_use_enabled
-  ? [makeReadFileTool(octokit, repo), makeListDirectoryTool(octokit, repo)]
-  : [];
-const bounds = {
-  ...DEFAULT_TOOL_LOOP_BOUNDS,
-  timeoutMs: (orgConfig.data?.retrieval_timeout_seconds ?? 120) * 1000,
-  /* derive maxExtraInputTokens from cost cap if set */
-};
-const rubric = await generateRubric({ artefacts, llmClient, tools, bounds });
-// ... on success:
-await ctx.adminSupabase.rpc('finalise_rubric', {
-  p_assessment_id: id,
-  p_org_id: orgId,
-  p_questions: rubric.questions,
-  p_rubric_input_tokens: rubric._usage.inputTokens,
-  p_rubric_output_tokens: rubric._usage.outputTokens,
-  p_rubric_tool_call_count: rubric._toolCalls.length,
-  p_rubric_tool_calls: rubric._toolCalls,
-  p_rubric_duration_ms: rubric._durationMs,
-});
+async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
+  logArtefactSummary(params.artefacts);
+  const settings = await loadOrgRetrievalSettings(params.adminSupabase, params.orgId);
+  const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
+  const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
+  const llmClient = buildLlmClient(logger);
+  const result = await generateRubric({ artefacts: params.artefacts, llmClient, tools, bounds });
+  if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
+  await persistRubricFinalisation(params.adminSupabase, {
+    assessmentId: params.assessmentId,
+    orgId: params.orgId,
+    questions: result.rubric.questions,
+    observability: result.observability,  // { inputTokens, outputTokens, toolCalls, durationMs }
+  });
+}
 ```
+
+The legacy error path is unchanged: any throw from `finaliseRubric` (generation failure *or*
+RPC failure) propagates to `triggerRubricGeneration`'s outer catch, which logs and calls
+`markRubricFailed(assessmentId)` to transition the assessment to `rubric_failed`.
+
+> **Implementation note (issue #246):** the org-config read uses the existing
+> `loadOrgRetrievalSettings(adminSupabase, orgId)` helper (introduced for §17.2a) rather than
+> an inline `org_config` query. The `bounds` object only sets `timeoutMs`; deriving
+> `maxExtraInputTokens` from `rubric_cost_cap_cents` is **deferred** — the cap is read by the
+> org-settings UI but not yet threaded into the loop. Add a new issue when this is wired.
 
 **BDD specs:**
 

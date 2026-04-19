@@ -10,12 +10,16 @@ import { logger } from '@/lib/logger';
 import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
-import { generateRubric } from '@/lib/engine/pipeline';
+import { generateRubric, type RubricObservability } from '@/lib/engine/pipeline';
 import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
 import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
+import { makeReadFileTool } from '@/lib/github/tools/read-file';
+import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
+import type { ToolDefinition } from '@/lib/engine/llm/tools';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
@@ -246,24 +250,69 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
   }, 'Rubric generation: artefact summary');
 }
 
-// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
-// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
-async function finaliseRubric(
+// Justification: buildRubricTools and persistRubricFinalisation are extracted from
+// finaliseRubric to keep it under the 20-line budget while adding tool-use + observability
+// (§17.1e). Tools attach only when the org has opted in via `tool_use_enabled`; the loop
+// degenerates to a single-shot call when the tool set is empty.
+function buildRubricTools(
+  octokit: Octokit,
+  repoRef: { owner: string; repo: string },
+  toolUseEnabled: boolean,
+): readonly ToolDefinition[] {
+  if (!toolUseEnabled) return [];
+  return [makeReadFileTool(octokit, repoRef), makeListDirectoryTool(octokit, repoRef)];
+}
+
+interface RubricPersistParams {
+  assessmentId: AssessmentId;
+  orgId: OrgId;
+  questions: unknown;
+  observability: RubricObservability;
+}
+
+async function persistRubricFinalisation(
   adminSupabase: ServiceClient,
-  assessmentId: AssessmentId,
-  orgId: OrgId,
-  artefacts: AssembledArtefactSet,
+  params: RubricPersistParams,
 ): Promise<void> {
-  logArtefactSummary(artefacts);
-  const llmClient = buildLlmClient(logger);
-  const result = await generateRubric({ artefacts, llmClient });
-  if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
   const { error } = await adminSupabase.rpc('finalise_rubric', {
-    p_assessment_id: assessmentId,
-    p_org_id: orgId,
-    p_questions: result.rubric.questions,
+    p_assessment_id: params.assessmentId,
+    p_org_id: params.orgId,
+    p_questions: params.questions as Json,
+    p_rubric_input_tokens: params.observability.inputTokens,
+    p_rubric_output_tokens: params.observability.outputTokens,
+    p_rubric_tool_call_count: params.observability.toolCalls.length,
+    p_rubric_tool_calls: params.observability.toolCalls as unknown as Json,
+    p_rubric_duration_ms: params.observability.durationMs,
   });
   if (error) throw new Error('Failed to finalise rubric');
+}
+
+interface FinaliseRubricParams {
+  adminSupabase: ServiceClient;
+  assessmentId: AssessmentId;
+  orgId: OrgId;
+  artefacts: AssembledArtefactSet;
+  octokit: Octokit;
+  repoRef: { owner: string; repo: string };
+}
+
+// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
+// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
+// Tool-use + observability wiring added for §17.1e (#246).
+async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
+  logArtefactSummary(params.artefacts);
+  const settings = await loadOrgRetrievalSettings(params.adminSupabase, params.orgId);
+  const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
+  const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
+  const llmClient = buildLlmClient(logger);
+  const result = await generateRubric({ artefacts: params.artefacts, llmClient, tools, bounds });
+  if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
+  await persistRubricFinalisation(params.adminSupabase, {
+    assessmentId: params.assessmentId,
+    orgId: params.orgId,
+    questions: result.rubric.questions,
+    observability: result.observability,
+  });
 }
 
 async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId): Promise<void> {
@@ -278,12 +327,20 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
   try {
     const octokit = await createGithubClient(params.repoInfo.installationId);
     const source = new GitHubArtefactSource(octokit);
+    const repoRef = { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName };
     const [raw, organisation_context] = await Promise.all([
-      source.extractFromPRs({ owner: params.repoInfo.orgName, repo: params.repoInfo.repoName, prNumbers: params.prNumbers }),
+      source.extractFromPRs({ ...repoRef, prNumbers: params.prNumbers }),
       loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
     ]);
     const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: params.comprehensionDepth ?? 'conceptual' };
-    await finaliseRubric(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, artefacts);
+    await finaliseRubric({
+      adminSupabase: params.adminSupabase,
+      assessmentId: params.assessmentId,
+      orgId: params.repoInfo.orgId,
+      artefacts,
+      octokit,
+      repoRef,
+    });
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
     await markRubricFailed(params.adminSupabase, params.assessmentId);
