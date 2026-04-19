@@ -42,3 +42,7 @@
 - Consider adding an explicit reminder in the teammate prompt: "Do NOT run `/feature-end` until the lead sends you the feature-end message — the user must review the PR first."
 - Lead should write the team log and send shutdowns as soon as the last feature-end is confirmed, not wait for user prompting.
 - The MD018 triple-fix pattern suggests pre-existing lint failures in docs should be fixed in a single chore commit on `main` before spawning a feature team, to avoid every teammate patching the same file independently.
+
+## Cost fix (2026-04-19)
+
+All Wave 1 PRs (and all prior PRs) showed `TBD` cost figures because `PROM_PORT` was not set in `~/.bashrc`. `WINDOWS_IP=192.168.0.101` was present but `PROM_PORT=19090` was missing — the cost script defaulted to port 9090, which is unreachable from Linux. Fixed by adding `export PROM_PORT=19090` to `~/.bashrc`. Prometheus confirmed reachable at `192.168.0.101:19090`. Cost data is now available for Wave 2 onwards.
