@@ -1,5 +1,6 @@
 // Client-side validation for retrieval settings form.
 // Mirrors RetrievalSettingsSchema constraints.
+// Design reference: docs/design/lld-v2-e17-agentic-retrieval.md §17.2a
 // Issue: #251
 
 import type { RetrievalSettings } from '@/app/api/organisations/[id]/retrieval-settings/service';

@@ -27,6 +27,8 @@ async function submitSettings(
     body: JSON.stringify(settings),
   });
   if (!res.ok) {
+    // Non-JSON error bodies fall through to the generic message below; the
+    // HTTP failure is already signalled by `!res.ok`.
     const body = await res.json().catch(() => ({})) as { error?: string };
     return body.error ?? 'Failed to save. Please try again.';
   }

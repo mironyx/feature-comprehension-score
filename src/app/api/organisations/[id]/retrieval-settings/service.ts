@@ -2,27 +2,20 @@
 // Design reference: docs/design/lld-v2-e17-agentic-retrieval.md §17.2a
 // Issue: #251
 
-import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
 import type { ApiContext } from '@/lib/api/context';
+import {
+  DEFAULT_RETRIEVAL_SETTINGS,
+  RetrievalSettingsSchema,
+  type RetrievalSettings,
+} from '@/lib/supabase/org-retrieval-settings';
 
 // ---------------------------------------------------------------------------
-// Contract types — ADR-0014
+// Re-exports — route.ts imports the schema + types from here (ADR-0014).
 // ---------------------------------------------------------------------------
 
-export const RetrievalSettingsSchema = z.object({
-  tool_use_enabled: z.boolean(),
-  rubric_cost_cap_cents: z.number().int().min(0).max(500),
-  retrieval_timeout_seconds: z.number().int().min(10).max(600),
-});
-
-export type RetrievalSettings = z.infer<typeof RetrievalSettingsSchema>;
-
-export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = {
-  tool_use_enabled: false,
-  rubric_cost_cap_cents: 20,
-  retrieval_timeout_seconds: 120,
-};
+export { RetrievalSettingsSchema, DEFAULT_RETRIEVAL_SETTINGS };
+export type { RetrievalSettings };
 
 type UserClient = ApiContext['supabase'];
 
@@ -46,10 +39,6 @@ async function assertOrgAdmin(
     throw new ApiError(403, 'Forbidden');
   }
 }
-
-// ---------------------------------------------------------------------------
-// Public surface — implementations follow in Step 4c
-// ---------------------------------------------------------------------------
 
 const FIELDS = 'tool_use_enabled, rubric_cost_cap_cents, retrieval_timeout_seconds';
 

@@ -1,14 +1,29 @@
+// Loader + schema for org_config retrieval-loop settings.
+// Design reference: docs/design/lld-v2-e17-agentic-retrieval.md §17.2a
+// Issue: #251
+
+import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
-import {
-  DEFAULT_RETRIEVAL_SETTINGS,
-  type RetrievalSettings,
-} from '@/app/api/organisations/[id]/retrieval-settings/service';
+
+export const RetrievalSettingsSchema = z.object({
+  tool_use_enabled: z.boolean(),
+  rubric_cost_cap_cents: z.number().int().min(0).max(500),
+  retrieval_timeout_seconds: z.number().int().min(10).max(600),
+});
+
+export type RetrievalSettings = z.infer<typeof RetrievalSettingsSchema>;
+
+export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = {
+  tool_use_enabled: false,
+  rubric_cost_cap_cents: 20,
+  retrieval_timeout_seconds: 120,
+};
 
 /**
  * Loads retrieval-loop settings (tool_use_enabled, rubric_cost_cap_cents,
  * retrieval_timeout_seconds) for an organisation. Returns defaults when no
- * org_config row exists yet. See docs/design/lld-v2-e17-agentic-retrieval.md §17.2a.
+ * org_config row exists yet.
  */
 export async function loadOrgRetrievalSettings(
   supabase: SupabaseClient<Database>,
