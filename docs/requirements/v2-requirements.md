@@ -682,7 +682,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 **Error display:**
 
 - Given an assessment with status `rubric_failed`, when the Org Admin views the assessments list page, then the error code is shown alongside the "Failed" badge (e.g., "Failed: malformed_response").
-- Given an assessment with status `rubric_failed`, when the Org Admin views the assessment detail page, then a failure summary section is shown with: the error code, the error message, and whether the error is retryable.
+- Given an assessment with status `rubric_failed`, when the Org Admin views the assessments list page and clicks on the assessment, then a failure summary is shown with: the error code, the error message, and whether the error is retryable. This is displayed inline on the assessments list page (expandable) or on the assessment detail page if one exists for the failed state.
 
 **Retry guardrails:**
 
@@ -710,6 +710,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 **Progress tracking:**
 
 - Given a `rubric_progress` column on the assessments table (nullable text), when a pipeline step begins, then the column is updated to the current step name: `artefact_extraction`, `llm_request`, `rubric_parsing`, or `persisting`.
+- Given the `rubric_progress` column is updated, when the update is persisted, then `rubric_progress_updated_at` (timestamptz) is set to the current time.
 - Given the rubric generation completes (success or failure), when the final status is set, then `rubric_progress` is cleared to `null`.
 
 **UI display:**
@@ -719,7 +720,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 
 **Stale detection:**
 
-- Given an assessment with status `rubric_generation`, when the `rubric_progress` value has not changed for longer than twice the configured `retrieval_timeout_seconds` (default: 2 x 120 = 240 seconds), then the UI shows a warning: "Generation may be stalled — consider retrying".
+- Given an assessment with status `rubric_generation`, when `rubric_progress_updated_at` is older than **240 seconds** (fixed default; not tied to retrieval config), then the UI shows a warning: "Generation may be stalled — consider retrying".
 - Given the stale warning is shown, when the assessment transitions to `rubric_failed` or `awaiting_responses`, then the warning is removed.
 
 **Progress label mapping:**
@@ -732,7 +733,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 | `persisting` | "Saving results" |
 | `null` | *(no progress shown)* |
 
-**Notes:** Schema change required: add `rubric_progress text` (nullable) to the `assessments` table. The stale detection is client-side — the UI compares `rubric_progress_updated_at` (a timestamp column updated alongside `rubric_progress`) against the current time. This avoids server-side timers. Consider adding `rubric_progress_updated_at timestamptz` alongside `rubric_progress` to support stale detection. The polling endpoint (`GET /api/assessments/[id]`) already returns all assessment fields — no new endpoint needed.
+**Notes:** Schema changes required: add `rubric_progress text` (nullable) and `rubric_progress_updated_at timestamptz` (nullable) to the `assessments` table. The stale detection is client-side — the UI compares `rubric_progress_updated_at` against the current time. This avoids server-side timers. The polling endpoint (`GET /api/assessments/[id]`) already returns all assessment fields — no new endpoint needed.
 
 ---
 
