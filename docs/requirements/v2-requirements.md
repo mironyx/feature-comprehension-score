@@ -1,3 +1,4 @@
+
 # Feature Comprehension Score Tool — V2 Requirements
 
 ## Document Control
@@ -20,7 +21,7 @@
 | 0.4 | 2026-04-17 | LS / Claude | Design review: (1) E17 reframed as "augment not replace" — existing artefacts are primary context, tools only for gaps. (2) E11 quality evaluation consolidated into rubric-generation call (ADR-0023) — Story 11.1 AC updated, Story 17.1 gains combined-quality + prompt-guidance ACs. (3) Preparing for clean reimplementation of E11 + E17. |
 | 0.5 | 2026-04-18 | LS / Claude | E17 review comments addressed: (1) Removed all E11 artefact-quality references — E11 cancelled. (2) Replaced quality scoring with tool-call-log-as-feedback: `not_found` outcomes surfaced as "Missing artefacts" summary. (3) Added actor clarification — tool calls use GitHub App installation token, not Org Admin credentials. (4) Added explicit repo-scoping AC — installation token provides isolation, no cross-repo access. (5) Added `warn`-level logging for `iteration_limit_reached`. (6) Specified configuration UI — Organisation Settings page "Retrieval" section with toggle, spend cap, and timeout fields. (7) Split timeout: 120s whole-loop default (configurable) + 10s per-call fixed. (8) Specified display: collapsible "Retrieval details" section on assessment results page. |
 | 0.6 | 2026-04-18 | LS / Claude | Added E17 Tool Evolution Roadmap: phased plan for `readFiles` batch variant, recursive `listDirectory`, and semantic discovery tools. Distinguishes structural vs semantic discovery. Watch-then-build approach. |
-| 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. |
+| 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. Review: added retry data cleanup AC to Story 18.2 — previous attempt's error and observability fields are cleared on retry. |
 
 ---
 
@@ -689,7 +690,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 - Given a `rubric_retry_count` column on the assessments table (default: 0), when a retry is triggered, then the count is incremented.
 - Given an assessment has been retried 3 times (`rubric_retry_count >= 3`), when the Org Admin views the assessment, then the retry button is disabled with the message "Maximum retries reached (3 of 3)".
 - Given an assessment with `rubric_error_retryable = false`, when the Org Admin views the assessment, then the retry button is disabled with the message "This error is not retryable".
-- Given the retry button is clicked, when the API call succeeds, then the assessment status resets to `rubric_generation`, the UI resumes polling, and the attempt count is displayed (e.g., "Attempt 2 of 3").
+- Given the retry button is clicked, when the API call succeeds, then the assessment status resets to `rubric_generation`, the previous attempt's tracking data is cleared (`rubric_error_code`, `rubric_error_message`, `rubric_error_retryable`, `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls`, `rubric_duration_ms`, `rubric_progress`, `rubric_progress_updated_at` are set to `null`), the UI resumes polling, and the attempt count is displayed (e.g., "Attempt 2 of 3").
 - Given the retry button is clicked, when the API call fails, then the error is shown inline next to the button without navigating away.
 
 **Retry API extension:**
