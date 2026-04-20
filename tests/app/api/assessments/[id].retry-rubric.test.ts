@@ -169,10 +169,15 @@ const mockOctokit = {
 };
 
 let userOrgResult: { data: unknown; error: unknown };
+// User-scoped assessment read (RLS-filtered). Defaults to assessmentResult,
+// but tests can set this to null to simulate a cross-org request where RLS
+// hides the row even though it exists in the database.
+let userAssessmentResult: { data: unknown; error: unknown } | null = null;
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
     if (table === 'user_organisations') return makeChain(() => userOrgResult);
+    if (table === 'assessments') return makeChain(() => userAssessmentResult ?? assessmentResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -201,6 +206,7 @@ beforeEach(() => {
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
 
   userOrgResult = { data: [{ github_role: 'admin' }], error: null };
+  userAssessmentResult = null;
 
   // rubric_retry_count and rubric_error_retryable are required by the guardrail
   // checks added in issue #273. Defaulting to safe values keeps all pre-existing
@@ -274,6 +280,16 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
 
   it('returns 404 for non-existent assessment', async () => {
     assessmentResult = { data: null, error: null };
+    const { status } = await callPost();
+    expect(status).toBe(404);
+  });
+
+  it('returns 404 when RLS hides the assessment from the caller (cross-org)', async () => {
+    // Given the assessment exists in the DB but is in another org (RLS denies).
+    // The user-scoped client returns no row even though adminSupabase would see it.
+    // When POST /retry-rubric is called, the route must 404 rather than leak the
+    // existence of another org's assessment by reading through adminSupabase.
+    userAssessmentResult = { data: null, error: null };
     const { status } = await callPost();
     expect(status).toBe(404);
   });

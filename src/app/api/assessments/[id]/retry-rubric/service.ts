@@ -9,7 +9,9 @@ export async function retryRubricGeneration(
   ctx: ApiContext,
   assessmentId: string,
 ): Promise<{ assessment_id: string; status: 'rubric_generation' }> {
-  const { data: assessment, error } = await ctx.adminSupabase
+  // Use the user-scoped client so RLS filters by the caller's org memberships.
+  // adminSupabase would bypass RLS and leak assessment existence across orgs.
+  const { data: assessment, error } = await ctx.supabase
     .from('assessments')
     .select('id, org_id, repository_id, status, config_question_count, config_comprehension_depth, rubric_retry_count, rubric_error_retryable')
     .eq('id', assessmentId)
