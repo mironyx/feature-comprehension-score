@@ -48,6 +48,7 @@ export interface GenerateRubricRequest {
 export async function generateRubric(
   request: GenerateRubricRequest,
 ): Promise<GenerateRubricResult> {
+  // generateQuestions accepts the same fields including onToolCall — pass through.
   const result = await generateQuestions(request);
 
   if (!result.success) {

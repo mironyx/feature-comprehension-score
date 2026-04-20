@@ -20,6 +20,7 @@ import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
 import { makeReadFileTool } from '@/lib/github/tools/read-file';
 import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
 import type { ToolCallEvent, ToolDefinition } from '@/lib/engine/llm/tools';
+import type { LLMError, LLMErrorCode } from '@/lib/engine/llm/types';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
@@ -315,54 +316,170 @@ interface FinaliseRubricParams {
   repoRef: { owner: string; repo: string };
 }
 
-// Justification: makeToolCallProgressHandler is not in the LLD §18.3 decomposition — extracted
-// from finaliseRubric's body to keep it under the 20-line budget. Collects the pending
-// `llm_tool_call` writes into `pendingWrites` so the caller can flush them with Promise.allSettled
-// before advancing to the next step; otherwise a late-resolving fire-and-forget write can overwrite
-// `rubric_progress` with 'llm_tool_call' after the pipeline has moved to 'rubric_parsing'.
-function makeToolCallProgressHandler(
+// Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
+// runGeneration, buildFailureUpdate, toFailureDetails) are extracted from finaliseRubric +
+// triggerRubricGeneration to keep both functions within CLAUDE.md's 20-line body budget.
+// The LLD §18.1 shows the wiring inline (and names the err→LLMError converter `extractLlmError`);
+// see PR #275 "Design deviations" for the reconciliation note picked up by /lld-sync.
+// makeOnToolCall also drives the E18.3 llm_tool_call progress write (pushed into pendingWrites
+// and drained by runGeneration before any branching).
+function makeOnToolCall(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
   orgId: OrgId,
-  enabled: boolean,
+  toolUseEnabled: boolean,
   pendingWrites: Promise<void>[],
-): ((event: ToolCallEvent) => void) | undefined {
-  if (!enabled) return undefined;
-  return (_event: ToolCallEvent) => {
-    pendingWrites.push(updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call'));
+): (event: ToolCallEvent) => void {
+  return (event) => {
+    logger.info({ assessmentId, orgId, step: 'tool_call', ...event }, 'pipeline: tool call completed');
+    if (toolUseEnabled) {
+      pendingWrites.push(updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call'));
+    }
   };
+}
+
+function logResponseReceived(
+  assessmentId: AssessmentId,
+  orgId: OrgId,
+  observability: RubricObservability,
+): void {
+  logger.info(
+    {
+      assessmentId,
+      orgId,
+      step: 'llm_response_received',
+      inputTokens: observability.inputTokens,
+      outputTokens: observability.outputTokens,
+      toolCallCount: observability.toolCalls.length,
+      durationMs: observability.durationMs,
+    },
+    'pipeline: llm response received',
+  );
+}
+
+function failGeneration(assessmentId: AssessmentId, orgId: OrgId, error: LLMError): never {
+  const level = error.code === 'malformed_response' ? 'warn' : 'error';
+  const payload = { assessmentId, orgId, step: 'llm_request_sent', errorCode: error.code, errorMessage: error.message };
+  if (level === 'warn') {
+    logger.warn(payload, 'pipeline: malformed LLM response');
+  } else {
+    logger.error(payload, 'pipeline: rubric generation failed');
+  }
+  throw new RubricGenerationError(error);
+}
+
+async function runGeneration(
+  params: FinaliseRubricParams,
+  pendingWrites: Promise<void>[],
+): Promise<Extract<Awaited<ReturnType<typeof generateRubric>>, { status: 'success' }>> {
+  const { assessmentId, orgId } = params;
+  const settings = await loadOrgRetrievalSettings(params.adminSupabase, orgId);
+  const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
+  const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
+  await updateProgress(params.adminSupabase, assessmentId, orgId, 'llm_request');
+  logger.info({ assessmentId, orgId, step: 'llm_request_sent' }, 'pipeline: llm request sent');
+  const result = await generateRubric({
+    artefacts: params.artefacts,
+    llmClient: buildLlmClient(logger),
+    tools,
+    bounds,
+    onToolCall: makeOnToolCall(params.adminSupabase, assessmentId, orgId, settings.tool_use_enabled, pendingWrites),
+  });
+  // Drain before any branching — otherwise a late-resolving `llm_tool_call` progress write
+  // can overwrite the `null` progress that markRubricFailed sets on the failure path,
+  // or the `rubric_parsing` progress on the success path. See lld-e18.md §18.3.
+  await Promise.allSettled(pendingWrites);
+  if (result.status === 'generation_failed') failGeneration(assessmentId, orgId, result.error);
+  return result;
 }
 
 // Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
 // transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
-// Tool-use + observability wiring added for §17.1e (#246).
-// Progress tracking wired via updateProgress + onToolCall callback (#274, §18.3).
+// Tool-use + observability wiring added for §17.1e (#246). Structured step logging + onToolCall
+// wiring added for E18.1 (#272). Progress tracking via updateProgress added for E18.3 (#274).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   logArtefactSummary(params.artefacts);
-  const settings = await loadOrgRetrievalSettings(params.adminSupabase, params.orgId);
-  const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
-  const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
+  const { assessmentId, orgId } = params;
   const pendingWrites: Promise<void>[] = [];
-  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, params.orgId, settings.tool_use_enabled, pendingWrites);
-  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'llm_request');
-  const result = await generateRubric({ artefacts: params.artefacts, llmClient: buildLlmClient(logger), tools, bounds, onToolCall });
-  await Promise.allSettled(pendingWrites);
-  if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
-  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'rubric_parsing');
-  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'persisting');
+  const result = await runGeneration(params, pendingWrites);
+  logResponseReceived(assessmentId, orgId, result.observability);
+  await updateProgress(params.adminSupabase, assessmentId, orgId, 'rubric_parsing');
+  logger.info({ assessmentId, orgId, step: 'rubric_parsing' }, 'pipeline: parsing rubric');
+  await updateProgress(params.adminSupabase, assessmentId, orgId, 'persisting');
   await persistRubricFinalisation(params.adminSupabase, {
-    assessmentId: params.assessmentId, orgId: params.orgId,
-    questions: result.rubric.questions, observability: result.observability,
+    assessmentId, orgId, questions: result.rubric.questions, observability: result.observability,
   });
+  logger.info({ assessmentId, orgId, step: 'rubric_persisted' }, 'pipeline: rubric persisted');
 }
 
-async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId, orgId: OrgId): Promise<void> {
+// Carries the LLMError + partial observability from finaliseRubric out to the
+// triggerRubricGeneration catch block, so failure-path persistence can record
+// what was learned before the failure. See lld-e18.md §18.1.
+export class RubricGenerationError extends Error {
+  constructor(
+    readonly llmError: LLMError,
+    readonly partialObservability?: Partial<RubricObservability>,
+  ) {
+    super(`Rubric generation failed: ${llmError.code}`);
+    this.name = 'RubricGenerationError';
+  }
+}
+
+interface RubricFailureDetails {
+  errorCode: LLMErrorCode;
+  errorMessage: string;
+  errorRetryable: boolean;
+  partialObservability?: Partial<RubricObservability>;
+}
+
+const ERROR_MESSAGE_MAX_CHARS = 1000;
+
+function buildFailureUpdate(details?: RubricFailureDetails): Database['public']['Tables']['assessments']['Update'] {
+  const update: Database['public']['Tables']['assessments']['Update'] = {
+    status: 'rubric_failed',
+    rubric_progress: null,
+    rubric_progress_updated_at: null,
+  };
+  if (!details) return update;
+  update.rubric_error_code = details.errorCode;
+  update.rubric_error_message = details.errorMessage.slice(0, ERROR_MESSAGE_MAX_CHARS);
+  update.rubric_error_retryable = details.errorRetryable;
+  const obs = details.partialObservability;
+  if (!obs) return update;
+  if (obs.inputTokens !== undefined) update.rubric_input_tokens = obs.inputTokens;
+  if (obs.outputTokens !== undefined) update.rubric_output_tokens = obs.outputTokens;
+  if (obs.toolCalls !== undefined) {
+    update.rubric_tool_call_count = obs.toolCalls.length;
+    update.rubric_tool_calls = obs.toolCalls as unknown as Json;
+  }
+  if (obs.durationMs !== undefined) update.rubric_duration_ms = obs.durationMs;
+  return update;
+}
+
+// Defence-in-depth: service-role client bypasses RLS, so every write must be scoped
+// by `org_id` in addition to the primary key. See ADR-0025.
+async function markRubricFailed(
+  adminSupabase: ServiceClient,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
+  details?: RubricFailureDetails,
+): Promise<void> {
   const { error } = await adminSupabase
     .from('assessments')
-    .update({ status: 'rubric_failed', rubric_progress: null, rubric_progress_updated_at: null })
+    .update(buildFailureUpdate(details))
     .eq('id', assessmentId)
     .eq('org_id', orgId);
-  if (error) logger.error({ err: error, assessmentId }, 'markRubricFailed: update failed');
+  if (error) logger.error({ err: error, assessmentId, orgId }, 'markRubricFailed: update failed');
+}
+
+function toFailureDetails(err: unknown): RubricFailureDetails | undefined {
+  if (!(err instanceof RubricGenerationError)) return undefined;
+  return {
+    errorCode: err.llmError.code,
+    errorMessage: err.llmError.message,
+    errorRetryable: err.llmError.retryable,
+    partialObservability: err.partialObservability,
+  };
 }
 
 // Justification: extractArtefacts is not in the LLD §18.3 decomposition — extracted
@@ -385,17 +502,20 @@ async function extractArtefacts(
 }
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
+  const { assessmentId } = params;
+  const orgId = params.repoInfo.orgId;
   try {
-    await updateProgress(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, 'artefact_extraction');
+    await updateProgress(params.adminSupabase, assessmentId, orgId, 'artefact_extraction');
+    logger.info({ assessmentId, orgId, step: 'artefact_extraction' }, 'pipeline: extracting artefacts');
     const octokit = await createGithubClient(params.repoInfo.installationId);
     const artefacts = await extractArtefacts(params.adminSupabase, octokit, params.repoInfo, params.prNumbers, params.comprehensionDepth ?? 'conceptual');
     await finaliseRubric({
-      adminSupabase: params.adminSupabase, assessmentId: params.assessmentId, orgId: params.repoInfo.orgId,
+      adminSupabase: params.adminSupabase, assessmentId, orgId,
       artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName },
     });
   } catch (err) {
-    logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
-    await markRubricFailed(params.adminSupabase, params.assessmentId, params.repoInfo.orgId);
+    logger.error({ err, assessmentId, orgId }, 'triggerRubricGeneration: failed');
+    await markRubricFailed(params.adminSupabase, assessmentId, orgId, toFailureDetails(err));
   }
 }
 

@@ -165,6 +165,12 @@ CREATE TABLE assessments (
   rubric_tool_calls        jsonb,
   rubric_duration_ms       integer,
 
+  -- Pipeline error capture (V2 Epic 18). Populated on rubric_failed status.
+  -- See docs/design/lld-e18.md §18.1.
+  rubric_error_code        text,
+  rubric_error_message     text,
+  rubric_error_retryable   boolean,
+
   -- Pipeline progress tracking (V2 Epic 18). Updated during rubric generation.
   -- See docs/design/lld-e18.md §18.3.
   rubric_progress            text,

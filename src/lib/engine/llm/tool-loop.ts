@@ -180,14 +180,14 @@ function isBudgetBreached(state: LoopState, bounds: ToolLoopBounds): boolean {
   return state.cumulativeBytes + state.lastBytesReturned >= bounds.maxBytes;
 }
 
-async function processOneToolCall(
+async function processOneToolCall<T extends ZodType>(
   tc: SdkToolCallRequest,
-  tools: readonly ToolDefinition[],
+  req: GenerateWithToolsRequest<T>,
   bounds: ToolLoopBounds,
   state: LoopState,
   loopSignal: AbortSignal,
 ): Promise<void> {
-  const def = tools.find((d) => d.name === tc.function.name);
+  const def = req.tools.find((d) => d.name === tc.function.name);
   const input = parseToolInput(def, tc.function.arguments);
   if (state.callCount >= bounds.maxCalls) {
     return breach(state, tc, 'iteration_limit_reached', input.path, { error: 'iteration_limit_reached' });
@@ -213,16 +213,16 @@ async function processOneToolCall(
   });
 }
 
-async function processToolCalls(
+async function processToolCalls<T extends ZodType>(
   msg: SdkAssistantMessage,
-  tools: readonly ToolDefinition[],
+  req: GenerateWithToolsRequest<T>,
   bounds: ToolLoopBounds,
   state: LoopState,
   loopSignal: AbortSignal,
 ): Promise<void> {
   state.messages.push(msg);
   for (const tc of msg.tool_calls ?? []) {
-    await processOneToolCall(tc, tools, bounds, state, loopSignal);
+    await processOneToolCall(tc, req, bounds, state, loopSignal);
   }
 }
 
@@ -300,7 +300,7 @@ export async function runToolLoop<T extends ZodType>(
     const msg = resp?.choices?.[0]?.message;
     if (!msg) return fail({ code: 'malformed_response', message: 'no assistant message', retryable: false });
     if (msg.tool_calls?.length) {
-      await processToolCalls(msg, req.tools, bounds, state, loopSignal);
+      await processToolCalls(msg, req, bounds, state, loopSignal);
       continue;
     }
     return finalise(msg, req.schema, state, resp.usage, startMs);

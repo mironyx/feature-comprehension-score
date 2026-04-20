@@ -11,6 +11,7 @@
 | 2026-04-20 | LS / Claude | Initial LLD — Stories 18.1, 18.2, 18.3 |
 | 2026-04-20 | LS / Claude | Added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). `onToolCall` callback injected into tool loop for structured logging + progress refresh. |
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #274, PR #276): updated §18.3 to reflect `updateProgress` signature change (added `orgId` for tenant-scoping), `pendingWrites` flush pattern replacing fire-and-forget void, and LLD-deviation helpers (`makeToolCallProgressHandler`, `extractArtefacts`, `toSnapshot`). |
+| 2026-04-20 | LS / Claude | Post-implementation sync (issue #272, PR #275): §18.1 — `markRubricFailed` now takes `orgId` (ADR-0025) and clears `rubric_progress` via `buildFailureUpdate`; helper renamed `extractLlmError` → `toFailureDetails`; `malformed_response` warn log carries `LLMError` fields instead of raw response shape. |
 
 ---
 
@@ -200,6 +201,7 @@ interface RubricFailureDetails {
 async function markRubricFailed(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
+  orgId: OrgId,
   details?: RubricFailureDetails,
 ): Promise<void>
 ```
@@ -210,7 +212,9 @@ The `details` parameter is optional for backward compatibility with non-LLM fail
 - `rubric_error_retryable` — from `details.errorRetryable`
 - `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls`, `rubric_duration_ms` — from `details.partialObservability` if present
 
-Also clears `rubric_progress` to `null` (invariant I5).
+> **Implementation note (issue #272):** `markRubricFailed` now takes `orgId` and filters its UPDATE by both `.eq('id', assessmentId).eq('org_id', orgId)` as defence-in-depth against service-role RLS bypass. See [ADR-0025](../adr/0025-service-role-writes-require-org-scoping.md).
+
+Also clears `rubric_progress` and `rubric_progress_updated_at` to `null` (invariant I5). After the rebase onto E18.3, `buildFailureUpdate` always emits these two fields as `null` in the base patch, so every failure path — LLM, GitHub, or generic — clears progress in a single UPDATE.
 
 #### `triggerRubricGeneration` catch block
 
@@ -218,13 +222,17 @@ Extend the catch block to extract `LLMError` from the thrown error and pass it t
 
 ```typescript
 catch (err) {
-  const llmError = extractLlmError(err);
+  const details = toFailureDetails(err);
   logger.error({ err, assessmentId, orgId }, 'triggerRubricGeneration: failed');
-  await markRubricFailed(adminSupabase, assessmentId, llmError);
+  await markRubricFailed(adminSupabase, assessmentId, orgId, details);
 }
 ```
 
-`extractLlmError` is a small helper: if the error message matches the pattern `"Rubric generation failed: <code>"` and the original `LLMError` is available, extract it. Otherwise return `undefined`.
+`toFailureDetails` is a small helper: if `err` is a `RubricGenerationError`, it builds a `RubricFailureDetails` shape (the exact shape `markRubricFailed` needs) directly from `err.llmError` and `err.partialObservability`. Otherwise it returns `undefined`.
+
+> **Implementation note (issue #272):** Named `toFailureDetails` (not `extractLlmError`) and returns `RubricFailureDetails` directly rather than an intermediate `LLMError`. This removes one conversion hop in the caller and keeps `triggerRubricGeneration`'s catch block within the 20-line body budget.
+
+The service layer also extracts a handful of small private helpers (`makeOnToolCall`, `logResponseReceived`, `failGeneration`, `runGeneration`, `buildFailureUpdate`) so that `finaliseRubric` and `triggerRubricGeneration` stay within CLAUDE.md's 20-line body budget. Each helper has a single responsibility; their role is purely decomposition, not new behaviour.
 
 #### `finaliseRubric` — propagate LLMError
 
@@ -263,6 +271,8 @@ Add `logger.info` calls at each pipeline step boundary in `finaliseRubric`:
 All log entries include `{ assessmentId, orgId, step }`.
 
 On `malformed_response` error: log at `warn` level with the raw response shape (top-level keys and types only).
+
+> **Implementation note (issue #272):** The warn log carries `{ errorCode, errorMessage, step }` instead of the raw response shape. By the time `failGeneration` runs, the raw LLM response has already been consumed by the tool loop and only the typed `LLMError` is available on the caught exception. Surfacing the raw response shape would require threading it through `LLMError.context` from the engine layer — deferred until observability needs it.
 
 #### `onToolCall` callback — engine-to-service bridge
 

@@ -283,6 +283,9 @@ export interface Database {
           rubric_tool_call_count: number | null;
           rubric_tool_calls: Json | null;
           rubric_duration_ms: number | null;
+          rubric_error_code: string | null;
+          rubric_error_message: string | null;
+          rubric_error_retryable: boolean | null;
           rubric_progress: string | null;
           rubric_progress_updated_at: string | null;
           created_at: string;
@@ -326,6 +329,9 @@ export interface Database {
           rubric_tool_call_count?: number | null;
           rubric_tool_calls?: Json | null;
           rubric_duration_ms?: number | null;
+          rubric_error_code?: string | null;
+          rubric_error_message?: string | null;
+          rubric_error_retryable?: boolean | null;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
           created_at?: string;
@@ -369,6 +375,9 @@ export interface Database {
           rubric_tool_call_count?: number | null;
           rubric_tool_calls?: Json | null;
           rubric_duration_ms?: number | null;
+          rubric_error_code?: string | null;
+          rubric_error_message?: string | null;
+          rubric_error_retryable?: boolean | null;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
           created_at?: string;

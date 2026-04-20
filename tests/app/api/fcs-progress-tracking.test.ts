@@ -577,9 +577,11 @@ describe('Pipeline progress tracking (Story 18.3)', () => {
   // AC 5: onToolCall is optional — tool loop runs without it
   // -------------------------------------------------------------------------
 
-  describe('Given tool_use_enabled is false (no onToolCall wired)', () => {
-    it('then the pipeline runs without error and does not call generateRubric with an onToolCall callback', async () => {
-      // AC 5: onToolCall is optional — when tools are disabled no callback is passed [lld §18.1 invariant I9]
+  describe('Given tool_use_enabled is false (onToolCall wired but no-op for progress)', () => {
+    it('then the pipeline runs without error and never writes an llm_tool_call progress row', async () => {
+      // AC 5 (revised after E18.1 merge): onToolCall is ALWAYS wired for structured logging
+      // (invariant I9 + §18.1 log contract), but the handler must skip its progress-write side
+      // effect when tool_use_enabled=false. This asserts the behaviour, not the shape.
       vi.mocked(generateRubric).mockResolvedValue(SUCCESS_RESULT);
       const adminClient = makeMockAdminClient({ tool_use_enabled: false });
       const ctx: ApiContext = {
@@ -588,18 +590,15 @@ describe('Pipeline progress tracking (Story 18.3)', () => {
         user: { id: USER_ID, email: 'admin@example.com' },
       };
 
-      // createFcs should complete synchronously without throwing
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      // generateRubric must have been called, and the call must NOT include an onToolCall that
-      // is not undefined (when tool_use_enabled=false, the service omits or passes undefined).
       expect(vi.mocked(generateRubric)).toHaveBeenCalled();
-      const callArg = vi.mocked(generateRubric).mock.calls[0]?.[0];
-      // Either onToolCall is absent or explicitly undefined — never a function
-      if (callArg && 'onToolCall' in callArg) {
-        expect(callArg.onToolCall).toBeUndefined();
-      }
+      // No llm_tool_call progress row was written while tools were disabled.
+      const progressSteps = adminClient._updateCalls
+        .filter((u) => u['rubric_progress'] !== undefined && u['status'] === undefined)
+        .map((u) => u['rubric_progress']);
+      expect(progressSteps).not.toContain('llm_tool_call');
     });
   });
 });
