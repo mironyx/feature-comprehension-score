@@ -421,4 +421,91 @@ describe('GET /api/assessments/[id]', () => {
       expect(response.status).toBe(404);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Progress fields — V2 Epic 18, Story 18.3, AC 8. Issue: #274
+  // The polling endpoint must expose rubric_progress and rubric_progress_updated_at
+  // so that the client can display progress labels and detect stale generation.
+  // ---------------------------------------------------------------------------
+
+  describe('Given an assessment with rubric_progress and rubric_progress_updated_at (Story 18.3)', () => {
+    it('then the response body includes rubric_progress matching the assessment row', async () => {
+      // AC 8 [req §18.3: GET /api/assessments/[id] includes rubric_progress]
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'rubric_generation',
+          rubric_progress: 'llm_request',
+          rubric_progress_updated_at: '2026-04-20T10:00:00Z',
+          pr_number: null,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['rubric_progress']).toBe('llm_request');
+    });
+
+    it('then the response body includes rubric_progress_updated_at matching the assessment row', async () => {
+      // AC 8 [req §18.3: GET /api/assessments/[id] includes rubric_progress_updated_at]
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'rubric_generation',
+          rubric_progress: 'rubric_parsing',
+          rubric_progress_updated_at: '2026-04-20T10:05:00Z',
+          pr_number: null,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['rubric_progress_updated_at']).toBe('2026-04-20T10:05:00Z');
+    });
+
+    it('then rubric_progress is null in the response when the assessment has no progress', async () => {
+      // AC 8 [req §18.3: null progress passes through]
+      setupAuth();
+      setupAdminRole();
+      assessmentResult = {
+        data: makeAssessmentRow({
+          type: 'fcs',
+          status: 'awaiting_responses',
+          rubric_progress: null,
+          rubric_progress_updated_at: null,
+          pr_number: null,
+        }),
+        error: null,
+      };
+      questionsResult = { data: [], error: null };
+      participantCountsResult = { data: [], error: null };
+      myParticipationResult = { data: null, error: null };
+
+      const { GET } = await import('@/app/api/assessments/[id]/route');
+      const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body['rubric_progress']).toBeNull();
+      expect(body['rubric_progress_updated_at']).toBeNull();
+    });
+  });
 });

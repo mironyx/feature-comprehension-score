@@ -5,6 +5,7 @@ import {
   DEFAULT_TOOL_LOOP_BOUNDS,
   type GenerateWithToolsData,
   type GenerateWithToolsRequest,
+  type ToolCallEvent,
   type ToolCallLogEntry,
   type ToolCallOutcome,
   type ToolDefinition,
@@ -57,6 +58,7 @@ interface LoopState {
   lastBytesReturned: number;
   readonly toolCalls: ToolCallLogEntry[];
   readonly messages: unknown[];
+  readonly onToolCall?: (event: ToolCallEvent) => void;
 }
 
 export function toOpenAIToolSpec(def: ToolDefinition): {
@@ -95,6 +97,7 @@ function makeInitialState(req: GenerateWithToolsRequest<ZodType>): LoopState {
       { role: 'system', content: req.systemPrompt },
       { role: 'user', content: req.prompt },
     ],
+    onToolCall: req.onToolCall,
   };
 }
 
@@ -201,6 +204,13 @@ async function processOneToolCall(
   state.lastBytesReturned = result.bytes;
   recordOutcome(state, tc, result.kind, result.bytes, input.path);
   pushToolMessage(state, tc, result);
+  state.onToolCall?.({
+    toolName: tc.function.name,
+    argumentPath: input.path,
+    bytesReturned: result.bytes,
+    outcome: result.kind,
+    toolCallCount: state.callCount,
+  });
 }
 
 async function processToolCalls(

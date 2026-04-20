@@ -1,5 +1,6 @@
 import type { LLMClient, LLMError } from '@/lib/engine/llm/types';
 import type {
+  ToolCallEvent,
   ToolCallLogEntry,
   ToolDefinition,
   ToolLoopBounds,
@@ -41,6 +42,7 @@ export interface GenerateRubricRequest {
   tools?: readonly ToolDefinition[];
   bounds?: Partial<ToolLoopBounds>;
   signal?: AbortSignal;
+  onToolCall?: (event: ToolCallEvent) => void;
 }
 
 export async function generateRubric(
