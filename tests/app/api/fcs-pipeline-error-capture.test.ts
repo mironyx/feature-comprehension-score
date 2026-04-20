@@ -167,11 +167,16 @@ function makeMockUserClient() {
   };
 }
 
+interface UpdateCall {
+  values: Record<string, unknown>;
+  filters: Array<{ column: string; value: unknown }>;
+}
+
 /**
- * Builds a mock admin client that captures update payloads for 'assessments'.
- * updateCalls is populated with each patch object passed to .update(patch).
+ * Builds a mock admin client that captures update payloads for 'assessments' along
+ * with the chained .eq() filters (defence-in-depth org scoping — ADR-0025).
  */
-function makeMockAdminClientWithUpdateCapture(updateCalls: Record<string, unknown>[]) {
+function makeMockAdminClientWithUpdateCapture(updateCalls: UpdateCall[]) {
   const client = {
     from: vi.fn((table: string) => {
       if (table === 'repositories') {
@@ -200,8 +205,14 @@ function makeMockAdminClientWithUpdateCapture(updateCalls: Record<string, unknow
       }
       if (table === 'assessments') {
         const chain = makeChain(() => ({ data: null, error: null }));
+        let current: UpdateCall | null = null;
         chain.update.mockImplementation((values: Record<string, unknown>) => {
-          updateCalls.push(values);
+          current = { values, filters: [] };
+          updateCalls.push(current);
+          return chain;
+        });
+        chain.eq.mockImplementation((column: string, value: unknown) => {
+          current?.filters.push({ column, value });
           return chain;
         });
         return chain;
@@ -283,7 +294,7 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
 
   describe('markRubricFailed — LLM failure-path persistence', () => {
     it('A1: Given malformed_response LLMError, when rubric generation fails, then rubric_error_code is persisted as malformed_response', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockResolvedValue({
@@ -300,13 +311,13 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
       expect(failureUpdate).toBeDefined();
-      expect(failureUpdate!['rubric_error_code']).toBe('malformed_response');
+      expect(failureUpdate!.values['rubric_error_code']).toBe('malformed_response');
     });
 
     it('A2: Given malformed_response LLMError with message "Invalid JSON", when rubric generation fails, then rubric_error_message is persisted as "Invalid JSON"', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockResolvedValue({
@@ -323,12 +334,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_error_message']).toBe('Invalid JSON');
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_error_message']).toBe('Invalid JSON');
     });
 
     it('A3: Given malformed_response LLMError with retryable=false, when rubric generation fails, then rubric_error_retryable is persisted as false', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockResolvedValue({
@@ -345,12 +356,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_error_retryable']).toBe(false);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_error_retryable']).toBe(false);
     });
 
     it('A4: Given an error message of 1500 chars, when rubric generation fails, then the persisted rubric_error_message is truncated to exactly 1000 chars', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
       const longMessage = 'a'.repeat(1500);
 
@@ -368,16 +379,16 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(typeof failureUpdate!['rubric_error_message']).toBe('string');
-      expect((failureUpdate!['rubric_error_message'] as string).length).toBe(1000);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(typeof failureUpdate!.values['rubric_error_message']).toBe('string');
+      expect((failureUpdate!.values['rubric_error_message'] as string).length).toBe(1000);
     });
 
     it('A5a: Given partialObservability with inputTokens=500, when rubric generation fails, then rubric_input_tokens=500 is persisted', async () => {
       // partialObservability is attached by throwing a RubricGenerationError directly —
       // we simulate this by making generateRubric throw (not return generation_failed)
       // so the catch block in triggerRubricGeneration receives a RubricGenerationError.
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockRejectedValue(
@@ -396,12 +407,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_input_tokens']).toBe(500);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_input_tokens']).toBe(500);
     });
 
     it('A5b: Given partialObservability with outputTokens=200, when rubric generation fails, then rubric_output_tokens=200 is persisted', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockRejectedValue(
@@ -420,12 +431,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_output_tokens']).toBe(200);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_output_tokens']).toBe(200);
     });
 
     it('A5c: Given partialObservability with durationMs=3000, when rubric generation fails, then rubric_duration_ms=3000 is persisted', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockRejectedValue(
@@ -444,12 +455,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_duration_ms']).toBe(3000);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_duration_ms']).toBe(3000);
     });
 
     it('A5e: Given partialObservability with one tool call entry, when rubric generation fails, then rubric_tool_calls is persisted as an array containing that entry', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
       const toolCallEntry = { tool_name: 'readFile', argument_path: 'a.md', bytes_returned: 10, outcome: 'ok' as const };
 
@@ -469,12 +480,12 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_tool_calls']).toEqual([toolCallEntry]);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_tool_calls']).toEqual([toolCallEntry]);
     });
 
     it('A5d: Given partialObservability with toolCalls of length 1, when rubric generation fails, then rubric_tool_call_count=1 is persisted', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockRejectedValue(
@@ -493,8 +504,8 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
-      expect(failureUpdate!['rubric_tool_call_count']).toBe(1);
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate!.values['rubric_tool_call_count']).toBe(1);
     });
 
     it('A6: Given a non-LLM failure (plain Error from extractFromPRs), when rubric generation fails, then rubric_error_code is NOT set in the update payload', async () => {
@@ -502,7 +513,7 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       // This simulates a GitHub API failure before the LLM is ever called.
       mockExtractFromPRs.mockRejectedValueOnce(new Error('GitHub API timeout'));
 
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       const ctx: ApiContext = {
@@ -514,14 +525,14 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
       expect(failureUpdate).toBeDefined();
       // rubric_error_code must not appear in the update payload for non-LLM failures
-      expect('rubric_error_code' in (failureUpdate ?? {})).toBe(false);
+      expect('rubric_error_code' in (failureUpdate?.values ?? {})).toBe(false);
     });
 
     it('A7: Given any rubric generation failure, when markRubricFailed is called, then the update always includes status: "rubric_failed"', async () => {
-      const updateCalls: Record<string, unknown>[] = [];
+      const updateCalls: UpdateCall[] = [];
       const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
 
       vi.mocked(generateRubric).mockResolvedValue({
@@ -538,9 +549,36 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       await createFcs(ctx, VALID_BODY);
       await flushAsync();
 
-      const failureUpdate = updateCalls.find((u) => u['status'] === 'rubric_failed');
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
       expect(failureUpdate).toBeDefined();
-      expect(failureUpdate!['status']).toBe('rubric_failed');
+      expect(failureUpdate!.values['status']).toBe('rubric_failed');
+    });
+
+    it('A8: Given a rubric generation failure, when markRubricFailed runs with the service-role client, then the update is scoped by both id and org_id (ADR-0025 defence-in-depth)', async () => {
+      const updateCalls: UpdateCall[] = [];
+      const adminClient = makeMockAdminClientWithUpdateCapture(updateCalls);
+
+      vi.mocked(generateRubric).mockResolvedValue({
+        status: 'generation_failed',
+        error: { code: 'server_error', message: 'LLM unreachable', retryable: true },
+      });
+
+      const ctx: ApiContext = {
+        supabase: makeMockUserClient() as never,
+        adminSupabase: adminClient as never,
+        user: { id: USER_ID, email: 'admin@example.com' },
+      };
+
+      await createFcs(ctx, VALID_BODY);
+      await flushAsync();
+
+      const failureUpdate = updateCalls.find((u) => u.values['status'] === 'rubric_failed');
+      expect(failureUpdate).toBeDefined();
+      const filters = failureUpdate!.filters;
+      // createAssessmentWithParticipants generates its own UUID via randomUUID(), so we
+      // assert the filter shape (both id and org_id are filtered) rather than the exact id.
+      expect(filters.map((f) => f.column).sort()).toEqual(['id', 'org_id']);
+      expect(filters.find((f) => f.column === 'org_id')?.value).toBe(ORG_ID);
     });
   });
 
