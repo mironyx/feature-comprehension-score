@@ -1,5 +1,6 @@
 import type { LLMClient, LLMResult } from '@/lib/engine/llm/types';
 import type {
+  ToolCallEvent,
   ToolCallLogEntry,
   ToolDefinition,
   ToolLoopBounds,
@@ -19,6 +20,7 @@ export interface GenerateQuestionsRequest {
   tools?: readonly ToolDefinition[];
   bounds?: Partial<ToolLoopBounds>;
   signal?: AbortSignal;
+  onToolCall?: (event: ToolCallEvent) => void;
 }
 
 export type GenerateQuestionsData = QuestionGenerationResponse & {
@@ -31,7 +33,7 @@ export type GenerateQuestionsData = QuestionGenerationResponse & {
 export async function generateQuestions(
   request: GenerateQuestionsRequest,
 ): Promise<LLMResult<GenerateQuestionsData>> {
-  const { artefacts, llmClient, model, maxTokens, tools, bounds, signal } = request;
+  const { artefacts, llmClient, model, maxTokens, tools, bounds, signal, onToolCall } = request;
   const { systemPrompt, userPrompt } = buildQuestionGenerationPrompt(artefacts);
 
   const result = await llmClient.generateWithTools<typeof QuestionGenerationResponseSchema>({
@@ -43,6 +45,7 @@ export async function generateQuestions(
     model,
     maxTokens,
     signal,
+    onToolCall,
   });
 
   if (!result.success) {

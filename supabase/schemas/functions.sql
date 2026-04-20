@@ -331,13 +331,15 @@ BEGIN
   FROM jsonb_array_elements(p_questions) AS q;
 
   UPDATE assessments
-  SET status                 = 'awaiting_responses',
-      rubric_input_tokens    = p_rubric_input_tokens,
-      rubric_output_tokens   = p_rubric_output_tokens,
-      rubric_tool_call_count = p_rubric_tool_call_count,
-      rubric_tool_calls      = p_rubric_tool_calls,
-      rubric_duration_ms     = p_rubric_duration_ms,
-      updated_at             = now()
+  SET status                     = 'awaiting_responses',
+      rubric_input_tokens        = p_rubric_input_tokens,
+      rubric_output_tokens       = p_rubric_output_tokens,
+      rubric_tool_call_count     = p_rubric_tool_call_count,
+      rubric_tool_calls          = p_rubric_tool_calls,
+      rubric_duration_ms         = p_rubric_duration_ms,
+      rubric_progress            = NULL,
+      rubric_progress_updated_at = NULL,
+      updated_at                 = now()
   WHERE id = p_assessment_id;
 END;
 $$;

@@ -47,6 +47,17 @@ export interface ToolCallLogEntry {
   readonly outcome: ToolCallOutcome;
 }
 
+// Observable event emitted by the tool-use loop after each successful tool
+// call. Used by the service layer to refresh progress and emit structured
+// logs (V2 Epic 18, Stories 18.1 + 18.3). See docs/design/lld-e18.md.
+export interface ToolCallEvent {
+  readonly toolName: string;
+  readonly argumentPath: string;
+  readonly bytesReturned: number;
+  readonly outcome: ToolCallOutcome;
+  readonly toolCallCount: number;
+}
+
 export interface GenerateWithToolsRequest<TSchema extends ZodType> {
   readonly prompt: string;
   readonly systemPrompt: string;
@@ -56,6 +67,7 @@ export interface GenerateWithToolsRequest<TSchema extends ZodType> {
   readonly model?: string;
   readonly maxTokens?: number;
   readonly signal?: AbortSignal;
+  readonly onToolCall?: (event: ToolCallEvent) => void;
 }
 
 export interface GenerateWithToolsData<T> {

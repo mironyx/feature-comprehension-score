@@ -19,7 +19,7 @@ import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings'
 import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
 import { makeReadFileTool } from '@/lib/github/tools/read-file';
 import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
-import type { ToolDefinition } from '@/lib/engine/llm/tools';
+import type { ToolCallEvent, ToolDefinition } from '@/lib/engine/llm/tools';
 
 type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
@@ -250,6 +250,25 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
   }, 'Rubric generation: artefact summary');
 }
 
+// Pipeline step names persisted to `assessments.rubric_progress`. Each value
+// maps to a human-readable label on the client (see getProgressLabel).
+// V2 Epic 18, Story 18.3. See docs/design/lld-e18.md §18.3.
+export type PipelineStep = 'artefact_extraction' | 'llm_request' | 'llm_tool_call' | 'rubric_parsing' | 'persisting';
+
+export async function updateProgress(
+  adminSupabase: ServiceClient,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
+  step: PipelineStep,
+): Promise<void> {
+  const { error } = await adminSupabase
+    .from('assessments')
+    .update({ rubric_progress: step, rubric_progress_updated_at: new Date().toISOString() })
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
+  if (error) logger.warn({ err: error, assessmentId, step }, 'updateProgress: failed');
+}
+
 // Justification: buildRubricTools and persistRubricFinalisation are extracted from
 // finaliseRubric to keep it under the 20-line budget while adding tool-use + observability
 // (§17.1e). Tools attach only when the org has opted in via `tool_use_enabled`; the loop
@@ -296,54 +315,87 @@ interface FinaliseRubricParams {
   repoRef: { owner: string; repo: string };
 }
 
+// Justification: makeToolCallProgressHandler is not in the LLD §18.3 decomposition — extracted
+// from finaliseRubric's body to keep it under the 20-line budget. Collects the pending
+// `llm_tool_call` writes into `pendingWrites` so the caller can flush them with Promise.allSettled
+// before advancing to the next step; otherwise a late-resolving fire-and-forget write can overwrite
+// `rubric_progress` with 'llm_tool_call' after the pipeline has moved to 'rubric_parsing'.
+function makeToolCallProgressHandler(
+  adminSupabase: ServiceClient,
+  assessmentId: AssessmentId,
+  orgId: OrgId,
+  enabled: boolean,
+  pendingWrites: Promise<void>[],
+): ((event: ToolCallEvent) => void) | undefined {
+  if (!enabled) return undefined;
+  return (_event: ToolCallEvent) => {
+    pendingWrites.push(updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call'));
+  };
+}
+
 // Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
 // transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
 // Tool-use + observability wiring added for §17.1e (#246).
+// Progress tracking wired via updateProgress + onToolCall callback (#274, §18.3).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   logArtefactSummary(params.artefacts);
   const settings = await loadOrgRetrievalSettings(params.adminSupabase, params.orgId);
   const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
   const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
-  const llmClient = buildLlmClient(logger);
-  const result = await generateRubric({ artefacts: params.artefacts, llmClient, tools, bounds });
+  const pendingWrites: Promise<void>[] = [];
+  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, params.orgId, settings.tool_use_enabled, pendingWrites);
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'llm_request');
+  const result = await generateRubric({ artefacts: params.artefacts, llmClient: buildLlmClient(logger), tools, bounds, onToolCall });
+  await Promise.allSettled(pendingWrites);
   if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'rubric_parsing');
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'persisting');
   await persistRubricFinalisation(params.adminSupabase, {
-    assessmentId: params.assessmentId,
-    orgId: params.orgId,
-    questions: result.rubric.questions,
-    observability: result.observability,
+    assessmentId: params.assessmentId, orgId: params.orgId,
+    questions: result.rubric.questions, observability: result.observability,
   });
 }
 
-async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId): Promise<void> {
+async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId, orgId: OrgId): Promise<void> {
   const { error } = await adminSupabase
     .from('assessments')
-    .update({ status: 'rubric_failed' })
-    .eq('id', assessmentId);
+    .update({ status: 'rubric_failed', rubric_progress: null, rubric_progress_updated_at: null })
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
   if (error) logger.error({ err: error, assessmentId }, 'markRubricFailed: update failed');
+}
+
+// Justification: extractArtefacts is not in the LLD §18.3 decomposition — extracted
+// from triggerRubricGeneration's body to keep it under the 20-line budget. Collects PRs
+// and org prompt context in parallel, then assembles the artefact set for rubric generation.
+async function extractArtefacts(
+  adminSupabase: ServiceClient,
+  octokit: Octokit,
+  repoInfo: RepoInfo,
+  prNumbers: number[],
+  comprehensionDepth: 'conceptual' | 'detailed',
+): Promise<AssembledArtefactSet> {
+  const repoRef = { owner: repoInfo.orgName, repo: repoInfo.repoName };
+  const source = new GitHubArtefactSource(octokit);
+  const [raw, organisation_context] = await Promise.all([
+    source.extractFromPRs({ ...repoRef, prNumbers }),
+    loadOrgPromptContext(adminSupabase, repoInfo.orgId),
+  ]);
+  return { ...raw, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
 }
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
   try {
+    await updateProgress(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, 'artefact_extraction');
     const octokit = await createGithubClient(params.repoInfo.installationId);
-    const source = new GitHubArtefactSource(octokit);
-    const repoRef = { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName };
-    const [raw, organisation_context] = await Promise.all([
-      source.extractFromPRs({ ...repoRef, prNumbers: params.prNumbers }),
-      loadOrgPromptContext(params.adminSupabase, params.repoInfo.orgId),
-    ]);
-    const artefacts: AssembledArtefactSet = { ...raw, question_count: params.repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: params.comprehensionDepth ?? 'conceptual' };
+    const artefacts = await extractArtefacts(params.adminSupabase, octokit, params.repoInfo, params.prNumbers, params.comprehensionDepth ?? 'conceptual');
     await finaliseRubric({
-      adminSupabase: params.adminSupabase,
-      assessmentId: params.assessmentId,
-      orgId: params.repoInfo.orgId,
-      artefacts,
-      octokit,
-      repoRef,
+      adminSupabase: params.adminSupabase, assessmentId: params.assessmentId, orgId: params.repoInfo.orgId,
+      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName },
     });
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
-    await markRubricFailed(params.adminSupabase, params.assessmentId);
+    await markRubricFailed(params.adminSupabase, params.assessmentId, params.repoInfo.orgId);
   }
 }
 

@@ -165,6 +165,11 @@ CREATE TABLE assessments (
   rubric_tool_calls        jsonb,
   rubric_duration_ms       integer,
 
+  -- Pipeline progress tracking (V2 Epic 18). Updated during rubric generation.
+  -- See docs/design/lld-e18.md §18.3.
+  rubric_progress            text,
+  rubric_progress_updated_at timestamptz,
+
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );

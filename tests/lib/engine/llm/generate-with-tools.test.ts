@@ -856,4 +856,190 @@ describe('OpenRouter generateWithTools', () => {
       expect(limitEntries).toHaveLength(1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // onToolCall callback — V2 Epic 18, Stories 18.1 + 18.3. Issue: #274
+  // AC 4: onToolCall invoked AFTER each successful tool call, not for breaches.
+  // AC 5: onToolCall is optional — loop runs fine without it.
+  // -------------------------------------------------------------------------
+
+  describe('onToolCall callback (Story 18.1 + 18.3)', () => {
+    describe('Given an onToolCall callback and the LLM makes one successful tool call', () => {
+      it('then onToolCall is invoked exactly once with a ToolCallEvent carrying the correct fields', async () => {
+        // AC 4 [lld §18.1: invoked AFTER each successful tool call with ToolCallEvent]
+        const tool = makeSuccessTool('readFile', 'export const x = 1;', 20);
+        const onToolCall = vi.fn();
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([{ id: 'tc1', name: 'readFile', arguments: { path: 'src/x.ts' } }]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(
+          makeBaseRequest({ tools: [tool], onToolCall }),
+        );
+
+        expect(onToolCall).toHaveBeenCalledTimes(1);
+        expect(onToolCall).toHaveBeenCalledWith(
+          expect.objectContaining({
+            toolName: 'readFile',
+            argumentPath: 'src/x.ts',
+            bytesReturned: 20,
+            outcome: 'ok',
+            toolCallCount: 1,
+          }),
+        );
+      });
+    });
+
+    describe('Given an onToolCall callback and the LLM makes three successful tool calls', () => {
+      it('then onToolCall is invoked three times, once per tool call', async () => {
+        // AC 4 [lld §18.1: called for each successful tool call]
+        const tool = makeSuccessTool('readFile', 'content', 8);
+        const onToolCall = vi.fn();
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([
+              { id: 'tc1', name: 'readFile', arguments: { path: 'a.ts' } },
+              { id: 'tc2', name: 'readFile', arguments: { path: 'b.ts' } },
+              { id: 'tc3', name: 'readFile', arguments: { path: 'c.ts' } },
+            ]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(
+          makeBaseRequest({ tools: [tool], onToolCall }),
+        );
+
+        expect(onToolCall).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    describe('Given an onToolCall callback and the tool call hits the iteration limit (breach)', () => {
+      it('then onToolCall is NOT invoked for the breached call', async () => {
+        // AC 4 [lld §18.1 invariant I8: breach paths do not invoke callback]
+        const tool = makeSuccessTool('readFile', 'content', 1);
+        const onToolCall = vi.fn();
+
+        // maxCalls=1: first call succeeds (callback fires), second is breached (no callback)
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([
+              { id: 'tc1', name: 'readFile', arguments: { path: 'a.ts' } },
+              { id: 'tc2', name: 'readFile', arguments: { path: 'b.ts' } },
+            ]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(
+          makeBaseRequest({ tools: [tool], bounds: { maxCalls: 1 }, onToolCall }),
+        );
+
+        // Only the first (successful) call fires the callback
+        expect(onToolCall).toHaveBeenCalledTimes(1);
+        // The second tool call should have been breached (iteration_limit_reached)
+        const result = await client.generateWithTools(
+          makeBaseRequest({ tools: [tool], bounds: { maxCalls: 1 }, onToolCall: undefined }),
+        );
+        if (result.success) {
+          const breachedEntries = result.data.toolCalls.filter(
+            (e) => e.outcome === 'iteration_limit_reached',
+          );
+          expect(breachedEntries.length).toBeGreaterThan(0);
+        }
+      });
+    });
+
+    describe('Given an onToolCall callback and the tool call hits the budget limit (breach)', () => {
+      it('then onToolCall is NOT invoked for the budget_exhausted call', async () => {
+        // AC 4 [lld §18.1 invariant I8: budget_exhausted path does not invoke callback]
+        // First call returns 200 bytes (> maxBytes=100), second call is refused
+        const tool = makeSuccessTool('readFile', 'x'.repeat(200), 200);
+        const onToolCall = vi.fn();
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([
+              { id: 'tc1', name: 'readFile', arguments: { path: 'a.ts' } },
+              { id: 'tc2', name: 'readFile', arguments: { path: 'b.ts' } },
+            ]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(
+          makeBaseRequest({ tools: [tool], bounds: { maxBytes: 100 }, onToolCall }),
+        );
+
+        // First call (200 bytes) was executed and callback fired; second was not budget-breached
+        // Actually first call puts cumulativeBytes=200, lastBytesReturned=200, and predictive check
+        // refuses second call. First call DOES fire callback.
+        // Budget breach is: second call is refused — callback must NOT be invoked for it.
+        // So total callback invocations must be 1 (only the first successful call).
+        expect(onToolCall).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('Given no onToolCall callback is provided', () => {
+      it('then the tool loop completes successfully without throwing', async () => {
+        // AC 5 [lld §18.1 invariant I9: onToolCall is optional]
+        const tool = makeSuccessTool('readFile', 'content', 8);
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([{ id: 'tc1', name: 'readFile', arguments: { path: 'a.ts' } }]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        const result = await client.generateWithTools(
+          makeBaseRequest({ tools: [tool] }), // no onToolCall
+        );
+
+        expect(result.success).toBe(true);
+      });
+
+      it('then the tool loop produces identical results to a request without onToolCall', async () => {
+        // AC 5 [lld §18.1: no regression when callback omitted]
+        const tool = makeSuccessTool('readFile', 'file-body', 10);
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([{ id: 'tc1', name: 'readFile', arguments: { path: 'x.ts' } }]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        const result = await client.generateWithTools(makeBaseRequest({ tools: [tool] }));
+
+        if (!result.success) throw new Error('expected success');
+        expect(result.data.data).toEqual({ summary: 'All good', score: 42 });
+        expect(result.data.toolCalls).toHaveLength(1);
+        expect(result.data.toolCalls[0]?.outcome).toBe('ok');
+      });
+    });
+
+    describe('Given an onToolCall callback and toolCallCount increments per call', () => {
+      it('then toolCallCount in each event reflects the cumulative count at that point', async () => {
+        // AC 4 [lld §18.1: toolCallCount is cumulative count so far]
+        const tool = makeSuccessTool('readFile', 'c', 1);
+        const capturedCounts: number[] = [];
+        const onToolCall = vi.fn((event: { toolCallCount: number }) => {
+          capturedCounts.push(event.toolCallCount);
+        });
+
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([
+              { id: 'tc1', name: 'readFile', arguments: { path: 'a.ts' } },
+              { id: 'tc2', name: 'readFile', arguments: { path: 'b.ts' } },
+            ]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(makeBaseRequest({ tools: [tool], onToolCall }));
+
+        expect(capturedCounts).toEqual([1, 2]);
+      });
+    });
+  });
 });

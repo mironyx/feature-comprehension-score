@@ -59,6 +59,8 @@ interface AssessmentDetailResponse {
   participants: { total: number; completed: number };
   my_participation: MyParticipation | null;
   skip_info: { reason: string; skipped_at: string } | null;
+  rubric_progress: string | null;
+  rubric_progress_updated_at: string | null;
   created_at: string;
 }
 
@@ -177,6 +179,8 @@ function buildResponse(
     skip_info: assessment.skip_reason && assessment.skipped_at
       ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
       : null,
+    rubric_progress: assessment.rubric_progress,
+    rubric_progress_updated_at: assessment.rubric_progress_updated_at,
     created_at: assessment.created_at,
   };
 }

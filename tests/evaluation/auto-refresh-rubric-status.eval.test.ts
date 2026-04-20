@@ -184,10 +184,14 @@ describe('AC-1: status change callbacks during polling sequence', () => {
     startStatusPoll('a1', callbacks, fetchFn);
 
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(callbacks.onStatusChange).toHaveBeenCalledWith('rubric_generation');
+    expect(callbacks.onStatusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'rubric_generation' }),
+    );
 
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(callbacks.onStatusChange).toHaveBeenCalledWith('awaiting_responses');
+    expect(callbacks.onStatusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'awaiting_responses' }),
+    );
     expect(callbacks.onStatusChange).toHaveBeenCalledTimes(2);
   });
 

@@ -64,7 +64,9 @@ describe('startStatusPoll', () => {
 
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
 
-      expect(callbacks.onStatusChange).toHaveBeenCalledWith('awaiting_responses');
+      expect(callbacks.onStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'awaiting_responses' }),
+      );
       expect(fetchFn).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2);
@@ -82,7 +84,9 @@ describe('startStatusPoll', () => {
 
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
 
-      expect(callbacks.onStatusChange).toHaveBeenCalledWith('rubric_failed');
+      expect(callbacks.onStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'rubric_failed' }),
+      );
       expect(fetchFn).toHaveBeenCalledTimes(1);
     });
   });
@@ -103,7 +107,9 @@ describe('startStatusPoll', () => {
       }
 
       expect(fetchFn).toHaveBeenCalledTimes(3);
-      expect(callbacks.onStatusChange).toHaveBeenLastCalledWith('awaiting_responses');
+      expect(callbacks.onStatusChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'awaiting_responses' }),
+      );
     });
   });
 
@@ -156,7 +162,9 @@ describe('startStatusPoll', () => {
       expect(callbacks.onStatusChange).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-      expect(callbacks.onStatusChange).toHaveBeenCalledWith('awaiting_responses');
+      expect(callbacks.onStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'awaiting_responses' }),
+      );
     });
   });
 });
