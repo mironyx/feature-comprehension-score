@@ -10,6 +10,7 @@
 |------|--------|---------|
 | 2026-04-20 | LS / Claude | Initial LLD — Stories 18.1, 18.2, 18.3 |
 | 2026-04-20 | LS / Claude | Added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). `onToolCall` callback injected into tool loop for structured logging + progress refresh. |
+| 2026-04-20 | LS / Claude | Post-implementation sync (issue #274, PR #276): updated §18.3 to reflect `updateProgress` signature change (added `orgId` for tenant-scoping), `pendingWrites` flush pattern replacing fire-and-forget void, and LLD-deviation helpers (`makeToolCallProgressHandler`, `extractArtefacts`, `toSnapshot`). |
 
 ---
 
@@ -299,17 +300,19 @@ req.onToolCall?.({
 **In `src/app/api/fcs/service.ts` — wiring the callback:**
 
 When building the `generateRubric` request in `finaliseRubric`, pass an `onToolCall` callback that:
-1. Emits a structured log at `info` level with `{ assessmentId, orgId, step: 'tool_call', ...event }`
-2. Calls `updateProgress(adminSupabase, assessmentId, 'llm_tool_call')` to refresh the stale timer (Story 18.3)
+1. Emits a structured log at `info` level with `{ assessmentId, orgId, step: 'tool_call', ...event }` _(18.1 — not yet implemented)_
+2. Calls `updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call')` to refresh the stale timer (Story 18.3)
 
 ```typescript
-const onToolCall = (event: ToolCallEvent) => {
-  logger.info({ assessmentId, orgId, step: 'tool_call', ...event }, 'pipeline: tool call completed');
-  void updateProgress(adminSupabase, assessmentId, 'llm_tool_call');
-};
+// 18.3 wires only the progress-refresh side of the callback; 18.1 will add logger.info.
+const onToolCall = makeToolCallProgressHandler(
+  adminSupabase, assessmentId, orgId, settings.tool_use_enabled, pendingWrites,
+);
+// ... pass onToolCall into generateRubric, then:
+await Promise.allSettled(pendingWrites); // flush before the next step
 ```
 
-The `void` prefix on `updateProgress` is intentional — progress updates are fire-and-forget; a failed DB write should not abort the tool loop. The callback is synchronous from the tool loop's perspective (returns `void`, not `Promise`).
+> **Implementation note (issue #274):** the `onToolCall` bridge was landed as part of 18.3 rather than 18.1 because AC-3 of 18.3 requires it first. 18.1 will layer the structured logging onto the same `ToolCallEvent` shape. Also, the original "fire-and-forget with `void`" pattern was replaced by collecting writes into a `pendingWrites` array and flushing with `Promise.allSettled` after `generateRubric` returns — see §18.3 for the race-condition rationale.
 
 **Design constraint:** The `onToolCall` callback is optional. When tools are not enabled or no callback is provided, the tool loop behaves exactly as before. This preserves backward compatibility and keeps the engine layer decoupled from infrastructure.
 
@@ -622,23 +625,39 @@ type PipelineStep = 'artefact_extraction' | 'llm_request' | 'llm_tool_call' | 'r
 async function updateProgress(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
+  orgId: OrgId,
   step: PipelineStep,
 ): Promise<void> {
   await adminSupabase
     .from('assessments')
     .update({ rubric_progress: step, rubric_progress_updated_at: new Date().toISOString() })
-    .eq('id', assessmentId);
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
 }
 ```
 
-Call at each step boundary in `triggerRubricGeneration` and `finaliseRubric`:
-1. `updateProgress(adminSupabase, assessmentId, 'artefact_extraction')` — before artefact extraction
-2. `updateProgress(adminSupabase, assessmentId, 'llm_request')` — before `generateRubric()`
-3. `updateProgress(adminSupabase, assessmentId, 'llm_tool_call')` — after each tool call completes during agentic retrieval (via `onToolCall` callback, fire-and-forget)
-4. `updateProgress(adminSupabase, assessmentId, 'rubric_parsing')` — after successful LLM response
-5. `updateProgress(adminSupabase, assessmentId, 'persisting')` — before `persistRubricFinalisation()`
+> **Implementation note (issue #274):** `orgId` was added as a required parameter and the update filter was extended with `.eq('org_id', orgId)`. `adminSupabase` is the service-role client and bypasses RLS; a mis-computed `assessmentId` would otherwise silently write progress onto another tenant's row. This mirrors the `p_org_id` contract already used by `create_fcs_assessment` and `finalise_rubric` RPCs.
 
-Step 3 is driven by the `onToolCall` callback (see §18.1). Each tool call refreshes `rubric_progress_updated_at`, preventing false stale warnings during active multi-turn retrieval. The `void` prefix makes it fire-and-forget — a failed DB write should not abort the tool loop.
+Call at each step boundary in `triggerRubricGeneration` and `finaliseRubric`:
+1. `updateProgress(adminSupabase, assessmentId, orgId, 'artefact_extraction')` — before artefact extraction
+2. `updateProgress(adminSupabase, assessmentId, orgId, 'llm_request')` — before `generateRubric()`
+3. `updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call')` — after each tool call completes during agentic retrieval (via `onToolCall` callback, collected into `pendingWrites`)
+4. `updateProgress(adminSupabase, assessmentId, orgId, 'rubric_parsing')` — after successful LLM response
+5. `updateProgress(adminSupabase, assessmentId, orgId, 'persisting')` — before `persistRubricFinalisation()`
+
+Step 3 is driven by the `onToolCall` callback (see §18.1). Each tool call refreshes `rubric_progress_updated_at`, preventing false stale warnings during active multi-turn retrieval.
+
+> **Implementation note (issue #274):** the original "fire-and-forget with `void`" pattern was replaced by a `pendingWrites: Promise<void>[]` array collected inside `finaliseRubric`. After `generateRubric` returns, `await Promise.allSettled(pendingWrites)` flushes any in-flight `llm_tool_call` writes before advancing to `'rubric_parsing'`. Without this, a late-resolving tool-call write could land after the next step transition and clobber `rubric_progress` back to `'llm_tool_call'`. `allSettled` (not `all`) preserves the original best-effort semantics — a failed progress write is logged but does not abort the pipeline.
+
+#### LLD-deviation helpers (issue #274)
+
+The implementation added three small helpers that are not in the original decomposition. Each was extracted to keep its parent function under the 20-line complexity budget; justification comments are in-code.
+
+| Helper | Location | Why |
+|--------|----------|-----|
+| `makeToolCallProgressHandler(adminSupabase, assessmentId, orgId, enabled, pendingWrites)` | `src/app/api/fcs/service.ts` | Builds the `onToolCall` closure when `tool_use_enabled` is true; returns `undefined` otherwise. Collects writes into `pendingWrites` so `finaliseRubric` can flush them before the next step. |
+| `extractArtefacts(adminSupabase, octokit, repoInfo, prNumbers, depth)` | `src/app/api/fcs/service.ts` | Parallel fetch of PR artefacts + org prompt context, assembles `AssembledArtefactSet`. Extracted from `triggerRubricGeneration`. |
+| `toSnapshot(data)` | `src/app/(authenticated)/assessments/poll-status.ts` | Maps the snake_case API response (`rubric_progress`, `rubric_progress_updated_at`) to the camelCase `PollSnapshot` consumed by `use-status-poll` / `PollingStatusBadge`. |
 
 Progress is cleared to null on completion (by `finalise_rubric` RPC setting `rubric_progress = null`) and on failure (by `markRubricFailed`).
 
