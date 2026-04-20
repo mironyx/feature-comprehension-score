@@ -313,14 +313,20 @@ interface FinaliseRubricParams {
   repoRef: { owner: string; repo: string };
 }
 
+// Justification: makeToolCallProgressHandler is not in the LLD §18.3 decomposition — extracted
+// from finaliseRubric's body to keep it under the 20-line budget. Collects the pending
+// `llm_tool_call` writes into `pendingWrites` so the caller can flush them with Promise.allSettled
+// before advancing to the next step; otherwise a late-resolving fire-and-forget write can overwrite
+// `rubric_progress` with 'llm_tool_call' after the pipeline has moved to 'rubric_parsing'.
 function makeToolCallProgressHandler(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
   enabled: boolean,
+  pendingWrites: Promise<void>[],
 ): ((event: ToolCallEvent) => void) | undefined {
   if (!enabled) return undefined;
   return (_event: ToolCallEvent) => {
-    void updateProgress(adminSupabase, assessmentId, 'llm_tool_call');
+    pendingWrites.push(updateProgress(adminSupabase, assessmentId, 'llm_tool_call'));
   };
 }
 
@@ -333,9 +339,11 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   const settings = await loadOrgRetrievalSettings(params.adminSupabase, params.orgId);
   const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
   const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
-  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, settings.tool_use_enabled);
+  const pendingWrites: Promise<void>[] = [];
+  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, settings.tool_use_enabled, pendingWrites);
   await updateProgress(params.adminSupabase, params.assessmentId, 'llm_request');
   const result = await generateRubric({ artefacts: params.artefacts, llmClient: buildLlmClient(logger), tools, bounds, onToolCall });
+  await Promise.allSettled(pendingWrites);
   if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
   await updateProgress(params.adminSupabase, params.assessmentId, 'rubric_parsing');
   await updateProgress(params.adminSupabase, params.assessmentId, 'persisting');
@@ -353,6 +361,9 @@ async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: Asse
   if (error) logger.error({ err: error, assessmentId }, 'markRubricFailed: update failed');
 }
 
+// Justification: extractArtefacts is not in the LLD §18.3 decomposition — extracted
+// from triggerRubricGeneration's body to keep it under the 20-line budget. Collects PRs
+// and org prompt context in parallel, then assembles the artefact set for rubric generation.
 async function extractArtefacts(
   adminSupabase: ServiceClient,
   octokit: Octokit,
