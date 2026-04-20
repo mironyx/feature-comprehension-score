@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.5 |
+| Version | 0.7 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
-| Last updated | 2026-04-18 |
+| Last updated | 2026-04-20 |
 
 ## Change Log
 
@@ -19,6 +19,8 @@
 | 0.3 | 2026-04-16 | LS / Claude | E17 rearchitected: replaced deterministic-orchestrator framing with tool-use loop (ADR-0023). 17.1 rewritten as a concrete implementation story (two read-only tools: `readFile` + `listDirectory`, bounded loop with 5-call / 64 KiB / 10k-token caps, typed errors, full observability: tokens + call count + call log + duration). 17.2 rewritten as opt-in rollout + cost caps + call-log surfacing (off-by-default, 60s hard timeout, warning-coloured outcomes for policy breaches). Dropped: feasibility-study framing, suggestion-taxonomy analysis, additional GitHub scopes (existing V1 contents:read covers it). |
 | 0.4 | 2026-04-17 | LS / Claude | Design review: (1) E17 reframed as "augment not replace" — existing artefacts are primary context, tools only for gaps. (2) E11 quality evaluation consolidated into rubric-generation call (ADR-0023) — Story 11.1 AC updated, Story 17.1 gains combined-quality + prompt-guidance ACs. (3) Preparing for clean reimplementation of E11 + E17. |
 | 0.5 | 2026-04-18 | LS / Claude | E17 review comments addressed: (1) Removed all E11 artefact-quality references — E11 cancelled. (2) Replaced quality scoring with tool-call-log-as-feedback: `not_found` outcomes surfaced as "Missing artefacts" summary. (3) Added actor clarification — tool calls use GitHub App installation token, not Org Admin credentials. (4) Added explicit repo-scoping AC — installation token provides isolation, no cross-repo access. (5) Added `warn`-level logging for `iteration_limit_reached`. (6) Specified configuration UI — Organisation Settings page "Retrieval" section with toggle, spend cap, and timeout fields. (7) Split timeout: 120s whole-loop default (configurable) + 10s per-call fixed. (8) Specified display: collapsible "Retrieval details" section on assessment results page. |
+| 0.6 | 2026-04-18 | LS / Claude | Added E17 Tool Evolution Roadmap: phased plan for `readFiles` batch variant, recursive `listDirectory`, and semantic discovery tools. Distinguishes structural vs semantic discovery. Watch-then-build approach. |
+| 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. |
 
 ---
 
@@ -74,6 +76,7 @@ All terms from V1 apply. Additional V2 terms:
 | Epic 15 | Benchmark Mode | Low |
 | Epic 16 | OSS / Alternative LLM Models | Low |
 | Epic 17 | Agentic Artefact Retrieval | Low |
+| Epic 18 | Pipeline Observability & Recovery | High |
 
 **Not in V2 scope (V3):**
 - Intent debt measurement (ADR coverage, spec-to-behaviour gap detection)
@@ -608,6 +611,128 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 - Given an assessment was generated with tool-based retrieval **disabled**, when the Org Admin views the results page, then no retrieval details section is shown.
 
 **Notes:** No additional GitHub App scopes are required — the repository-contents read permission granted by the V1 installation already covers `readFile` and `listDirectory` via the existing GitHub adapter. All configuration fields follow the same organisation-settings pattern established in V1 Story 1.3.
+
+### E17 Tool Evolution Roadmap
+
+The starting tool set (`readFile`, `listDirectory`) is deliberately minimal — atomic primitives that work. Agents using them exclusively are not broken, just potentially inefficient. These tools must not be removed or replaced; they remain the foundation.
+
+The roadmap for extending the tool set follows a watch-then-build approach: observe how agents use the primitives first, then build tools that fill the gaps actually observed in call-log patterns.
+
+**Two distinct discovery needs** inform this roadmap:
+
+1. **Structural discovery** — "what exists and where." `listDirectory` already covers this. A recursive flag may be needed if agents repeatedly walk directory trees one level at a time.
+2. **Semantic discovery** — "which files are relevant to feature X." This is a different problem: grep/search, git log filtering, symbol lookup. An agent that can do semantic discovery (e.g. find files by symbol name, filter git log for a feature branch) and then batch-fetch a coherent set demonstrates significantly stronger theory-building than one doing blind directory walks.
+
+**Phased roadmap:**
+
+| Phase | Tool | Rationale | When |
+|-------|------|-----------|------|
+| 1 | `readFiles(paths: string[])` | Batch variant — thin wrapper, same underlying logic, loops and returns a map of `path → content`. The agent decides the batch; we just fulfil it. No new complexity. Quick win. | Implement now |
+| 2 | Recursive flag on `listDirectory` | Agents likely need subtree views. One optional parameter, no new tool. | When call-log patterns confirm agents repeatedly recurse manually |
+| 3 | Semantic discovery tools | e.g. `findFilesBySymbol(name)`, `gitLogForFeature(branch)` — tools that let the LLM ask *meaningful* questions about the codebase rather than walking blindly. This is where it gets interesting for FCS: semantic discovery signals are directly relevant to theory-building quality. | After Phase 1–2, once observed patterns show what agents actually need |
+
+**Design principle:** Do not over-engineer discovery upfront. Watch how agents use the primitives, then build the tools that fill the gaps actually observed.
+
+---
+
+## Epic 18: Pipeline Observability & Recovery
+
+V1 and V2 rubric generation runs as a fire-and-forget background task. When it fails, the admin sees a "Failed" badge and a retry button — but no explanation of what went wrong, no diagnostic trail, and no guardrails on retry. During E17 agentic retrieval testing, a `malformed_response` failure produced zero actionable information: the error code appeared only in Cloud Run logs, the LLM token spend was lost, and the admin's only option was to click retry blindly.
+
+**Motivation:** Operational necessity. The product cannot run in production without the ability to diagnose failures, make informed retry decisions, and monitor pipeline progress. This epic closes the observability gap across the entire rubric-generation pipeline — not just the agentic retrieval path.
+
+**Existing infrastructure:** The retry API route (`POST /api/assessments/[id]/retry-rubric`) and `RetryButton` component already exist. `LLMError` already carries `code`, `message`, `retryable`, and `context` fields. Observability columns (`rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls`, `rubric_duration_ms`) exist but are only populated on success. This epic extends what's there rather than building from scratch.
+
+### Story 18.1: Pipeline Error Capture & Structured Logging
+
+**As an** Org Admin,
+**I want** rubric-generation failures to be captured with full error detail and diagnostic context,
+**so that** I can understand why an assessment failed without accessing cloud infrastructure logs.
+
+**Acceptance Criteria:**
+
+**Error persistence:**
+
+- Given a rubric generation fails, when the assessment status transitions to `rubric_failed`, then the following fields are persisted on the assessment row:
+  - `rubric_error_code` — the `LLMErrorCode` value (one of: `rate_limit`, `server_error`, `malformed_response`, `validation_failed`, `network_error`, `unknown`).
+  - `rubric_error_message` — the error message string, truncated to 1000 characters.
+  - `rubric_error_retryable` — boolean, sourced from `LLMError.retryable`.
+- Given a rubric generation fails, when partial observability data is available (tokens consumed, duration elapsed, tool calls made before the error), then `rubric_input_tokens`, `rubric_output_tokens`, `rubric_tool_call_count`, `rubric_tool_calls`, and `rubric_duration_ms` are persisted with whatever values were captured up to the point of failure.
+- Given a rubric generation fails with a `malformed_response` error, when the error is logged, then the log entry includes the raw LLM response shape (top-level keys and types only — no values) at `warn` level to aid diagnosis without leaking content.
+
+**Structured logging:**
+
+- Given a rubric generation starts, when each pipeline step executes, then a structured log entry is emitted at `info` level with `assessmentId`, `orgId`, and the step name. The steps are: `artefact_extraction`, `llm_request_sent`, `llm_response_received`, `rubric_parsing`, `rubric_persisted`.
+- Given the LLM response is received, when the log entry is emitted, then it includes `inputTokens`, `outputTokens`, `toolCallCount`, and `durationMs`.
+- Given any pipeline step throws, when the error is caught, then a structured log entry is emitted at `error` level with `assessmentId`, `orgId`, the step name, and the error details.
+- Given all log entries in this pipeline, then every entry includes `assessmentId` and `orgId` fields for log correlation.
+
+**Notes:** Schema changes required: add `rubric_error_code text`, `rubric_error_message text`, and `rubric_error_retryable boolean` columns to the `assessments` table. The `markRubricFailed` function must be extended to accept and persist error details alongside the status transition. Existing observability persistence (`persistRubricFinalisation`) is only called on success — the failure path needs a parallel persistence call for partial observability data.
+
+### Story 18.2: Assessment Retry from UI with Guardrails
+
+**As an** Org Admin,
+**I want** to see why an assessment failed and retry it with appropriate limits,
+**so that** I can make informed recovery decisions and avoid wasting LLM spend on non-retryable failures.
+
+**Dependency:** Story 18.1 (error detail columns must exist before they can be displayed).
+
+**Acceptance Criteria:**
+
+**Error display:**
+
+- Given an assessment with status `rubric_failed`, when the Org Admin views the assessments list page, then the error code is shown alongside the "Failed" badge (e.g., "Failed: malformed_response").
+- Given an assessment with status `rubric_failed`, when the Org Admin views the assessment detail page, then a failure summary section is shown with: the error code, the error message, and whether the error is retryable.
+
+**Retry guardrails:**
+
+- Given a `rubric_retry_count` column on the assessments table (default: 0), when a retry is triggered, then the count is incremented.
+- Given an assessment has been retried 3 times (`rubric_retry_count >= 3`), when the Org Admin views the assessment, then the retry button is disabled with the message "Maximum retries reached (3 of 3)".
+- Given an assessment with `rubric_error_retryable = false`, when the Org Admin views the assessment, then the retry button is disabled with the message "This error is not retryable".
+- Given the retry button is clicked, when the API call succeeds, then the assessment status resets to `rubric_generation`, the UI resumes polling, and the attempt count is displayed (e.g., "Attempt 2 of 3").
+- Given the retry button is clicked, when the API call fails, then the error is shown inline next to the button without navigating away.
+
+**Retry API extension:**
+
+- Given a retry request for an assessment with `rubric_retry_count >= 3`, when the API is called, then it returns HTTP 400 with `{ error: "Maximum retry limit reached" }`.
+- Given a retry request for an assessment with `rubric_error_retryable = false`, when the API is called, then it returns HTTP 400 with `{ error: "Error is not retryable" }`.
+
+**Notes:** Schema change required: add `rubric_retry_count integer NOT NULL DEFAULT 0` to the `assessments` table. The existing `RetryButton` component and retry API route are extended, not replaced. The retry count is incremented by the API, not the client.
+
+### Story 18.3: Pipeline Progress Visibility
+
+**As an** Org Admin,
+**I want** to see which pipeline step is currently executing during rubric generation,
+**so that** I can tell whether the process is progressing or stuck.
+
+**Acceptance Criteria:**
+
+**Progress tracking:**
+
+- Given a `rubric_progress` column on the assessments table (nullable text), when a pipeline step begins, then the column is updated to the current step name: `artefact_extraction`, `llm_request`, `rubric_parsing`, or `persisting`.
+- Given the rubric generation completes (success or failure), when the final status is set, then `rubric_progress` is cleared to `null`.
+
+**UI display:**
+
+- Given an assessment with status `rubric_generation` and a non-null `rubric_progress`, when the Org Admin views the assessments list page, then the progress step is shown below the "Generating..." badge (e.g., "Step: Waiting for LLM response").
+- Given the UI is polling for status, when the `rubric_progress` value changes between polls, then the displayed step updates accordingly.
+
+**Stale detection:**
+
+- Given an assessment with status `rubric_generation`, when the `rubric_progress` value has not changed for longer than twice the configured `retrieval_timeout_seconds` (default: 2 x 120 = 240 seconds), then the UI shows a warning: "Generation may be stalled — consider retrying".
+- Given the stale warning is shown, when the assessment transitions to `rubric_failed` or `awaiting_responses`, then the warning is removed.
+
+**Progress label mapping:**
+
+| `rubric_progress` value | Display label |
+|------------------------|---------------|
+| `artefact_extraction` | "Extracting artefacts from repository" |
+| `llm_request` | "Waiting for LLM response" |
+| `rubric_parsing` | "Processing LLM response" |
+| `persisting` | "Saving results" |
+| `null` | *(no progress shown)* |
+
+**Notes:** Schema change required: add `rubric_progress text` (nullable) to the `assessments` table. The stale detection is client-side — the UI compares `rubric_progress_updated_at` (a timestamp column updated alongside `rubric_progress`) against the current time. This avoids server-side timers. Consider adding `rubric_progress_updated_at timestamptz` alongside `rubric_progress` to support stale detection. The polling endpoint (`GET /api/assessments/[id]`) already returns all assessment fields — no new endpoint needed.
 
 ---
 
