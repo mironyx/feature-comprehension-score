@@ -178,6 +178,8 @@ graph LR
 
 Nodes use the format `#<issue> · <short title>\n(<layer>)`. Dashed arrows (`-.->` with label) indicate soft coupling such as a shared migration. Nodes that have no incoming arrows are parallelisable from the start. Add a plain-English summary below the diagram stating which tasks can start immediately in parallel and which must be sequential.
 
+**Hard rule — shared files force sequential waves:** Any two tasks that both write to the same source file (e.g. `tables.sql`, `functions.sql`, any shared migration) must be placed in different waves, even if their logical coupling is soft. Parallel PRs on the same file always produce a merge conflict. Encode this as a solid arrow in the dependency graph, not a dashed one.
+
 **Wait for user confirmation** before producing artefacts. The user may re-prioritise, skip items, redirect artefact types, adjust wave assignments, or reject a proposed split.
 
 ### Step 2b: Decomposition assessment
