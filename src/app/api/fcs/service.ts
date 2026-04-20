@@ -258,12 +258,14 @@ export type PipelineStep = 'artefact_extraction' | 'llm_request' | 'llm_tool_cal
 export async function updateProgress(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
+  orgId: OrgId,
   step: PipelineStep,
 ): Promise<void> {
   const { error } = await adminSupabase
     .from('assessments')
     .update({ rubric_progress: step, rubric_progress_updated_at: new Date().toISOString() })
-    .eq('id', assessmentId);
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
   if (error) logger.warn({ err: error, assessmentId, step }, 'updateProgress: failed');
 }
 
@@ -321,12 +323,13 @@ interface FinaliseRubricParams {
 function makeToolCallProgressHandler(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
+  orgId: OrgId,
   enabled: boolean,
   pendingWrites: Promise<void>[],
 ): ((event: ToolCallEvent) => void) | undefined {
   if (!enabled) return undefined;
   return (_event: ToolCallEvent) => {
-    pendingWrites.push(updateProgress(adminSupabase, assessmentId, 'llm_tool_call'));
+    pendingWrites.push(updateProgress(adminSupabase, assessmentId, orgId, 'llm_tool_call'));
   };
 }
 
@@ -340,24 +343,25 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   const tools = buildRubricTools(params.octokit, params.repoRef, settings.tool_use_enabled);
   const bounds = { timeoutMs: settings.retrieval_timeout_seconds * 1000 };
   const pendingWrites: Promise<void>[] = [];
-  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, settings.tool_use_enabled, pendingWrites);
-  await updateProgress(params.adminSupabase, params.assessmentId, 'llm_request');
+  const onToolCall = makeToolCallProgressHandler(params.adminSupabase, params.assessmentId, params.orgId, settings.tool_use_enabled, pendingWrites);
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'llm_request');
   const result = await generateRubric({ artefacts: params.artefacts, llmClient: buildLlmClient(logger), tools, bounds, onToolCall });
   await Promise.allSettled(pendingWrites);
   if (result.status === 'generation_failed') throw new Error(`Rubric generation failed: ${result.error.code}`);
-  await updateProgress(params.adminSupabase, params.assessmentId, 'rubric_parsing');
-  await updateProgress(params.adminSupabase, params.assessmentId, 'persisting');
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'rubric_parsing');
+  await updateProgress(params.adminSupabase, params.assessmentId, params.orgId, 'persisting');
   await persistRubricFinalisation(params.adminSupabase, {
     assessmentId: params.assessmentId, orgId: params.orgId,
     questions: result.rubric.questions, observability: result.observability,
   });
 }
 
-async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId): Promise<void> {
+async function markRubricFailed(adminSupabase: ServiceClient, assessmentId: AssessmentId, orgId: OrgId): Promise<void> {
   const { error } = await adminSupabase
     .from('assessments')
     .update({ status: 'rubric_failed', rubric_progress: null, rubric_progress_updated_at: null })
-    .eq('id', assessmentId);
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
   if (error) logger.error({ err: error, assessmentId }, 'markRubricFailed: update failed');
 }
 
@@ -382,7 +386,7 @@ async function extractArtefacts(
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
   try {
-    await updateProgress(params.adminSupabase, params.assessmentId, 'artefact_extraction');
+    await updateProgress(params.adminSupabase, params.assessmentId, params.repoInfo.orgId, 'artefact_extraction');
     const octokit = await createGithubClient(params.repoInfo.installationId);
     const artefacts = await extractArtefacts(params.adminSupabase, octokit, params.repoInfo, params.prNumbers, params.comprehensionDepth ?? 'conceptual');
     await finaliseRubric({
@@ -391,7 +395,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     });
   } catch (err) {
     logger.error({ err, assessmentId: params.assessmentId }, 'triggerRubricGeneration: failed');
-    await markRubricFailed(params.adminSupabase, params.assessmentId);
+    await markRubricFailed(params.adminSupabase, params.assessmentId, params.repoInfo.orgId);
   }
 }
 

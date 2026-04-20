@@ -168,8 +168,14 @@ function makeMockAdminClient(opts: {
       }
       if (table === 'assessments') {
         const chain = makeChain(() => ({ data: null, error: null }));
+        let current: Record<string, unknown> | null = null;
         chain.update.mockImplementation((values: Record<string, unknown>) => {
-          updateCalls.push({ ...values });
+          current = { ...values, _filters: {} as Record<string, unknown> };
+          updateCalls.push(current);
+          return chain;
+        });
+        chain.eq.mockImplementation((col: string, val: unknown) => {
+          if (current) (current['_filters'] as Record<string, unknown>)[col] = val;
           return chain;
         });
         return chain;
@@ -392,6 +398,31 @@ describe('Pipeline progress tracking (Story 18.3)', () => {
       expect(idxLlm).toBeGreaterThan(idxArtefact);
       expect(idxParsing).toBeGreaterThan(idxLlm);
       expect(idxPersisting).toBeGreaterThan(idxParsing);
+    });
+
+    it('then every progress update is filtered by both id and org_id (tenant-scoping)', async () => {
+      // Service-role client bypasses RLS — progress writes MUST assert org_id so a wrong
+      // assessmentId cannot silently clobber another tenant's row.
+      vi.mocked(generateRubric).mockResolvedValue(SUCCESS_RESULT);
+      const adminClient = makeMockAdminClient();
+      const ctx: ApiContext = {
+        supabase: makeMockUserClient() as never,
+        adminSupabase: adminClient as never,
+        user: { id: USER_ID, email: 'admin@example.com' },
+      };
+
+      await createFcs(ctx, VALID_BODY);
+      await flushAsync();
+
+      const progressUpdates = adminClient._updateCalls.filter(
+        (u) => u['rubric_progress'] !== undefined,
+      );
+      expect(progressUpdates.length).toBeGreaterThan(0);
+      for (const update of progressUpdates) {
+        const filters = update['_filters'] as Record<string, unknown>;
+        expect(filters['id']).toBeDefined();
+        expect(filters['org_id']).toBe(ORG_ID);
+      }
     });
   });
 
