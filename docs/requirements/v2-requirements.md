@@ -23,6 +23,7 @@
 | 0.6 | 2026-04-18 | LS / Claude | Added E17 Tool Evolution Roadmap: phased plan for `readFiles` batch variant, recursive `listDirectory`, and semantic discovery tools. Distinguishes structural vs semantic discovery. Watch-then-build approach. |
 | 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. Review: added retry data cleanup AC to Story 18.2 — previous attempt's error and observability fields are cleared on retry. |
 | 0.8 | 2026-04-20 | LS / Claude | Finalised Epic 18 after Gate 2 approval. |
+| 0.9 | 2026-04-20 | LS / Claude | Epic 18: added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). During active tool-use loops, each tool call emits a structured log and refreshes `rubric_progress_updated_at` to prevent false stale warnings. |
 
 ---
 
@@ -666,6 +667,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 
 - Given a rubric generation starts, when each pipeline step executes, then a structured log entry is emitted at `info` level with `assessmentId`, `orgId`, and the step name. The steps are: `artefact_extraction`, `llm_request_sent`, `llm_response_received`, `rubric_parsing`, `rubric_persisted`.
 - Given the LLM response is received, when the log entry is emitted, then it includes `inputTokens`, `outputTokens`, `toolCallCount`, and `durationMs`.
+- Given agentic retrieval is enabled and the LLM makes a tool call during the tool-use loop, when the tool call completes, then a structured log entry is emitted at `info` level with `assessmentId`, `orgId`, `step: "tool_call"`, `toolName`, `argumentPath`, `bytesReturned`, `outcome`, and the cumulative `toolCallCount` so far.
 - Given any pipeline step throws, when the error is caught, then a structured log entry is emitted at `error` level with `assessmentId`, `orgId`, the step name, and the error details.
 - Given all log entries in this pipeline, then every entry includes `assessmentId` and `orgId` fields for log correlation.
 
@@ -711,7 +713,8 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 
 **Progress tracking:**
 
-- Given a `rubric_progress` column on the assessments table (nullable text), when a pipeline step begins, then the column is updated to the current step name: `artefact_extraction`, `llm_request`, `rubric_parsing`, or `persisting`.
+- Given a `rubric_progress` column on the assessments table (nullable text), when a pipeline step begins, then the column is updated to the current step name: `artefact_extraction`, `llm_request`, `llm_tool_call`, `rubric_parsing`, or `persisting`.
+- Given agentic retrieval is enabled and the LLM makes a tool call during the tool-use loop, when the tool call completes, then `rubric_progress` is updated to `llm_tool_call` and `rubric_progress_updated_at` is refreshed to the current time. This prevents false stale warnings during active multi-turn retrieval.
 - Given the `rubric_progress` column is updated, when the update is persisted, then `rubric_progress_updated_at` (timestamptz) is set to the current time.
 - Given the rubric generation completes (success or failure), when the final status is set, then `rubric_progress` is cleared to `null`.
 
@@ -731,6 +734,7 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 |------------------------|---------------|
 | `artefact_extraction` | "Extracting artefacts from repository" |
 | `llm_request` | "Waiting for LLM response" |
+| `llm_tool_call` | "Retrieving additional files from repository" |
 | `rubric_parsing` | "Processing LLM response" |
 | `persisting` | "Saving results" |
 | `null` | *(no progress shown)* |

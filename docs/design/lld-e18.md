@@ -9,6 +9,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-20 | LS / Claude | Initial LLD — Stories 18.1, 18.2, 18.3 |
+| 2026-04-20 | LS / Claude | Added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). `onToolCall` callback injected into tool loop for structured logging + progress refresh. |
 
 ---
 
@@ -38,6 +39,9 @@ sequenceDiagram
     S->>S: extractArtefacts()
     S->>L: info({assessmentId, orgId, step: "llm_request_sent"})
     S->>S: generateRubric()
+    loop Agentic retrieval (if tool-use enabled)
+        S->>L: info({assessmentId, orgId, step: "tool_call", toolName, argumentPath, bytesReturned, outcome, toolCallCount})
+    end
     Note over S: LLM returns malformed_response
     S-->>P: throw Error (with LLMError context)
     P->>L: error({assessmentId, orgId, step, errorCode, errorMessage})
@@ -78,6 +82,10 @@ sequenceDiagram
     P->>P: extractArtefacts()
     P->>DB: UPDATE rubric_progress='llm_request'
     P->>P: generateRubric()
+    loop Agentic retrieval (if tool-use enabled)
+        P->>DB: UPDATE rubric_progress='llm_tool_call', rubric_progress_updated_at=now()
+        Note over P: Refreshes stale timer on each tool call
+    end
     P->>DB: UPDATE rubric_progress='rubric_parsing'
     P->>P: parseResult()
     P->>DB: UPDATE rubric_progress='persisting'
@@ -136,6 +144,8 @@ graph TD
 | I5 | `rubric_progress` is cleared to null on completion (success or failure) | Unit test: both finaliseRubric and markRubricFailed clear progress |
 | I6 | Every structured log entry includes `assessmentId` and `orgId` | Grep test: all logger calls in pipeline include both fields |
 | I7 | Retry clears all previous-attempt tracking data | Unit test: status reset clears error, observability, and progress fields |
+| I8 | `onToolCall` is only invoked for successful tool executions, not breaches | Unit test: breach paths (budget/iteration limit) do not invoke callback |
+| I9 | `onToolCall` callback is optional — tool loop works without it | Unit test: `generateWithTools` without `onToolCall` behaves identically to current |
 
 ---
 
@@ -160,7 +170,9 @@ rubric_error_retryable   boolean,
 | File | Change |
 |------|--------|
 | `supabase/schemas/tables.sql` | Add 3 error columns to `assessments` |
-| `src/app/api/fcs/service.ts` | Extend `markRubricFailed` signature; add partial observability persistence on failure; add structured step logging |
+| `src/app/api/fcs/service.ts` | Extend `markRubricFailed` signature; add partial observability persistence on failure; add structured step logging; wire `onToolCall` callback |
+| `src/lib/engine/llm/tools.ts` | Add optional `onToolCall` callback to `GenerateWithToolsRequest` |
+| `src/lib/engine/llm/tool-loop.ts` | Invoke `onToolCall` after each tool call completes in `processOneToolCall` |
 | `src/lib/engine/pipeline/assess-pipeline.ts` | Propagate `LLMError` from `generateRubric` failure path (if not already surfaced) |
 
 ### Internal decomposition
@@ -242,6 +254,7 @@ Add `logger.info` calls at each pipeline step boundary in `finaliseRubric`:
 |-----------|-------|-------------|
 | `artefact_extraction` | Before `source.extractFromPRs()` in `triggerRubricGeneration` | — |
 | `llm_request_sent` | Before `generateRubric()` in `finaliseRubric` | — |
+| `tool_call` | After each tool call completes in the tool-use loop (via `onToolCall` callback) | `toolName`, `argumentPath`, `bytesReturned`, `outcome`, `toolCallCount` |
 | `llm_response_received` | After `generateRubric()` returns successfully | `inputTokens`, `outputTokens`, `toolCallCount`, `durationMs` |
 | `rubric_parsing` | After `generateRubric()` success, before `persistRubricFinalisation` | — |
 | `rubric_persisted` | After `persistRubricFinalisation` returns | — |
@@ -249,6 +262,56 @@ Add `logger.info` calls at each pipeline step boundary in `finaliseRubric`:
 All log entries include `{ assessmentId, orgId, step }`.
 
 On `malformed_response` error: log at `warn` level with the raw response shape (top-level keys and types only).
+
+#### `onToolCall` callback — engine-to-service bridge
+
+The tool-use loop runs inside the engine layer (`src/lib/engine/llm/tool-loop.ts`), which must remain framework-agnostic (no Pino, no Supabase). To enable structured logging and progress updates from inside the loop, add an optional callback to the request:
+
+**In `src/lib/engine/llm/tools.ts`:**
+
+```typescript
+export interface ToolCallEvent {
+  readonly toolName: string;
+  readonly argumentPath: string;
+  readonly bytesReturned: number;
+  readonly outcome: ToolCallOutcome;
+  readonly toolCallCount: number;  // cumulative count so far
+}
+
+// Add to GenerateWithToolsRequest:
+onToolCall?: (event: ToolCallEvent) => void;
+```
+
+**In `src/lib/engine/llm/tool-loop.ts`:**
+
+After the `recordOutcome` call in `processOneToolCall` (for successful tool calls, not breaches), invoke the callback:
+
+```typescript
+req.onToolCall?.({
+  toolName: tc.function.name,
+  argumentPath: input.path,
+  bytesReturned: result.bytes,
+  outcome: result.kind,
+  toolCallCount: state.callCount,
+});
+```
+
+**In `src/app/api/fcs/service.ts` — wiring the callback:**
+
+When building the `generateRubric` request in `finaliseRubric`, pass an `onToolCall` callback that:
+1. Emits a structured log at `info` level with `{ assessmentId, orgId, step: 'tool_call', ...event }`
+2. Calls `updateProgress(adminSupabase, assessmentId, 'llm_tool_call')` to refresh the stale timer (Story 18.3)
+
+```typescript
+const onToolCall = (event: ToolCallEvent) => {
+  logger.info({ assessmentId, orgId, step: 'tool_call', ...event }, 'pipeline: tool call completed');
+  void updateProgress(adminSupabase, assessmentId, 'llm_tool_call');
+};
+```
+
+The `void` prefix on `updateProgress` is intentional — progress updates are fire-and-forget; a failed DB write should not abort the tool loop. The callback is synchronous from the tool loop's perspective (returns `void`, not `Promise`).
+
+**Design constraint:** The `onToolCall` callback is optional. When tools are not enabled or no callback is provided, the tool loop behaves exactly as before. This preserves backward compatibility and keeps the engine layer decoupled from infrastructure.
 
 ### BDD specs
 
@@ -313,6 +376,32 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
       // Then logger.error includes assessmentId, orgId, step, and error details
     });
   });
+
+  describe('tool-call logging (agentic retrieval)', () => {
+    it('should invoke onToolCall callback after each tool call completes', () => {
+      // Given tool-use is enabled and onToolCall callback is provided
+      // When the LLM makes 3 tool calls
+      // Then onToolCall is invoked 3 times with toolName, argumentPath, bytesReturned, outcome, toolCallCount
+    });
+
+    it('should emit info log for each tool call with assessmentId and orgId', () => {
+      // Given the onToolCall callback is wired in finaliseRubric
+      // When a tool call completes
+      // Then logger.info is called with step='tool_call', toolName, argumentPath, bytesReturned, outcome, toolCallCount
+    });
+
+    it('should not invoke onToolCall for breached tool calls (budget/iteration limit)', () => {
+      // Given a tool call that hits the iteration limit
+      // When processOneToolCall runs the breach path
+      // Then onToolCall is not invoked
+    });
+
+    it('should not fail when onToolCall is not provided', () => {
+      // Given no onToolCall callback
+      // When tool calls complete
+      // Then the tool loop runs without error
+    });
+  });
 });
 ```
 
@@ -325,6 +414,8 @@ describe('Story 18.1: Pipeline Error Capture & Structured Logging', () => {
 - [ ] `llm_response_received` log includes token counts and duration
 - [ ] `malformed_response` logged at `warn` with response shape (keys/types only)
 - [ ] `RubricGenerationError` carries `LLMError` from engine to catch block
+- [ ] `onToolCall` callback on `GenerateWithToolsRequest` — invoked after each successful tool call with `ToolCallEvent`
+- [ ] Service wires `onToolCall` to emit structured log (`step: 'tool_call'`) with `toolName`, `argumentPath`, `bytesReturned`, `outcome`, `toolCallCount`
 - [ ] Schema: 3 new columns on `assessments` table
 - [ ] `npx vitest run` passes, `npx tsc --noEmit` passes
 
@@ -526,7 +617,7 @@ rubric_progress_updated_at timestamptz,
 Add to `src/app/api/fcs/service.ts`:
 
 ```typescript
-type PipelineStep = 'artefact_extraction' | 'llm_request' | 'rubric_parsing' | 'persisting';
+type PipelineStep = 'artefact_extraction' | 'llm_request' | 'llm_tool_call' | 'rubric_parsing' | 'persisting';
 
 async function updateProgress(
   adminSupabase: ServiceClient,
@@ -543,8 +634,11 @@ async function updateProgress(
 Call at each step boundary in `triggerRubricGeneration` and `finaliseRubric`:
 1. `updateProgress(adminSupabase, assessmentId, 'artefact_extraction')` — before artefact extraction
 2. `updateProgress(adminSupabase, assessmentId, 'llm_request')` — before `generateRubric()`
-3. `updateProgress(adminSupabase, assessmentId, 'rubric_parsing')` — after successful LLM response
-4. `updateProgress(adminSupabase, assessmentId, 'persisting')` — before `persistRubricFinalisation()`
+3. `updateProgress(adminSupabase, assessmentId, 'llm_tool_call')` — after each tool call completes during agentic retrieval (via `onToolCall` callback, fire-and-forget)
+4. `updateProgress(adminSupabase, assessmentId, 'rubric_parsing')` — after successful LLM response
+5. `updateProgress(adminSupabase, assessmentId, 'persisting')` — before `persistRubricFinalisation()`
+
+Step 3 is driven by the `onToolCall` callback (see §18.1). Each tool call refreshes `rubric_progress_updated_at`, preventing false stale warnings during active multi-turn retrieval. The `void` prefix makes it fire-and-forget — a failed DB write should not abort the tool loop.
 
 Progress is cleared to null on completion (by `finalise_rubric` RPC setting `rubric_progress = null`) and on failure (by `markRubricFailed`).
 
@@ -574,6 +668,7 @@ And map from the assessment row in `buildResponse`.
 const PROGRESS_LABELS: Record<string, string> = {
   artefact_extraction: 'Extracting artefacts from repository',
   llm_request: 'Waiting for LLM response',
+  llm_tool_call: 'Retrieving additional files from repository',
   rubric_parsing: 'Processing LLM response',
   persisting: 'Saving results',
 };
@@ -617,11 +712,31 @@ describe('Story 18.3: Pipeline Progress Visibility', () => {
     });
   });
 
+  describe('tool-call progress refresh (agentic retrieval)', () => {
+    it('should update rubric_progress to llm_tool_call on each tool call', () => {
+      // Given agentic retrieval is enabled and tool calls are executing
+      // When a tool call completes
+      // Then rubric_progress='llm_tool_call' and rubric_progress_updated_at is refreshed
+    });
+
+    it('should prevent false stale warnings during active multi-turn retrieval', () => {
+      // Given 5 tool calls over 60 seconds
+      // When each tool call refreshes rubric_progress_updated_at
+      // Then the stale timer never exceeds 240 seconds between updates
+    });
+  });
+
   describe('PollingStatusBadge', () => {
     it('should display progress step label when rubric_progress is non-null', () => {
       // Given status=rubric_generation, rubric_progress='llm_request'
       // When rendered
       // Then shows "Waiting for LLM response" below the badge
+    });
+
+    it('should display llm_tool_call label during agentic retrieval', () => {
+      // Given rubric_progress='llm_tool_call'
+      // When rendered
+      // Then shows "Retrieving additional files from repository"
     });
 
     it('should show stale warning when progress_updated_at is older than 240 seconds', () => {
@@ -649,10 +764,11 @@ describe('Story 18.3: Pipeline Progress Visibility', () => {
 
 - [ ] `rubric_progress` updated at each pipeline step boundary
 - [ ] `rubric_progress_updated_at` set alongside progress updates
+- [ ] `rubric_progress` set to `llm_tool_call` and `rubric_progress_updated_at` refreshed on each tool call during agentic retrieval (via `onToolCall` callback, fire-and-forget)
 - [ ] Progress cleared to null on success (via finalise_rubric RPC)
 - [ ] Progress cleared to null on failure (via markRubricFailed)
 - [ ] GET `/api/assessments/[id]` includes `rubric_progress` and `rubric_progress_updated_at`
-- [ ] UI displays human-readable progress label during generation
+- [ ] UI displays human-readable progress label during generation (including `llm_tool_call` → "Retrieving additional files from repository")
 - [ ] UI shows stale warning when `rubric_progress_updated_at` > 240 seconds ago
 - [ ] Stale warning removed on terminal status transition
 - [ ] Schema: `rubric_progress text`, `rubric_progress_updated_at timestamptz`
