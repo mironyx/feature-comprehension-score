@@ -39,7 +39,12 @@ vi.mock('next/link', () => ({
 }));
 
 vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
-  RetryButton: () => 'RetryButton',
+  RetryButton: ({ assessmentId, retryCount, maxRetries, errorRetryable }: {
+    assessmentId: string;
+    retryCount: number;
+    maxRetries: number;
+    errorRetryable: boolean | null;
+  }) => JSON.stringify({ assessmentId, retryCount, maxRetries, errorRetryable }),
 }));
 
 vi.mock('@/app/(authenticated)/assessments/polling-status-badge', () => ({
@@ -137,6 +142,44 @@ describe('Assessments page', () => {
       );
     });
 
+    // Property 1 — query selects the three new error/retry columns [lld §18.2]
+    it('selects rubric_error_code, rubric_retry_count, and rubric_error_retryable from assessments', async () => {
+      let capturedSelectArg = '';
+      const mockIn = vi.fn().mockReturnValue({
+        order: vi.fn().mockResolvedValue({ data: [], error: null }),
+      });
+      const client = {
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
+        },
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === 'user_organisations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockResolvedValue({ data: [{ github_role: 'admin' }], error: null }),
+                }),
+              }),
+            };
+          }
+          return {
+            select: vi.fn().mockImplementation((cols: string) => {
+              capturedSelectArg = cols;
+              return { eq: vi.fn().mockReturnValue({ in: mockIn }) };
+            }),
+          };
+        }),
+        _mockIn: mockIn,
+      };
+      mockCreateServer.mockResolvedValue(client as never);
+
+      await AssessmentsPage({ searchParams: Promise.resolve({}) });
+
+      expect(capturedSelectArg).toContain('rubric_error_code');
+      expect(capturedSelectArg).toContain('rubric_retry_count');
+      expect(capturedSelectArg).toContain('rubric_error_retryable');
+    });
+
     it('renders assessments as a list', async () => {
       const client = makeClient({
         assessments: [
@@ -173,6 +216,37 @@ describe('Assessments page', () => {
       const rendered = JSON.stringify(result);
 
       expect(rendered).toContain('assessmentId');
+    });
+
+    // Property 5 — RetryButton receives correct guardrail props [lld §18.2]
+    it('passes retryCount, maxRetries=3, and errorRetryable to RetryButton', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'a2',
+            feature_name: 'Failed Feature',
+            status: 'rubric_failed',
+            created_at: '2026-01-01',
+            rubric_error_code: 'malformed_response',
+            rubric_retry_count: 2,
+            rubric_error_retryable: true,
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+      mockIsOrgAdmin.mockReturnValue(true);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      // assessmentId forwarded from assessment row
+      expect(rendered).toContain('"assessmentId":"a2"');
+      // retryCount from rubric_retry_count
+      expect(rendered).toContain('"retryCount":2');
+      // maxRetries is always 3 (MAX_RETRIES constant)
+      expect(rendered).toContain('"maxRetries":3');
+      // errorRetryable from rubric_error_retryable
+      expect(rendered).toContain('"errorRetryable":true');
     });
 
     it('uses PollingStatusBadge for newly created rubric_generation assessment', async () => {
@@ -226,6 +300,87 @@ describe('Assessments page', () => {
       const rendered = JSON.stringify(result);
 
       expect(rendered).toContain('No pending assessments');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Property 2, 3, 4 — rubric_failed error code display [lld §18.2]
+  // ---------------------------------------------------------------------------
+
+  describe('rubric_failed error display', () => {
+    // Property 2 — error code string is visible when status=rubric_failed and code is set
+    it('Given rubric_failed with rubric_error_code set, When page renders, Then error code text appears in the output', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'b1',
+            feature_name: 'Bad Generation',
+            status: 'rubric_failed',
+            created_at: '2026-01-01',
+            rubric_error_code: 'malformed_response',
+            rubric_retry_count: 0,
+            rubric_error_retryable: true,
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('malformed_response');
+    });
+
+    // Property 3 — no error code text when rubric_error_code is null
+    it('Given rubric_failed with rubric_error_code=null, When page renders, Then no error code text appears', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'b2',
+            feature_name: 'Bad Generation',
+            status: 'rubric_failed',
+            created_at: '2026-01-01',
+            rubric_error_code: null,
+            rubric_retry_count: 0,
+            rubric_error_retryable: null,
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      // The rendered output should not contain any error code literal (null encodes as JSON null)
+      // We verify none of the known error-code sentinel strings appear as text content
+      expect(rendered).not.toContain('"malformed_response"');
+      // And the rubric_error_code field value itself should be null in output
+      expect(rendered).not.toMatch(/"rubric_error_code":"[^"]+"/);
+    });
+
+    // Property 4 — error code display is gated on status=rubric_failed; non-failed rows suppress it
+    it('Given awaiting_responses with a non-null rubric_error_code (stale data), When page renders, Then error code text is not shown', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'b3',
+            feature_name: 'Active Assessment',
+            status: 'awaiting_responses',
+            created_at: '2026-01-01',
+            rubric_error_code: 'malformed_response',
+            rubric_retry_count: 0,
+            rubric_error_retryable: null,
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      // The error code must not appear as a rendered text node for a non-failed assessment
+      // (the RetryButton is also not rendered for non-rubric_failed rows)
+      expect(rendered).not.toContain('"malformed_response"');
     });
   });
 });

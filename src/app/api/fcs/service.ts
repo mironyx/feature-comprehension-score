@@ -530,6 +530,29 @@ interface AssessmentRetryRow {
   status: string;
   config_question_count: number;
   config_comprehension_depth?: 'conceptual' | 'detailed' | null;
+  rubric_retry_count: number;
+  rubric_error_retryable?: boolean | null;
+}
+
+export const MAX_RUBRIC_RETRIES = 3;
+
+// Clears all previous-attempt tracking data (error, observability, progress) and
+// increments the retry counter atomically with the status reset. See lld-e18.md §18.2.
+function buildRetryResetUpdate(retryCount: number): Database['public']['Tables']['assessments']['Update'] {
+  return {
+    status: 'rubric_generation',
+    rubric_retry_count: retryCount + 1,
+    rubric_error_code: null,
+    rubric_error_message: null,
+    rubric_error_retryable: null,
+    rubric_input_tokens: null,
+    rubric_output_tokens: null,
+    rubric_tool_call_count: null,
+    rubric_tool_calls: null,
+    rubric_duration_ms: null,
+    rubric_progress: null,
+    rubric_progress_updated_at: null,
+  };
 }
 
 // Resets a rubric_failed assessment to rubric_generation and re-runs generation
@@ -541,7 +564,11 @@ export async function retriggerRubricForAssessment(
   const assessmentId = assessment.id as AssessmentId;
   const orgId = assessment.org_id as OrgId;
   const repositoryId = assessment.repository_id as RepositoryId;
-  const { error } = await adminSupabase.from('assessments').update({ status: 'rubric_generation' }).eq('id', assessmentId);
+  const { error } = await adminSupabase
+    .from('assessments')
+    .update(buildRetryResetUpdate(assessment.rubric_retry_count))
+    .eq('id', assessmentId)
+    .eq('org_id', orgId);
   if (error) throw new ApiError(500, 'Failed to reset assessment status');
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);

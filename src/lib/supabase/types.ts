@@ -286,6 +286,7 @@ export interface Database {
           rubric_error_code: string | null;
           rubric_error_message: string | null;
           rubric_error_retryable: boolean | null;
+          rubric_retry_count: number;
           rubric_progress: string | null;
           rubric_progress_updated_at: string | null;
           created_at: string;
@@ -332,6 +333,7 @@ export interface Database {
           rubric_error_code?: string | null;
           rubric_error_message?: string | null;
           rubric_error_retryable?: boolean | null;
+          rubric_retry_count?: number;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
           created_at?: string;
@@ -378,6 +380,7 @@ export interface Database {
           rubric_error_code?: string | null;
           rubric_error_message?: string | null;
           rubric_error_retryable?: boolean | null;
+          rubric_retry_count?: number;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
           created_at?: string;
