@@ -14,6 +14,10 @@ export interface RetryButtonProps {
   errorRetryable: boolean | null;
 }
 
+// Justification: getDisabledReason is not in the LLD §18.2 internal decomposition —
+// extracted from the RetryButton component body to keep it under the 20-line budget
+// (CLAUDE.md) and to make the guardrail precedence (retries-reached > not-retryable)
+// independently testable.
 function getDisabledReason(retryCount: number, maxRetries: number, errorRetryable: boolean | null): string | null {
   if (retryCount >= maxRetries) return `Maximum retries reached (${maxRetries} of ${maxRetries})`;
   if (errorRetryable === false) return 'This error is not retryable';

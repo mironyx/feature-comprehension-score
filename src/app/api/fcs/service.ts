@@ -536,8 +536,9 @@ interface AssessmentRetryRow {
 
 export const MAX_RUBRIC_RETRIES = 3;
 
-// Clears all previous-attempt tracking data (error, observability, progress) and
-// increments the retry counter atomically with the status reset. See lld-e18.md §18.2.
+// Justification: buildRetryResetUpdate is not in the LLD §18.2 internal decomposition —
+// extracted from retriggerRubricForAssessment to keep that function under the 20-line
+// budget (CLAUDE.md) and to isolate the pure payload construction from the I/O call.
 function buildRetryResetUpdate(retryCount: number): Database['public']['Tables']['assessments']['Update'] {
   return {
     status: 'rubric_generation',
