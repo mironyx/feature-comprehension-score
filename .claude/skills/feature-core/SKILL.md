@@ -30,6 +30,17 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 
 Before writing any code, list 2–3 approaches in 1–2 sentences each. Pick the one that fixes the root cause with the least code. State why. Prefer fixing data at the source over adding complexity downstream (CLAUDE.md: "Simplicity first").
 
+**LLD deviation permitted.** If the LLD prescribes an approach that is over-engineered or
+unnecessarily complex for the actual problem, you may implement a simpler alternative. You must:
+
+1. State what the LLD recommended.
+2. State what you are doing instead and why it is simpler or better.
+3. Note the deviation in the PR body under a `## Design deviations` section so `/lld-sync` can
+   reconcile the LLD later.
+
+Do not deviate silently — traceability matters. `/lld-sync` reads the PR body to pick up these
+notes and update the design doc accordingly.
+
 ### Step 4: Implement with independent test authorship
 
 The tests must be written by a separate agent, against the spec only, before any

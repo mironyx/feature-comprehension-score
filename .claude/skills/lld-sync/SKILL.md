@@ -30,10 +30,16 @@ they close the Theory Building loop: design informs implementation, implementati
 3. Identify which LLD file covers this issue:
    - Look for `docs/design/lld-phase-*.md` or `docs/design/lld-*.md`.
    - Read the relevant section (use Grep to find the task number/title).
-4. Read all source files created or modified by this feature:
+4. Read the PR body for this branch:
+   - `gh pr view --json body -q '.body'` (or `gh pr view <number> --json body -q '.body'`).
+   - Look for a `## Design deviations` section — these are deliberate departures from the LLD
+     that the implementer documented during `/feature-core` Step 3b.
+   - Each deviation note explains what the LLD recommended, what was built instead, and why.
+     Use these as the primary source for **Corrections** in Step 2.
+5. Read all source files created or modified by this feature:
    - Use `git diff --name-only main...HEAD` to get the changed file list.
    - Read each `src/` file that changed.
-5. Read the test file(s) to understand what behaviour was actually tested.
+6. Read the test file(s) to understand what behaviour was actually tested.
 
 ### Step 2: Analyse the delta
 
