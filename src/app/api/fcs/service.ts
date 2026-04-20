@@ -316,6 +316,13 @@ interface FinaliseRubricParams {
   repoRef: { owner: string; repo: string };
 }
 
+// Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
+// runGeneration, buildFailureUpdate, toFailureDetails) are extracted from finaliseRubric +
+// triggerRubricGeneration to keep both functions within CLAUDE.md's 20-line body budget.
+// The LLD §18.1 shows the wiring inline (and names the err→LLMError converter `extractLlmError`);
+// see PR #275 "Design deviations" for the reconciliation note picked up by /lld-sync.
+// makeOnToolCall also drives the E18.3 llm_tool_call progress write (pushed into pendingWrites
+// and drained by runGeneration before any branching).
 function makeOnToolCall(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
