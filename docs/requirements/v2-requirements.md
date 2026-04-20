@@ -5,7 +5,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.7 |
+| Version | 0.8 |
 | Status | Draft |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
@@ -22,6 +22,7 @@
 | 0.5 | 2026-04-18 | LS / Claude | E17 review comments addressed: (1) Removed all E11 artefact-quality references — E11 cancelled. (2) Replaced quality scoring with tool-call-log-as-feedback: `not_found` outcomes surfaced as "Missing artefacts" summary. (3) Added actor clarification — tool calls use GitHub App installation token, not Org Admin credentials. (4) Added explicit repo-scoping AC — installation token provides isolation, no cross-repo access. (5) Added `warn`-level logging for `iteration_limit_reached`. (6) Specified configuration UI — Organisation Settings page "Retrieval" section with toggle, spend cap, and timeout fields. (7) Split timeout: 120s whole-loop default (configurable) + 10s per-call fixed. (8) Specified display: collapsible "Retrieval details" section on assessment results page. |
 | 0.6 | 2026-04-18 | LS / Claude | Added E17 Tool Evolution Roadmap: phased plan for `readFiles` batch variant, recursive `listDirectory`, and semantic discovery tools. Distinguishes structural vs semantic discovery. Watch-then-build approach. |
 | 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. Review: added retry data cleanup AC to Story 18.2 — previous attempt's error and observability fields are cleared on retry. |
+| 0.8 | 2026-04-20 | LS / Claude | Finalised Epic 18 after Gate 2 approval. |
 
 ---
 
