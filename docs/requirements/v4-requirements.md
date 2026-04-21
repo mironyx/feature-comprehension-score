@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Version | 0.1 |
-| Status | Draft — Structure |
+| Status | Draft — Complete |
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-22 |
@@ -78,9 +78,15 @@ Improve the rubric generation prompt to produce higher-quality hints and enforce
 **I want to** generate hints that point to code landmarks rather than restating the question,
 **so that** stuck participants get a memory jog that helps them recall their understanding without being given the answer.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
 
-**Notes:** Modifies the hint instruction in `QUESTION_GENERATION_SYSTEM_PROMPT` (prompt-builder.ts line 54). The hint schema (max 200 characters, nullable) is unchanged from V3.
+- Given the hint generation instruction in the system prompt, then it instructs the LLM to produce a hint that names a recognisable code landmark (a function, type, file, or observable behaviour) the participant can reason from, rather than describing the expected answer format or restating the question.
+- Given a generated hint, then it does NOT paraphrase or restate the question text. Bad: "Explain which real-world constraints are captured in the validation rules." Good: "Look at what `validatePath` rejects vs. what it passes through unchanged."
+- Given a generated hint, then it does NOT reveal reasoning, rationale, or trade-offs from the reference answer — only points to where to look.
+- Given a question where no obvious code landmark exists, then the hint is set to `null` rather than falling back to a format-style hint.
+- Given the hint schema, then it remains unchanged from V3: max 200 characters, nullable, optional.
+
+**Notes:** Modifies the hint instruction in `QUESTION_GENERATION_SYSTEM_PROMPT` (prompt-builder.ts line 54). The hint schema in `schemas.ts` is unchanged.
 
 ### Story 1.2: Depth-enforced question generation
 
@@ -88,9 +94,15 @@ Improve the rubric generation prompt to produce higher-quality hints and enforce
 **I want to** enforce that conceptual-depth questions do not contain specific identifier names, file paths, or function signatures,
 **so that** the comprehension depth setting produces questions at the intended abstraction level.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
 
-**Notes:** Modifies `CONCEPTUAL_DEPTH_INSTRUCTION` and `DETAILED_DEPTH_INSTRUCTION` in prompt-builder.ts (lines 72-93). Adds negative examples to each depth instruction.
+- Given comprehension depth is `'conceptual'`, when the rubric generation prompt runs, then the depth instruction includes at least one negative example showing a question that incorrectly contains specific identifiers (e.g. "Why was the tool-use loop extracted into `tool-loop.ts`?") and at least one positive example showing the same question at the correct abstraction level (e.g. "Why is the tool execution logic kept separate from the LLM provider integration?").
+- Given comprehension depth is `'conceptual'`, when questions are generated, then neither `question_text` nor `reference_answer` contains specific type names, file paths, or function signatures. Generic terms (e.g. "a union type", "the validation module") are acceptable.
+- Given comprehension depth is `'detailed'`, when the rubric generation prompt runs, then the depth instruction includes at least one negative example showing a pure-recall question (e.g. "What file contains the tool loop?") and at least one positive example showing a reasoning question anchored in specifics (e.g. "Why is `X` modelled as a `Y<Z>` rather than a plain Z?").
+- Given comprehension depth is `'detailed'`, when questions are generated, then questions use specific identifiers as anchors for reasoning, not as the answer being elicited.
+- Given the depth instruction text, then both conceptual and detailed variants include an explicit "DO NOT" constraint listing prohibited question patterns for that depth level.
+
+**Notes:** Modifies `CONCEPTUAL_DEPTH_INSTRUCTION` and `DETAILED_DEPTH_INSTRUCTION` in prompt-builder.ts (lines 72-93).
 
 ### Story 1.3: Scoring calibration refinement
 
@@ -98,9 +110,15 @@ Improve the rubric generation prompt to produce higher-quality hints and enforce
 **I want to** refine the scoring calibration prompts to better differentiate depth-appropriate answers,
 **so that** scores reflect genuine comprehension quality rather than clustering in a narrow band.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
 
-**Notes:** Modifies `CONCEPTUAL_CALIBRATION` and `DETAILED_CALIBRATION` in score-answer.ts (lines 37-52). May also refine the base scoring anchor points if the 0.3–0.6 clustering is a calibration text issue.
+- Given the conceptual calibration prompt, then it includes explicit scoring examples: a high-scoring conceptual answer (correct reasoning without identifiers, score >= 0.8) and a low-scoring conceptual answer (vague or factually wrong, score <= 0.3).
+- Given the detailed calibration prompt, then it includes explicit scoring examples: a high-scoring detailed answer (identifiers named with reasoning about their role, score >= 0.8) and a low-scoring detailed answer (identifiers listed without reasoning, score <= 0.4).
+- Given a participant provides a conceptually correct answer without any specific identifiers on a conceptual-depth assessment, then the scoring prompt does not instruct the LLM to penalise for missing specifics.
+- Given a participant provides specific identifiers without reasoning on a detailed-depth assessment, then the scoring prompt instructs the LLM to score this lower than an answer with both identifiers and reasoning.
+- Given the base scoring scale (0.0–1.0), then the anchor point descriptions remain unchanged — only the depth-specific calibration blocks are modified.
+
+**Notes:** Modifies `CONCEPTUAL_CALIBRATION` and `DETAILED_CALIBRATION` in score-answer.ts (lines 37-52). The base scoring prompt and function signature are unchanged.
 
 ---
 
@@ -130,8 +148,8 @@ Prompt changes are hard to unit test for quality. An evaluation test (similar to
 
 | # | Question | Context | Options | Impact |
 |---|----------|---------|---------|--------|
-| 1 | Should scaffolding hints always reference code (landmark-style), or should some hints describe expected answer structure (format-style)? | The brief strongly favours landmark-style, but some questions (especially world-to-program) may not have an obvious code landmark. | A) Always landmark B) Landmark preferred, format as fallback | Affects hint prompt instruction wording |
-| 2 | Is the 0.3–0.6 score clustering a calibration text issue or a reference answer quality issue? | If reference answers are too specific for conceptual depth, scoring will always penalise conceptual participant answers regardless of calibration. Story 1.2 may resolve this indirectly. | A) Address in calibration (Story 1.3) B) Defer until Story 1.2 is implemented and re-evaluated | Determines whether Story 1.3 is needed now or deferred |
+| 1 | ~~Should scaffolding hints always reference code (landmark-style), or should some hints describe expected answer structure (format-style)?~~ | Resolved: Always landmark. If no obvious code landmark exists for a question, the hint is set to `null`. No fallback to format-style. | Decided: A) Always landmark, null if none available. | Hint prompt instructs landmark-only; null on failure is already supported from V3. |
+| 2 | ~~Is the 0.3–0.6 score clustering a calibration text issue or a reference answer quality issue?~~ | Resolved: Address scoring calibration now (Story 1.3) alongside the other prompt changes. | Decided: A) Address in calibration now. | Story 1.3 proceeds as planned. |
 
 ---
 
