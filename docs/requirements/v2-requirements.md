@@ -5,11 +5,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.8 |
-| Status | Draft |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-03-25 |
-| Last updated | 2026-04-20 |
+| Last updated | 2026-04-21 |
 
 ## Change Log
 
@@ -24,6 +24,8 @@
 | 0.7 | 2026-04-20 | LS / Claude | Added Epic 18: Pipeline Observability & Recovery. Three stories: 18.1 error capture and structured logging, 18.2 retry from UI with guardrails, 18.3 pipeline progress visibility. Motivated by E17 testing — `malformed_response` failure with zero diagnostic visibility. Review: added retry data cleanup AC to Story 18.2 — previous attempt's error and observability fields are cleared on retry. |
 | 0.8 | 2026-04-20 | LS / Claude | Finalised Epic 18 after Gate 2 approval. |
 | 0.9 | 2026-04-20 | LS / Claude | Epic 18: added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). During active tool-use loops, each tool call emits a structured log and refreshes `rubric_progress_updated_at` to prevent false stale warnings. |
+| 0.10 | 2026-04-21 | LS / Claude | Added Epic 19: GitHub Issues as Artefact Source. Three stories: 19.1 accept issue numbers at assessment creation, 19.2 discover linked PRs from issues, 19.3 enhanced artefact extraction logging. Motivated by E17 testing — convenience of issue-based selection + design context enrichment. |
+| 1.0 | 2026-04-21 | LS / Claude | Finalised E19 after Gate 2 approval. Addressed review comments: reframed epic as convenience-first, added content dedup clarification, explicit error messages, comment truncation priority, separate `fcs_issue_sources` table, automatic PR discovery note. |
 
 ---
 
@@ -80,6 +82,7 @@ All terms from V1 apply. Additional V2 terms:
 | Epic 16 | OSS / Alternative LLM Models | Low |
 | Epic 17 | Agentic Artefact Retrieval | Low |
 | Epic 18 | Pipeline Observability & Recovery | High |
+| Epic 19 | GitHub Issues as Artefact Source | Medium |
 
 **Not in V2 scope (V3):**
 - Intent debt measurement (ADR coverage, spec-to-behaviour gap detection)
@@ -565,6 +568,7 @@ V1 assembled a fixed artefact set upfront and asked the LLM to work with whateve
 
 **Acceptance Criteria:**
 
+
 - Given a rubric-generation request, when the LLM runs, then it has access to two read-only tools bound to the assessment's repository via the GitHub App installation token:
   - `readFile(path: string)` — returns file contents from a repo-relative path, or a structured `not_found` error containing up to 5 nearest matching paths.
   - `listDirectory(path: string)` — returns the immediate entries (files and sub-directories) of a repo-relative directory.
@@ -740,6 +744,102 @@ V1 and V2 rubric generation runs as a fire-and-forget background task. When it f
 | `null` | *(no progress shown)* |
 
 **Notes:** Schema changes required: add `rubric_progress text` (nullable) and `rubric_progress_updated_at timestamptz` (nullable) to the `assessments` table. The stale detection is client-side — the UI compares `rubric_progress_updated_at` against the current time. This avoids server-side timers. The polling endpoint (`GET /api/assessments/[id]`) already returns all assessment fields — no new endpoint needed.
+
+---
+
+## Epic 19: GitHub Issues as Artefact Source
+
+Assessment creation currently requires at least one merged PR (`merged_pr_numbers`). This forces the Org Admin to look up specific PR numbers before creating an assessment. In practice, features are tracked by issues — often an epic issue linking to multiple PRs. This epic lets the admin provide issue numbers instead of (or alongside) PR numbers. The system discovers linked PRs automatically, making assessment creation faster and more natural.
+
+**Motivation:** Convenience is the primary driver — issue numbers are how teams already track features, so the assessment creation flow should accept them directly. As a secondary benefit, issue content (body, comments, acceptance criteria) enriches the rubric generation prompt when it is available. The value of issue content varies by organisation — teams that keep design docs in the repo may gain less from issue text than teams that discuss design in issues.
+
+**Technical mechanism:** Prefer GitHub GraphQL API over REST for issue and linked-PR fetching. An epic issue may link to many child issues and PRs; GraphQL can batch-fetch all issues with their comments and cross-reference events in a single request, avoiding N+1 REST calls. Octokit already supports `octokit.graphql()` — no extra dependency. The existing codebase uses REST exclusively; this epic introduces GraphQL as a second access pattern. Final API design decision deferred to `/architect`.
+
+### Story 19.1: Accept issue numbers at assessment creation
+
+**As an** Org Admin,
+**I want to** provide GitHub issue numbers alongside or instead of merged PR numbers when creating an assessment,
+**so that** the rubric generation has access to design context that lives in issues.
+
+**Existing infrastructure:** The `LinkedIssue` type, `formatLinkedIssues`, and token budget handling already exist. Issue content flows through the `linked_issues` field in `AssembledArtefactSet`. This story adds the API entry point and directly fetches issue content (body + comments) into the existing pipeline.
+
+**Acceptance Criteria:**
+
+**API schema:**
+
+- Given the `POST /api/fcs` endpoint, when the request body contains `issue_numbers` (array of positive integers) alongside `merged_pr_numbers`, then both are accepted and the assessment is created. PRs discovered from issues are deduplicated against explicitly provided PRs (see Story 19.2). Issue content is deduplicated by the existing `mergeRawArtefacts` function which deduplicates `linked_issues` by title.
+
+- Given the request body contains `issue_numbers` but no `merged_pr_numbers`, then the assessment is created using only issue-sourced artefacts.
+- Given the request body contains `merged_pr_numbers` but no `issue_numbers`, then the existing behaviour is unchanged.
+- Given the request body contains neither `merged_pr_numbers` nor `issue_numbers`, then the API returns HTTP 422 with `{ error: "At least one of merged_pr_numbers or issue_numbers is required" }`.
+
+**Issue validation:**
+
+- Given an `issue_numbers` array, when any issue number does not exist in the repository, then the API returns HTTP 422 identifying the invalid issue number.
+- Given an `issue_numbers` array, when any number refers to a pull request (not an issue), then it is rejected with HTTP 422 with `{ error: "#<number> is a pull request, not an issue. Use merged_pr_numbers for PRs." }`. (Detection: the GitHub API returns a `pull_request` field on issue objects that are actually PRs.)
+
+**Issue content extraction:**
+
+- Given valid issue numbers, when artefact extraction runs, then each issue's body and comments are fetched and added to the `linked_issues` field in `AssembledArtefactSet`.
+- Given an issue with comments, when artefacts are assembled, then comments are included (body text only, not metadata). Comments are lower priority than the issue body — when the token budget requires truncation, comments are truncated before the issue body.
+- Given the existing token budget applies to the combined artefact set, when issue content is included, then it is subject to the same truncation rules as other `linked_issues` content. Truncation order: comments first, then issue body, then file contents.
+
+**Persistence:**
+
+- Given issue numbers are provided, when the assessment is created, then the issue numbers are persisted in a separate `fcs_issue_sources` table (not mixed with `fcs_merged_prs`) for use during retry.
+
+**Notes:** Schema change required: a new `fcs_issue_sources` table stores provided issue numbers, separate from `fcs_merged_prs`. The `FcsCreateBodySchema` changes: `merged_pr_numbers` becomes optional, `issue_numbers` is added as optional, with a `.refine()` ensuring at least one is provided.
+
+---
+
+### Story 19.2: Discover linked PRs from issues
+
+**As the** system,
+**I want to** discover PRs that close or reference the provided issues and include them as PR artefacts,
+**so that** the assessment covers both the design rationale (from issues) and the implementation (from PRs) without requiring the admin to list PRs manually.
+
+**Automatic behaviour:** When issue numbers are provided (via 19.1), the system automatically discovers and includes linked merged PRs — the admin does not need to list them separately. This is the core convenience: provide an epic issue number, get all its PRs included.
+
+**Existing infrastructure:** `extractFromPRs` already handles PR artefact extraction. `fetchLinkedIssues` discovers issues from PR body text (PR → issues direction). This story adds the reverse direction: issues → PRs. A new `discoverLinkedPRs` interface on the GitHub adapter. Discovered PRs are deduplicated against any explicitly provided `merged_pr_numbers`.
+
+**Dependency:** Story 19.1 (issue numbers must be accepted before linked PRs can be discovered).
+
+**Acceptance Criteria:**
+
+**PR discovery:**
+
+- Given one or more issue numbers, when artefact extraction runs, then PRs that close or reference those issues are discovered via the GitHub API.
+- Given a discovered PR is already present in the explicit `merged_pr_numbers` list, then it is included once (deduplicated).
+- Given a discovered PR is not merged, then it is excluded from artefact extraction (only merged PRs contribute file diffs). Skipped PRs are logged at `info` level with the reason.
+
+**Artefact assembly:**
+
+- Given discovered PRs, when artefacts are assembled, then their file diffs and metadata are extracted using the existing `extractFromPRs` pipeline.
+- Given both explicit PRs and discovered PRs, when artefacts are assembled, then the combined set is passed to the rubric generation prompt.
+
+**Edge cases:**
+
+- Given an issue with no linked or closing PRs, when artefact extraction runs, then only the issue content (from Story 19.1) is included — no error is raised.
+- Given an issue that is an epic with many linked PRs, when discovery runs, then all merged linked PRs are included (no artificial cap beyond existing token budget).
+
+**Notes:** The `discoverLinkedPRs` method should use the GitHub GraphQL API to batch-fetch cross-reference events across multiple issues in a single request. The `ArtefactSource` port gains a new method or the extraction params are extended to accept issue numbers alongside PR numbers.
+
+---
+
+### Story 19.3: Enhanced artefact extraction logging
+
+**As an** Org Admin,
+**I want** the pipeline logs to show which files and issue references were sent to the LLM,
+**so that** I can diagnose unexpected rubric results without accessing the raw prompt.
+
+**Acceptance Criteria:**
+
+- Given artefact extraction completes, when the artefact summary is logged, then the log entry includes a `filePaths` field containing the list of file paths sent to the LLM (sourced from `artefacts.file_contents.map(f => f.path)`).
+- Given issue artefacts are included, when the artefact summary is logged, then the log entry includes an `issueNumbers` field listing the issue numbers whose content was included.
+- Given the existing log fields (`fileCount`, `testFileCount`, `artefactQuality`, `questionCount`, `tokenBudgetApplied`), when enhanced logging is added, then all existing fields are preserved unchanged.
+- Given a large number of files (> 50), when logging file paths, then the list is truncated to 50 entries with a `filePaths_truncated: true` flag to prevent log bloat.
+
+**Notes:** This is a logging-only change — no schema, API, or UI changes. Extends the existing `logArtefactSummary` call in `service.ts`.
 
 ---
 
