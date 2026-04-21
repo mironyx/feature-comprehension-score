@@ -10,51 +10,14 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { isOrgAdmin } from '@/lib/supabase/membership';
 import type { MembershipRow } from '@/lib/supabase/membership';
-import type { Database } from '@/lib/supabase/types';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { StatusBadge } from './assessment-status';
 import { PollingStatusBadge } from './polling-status-badge';
 import { RetryButton } from './retry-button';
-
-type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
-
-// ---------------------------------------------------------------------------
-// Contract types
-// ---------------------------------------------------------------------------
-
-export interface AssessmentItem {
-  id: string;
-  feature_name: string | null;
-  status: AssessmentRow['status'];
-  aggregate_score: number | null;
-  created_at: string;
-  rubric_error_code: string | null;
-  rubric_retry_count: number;
-  rubric_error_retryable: boolean | null;
-}
-
-const PENDING_STATUSES: AssessmentRow['status'][] = [
-  'rubric_generation',
-  'rubric_failed',
-  'awaiting_responses',
-];
-
-const COMPLETED_STATUSES: AssessmentRow['status'][] = ['scoring', 'completed'];
+import { partitionAssessments, type AssessmentItem } from './partition';
 
 const MAX_RETRIES = 3;
-
-export function partitionAssessments(
-  assessments: AssessmentItem[],
-): { pending: AssessmentItem[]; completed: AssessmentItem[] } {
-  const pending: AssessmentItem[] = [];
-  const completed: AssessmentItem[] = [];
-  for (const a of assessments) {
-    if (PENDING_STATUSES.includes(a.status)) pending.push(a);
-    else if (COMPLETED_STATUSES.includes(a.status)) completed.push(a);
-  }
-  return { pending, completed };
-}
 
 function toPercent(score: number | null): string {
   if (score === null) return '—';

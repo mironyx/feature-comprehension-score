@@ -63,8 +63,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { isOrgAdmin } from '@/lib/supabase/membership';
 import { cookies } from 'next/headers';
-import AssessmentsPage, { partitionAssessments } from '@/app/(authenticated)/assessments/page';
-import type { AssessmentItem } from '@/app/(authenticated)/assessments/page';
+import AssessmentsPage from '@/app/(authenticated)/assessments/page';
+import { partitionAssessments } from '@/app/(authenticated)/assessments/partition';
+import type { AssessmentItem } from '@/app/(authenticated)/assessments/partition';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
