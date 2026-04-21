@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.2 |
+| Version | 1.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-21 |
-| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issue #297 sync |
+| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issues #297 + #295 sync |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #294 |
 
@@ -138,7 +138,9 @@ The page queries assessments with `.in('status', ['rubric_generation', 'rubric_f
    - `completed`: status in `completed`, `scoring`
 3. **Render two sections** — "Pending" and "Completed" with separate empty states.
 4. **Completed row** — show feature name, aggregate score (formatted as percentage), and a link to `/assessments/[id]/results`.
-5. **Remove "New Assessment" button** — delete the `newAssessmentAction` block and the `isOrgAdmin` / membership query (no longer needed on this page unless used for other purposes — check before removing).
+5. **Remove "New Assessment" button** — delete the `newAssessmentAction` block. **Keep** the `isOrgAdmin` / membership query — `RetryButton` (rendered for admin users on `rubric_failed` rows) still depends on it.
+
+> **Implementation note (issue #295):** The membership query was retained because `RetryButton` is conditionally rendered for admins on failed rubric rows. Removing the query would have broken admin retry UX.
 
 #### Contract types
 
@@ -164,7 +166,16 @@ No API route involved — this is a server component page that queries Supabase 
 function partitionAssessments(
   assessments: AssessmentItem[],
 ): { pending: AssessmentItem[]; completed: AssessmentItem[] }
+
+function toPercent(score: number | null): string
 ```
+
+| File | Purpose |
+|------|---------|
+| `src/app/(authenticated)/assessments/page.tsx` | Server component — fetches, partitions, renders Pending and Completed sections. Defines local `toPercent` helper. |
+| `src/app/(authenticated)/assessments/partition.ts` | Exports `AssessmentItem` interface and `partitionAssessments` function. |
+
+> **Implementation note (issue #295):** `AssessmentItem` and `partitionAssessments` live in a sibling `partition.ts` module rather than in `page.tsx`. Next.js App Router restricts Page files to a narrow set of permitted exports (`default`, `metadata`, `generateMetadata`, etc.); the build fails with `"partitionAssessments" is not a valid Page export field` if non-page symbols are exported alongside the default page component. Caught by CI, not by `vitest`/`tsc` — `next build` runs an additional Page-export validator. `toPercent` is a single-use formatter and stays inlined in `page.tsx`.
 
 #### BDD specs
 
