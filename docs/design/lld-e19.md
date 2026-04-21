@@ -6,6 +6,7 @@
 | Status | Revised |
 | Created | 2026-04-21 |
 | Revised | 2026-04-21 | Issue #288 — port uses shared `IssueQueryParams`; `RepoCoordsSchema` as base; `resolveMergedPrSet` helper in `extractArtefacts` |
+| Revised | 2026-04-21 | Issue #291 — implementation realigned with §19.1 spec: `validateIssues` now returns `ValidatedIssue[]`; `fcs_issue_sources.issue_title` added (was specified in §19.1 but dropped from initial implementation) |
 | Requirements | `docs/requirements/v2-requirements.md` — Epic 19 |
 | HLD reference | `docs/design/v1-design.md` §C5 (Artefact Extraction), §4.2 (POST /api/fcs) |
 
