@@ -550,6 +550,30 @@ export interface Database {
         };
         Relationships: [];
       };
+      fcs_issue_sources: {
+        Row: {
+          id: string;
+          org_id: string;
+          assessment_id: string;
+          issue_number: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          assessment_id: string;
+          issue_number: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          assessment_id?: string;
+          issue_number?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       sync_debounce: {
         Row: {
           id: string;
@@ -652,6 +676,7 @@ export interface Database {
           p_merged_prs: Json;
           p_participants: Json;
           p_config_comprehension_depth?: string;
+          p_issue_sources?: Json;
         };
         Returns: string;
       };

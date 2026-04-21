@@ -299,6 +299,21 @@ CREATE TABLE fcs_merged_prs (
 
 CREATE INDEX idx_fcs_prs_assessment ON fcs_merged_prs (assessment_id);
 
+-- fcs_issue_sources: links FCS assessments to the GitHub issue numbers provided
+-- at creation time. Separate from fcs_merged_prs so the retry path can distinguish
+-- explicitly provided issues from PRs. Story 19.1 (#287).
+CREATE TABLE fcs_issue_sources (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        uuid NOT NULL
+                   REFERENCES organisations(id) ON DELETE CASCADE,
+  assessment_id uuid NOT NULL
+                   REFERENCES assessments(id) ON DELETE CASCADE,
+  issue_number  integer NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_fcs_issues_assessment ON fcs_issue_sources (assessment_id);
+
 -- organisation_contexts: per-org (Phase 2) or per-project (V2) prompt customisation.
 -- project_id is NULL in Phase 2. V2 adds project-level rows without a data migration.
 -- Design reference: docs/design/lld-organisation-context.md §2

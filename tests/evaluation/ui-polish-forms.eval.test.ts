@@ -80,8 +80,10 @@ describe('AC-1b — required fields have a visual indicator on their labels', ()
     expect(createForm).toMatch(/Repository[^"]*\*/);
   });
 
-  it('PR numbers label carries a required indicator (*)', () => {
-    expect(createForm).toMatch(/PR numbers?[^"]*\*/);
+  it('at-least-one-of helper text is present for PR / issue number inputs', () => {
+    // E19.1 (#287): PR numbers and issue numbers are each individually optional,
+    // but at least one of them must be provided. A helper text conveys this to the user.
+    expect(createForm).toMatch(/at least one of PR numbers or issue numbers/i);
   });
 
   it('participants label carries a required indicator (*)', () => {
