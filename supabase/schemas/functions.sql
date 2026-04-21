@@ -264,8 +264,8 @@ BEGIN
   SELECT p_org_id, p_id, (pr->>'pr_number')::integer, pr->>'pr_title'
   FROM jsonb_array_elements(p_merged_prs) AS pr;
 
-  INSERT INTO fcs_issue_sources (org_id, assessment_id, issue_number)
-  SELECT p_org_id, p_id, (iss->>'issue_number')::integer
+  INSERT INTO fcs_issue_sources (org_id, assessment_id, issue_number, issue_title)
+  SELECT p_org_id, p_id, (iss->>'issue_number')::integer, iss->>'issue_title'
   FROM jsonb_array_elements(p_issue_sources) AS iss;
 
   INSERT INTO assessment_participants (

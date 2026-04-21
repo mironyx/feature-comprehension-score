@@ -309,6 +309,7 @@ CREATE TABLE fcs_issue_sources (
   assessment_id uuid NOT NULL
                    REFERENCES assessments(id) ON DELETE CASCADE,
   issue_number  integer NOT NULL,
+  issue_title   text NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 

@@ -96,6 +96,11 @@ interface ValidatedPR {
   pr_title: string;
 }
 
+interface ValidatedIssue {
+  issue_number: number;
+  issue_title: string;
+}
+
 interface ResolvedParticipant {
   github_username: string;
   github_user_id: number;
@@ -197,13 +202,15 @@ async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, 
 // Story 19.1 (#287): validate each issue number exists and is not actually a PR.
 // The GitHub REST `GET /issues/{n}` endpoint returns a `pull_request` field when
 // the number refers to a PR — we reject that case with a guidance message.
-async function validateIssues(octokit: Octokit, owner: string, repo: string, issueNumbers: number[]): Promise<void> {
-  await Promise.all(issueNumbers.map(async (issueNumber) => {
+// Issue #291: capture the issue title so it can be persisted in fcs_issue_sources.
+async function validateIssues(octokit: Octokit, owner: string, repo: string, issueNumbers: number[]): Promise<ValidatedIssue[]> {
+  return Promise.all(issueNumbers.map(async (issueNumber) => {
     try {
       const { data } = await octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
       if (data.pull_request) {
         throw new ApiError(422, `#${issueNumber} is a pull request, not an issue. Use merged_pr_numbers for PRs.`);
       }
+      return { issue_number: issueNumber, issue_title: data.title };
     } catch (err) {
       if (err instanceof ApiError) throw err;
       logger.error({ err, issueNumber }, 'validateIssues: GitHub API error');
@@ -232,7 +239,7 @@ interface CreateAssessmentParams {
   body: FcsCreateInput;
   repoInfo: RepoInfo;
   validatedPRs: ValidatedPR[];
-  issueNumbers: number[];
+  validatedIssues: ValidatedIssue[];
   participants: ResolvedParticipant[];
 }
 
@@ -240,7 +247,7 @@ async function createAssessmentWithParticipants(
   adminSupabase: ServiceClient,
   params: CreateAssessmentParams,
 ): Promise<AssessmentId> {
-  const { body, repoInfo, validatedPRs, issueNumbers, participants } = params;
+  const { body, repoInfo, validatedPRs, validatedIssues, participants } = params;
   const assessmentId = randomUUID() as AssessmentId;
   const { error } = await adminSupabase.rpc('create_fcs_assessment', {
     p_id: assessmentId,
@@ -258,7 +265,7 @@ async function createAssessmentWithParticipants(
       github_username: p.github_username,
     })) as unknown as Json,
     p_config_comprehension_depth: body.comprehension_depth ?? 'conceptual',
-    p_issue_sources: issueNumbers.map(n => ({ issue_number: n })) as unknown as Json,
+    p_issue_sources: validatedIssues as unknown as Json,
   });
   if (error) {
     logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
@@ -690,13 +697,13 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
   const octokit = await createGithubClient(repoInfo.installationId);
   const prNumbers = body.merged_pr_numbers ?? [];
   const issueNumbers = body.issue_numbers ?? [];
-  const [validatedPRs, participants] = await Promise.all([
+  const [validatedPRs, participants, validatedIssues] = await Promise.all([
     prNumbers.length > 0 ? validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, prNumbers) : Promise.resolve([] as ValidatedPR[]),
     resolveParticipants(octokit, body.participants.map((p) => p.github_username)),
-    issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve(undefined),
+    issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve([] as ValidatedIssue[]),
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
-  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, issueNumbers, participants });
+  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, validatedIssues, participants });
   void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }
