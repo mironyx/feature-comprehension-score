@@ -283,7 +283,7 @@ function makePageClient(assessments: unknown[] = []) {
   };
 }
 
-describe('AC-4 / page: PollingStatusBadge not used when created assessment already resolved', () => {
+describe('Page: PollingStatusBadge used only for non-terminal rubric_generation rows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCookies.mockResolvedValue({} as never);
@@ -311,56 +311,5 @@ describe('AC-4 / page: PollingStatusBadge not used when created assessment alrea
 
     // Must NOT start polling since status is already terminal.
     expect(rendered).not.toContain('"initialStatus"');
-  });
-
-  it('does not render PollingStatusBadge when created param does not match any assessment ID', async () => {
-    // created param is stale / wrong — no matching assessment in the list.
-    const client = makePageClient([
-      {
-        id: 'different-id',
-        feature_name: 'Some Feature',
-        status: 'rubric_generation',
-        created_at: '2026-01-01',
-      },
-    ]);
-    mockCreateServer.mockResolvedValue(client as never);
-
-    const result = await AssessmentsPage({
-      searchParams: Promise.resolve({ created: 'non-existent-id' }),
-    });
-    const rendered = JSON.stringify(result);
-
-    expect(rendered).not.toContain('"initialStatus"');
-  });
-
-  it('only renders PollingStatusBadge for the matching assessment, not sibling rubric_generation assessments', async () => {
-    // AC-2: when multiple assessments are in rubric_generation, only the one
-    // matching the created param should receive polling.
-    const client = makePageClient([
-      {
-        id: 'new-one',
-        feature_name: 'New',
-        status: 'rubric_generation',
-        created_at: '2026-01-02',
-      },
-      {
-        id: 'old-one',
-        feature_name: 'Old',
-        status: 'rubric_generation',
-        created_at: '2026-01-01',
-      },
-    ]);
-    mockCreateServer.mockResolvedValue(client as never);
-
-    const result = await AssessmentsPage({
-      searchParams: Promise.resolve({ created: 'new-one' }),
-    });
-    const rendered = JSON.stringify(result);
-
-    // Only new-one should have initialStatus (gets PollingStatusBadge).
-    const matches = rendered.match(/"initialStatus"/g) ?? [];
-    expect(matches).toHaveLength(1);
-    expect(rendered).toContain('"assessmentId":"new-one"');
-    expect(rendered).not.toContain('"assessmentId":"old-one"');
   });
 });

@@ -487,6 +487,7 @@ describe('listDirectory tool')
 > — no `openai` imports cross into the loop. The pseudocode below is retained as a
 > specification; the divergences are called out inline.
 
+<!-- markdownlint-disable-next-line MD028 -->
 > **Implementation note (issue #279):** the `chatCall` request must carry
 > `response_format: { type: 'json_object' }` on every turn — both the tool-requesting
 > turns and the finalisation turn. This mirrors the non-tool `generateStructured` path
