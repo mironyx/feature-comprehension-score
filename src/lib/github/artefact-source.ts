@@ -1,6 +1,10 @@
 import type { Octokit } from '@octokit/rest';
 import { logger } from '@/lib/logger';
-import type { ArtefactSource, PRExtractionParams } from '../engine/ports/artefact-source';
+import type {
+  ArtefactSource,
+  IssueContentParams,
+  PRExtractionParams,
+} from '../engine/ports/artefact-source';
 import type {
   ArtefactFile,
   FileListingEntry,
@@ -77,6 +81,38 @@ export class GitHubArtefactSource implements ArtefactSource {
     }
 
     return merged;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Issue content (Story 19.1) — fetches body + comments for one or more issues.
+  // Returns one LinkedIssue per issue with comments appended to the body.
+  // Missing or inaccessible issues surface as null and are filtered out.
+  // ---------------------------------------------------------------------------
+
+  async fetchIssueContent(params: IssueContentParams): Promise<LinkedIssue[]> {
+    const coords: RepoCoords = { owner: params.owner, repo: params.repo };
+    const issues = await Promise.all(
+      params.issueNumbers.map(n => this.fetchSingleIssue(coords, n)),
+    );
+    return issues.filter((i): i is LinkedIssue => i !== null);
+  }
+
+  private async fetchSingleIssue(coords: RepoCoords, issueNumber: number): Promise<LinkedIssue | null> {
+    try {
+      const [issueResp, commentsResp] = await Promise.all([
+        this.octokit.rest.issues.get({ owner: coords.owner, repo: coords.repo, issue_number: issueNumber }),
+        this.octokit.rest.issues.listComments({ owner: coords.owner, repo: coords.repo, issue_number: issueNumber, per_page: 100 }),
+      ]);
+      const body = issueResp.data.body ?? '';
+      const comments = commentsResp.data
+        .map(c => c.body ?? '')
+        .filter(text => text.length > 0);
+      const combined = comments.length > 0 ? `${body}\n\n## Comments\n\n${comments.join('\n\n---\n\n')}` : body;
+      return { title: issueResp.data.title, body: combined };
+    } catch (err) {
+      logger.error({ err, issueNumber }, 'fetchIssueContent: failed to fetch issue');
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------

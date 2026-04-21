@@ -24,6 +24,7 @@ interface FormState {
   featureDescription: string;
   repositoryId: string;
   prNumbers: string;
+  issueNumbers: string;
   participants: string;
   comprehensionDepth: 'conceptual' | 'detailed';
 }
@@ -33,7 +34,8 @@ interface AssessmentPayload {
   repository_id: string;
   feature_name: string;
   feature_description?: string;
-  merged_pr_numbers: number[];
+  merged_pr_numbers?: number[];
+  issue_numbers?: number[];
   participants: { github_username: string }[];
   comprehension_depth: 'conceptual' | 'detailed';
 }
@@ -43,11 +45,12 @@ const INITIAL_STATE: FormState = {
   featureDescription: '',
   repositoryId: '',
   prNumbers: '',
+  issueNumbers: '',
   participants: '',
   comprehensionDepth: 'conceptual',
 };
 
-function parsePrNumbers(raw: string): number[] {
+function parsePositiveIntegers(raw: string): number[] {
   return raw
     .split(',')
     .map((s) => s.trim())
@@ -64,17 +67,27 @@ function parseParticipants(raw: string): { github_username: string }[] {
     .map((github_username) => ({ github_username }));
 }
 
+function findInvalidNumbers(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => !Number.isInteger(Number(s)) || Number(s) <= 0);
+}
+
 function validate(form: FormState): string[] {
   const errors: string[] = [];
   if (!form.featureName.trim()) errors.push('Feature name is required.');
   if (!form.repositoryId) errors.push('Please select a repository.');
-  const rawPrs = form.prNumbers.split(',').map((s) => s.trim()).filter(Boolean);
-  if (rawPrs.length === 0) {
-    errors.push('Enter at least one merged PR number.');
-  } else {
-    const invalid = rawPrs.filter((s) => !Number.isInteger(Number(s)) || Number(s) <= 0);
-    if (invalid.length > 0) errors.push(`Invalid PR number(s): ${invalid.join(', ')}`);
+  const prs = parsePositiveIntegers(form.prNumbers);
+  const issues = parsePositiveIntegers(form.issueNumbers);
+  if (prs.length === 0 && issues.length === 0) {
+    errors.push('Enter at least one merged PR number or issue number.');
   }
+  const invalidPrs = findInvalidNumbers(form.prNumbers);
+  if (invalidPrs.length > 0) errors.push(`Invalid PR number(s): ${invalidPrs.join(', ')}`);
+  const invalidIssues = findInvalidNumbers(form.issueNumbers);
+  if (invalidIssues.length > 0) errors.push(`Invalid issue number(s): ${invalidIssues.join(', ')}`);
   if (parseParticipants(form.participants).length === 0) errors.push('Enter at least one participant GitHub username.');
   return errors;
 }
@@ -120,15 +133,19 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
       setSubmitting(true);
       setErrors([]);
       try {
-        const result = await postAssessment({
+        const prs = parsePositiveIntegers(form.prNumbers);
+        const issues = parsePositiveIntegers(form.issueNumbers);
+        const payload: AssessmentPayload = {
           org_id: orgId,
           repository_id: form.repositoryId,
           feature_name: form.featureName.trim(),
           feature_description: form.featureDescription.trim() || undefined,
-          merged_pr_numbers: parsePrNumbers(form.prNumbers),
           participants: parseParticipants(form.participants),
           comprehension_depth: form.comprehensionDepth,
-        });
+        };
+        if (prs.length > 0) payload.merged_pr_numbers = prs;
+        if (issues.length > 0) payload.issue_numbers = issues;
+        const result = await postAssessment(payload);
         if (result.error) { setErrors([result.error]); return; }
         router.push(`/assessments?created=${result.assessmentId}`);
       } catch (err) {
@@ -205,7 +222,7 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="prNumbers" className="text-label text-text-secondary block">Merged PR numbers * (comma-separated)</label>
+          <label htmlFor="prNumbers" className="text-label text-text-secondary block">Merged PR numbers (comma-separated)</label>
           <input
             id="prNumbers"
             type="text"
@@ -214,6 +231,19 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
             onChange={handleChange('prNumbers')}
             className={inputClasses}
           />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="issueNumbers" className="text-label text-text-secondary block">Issue numbers (comma-separated)</label>
+          <input
+            id="issueNumbers"
+            type="text"
+            placeholder="e.g. 101, 202"
+            value={form.issueNumbers}
+            onChange={handleChange('issueNumbers')}
+            className={inputClasses}
+          />
+          <p className="text-label text-text-secondary">Provide at least one of PR numbers or issue numbers.</p>
         </div>
 
         <div className="space-y-2">

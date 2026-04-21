@@ -112,6 +112,12 @@ ALTER TABLE fcs_merged_prs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fcs_prs_select_member ON fcs_merged_prs
   FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
 
+-- fcs_issue_sources: any org member can read (needed for FCS creation UI and retry path). Story 19.1 (#287).
+ALTER TABLE fcs_issue_sources ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY fcs_issues_select_member ON fcs_issue_sources
+  FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
+
 -- organisation_contexts: members can read their org's context; only admins can write.
 -- Design reference: docs/design/lld-organisation-context.md §2.2
 -- Issue: #140

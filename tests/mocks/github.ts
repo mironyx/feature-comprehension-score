@@ -130,6 +130,25 @@ export function mockIssue(
   );
 }
 
+/** Factory: mock an issue that returns 404 (not found) */
+export function mockIssueNotFound(owner: string, repo: string, issueNumber: number) {
+  return http.get(`${GITHUB_API}/repos/${owner}/${repo}/issues/${issueNumber}`, () =>
+    HttpResponse.json({ message: 'Not Found' }, { status: 404 }),
+  );
+}
+
+/** Factory: mock the issue comments list endpoint */
+export function mockIssueComments(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  comments: string[] = [],
+) {
+  return http.get(`${GITHUB_API}/repos/${owner}/${repo}/issues/${issueNumber}/comments`, () =>
+    HttpResponse.json(comments.map((body, i) => ({ id: i + 1, body }))),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Git trees (for context file pattern resolution)
 // ---------------------------------------------------------------------------

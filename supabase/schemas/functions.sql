@@ -225,7 +225,7 @@ END;
 $$;
 
 -- create_fcs_assessment: atomically creates an FCS assessment with its
--- merged PRs and participants in a single transaction.
+-- merged PRs, issue sources, and participants in a single transaction.
 CREATE OR REPLACE FUNCTION create_fcs_assessment(
   p_id                          uuid,
   p_org_id                      uuid,
@@ -238,7 +238,8 @@ CREATE OR REPLACE FUNCTION create_fcs_assessment(
   p_config_min_pr_size          integer,
   p_merged_prs                  jsonb,
   p_participants                jsonb,
-  p_config_comprehension_depth  text DEFAULT 'conceptual'
+  p_config_comprehension_depth  text DEFAULT 'conceptual',
+  p_issue_sources               jsonb DEFAULT '[]'::jsonb
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -262,6 +263,10 @@ BEGIN
   INSERT INTO fcs_merged_prs (org_id, assessment_id, pr_number, pr_title)
   SELECT p_org_id, p_id, (pr->>'pr_number')::integer, pr->>'pr_title'
   FROM jsonb_array_elements(p_merged_prs) AS pr;
+
+  INSERT INTO fcs_issue_sources (org_id, assessment_id, issue_number)
+  SELECT p_org_id, p_id, (iss->>'issue_number')::integer
+  FROM jsonb_array_elements(p_issue_sources) AS iss;
 
   INSERT INTO assessment_participants (
     org_id, assessment_id, github_user_id, github_username, contextual_role

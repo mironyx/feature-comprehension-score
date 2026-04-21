@@ -13,7 +13,7 @@ import { GitHubArtefactSource } from '@/lib/github';
 import { generateRubric, type RubricObservability } from '@/lib/engine/pipeline';
 import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
-import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
+import type { AssembledArtefactSet, LinkedIssue, RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
 import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
@@ -35,15 +35,21 @@ type AssessmentId = string & { readonly _brand: 'AssessmentId' };
 // Request / response contracts
 // ---------------------------------------------------------------------------
 
+// Story 19.1 (#287): merged_pr_numbers becomes optional; issue_numbers is added as optional.
+// At least one of the two must be provided — enforced by `.refine()` so the 422 message is explicit.
 export const FcsCreateBodySchema = z.object({
   org_id: z.uuid(),
   repository_id: z.uuid(),
   feature_name: z.string().min(1),
   feature_description: z.string().optional(),
-  merged_pr_numbers: z.array(z.number().int().positive()).min(1),
+  merged_pr_numbers: z.array(z.number().int().positive()).optional(),
+  issue_numbers: z.array(z.number().int().positive()).optional(),
   participants: z.array(z.object({ github_username: z.string().min(1) })).min(1),
   comprehension_depth: z.enum(['conceptual', 'detailed']).default('conceptual'),
-});
+}).refine(
+  (body) => (body.merged_pr_numbers?.length ?? 0) > 0 || (body.issue_numbers?.length ?? 0) > 0,
+  { message: 'At least one of merged_pr_numbers or issue_numbers is required' },
+);
 
 export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
 // FcsCreateInput is the subset of fields passed to createAssessmentRecord (LLD §2.4 constraint).
@@ -99,6 +105,7 @@ interface RubricTriggerParams {
   assessmentId: AssessmentId;
   repoInfo: RepoInfo;
   prNumbers: number[];
+  issueNumbers: number[];
   comprehensionDepth?: 'conceptual' | 'detailed';
 }
 
@@ -186,6 +193,24 @@ async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, 
   }));
 }
 
+// Story 19.1 (#287): validate each issue number exists and is not actually a PR.
+// The GitHub REST `GET /issues/{n}` endpoint returns a `pull_request` field when
+// the number refers to a PR — we reject that case with a guidance message.
+async function validateIssues(octokit: Octokit, owner: string, repo: string, issueNumbers: number[]): Promise<void> {
+  await Promise.all(issueNumbers.map(async (issueNumber) => {
+    try {
+      const { data } = await octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
+      if (data.pull_request) {
+        throw new ApiError(422, `#${issueNumber} is a pull request, not an issue. Use merged_pr_numbers for PRs.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      logger.error({ err, issueNumber }, 'validateIssues: GitHub API error');
+      throw new ApiError(422, `Issue #${issueNumber} not found`);
+    }
+  }));
+}
+
 async function resolveParticipants(octokit: Octokit, usernames: string[]): Promise<ResolvedParticipant[]> {
   return Promise.all(usernames.map(async (username) => {
     try {
@@ -206,6 +231,7 @@ interface CreateAssessmentParams {
   body: FcsCreateInput;
   repoInfo: RepoInfo;
   validatedPRs: ValidatedPR[];
+  issueNumbers: number[];
   participants: ResolvedParticipant[];
 }
 
@@ -213,7 +239,7 @@ async function createAssessmentWithParticipants(
   adminSupabase: ServiceClient,
   params: CreateAssessmentParams,
 ): Promise<AssessmentId> {
-  const { body, repoInfo, validatedPRs, participants } = params;
+  const { body, repoInfo, validatedPRs, issueNumbers, participants } = params;
   const assessmentId = randomUUID() as AssessmentId;
   const { error } = await adminSupabase.rpc('create_fcs_assessment', {
     p_id: assessmentId,
@@ -231,6 +257,7 @@ async function createAssessmentWithParticipants(
       github_username: p.github_username,
     })) as unknown as Json,
     p_config_comprehension_depth: body.comprehension_depth ?? 'conceptual',
+    p_issue_sources: issueNumbers.map(n => ({ issue_number: n })) as unknown as Json,
   });
   if (error) {
     logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
@@ -483,22 +510,57 @@ function toFailureDetails(err: unknown): RubricFailureDetails | undefined {
 }
 
 // Justification: extractArtefacts is not in the LLD §18.3 decomposition — extracted
-// from triggerRubricGeneration's body to keep it under the 20-line budget. Collects PRs
-// and org prompt context in parallel, then assembles the artefact set for rubric generation.
-async function extractArtefacts(
-  adminSupabase: ServiceClient,
-  octokit: Octokit,
-  repoInfo: RepoInfo,
-  prNumbers: number[],
-  comprehensionDepth: 'conceptual' | 'detailed',
-): Promise<AssembledArtefactSet> {
+// from triggerRubricGeneration's body to keep it under the 20-line budget. Collects PRs,
+// explicit issue content, and org prompt context in parallel, then assembles the artefact
+// set for rubric generation. Story 19.1 (#287): issue content from explicit issue_numbers
+// is merged into `linked_issues`, deduplicated by title against issues discovered from
+// PR bodies.
+interface ExtractArtefactsParams {
+  adminSupabase: ServiceClient;
+  octokit: Octokit;
+  repoInfo: RepoInfo;
+  prNumbers: number[];
+  issueNumbers: number[];
+  comprehensionDepth: 'conceptual' | 'detailed';
+}
+
+async function extractArtefacts(params: ExtractArtefactsParams): Promise<AssembledArtefactSet> {
+  const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const repoRef = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
-  const [raw, organisation_context] = await Promise.all([
-    source.extractFromPRs({ ...repoRef, prNumbers }),
+  const [raw, issueContent, organisation_context] = await Promise.all([
+    prNumbers.length > 0
+      ? source.extractFromPRs({ ...repoRef, prNumbers })
+      : emptyRawArtefactSet(),
+    issueNumbers.length > 0
+      ? source.fetchIssueContent({ ...repoRef, issueNumbers })
+      : Promise.resolve([] as LinkedIssue[]),
     loadOrgPromptContext(adminSupabase, repoInfo.orgId),
   ]);
-  return { ...raw, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(raw), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
+  const merged = mergeIssueContent(raw, issueContent);
+  return { ...merged, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(merged), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
+}
+
+// Justification: when only issue numbers are provided (no PRs), we still need a
+// RawArtefactSet shape for downstream merging. Uses 'feature' artefact_type and a
+// placeholder file listing so that the engine's RawArtefactSetSchema is respected.
+function emptyRawArtefactSet(): RawArtefactSet {
+  return {
+    artefact_type: 'feature',
+    pr_diff: '(no PRs provided)',
+    file_listing: [{ path: '(none)', additions: 0, deletions: 0, status: 'none' }],
+    file_contents: [],
+  };
+}
+
+// Merge explicit issue content with whatever linked_issues were discovered from PR bodies.
+// Dedupe by title — matches the existing mergeRawArtefacts semantics.
+function mergeIssueContent(raw: RawArtefactSet, issues: LinkedIssue[]): RawArtefactSet {
+  if (issues.length === 0) return raw;
+  const byTitle = new Map<string, LinkedIssue>();
+  for (const issue of raw.linked_issues ?? []) byTitle.set(issue.title, issue);
+  for (const issue of issues) byTitle.set(issue.title, issue);
+  return { ...raw, linked_issues: Array.from(byTitle.values()) };
 }
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
@@ -508,7 +570,14 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     await updateProgress(params.adminSupabase, assessmentId, orgId, 'artefact_extraction');
     logger.info({ assessmentId, orgId, step: 'artefact_extraction' }, 'pipeline: extracting artefacts');
     const octokit = await createGithubClient(params.repoInfo.installationId);
-    const artefacts = await extractArtefacts(params.adminSupabase, octokit, params.repoInfo, params.prNumbers, params.comprehensionDepth ?? 'conceptual');
+    const artefacts = await extractArtefacts({
+      adminSupabase: params.adminSupabase,
+      octokit,
+      repoInfo: params.repoInfo,
+      prNumbers: params.prNumbers,
+      issueNumbers: params.issueNumbers,
+      comprehensionDepth: params.comprehensionDepth ?? 'conceptual',
+    });
     await finaliseRubric({
       adminSupabase: params.adminSupabase, assessmentId, orgId,
       artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName },
@@ -557,7 +626,7 @@ function buildRetryResetUpdate(retryCount: number): Database['public']['Tables']
 }
 
 // Resets a rubric_failed assessment to rubric_generation and re-runs generation
-// against the already-stored PR records. Called by the retry-rubric route.
+// against the already-stored PR and issue records. Called by the retry-rubric route.
 export async function retriggerRubricForAssessment(
   adminSupabase: ServiceClient,
   assessment: AssessmentRetryRow,
@@ -572,9 +641,13 @@ export async function retriggerRubricForAssessment(
     .eq('org_id', orgId);
   if (error) throw new ApiError(500, 'Failed to reset assessment status');
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
-  const { data: prs } = await adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId);
+  const [{ data: prs }, { data: issues }] = await Promise.all([
+    adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId),
+    adminSupabase.from('fcs_issue_sources').select('issue_number').eq('assessment_id', assessmentId),
+  ]);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
+  const issueNumbers = (issues ?? []).map((i: { issue_number: number }) => i.issue_number);
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 
 export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
@@ -586,12 +659,15 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
   await assertOrgAdmin(supabase, userId, orgId);
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const octokit = await createGithubClient(repoInfo.installationId);
+  const prNumbers = body.merged_pr_numbers ?? [];
+  const issueNumbers = body.issue_numbers ?? [];
   const [validatedPRs, participants] = await Promise.all([
-    validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, body.merged_pr_numbers),
+    prNumbers.length > 0 ? validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, prNumbers) : Promise.resolve([] as ValidatedPR[]),
     resolveParticipants(octokit, body.participants.map((p) => p.github_username)),
+    issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve(undefined),
   ]);
   const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
-  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, participants });
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers: body.merged_pr_numbers, comprehensionDepth: body.comprehension_depth });
+  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, issueNumbers, participants });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }
