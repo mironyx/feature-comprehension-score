@@ -1,8 +1,8 @@
-// Tests for (authenticated)/assessments landing page — pending assessments list.
+// Tests for (authenticated)/assessments landing page — pending + completed list.
 // Auth enforcement is delegated to the (authenticated) layout; this page only
 // guards for a missing orgId (defensive fallback).
-// Design reference: docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issues: #62, #121
+// Design reference: docs/design/lld-nav-results.md §1
+// Issues: #62, #121, #295
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -84,9 +84,7 @@ function makeClient(assessments: unknown[], githubRole: string | null = 'member'
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
-            in: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
-            }),
+            order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
           }),
         }),
       };
@@ -136,7 +134,7 @@ describe('Assessments landing page', () => {
       expect(result).toBeTruthy();
     });
 
-    it('then it shows pending assessments heading', async () => {
+    it('then it shows the page title', async () => {
       mockCreateServer.mockResolvedValue(makeClient([]) as never);
 
       const { default: AssessmentsPage } = await import(
@@ -144,12 +142,13 @@ describe('Assessments landing page', () => {
       );
 
       const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
-      expect(JSON.stringify(result)).toContain('Assessments');
+      expect(JSON.stringify(result)).toContain('My Assessments');
     });
   });
 
+  // #295: "New Assessment" action moved to the Organisation page (LLD §1, invariant I3).
   describe('Given the user is an org admin', () => {
-    it('then a "New Assessment" link is shown', async () => {
+    it('then no "New Assessment" link is shown on this page', async () => {
       mockCreateServer.mockResolvedValue(makeClient([], 'admin') as never);
 
       const { default: AssessmentsPage } = await import(
@@ -157,7 +156,7 @@ describe('Assessments landing page', () => {
       );
 
       const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
-      expect(JSON.stringify(result)).toContain('/assessments/new');
+      expect(JSON.stringify(result)).not.toContain('/assessments/new');
     });
   });
 

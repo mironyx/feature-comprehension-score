@@ -261,9 +261,8 @@ const ORG_ID = 'org-001';
 const USER_ID = 'user-001';
 
 function makePageClient(assessments: unknown[] = []) {
-  const mockIn = vi.fn().mockReturnValue({
-    order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
-  });
+  // #295: query no longer chains .in('status', [...]) — fetches all statuses.
+  const mockOrder = vi.fn().mockResolvedValue({ data: assessments, error: null });
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
@@ -278,7 +277,11 @@ function makePageClient(assessments: unknown[] = []) {
           }),
         };
       }
-      return { select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ in: mockIn }) }) };
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({ order: mockOrder }),
+        }),
+      };
     }),
   };
 }
