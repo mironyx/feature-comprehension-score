@@ -5,6 +5,7 @@ import type {
   DiscoverLinkedPRsParams,
   IssueContentParams,
   PRExtractionParams,
+  RepoCoords,
 } from '../engine/ports/artefact-source';
 import type {
   ArtefactFile,
@@ -70,12 +71,6 @@ interface CrossRefQueryResponse {
       };
     } | null;
   };
-}
-
-/** Groups the owner and repo strings to avoid primitive obsession across API calls. */
-interface RepoCoords {
-  owner: string;
-  repo: string;
 }
 
 /** A compiled glob pattern matcher — avoids passing raw string[] as a domain concept. */
