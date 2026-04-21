@@ -133,6 +133,7 @@ const mockUserClient = {
     if (table === 'user_organisations') {
       return makeChain(() => ({ data: [{ github_role: 'admin' }], error: null }));
     }
+    if (table === 'assessments') return makeChain(() => assessmentResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };

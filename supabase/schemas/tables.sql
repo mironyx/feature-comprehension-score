@@ -171,6 +171,10 @@ CREATE TABLE assessments (
   rubric_error_message     text,
   rubric_error_retryable   boolean,
 
+  -- Retry tracking (V2 Epic 18). Incremented server-side on each retry; capped at 3.
+  -- See docs/design/lld-e18.md §18.2.
+  rubric_retry_count       integer NOT NULL DEFAULT 0,
+
   -- Pipeline progress tracking (V2 Epic 18). Updated during rubric generation.
   -- See docs/design/lld-e18.md §18.3.
   rubric_progress            text,

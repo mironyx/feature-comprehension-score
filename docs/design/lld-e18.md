@@ -12,6 +12,7 @@
 | 2026-04-20 | LS / Claude | Added agentic retrieval tool-call logging (18.1) and `llm_tool_call` progress step (18.3). `onToolCall` callback injected into tool loop for structured logging + progress refresh. |
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #274, PR #276): updated §18.3 to reflect `updateProgress` signature change (added `orgId` for tenant-scoping), `pendingWrites` flush pattern replacing fire-and-forget void, and LLD-deviation helpers (`makeToolCallProgressHandler`, `extractArtefacts`, `toSnapshot`). |
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #272, PR #275): §18.1 — `markRubricFailed` now takes `orgId` (ADR-0025) and clears `rubric_progress` via `buildFailureUpdate`; helper renamed `extractLlmError` → `toFailureDetails`; `malformed_response` warn log carries `LLMError` fields instead of raw response shape. |
+| 2026-04-21 | LS / Claude | Post-implementation sync (issue #273, PR #277): §18.2 — initial assessment SELECT switched from `ctx.adminSupabase` to `ctx.supabase` (RLS-scoped) to prevent cross-org existence leaks; `retriggerRubricForAssessment` update now scoped by both `id` and `org_id` (ADR-0025); private helpers `buildRetryResetUpdate` and `getDisabledReason` extracted to keep callers under the 20-line body budget (with `// Justification:` comments); error-display format deviated from the inline `Failed: malformed_response` example — rendered as two adjacent elements (`<StatusBadge>` + error-code span) to avoid hard-coding literal text in the badge; added exported constant `MAX_RUBRIC_RETRIES = 3` in `src/app/api/fcs/service.ts`. |
 
 ---
 
@@ -458,20 +459,24 @@ rubric_retry_count       integer NOT NULL DEFAULT 0,
 
 #### Retry API service — guardrail checks
 
-In `src/app/api/assessments/[id]/retry-rubric/service.ts`, add the select to include `rubric_retry_count` and `rubric_error_retryable`:
+In `src/app/api/assessments/[id]/retry-rubric/service.ts`, add the select to include `rubric_retry_count` and `rubric_error_retryable`. The read goes through the **user-scoped** client so Row Level Security filters by the caller's org memberships — `adminSupabase` would bypass RLS and leak cross-org assessment existence before `assertOrgAdmin` runs.
 
 ```typescript
-const { data: assessment } = await ctx.adminSupabase
+const { data: assessment } = await ctx.supabase
   .from('assessments')
   .select('id, org_id, repository_id, status, config_question_count, config_comprehension_depth, rubric_retry_count, rubric_error_retryable')
   .eq('id', assessmentId)
   .single();
 
-if (assessment.rubric_retry_count >= 3)
+if (assessment.rubric_retry_count >= MAX_RUBRIC_RETRIES)
   throw new ApiError(400, 'Maximum retry limit reached');
 if (assessment.rubric_error_retryable === false)
   throw new ApiError(400, 'Error is not retryable');
 ```
+
+`MAX_RUBRIC_RETRIES = 3` is an exported constant in `src/app/api/fcs/service.ts`.
+
+> **Implementation note (issue #273):** the initial SELECT uses `ctx.supabase` (RLS-scoped) rather than `ctx.adminSupabase`. Service-role reads on single-row lookups leak cross-tenant existence; the user-scoped client returns no row for non-members and drives a clean 404. The downstream update still uses `adminSupabase` (see next subsection) with explicit `.eq('org_id', …)` defence-in-depth per ADR-0025.
 
 #### `retriggerRubricForAssessment` — clear previous attempt data
 
@@ -482,31 +487,24 @@ Extend the status reset update to also:
 - Clear progress fields: `rubric_progress`, `rubric_progress_updated_at` → `null`
 
 ```typescript
-const { error } = await adminSupabase.from('assessments').update({
-  status: 'rubric_generation',
-  rubric_retry_count: assessment.rubric_retry_count + 1,
-  rubric_error_code: null,
-  rubric_error_message: null,
-  rubric_error_retryable: null,
-  rubric_input_tokens: null,
-  rubric_output_tokens: null,
-  rubric_tool_call_count: null,
-  rubric_tool_calls: null,
-  rubric_duration_ms: null,
-  rubric_progress: null,
-  rubric_progress_updated_at: null,
-}).eq('id', assessmentId);
+const { error } = await adminSupabase
+  .from('assessments')
+  .update(buildRetryResetUpdate(assessment.rubric_retry_count))
+  .eq('id', assessmentId)
+  .eq('org_id', assessment.org_id);
 ```
 
-Note: `retriggerRubricForAssessment` must receive the current `rubric_retry_count` from the caller. Add it to `AssessmentRetryRow`.
+`buildRetryResetUpdate(retryCount)` is a private helper that returns the reset payload (status, incremented counter, and all cleared error/observability/progress fields). Extracted to keep `retriggerRubricForAssessment` under the 20-line body budget; carries a `// Justification:` comment referencing this section.
+
+Note: `retriggerRubricForAssessment` must receive the current `rubric_retry_count` and `org_id` from the caller. Add both to `AssessmentRetryRow`.
+
+> **Implementation note (issue #273):** the update is scoped by both `id` and `org_id` (ADR-0025 defence-in-depth) because the write goes through `adminSupabase` which bypasses RLS. The payload-construction helper `buildRetryResetUpdate` is not listed in the decomposition table above — it was extracted during implementation to isolate the pure payload from the I/O call.
 
 #### UI — error display on assessments page
 
-Extend the Supabase query in `page.tsx` to fetch `rubric_error_code`, `rubric_retry_count`, `rubric_error_retryable`. Display the error code alongside the status badge for failed assessments:
+Extend the Supabase query in `page.tsx` to fetch `rubric_error_code`, `rubric_retry_count`, `rubric_error_retryable`. Display the error code alongside the status badge for failed assessments.
 
-```
-Failed: malformed_response
-```
+> **Implementation note (issue #273):** the initial example showed a single concatenated string (`Failed: malformed_response`). The implementation instead renders the `<StatusBadge>` component and the error code as two adjacent inline elements so the literal text `"Failed"` is not duplicated between the badge and the error row. Visually the result reads `[Failed] malformed_response`, which satisfies the AC "UI shows error code alongside 'Failed' badge" without hard-coding status copy at the page level.
 
 #### UI — RetryButton guardrails
 
@@ -524,6 +522,8 @@ interface RetryButtonProps {
 When `retryCount >= maxRetries`: button disabled, message "Maximum retries reached (3 of 3)".
 When `errorRetryable === false`: button disabled, message "This error is not retryable".
 Otherwise: button enabled, shows "Retry (Attempt N of 3)".
+
+The guardrail precedence (retries-reached beats not-retryable) lives in a private helper `getDisabledReason(retryCount, maxRetries, errorRetryable): string | null` alongside the component. Extracted during implementation to keep the `RetryButton` body under the 20-line budget and to make the precedence independently testable; carries a `// Justification:` comment.
 
 ### BDD specs
 

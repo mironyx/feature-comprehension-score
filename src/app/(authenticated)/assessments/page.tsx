@@ -28,7 +28,12 @@ interface PendingAssessment {
   feature_name: string | null;
   status: AssessmentRow['status'];
   created_at: string;
+  rubric_error_code: string | null;
+  rubric_retry_count: number;
+  rubric_error_retryable: boolean | null;
 }
+
+const MAX_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -52,7 +57,7 @@ export default async function AssessmentsPage(
   const [{ data }, { data: membership }] = await Promise.all([
     supabase
       .from('assessments')
-      .select('id, feature_name, status, created_at')
+      .select('id, feature_name, status, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable')
       .eq('org_id', orgId)
       .in('status', ['rubric_generation', 'rubric_failed', 'awaiting_responses'])
       .order('created_at', { ascending: false }),
@@ -95,8 +100,16 @@ export default async function AssessmentsPage(
                   {created === a.id && a.status === 'rubric_generation'
                     ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
                     : <StatusBadge status={a.status} />}
+                  {a.status === 'rubric_failed' && a.rubric_error_code && (
+                    <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
+                  )}
                   {admin && a.status === 'rubric_failed' && (
-                    <RetryButton assessmentId={a.id} />
+                    <RetryButton
+                      assessmentId={a.id}
+                      retryCount={a.rubric_retry_count}
+                      maxRetries={MAX_RETRIES}
+                      errorRetryable={a.rubric_error_retryable}
+                    />
                   )}
                 </div>
               </Card>
