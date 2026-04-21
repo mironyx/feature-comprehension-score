@@ -137,14 +137,15 @@ doc-only conflicts.
 
 **Current:** `PROM_PORT=19090` is set in `~/.bashrc` but not inherited by worktrees.
 
-**Proposed:** add `PROM_PORT=19090` and `WINDOWS_IP=192.168.0.101` to `.env.test.local` (which
-is symlinked into every worktree by the `/feature-team` bootstrap step).
+**Root cause:** `~/.bashrc` has an interactive-shell guard (`case $- in *i*) ;; *) return ;; esac`)
+near the top. Any `export` placed after this guard is silently skipped in non-interactive shells —
+which is exactly how Claude Code runs Bash tool calls and spawns teammate agents.
 
-**Impact:** cost queries work correctly in all teammates without manual intervention. Cost labels
-applied at PR time and `/feature-end` time are accurate.
+**Fix (implemented 2026-04-21):** move `WINDOWS_IP` and `PROM_PORT` exports to the top of
+`~/.bashrc`, before the interactive guard. All processes — interactive or not — now inherit them.
 
-**Note:** `.env.test.local` is gitignored; this is a local machine configuration, not a project
-convention. Document in `docs/runbooks/` so it survives machine rebuilds.
+**Note:** any env var that must be visible to agent subprocesses must live before the guard.
+Document this in `docs/runbooks/` so it survives machine rebuilds.
 
 ### P7: Enforce rigorous cost recording in session logs (addresses RC5, extends it)
 
