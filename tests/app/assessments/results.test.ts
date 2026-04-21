@@ -82,6 +82,16 @@ function makeParticipant(status: 'pending' | 'submitted' = 'submitted') {
   return { id: `participant-${status}`, status };
 }
 
+function makeMyAnswer(questionId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    question_id: questionId,
+    answer_text: `My answer for ${questionId}`,
+    score: 0.72,
+    score_rationale: 'Good understanding of the concept.',
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Mock builders
 // ---------------------------------------------------------------------------
@@ -156,7 +166,37 @@ function makeSecretClient(opts: SecretClientOptions) {
   };
 }
 
-function makeServerClient(user: { id: string } | null) {
+interface ServerClientOptions {
+  /** Authenticated user, or null for unauthenticated. */
+  user: { id: string } | null;
+  /**
+   * Rows returned from `participant_answers` when queried via the user-scoped
+   * client. Only relevant for participant self-view paths. Defaults to [].
+   */
+  participantAnswers?: object[];
+}
+
+/**
+ * Builds a mock for `createServerSupabaseClient`.
+ *
+ * Extended in #297 to support `participant_answers` queries (RLS-enforced
+ * self-view data). The server client is the user-scoped client — it must NOT
+ * be the admin/secret client (invariant I4).
+ */
+function makeServerClient(userOrOpts: { id: string } | null | ServerClientOptions) {
+  // Accept both the old signature (user directly) and the new options object.
+  let user: { id: string } | null;
+  let participantAnswers: object[];
+
+  if (userOrOpts === null || (userOrOpts !== null && 'id' in (userOrOpts ?? {}))) {
+    user = userOrOpts as { id: string } | null;
+    participantAnswers = [];
+  } else {
+    const opts = userOrOpts as ServerClientOptions;
+    user = opts.user;
+    participantAnswers = opts.participantAnswers ?? [];
+  }
+
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -164,6 +204,20 @@ function makeServerClient(user: { id: string } | null) {
         error: user ? null : new Error('no session'),
       }),
     },
+    from: vi.fn((table: string) => {
+      if (table === 'participant_answers') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    }),
   };
 }
 
@@ -174,16 +228,22 @@ function makeParams(id = ASSESSMENT_ID) {
 const AUTHED_USER = { id: USER_ID };
 
 /** Sets up mocks and imports the page component. Reduces per-test boilerplate. */
-async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
-  mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
+async function arrange(
+  opts: SecretClientOptions,
+  userOrServerOpts: { id: string } | null | ServerClientOptions = AUTHED_USER,
+) {
+  mockCreateServer.mockResolvedValue(makeServerClient(userOrServerOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
   const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
   return ResultsPage;
 }
 
 /** Arranges mocks, renders the page, and returns HTML. Eliminates repetition in gate tests. */
-async function renderPage(opts: SecretClientOptions) {
-  const ResultsPage = await arrange(opts);
+async function renderPage(
+  opts: SecretClientOptions,
+  serverOpts?: ServerClientOptions,
+) {
+  const ResultsPage = await arrange(opts, serverOpts ?? AUTHED_USER);
   const element = await ResultsPage({ params: makeParams() });
   return renderToStaticMarkup(element);
 }
@@ -266,10 +326,12 @@ describe('FCS results page', () => {
 
   describe('Given scoring is incomplete', () => {
     it('then it renders a scoring-incomplete notice', async () => {
+      // Scoring-incomplete notice is part of the admin aggregate view.
+      // Switched to admin role in #297 (role-based view separation).
       const html = await renderPage({
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
+        orgMembership: { github_role: 'admin' },
+        participation: null,
         questions: [makeQuestion(1, { aggregate_score: null })],
         participants: [makeParticipant('submitted')],
       });
@@ -287,26 +349,29 @@ describe('FCS results page', () => {
 
     it.each<IndicatorCase>([
       // Property 1 [issue]: per-question failure label visible when scoring_incomplete AND aggregate_score === null
+      // Switched to admin role in #297 — per-question aggregate indicator is admin-view content.
       ['scoring_incomplete=true, null score → shows indicator', {
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
+        orgMembership: { github_role: 'admin' },
+        participation: null,
         questions: [makeQuestion(1, { aggregate_score: null })],
         participants: [makeParticipant('submitted')],
       }, true],
       // Property 2 [issue]: no per-question indicator when scoring_incomplete === false
+      // Switched to admin role in #297.
       ['scoring_incomplete=false, null score → no indicator', {
         assessment: makeAssessment({ scoring_incomplete: false, aggregate_score: null }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
+        orgMembership: { github_role: 'admin' },
+        participation: null,
         questions: [makeQuestion(1, { aggregate_score: null })],
         participants: [makeParticipant('submitted')],
       }, false],
       // Property 3 [issue]: scoring_incomplete flag alone must not trigger per-question label
+      // Switched to admin role in #297.
       ['scoring_incomplete=true, all scored → no indicator', {
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.5 }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
+        orgMembership: { github_role: 'admin' },
+        participation: null,
         questions: [makeQuestion(1), makeQuestion(2)],
         participants: [makeParticipant('submitted')],
       }, false],
@@ -323,11 +388,12 @@ describe('FCS results page', () => {
   describe('Given scoring_incomplete is true and only some questions have null aggregate_score', () => {
     it('then it renders a failure indicator only for the unscored questions', async () => {
       // Property 4 [issue]: per-question indicator is scoped to the specific question(s)
-      // with null aggregate_score; scored questions must not show it
+      // with null aggregate_score; scored questions must not show it.
+      // Switched to admin role in #297 — per-question aggregate indicator is admin-view content.
       const html = await renderPage({
         assessment: makeAssessment({ scoring_incomplete: true, aggregate_score: 0.6 }),
-        orgMembership: null,
-        participation: { id: 'part-001' },
+        orgMembership: { github_role: 'admin' },
+        participation: null,
         questions: [
           makeQuestion(1),                           // scored — should NOT show indicator
           makeQuestion(2, { aggregate_score: null }), // unscored — SHOULD show indicator
@@ -503,10 +569,12 @@ describe('FCS results page', () => {
   describe('Reference answer gate', () => {
     const SUBMITTED_ONE = [makeParticipant('submitted')];
     const INCOMPLETE = [makeParticipant('submitted'), makeParticipant('pending')];
+    // BASE uses admin role — reference answers are admin-view content.
+    // Switched from participant-only in #297 (role-based view separation).
     const BASE: SecretClientOptions = {
       assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
-      orgMembership: null,
-      participation: { id: 'part-001' },
+      orgMembership: { github_role: 'admin' },
+      participation: null,
       questions: [makeQuestion(1)],
       participants: SUBMITTED_ONE,
     };
@@ -514,11 +582,11 @@ describe('FCS results page', () => {
     type GateCase = [label: string, opts: SecretClientOptions, expectVisible: boolean];
 
     it.each<GateCase>([
-      ['all submitted and scoring complete → visible', BASE, true],
-      ['not all participants submitted → withheld', { ...BASE, participants: INCOMPLETE }, false],
-      ['aggregate_score is null → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }) }, false],
-      ['scoring_incomplete is true → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }) }, false],
-      ['admin with incomplete submission → withheld (no bypass)', { ...BASE, orgMembership: { github_role: 'admin' }, participation: null, participants: INCOMPLETE }, false],
+      ['admin, all submitted and scoring complete → visible', BASE, true],
+      ['admin, not all participants submitted → withheld', { ...BASE, participants: INCOMPLETE }, false],
+      ['admin, aggregate_score is null → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: null, scoring_incomplete: false }) }, false],
+      ['admin, scoring_incomplete is true → withheld', { ...BASE, assessment: makeAssessment({ aggregate_score: 0.5, scoring_incomplete: true }) }, false],
+      ['admin with incomplete submission → withheld (no bypass)', { ...BASE, participants: INCOMPLETE }, false],
     ])('Given %s', async (_label, opts, expectVisible) => {
       const html = await renderPage(opts);
       if (expectVisible) {
@@ -528,6 +596,208 @@ describe('FCS results page', () => {
         expect(html).not.toContain('Reference answer 1');
         expect(html).toContain('Reference answers will be visible');
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Role-based view separation — Issue #297
+  // LLD §3, Stories 3.4 / 6.2, ADR-0005
+  // ---------------------------------------------------------------------------
+
+  describe('Given a viewer who is admin only (not a participant)', () => {
+    const ADMIN_ONLY_OPTS: SecretClientOptions = {
+      assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+      orgMembership: { github_role: 'admin' },
+      participation: null,
+      questions: [makeQuestion(1), makeQuestion(2)],
+      participants: [makeParticipant('submitted')],
+    };
+
+    // Property 1 [lld §3, req §Story 3.4]: admin sees aggregate comprehension score
+    it('then the aggregate comprehension score section is rendered', async () => {
+      const html = await renderPage(ADMIN_ONLY_OPTS);
+      expect(html).toContain('Comprehension Score');
+    });
+
+    // Property 2 [lld §3, req §Story 3.4]: admin sees per-question aggregate scores
+    it('then per-question aggregate scores are rendered', async () => {
+      const html = await renderPage(ADMIN_ONLY_OPTS);
+      // toPercent(0.7) = "70%" and toPercent(0.8) = "80%" (makeQuestion scores)
+      expect(html).toContain('Aggregate score:');
+    });
+
+    // Property 3 [lld §3 I1, req §Story 3.4, ADR-0005]: admin does NOT see a "My Scores" section
+    it('then no "My Scores" section is rendered', async () => {
+      const html = await renderPage(ADMIN_ONLY_OPTS);
+      expect(html).not.toContain('My Scores');
+    });
+  });
+
+  describe('Given a viewer who is participant only (not an admin)', () => {
+    const Q1 = makeQuestion(1, { naur_layer: 'design_justification' });
+    const Q2 = makeQuestion(2, { naur_layer: 'modification_capacity' });
+
+    const PARTICIPANT_ONLY_OPTS: SecretClientOptions = {
+      assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+      orgMembership: null,
+      participation: { id: 'part-001' },
+      questions: [Q1, Q2],
+      participants: [makeParticipant('submitted')],
+    };
+
+    const MY_ANSWERS = [
+      makeMyAnswer(Q1.id, { score: 0.72, answer_text: 'My first answer.' }),
+      makeMyAnswer(Q2.id, { score: 0.5, answer_text: 'My second answer.' }),
+    ];
+
+    const SERVER_OPTS: ServerClientOptions = {
+      user: AUTHED_USER,
+      participantAnswers: MY_ANSWERS,
+    };
+
+    // Property 4 [lld §3, req §Story 3.4]: participant self-view shows own per-question scores
+    it('then own per-question scores are rendered', async () => {
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      expect(html).toContain('0.72');
+    });
+
+    // Property 5 [lld §3, req §Story 3.4]: own scores are in 0.0–1.0 decimal form, NOT percentage
+    it('then own scores are shown as 0.0–1.0 decimals, not as percentages', async () => {
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      // Score 0.72 must appear as a decimal like "0.72"
+      expect(html).toContain('0.72');
+      // The self-view section must not show "72%" for the own score
+      // We search for the percentage pattern adjacent to the score value.
+      // The simplest safe assertion: "72%" must not appear in the self-view context.
+      // We cannot pin HTML structure, so we assert it does not appear at all in
+      // the self-view — if the implementation renders an aggregate score section
+      // that leaks "72%" into the page, that is a separate failure caught by
+      // the prohibition test below.
+      expect(html).not.toMatch(/\b72%/);
+    });
+
+    // Property 6 [lld §3, req §Story 3.4]: participant self-view shows Naur layer label per question
+    it('then the Naur layer label is rendered for each question', async () => {
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      expect(html).toContain('Design Justification');
+      expect(html).toContain('Modification Capacity');
+    });
+
+    // Property 7 [lld §3, req §Story 3.4]: participant self-view shows own submitted answer text
+    it('then the participant\'s own submitted answer text is rendered', async () => {
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      expect(html).toContain('My first answer.');
+      expect(html).toContain('My second answer.');
+    });
+
+    // Property 8 [lld I1, req §Story 3.4, ADR-0005]: participant self-view does NOT show reference answers
+    // even when the gate conditions would open them for an admin
+    it('then reference answers are NOT shown even when the gate is open', async () => {
+      // Gate is open: all participants submitted, scoring complete, aggregate_score present
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      expect(html).not.toContain('Reference answer 1');
+      expect(html).not.toContain('Reference answer 2');
+    });
+
+    // Property 9 [lld §3, req §Story 3.4]: participant self-view does NOT show the aggregate
+    // comprehension score section
+    it('then the aggregate comprehension score section is NOT rendered', async () => {
+      const html = await renderPage(PARTICIPANT_ONLY_OPTS, SERVER_OPTS);
+      expect(html).not.toContain('Comprehension Score');
+    });
+  });
+
+  describe('Given a viewer who is both admin AND participant', () => {
+    const Q1 = makeQuestion(1, { naur_layer: 'world_to_program' });
+
+    const ADMIN_AND_PARTICIPANT_OPTS: SecretClientOptions = {
+      assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+      orgMembership: { github_role: 'admin' },
+      participation: { id: 'part-001' },
+      questions: [Q1],
+      participants: [makeParticipant('submitted')],
+    };
+
+    const MY_ANSWERS = [
+      makeMyAnswer(Q1.id, { score: 0.85, answer_text: 'My admin-participant answer.' }),
+    ];
+
+    const SERVER_OPTS: ServerClientOptions = {
+      user: AUTHED_USER,
+      participantAnswers: MY_ANSWERS,
+    };
+
+    // Property 10 [lld §3 flowchart]: combined viewer sees the admin aggregate view
+    it('then the aggregate comprehension score section is rendered', async () => {
+      const html = await renderPage(ADMIN_AND_PARTICIPANT_OPTS, SERVER_OPTS);
+      expect(html).toContain('Comprehension Score');
+    });
+
+    // Property 11 [lld §3 flowchart]: combined viewer also sees a "My Scores" section
+    it('then a "My Scores" section is rendered alongside the admin view', async () => {
+      const html = await renderPage(ADMIN_AND_PARTICIPANT_OPTS, SERVER_OPTS);
+      expect(html).toContain('My Scores');
+    });
+
+    // Property 12 [lld §3]: the "My Scores" section contains own per-question scores
+    it('then own per-question scores appear in the "My Scores" section', async () => {
+      const html = await renderPage(ADMIN_AND_PARTICIPANT_OPTS, SERVER_OPTS);
+      expect(html).toContain('0.85');
+    });
+
+    // Property 13 [lld §3]: the "My Scores" section contains own submitted answers
+    it('then own submitted answers appear in the "My Scores" section', async () => {
+      const html = await renderPage(ADMIN_AND_PARTICIPANT_OPTS, SERVER_OPTS);
+      expect(html).toContain('My admin-participant answer.');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Invariant I4: participant answers must be queried via the user-scoped client
+  // LLD §3 I4, §3 "Self-view data" note
+  // ---------------------------------------------------------------------------
+
+  describe('Given a participant self-view is rendered (invariant I4)', () => {
+    it('then participant_answers is queried via createServerSupabaseClient, not the secret client', async () => {
+      // The implementation must call `createServerSupabaseClient().from('participant_answers')`
+      // — not adminSupabase.from('participant_answers') — so that RLS restricts rows to
+      // the authenticated user. We verify this by asserting the server client's `from` was
+      // called with 'participant_answers', and the secret client's `from` was NOT called
+      // with 'participant_answers'.
+
+      const Q1 = makeQuestion(1);
+      const secretOpts: SecretClientOptions = {
+        assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+        orgMembership: null,
+        participation: { id: 'part-001' },
+        questions: [Q1],
+        participants: [makeParticipant('submitted')],
+      };
+
+      const serverClientMock = makeServerClient({
+        user: AUTHED_USER,
+        participantAnswers: [makeMyAnswer(Q1.id)],
+      });
+
+      const secretClientMock = makeSecretClient(secretOpts);
+
+      mockCreateServer.mockResolvedValue(serverClientMock as never);
+      mockCreateSecret.mockReturnValue(secretClientMock as never);
+
+      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      await ResultsPage({ params: makeParams() });
+
+      // Server client (user-scoped) must have queried participant_answers
+      const serverFromCalls = (serverClientMock.from as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(serverFromCalls).toContain('participant_answers');
+
+      // Secret client (admin) must NOT have queried participant_answers
+      const secretFromCalls = (secretClientMock.from as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: unknown[]) => c[0],
+      );
+      expect(secretFromCalls).not.toContain('participant_answers');
     });
   });
 });

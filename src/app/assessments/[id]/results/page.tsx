@@ -1,6 +1,8 @@
-// FCS results page — aggregate comprehension score, per-question breakdown, reference answers.
-// Accessible to Org Admins and all participants. Reference answers revealed only once all
-// participants have submitted and scoring is complete. Issue: #104, #109
+// FCS results page — role-based view separation (LLD §3, ADR-0005, Stories 3.4 / 6.2).
+// Admin-only viewers see the aggregate comprehension score, per-question aggregates, and
+// reference answers (gated). Participant-only viewers see a self-directed view with their
+// own per-question scores, Naur layer labels, and submitted answers. Combined viewers see
+// the admin aggregate view plus a "My Scores" section. Issue: #104, #109, #297
 
 import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -38,11 +40,21 @@ interface ScoredQuestion {
   reference_answer: string;
 }
 
+interface MyAnswer {
+  question_id: string;
+  answer_text: string;
+  score: number | null;
+  score_rationale: string | null;
+}
+
 interface ResultsData {
   assessment: AssessmentWithRelations;
   questions: ScoredQuestion[];
   participantTotal: number;
   participantCompleted: number;
+  isAdmin: boolean;
+  isParticipant: boolean;
+  myAnswers: MyAnswer[];
 }
 
 // ---------------------------------------------------------------------------
@@ -103,13 +115,34 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
 
   const questions = (questionsResult.data ?? []) as ScoredQuestion[];
   const allParticipants = (participantsResult.data ?? []) as { id: string; status: string }[];
+  const myAnswers = isParticipant ? await fetchMyAnswers(assessmentId) : [];
 
   return {
     assessment,
     questions,
     participantTotal: allParticipants.length,
     participantCompleted: allParticipants.filter(p => p.status === 'submitted').length,
+    isAdmin,
+    isParticipant,
+    myAnswers,
   };
+}
+
+// Invariant I4: query the participant's own answers via the user-scoped client so RLS
+// restricts the result set to the authenticated user. Never use the admin/secret client.
+async function fetchMyAnswers(assessmentId: string): Promise<MyAnswer[]> {
+  const userSupabase = await createServerSupabaseClient();
+  const { data, error } = await userSupabase
+    .from('participant_answers')
+    .select('question_id, answer_text, score, score_rationale')
+    .eq('assessment_id', assessmentId)
+    .eq('is_reassessment', false)
+    .order('created_at', { ascending: true });
+  if (error) {
+    logger.error({ err: error }, 'results page: my answers query failed');
+    return [];
+  }
+  return (data ?? []) as MyAnswer[];
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +152,11 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
 function toPercent(score: number | null): string {
   if (score === null) return '—';
   return `${Math.round(score * 100)}%`;
+}
+
+function toDecimalScore(score: number | null): string {
+  if (score === null) return '—';
+  return score.toFixed(2);
 }
 
 function formatDate(iso: string): string {
@@ -151,53 +189,47 @@ const ANSWERS_WITHHELD_MESSAGE =
   'Reference answers will be visible once all participants have submitted and scoring is complete.';
 
 // ---------------------------------------------------------------------------
-// Page
+// View components
 // ---------------------------------------------------------------------------
 
-export default async function ResultsPage({ params }: ResultsPageProps) {
-  const { id: assessmentId } = await params;
+interface HeaderSectionProps {
+  assessment: AssessmentWithRelations;
+  repoFullName: string;
+  participantTotal: number;
+  participantCompleted: number;
+}
 
-  const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/auth/sign-in');
-
-  const { assessment, questions, participantTotal, participantCompleted } =
-    await fetchResultsData(assessmentId, user.id);
-
-  const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
-  const revealAnswers = shouldRevealReferenceAnswers({
-    participantCompleted,
-    participantTotal,
-    aggregateScore: assessment.aggregate_score,
-    scoringIncomplete: assessment.scoring_incomplete ?? false,
-  });
-
+function HeaderSection(props: HeaderSectionProps) {
+  const { assessment, repoFullName, participantTotal, participantCompleted } = props;
+  const depth = assessment.config_comprehension_depth ?? 'conceptual';
   return (
-    <main>
-      <h1>Assessment Results</h1>
+    <section>
+      <h2>{assessment.feature_name ?? 'Unnamed Feature'}</h2>
+      <p>Repository: {repoFullName}</p>
+      <p>Date: {formatDate(assessment.created_at)}</p>
+      <p>Participants: {participantCompleted} of {participantTotal} completed</p>
+      <p>
+        <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
+          Depth: {DEPTH_LABELS[depth]}
+        </span>
+      </p>
+      <p className="text-caption text-text-secondary">{DEPTH_NOTES[depth]}</p>
+    </section>
+  );
+}
 
-      <section>
-        <h2>{assessment.feature_name ?? 'Unnamed Feature'}</h2>
-        <p>Repository: {repoFullName}</p>
-        <p>Date: {formatDate(assessment.created_at)}</p>
-        <p>
-          Participants: {participantCompleted} of {participantTotal} completed
-        </p>
-        <p>
-          <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
-            Depth: {DEPTH_LABELS[assessment.config_comprehension_depth ?? 'conceptual']}
-          </span>
-        </p>
-        <p className="text-caption text-text-secondary">
-          {DEPTH_NOTES[assessment.config_comprehension_depth ?? 'conceptual']}
-        </p>
-      </section>
+interface AdminAggregateViewProps {
+  assessment: AssessmentWithRelations;
+  questions: ScoredQuestion[];
+  revealAnswers: boolean;
+}
 
+function AdminAggregateView({ assessment, questions, revealAnswers }: AdminAggregateViewProps) {
+  return (
+    <>
       <section>
         <h2>Comprehension Score</h2>
-        <p aria-label="Aggregate comprehension score">
-          {toPercent(assessment.aggregate_score)}
-        </p>
+        <p aria-label="Aggregate comprehension score">{toPercent(assessment.aggregate_score)}</p>
         {assessment.scoring_incomplete && (
           <p>Note: scoring incomplete — some answers could not be scored.</p>
         )}
@@ -217,12 +249,8 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
         <ol>
           {questions.map(q => (
             <li key={q.id}>
-              <p>
-                <strong>Q{q.question_number}.</strong> {q.question_text}
-              </p>
-              {q.hint && (
-                <p className="text-caption text-text-secondary italic">{q.hint}</p>
-              )}
+              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
+              {q.hint && <p className="text-caption text-text-secondary italic">{q.hint}</p>}
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
               {assessment.scoring_incomplete && q.aggregate_score === null && (
@@ -238,6 +266,105 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           ))}
         </ol>
       </section>
+    </>
+  );
+}
+
+interface SelfDirectedViewProps {
+  questions: ScoredQuestion[];
+  myAnswers: MyAnswer[];
+}
+
+function SelfDirectedView({ questions, myAnswers }: SelfDirectedViewProps) {
+  return (
+    <section>
+      <h2>Question Breakdown</h2>
+      <ol>
+        {questions.map(q => {
+          const mine = myAnswers.find(a => a.question_id === q.id);
+          return (
+            <li key={q.id}>
+              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
+              {q.hint && <p className="text-caption text-text-secondary italic">{q.hint}</p>}
+              <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
+              <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
+              {mine && <p>Your answer: {mine.answer_text}</p>}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function MyScoresSection({ questions, myAnswers }: SelfDirectedViewProps) {
+  return (
+    <section>
+      <h2>My Scores</h2>
+      <ol>
+        {questions.map(q => {
+          const mine = myAnswers.find(a => a.question_id === q.id);
+          return (
+            <li key={q.id}>
+              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
+              <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
+              {mine && <p>Your answer: {mine.answer_text}</p>}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default async function ResultsPage({ params }: ResultsPageProps) {
+  const { id: assessmentId } = await params;
+
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/auth/sign-in');
+
+  const data = await fetchResultsData(assessmentId, user.id);
+  const { assessment, questions, participantTotal, participantCompleted, isAdmin, isParticipant, myAnswers } = data;
+
+  const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
+  const revealAnswers = shouldRevealReferenceAnswers({
+    participantCompleted,
+    participantTotal,
+    aggregateScore: assessment.aggregate_score,
+    scoringIncomplete: assessment.scoring_incomplete ?? false,
+  });
+
+  return (
+    <main>
+      <h1>Assessment Results</h1>
+
+      <HeaderSection
+        assessment={assessment}
+        repoFullName={repoFullName}
+        participantTotal={participantTotal}
+        participantCompleted={participantCompleted}
+      />
+
+      {isAdmin && (
+        <AdminAggregateView
+          assessment={assessment}
+          questions={questions}
+          revealAnswers={revealAnswers}
+        />
+      )}
+
+      {!isAdmin && isParticipant && (
+        <SelfDirectedView questions={questions} myAnswers={myAnswers} />
+      )}
+
+      {isAdmin && isParticipant && (
+        <MyScoresSection questions={questions} myAnswers={myAnswers} />
+      )}
     </main>
   );
 }
