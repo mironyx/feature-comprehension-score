@@ -2,6 +2,7 @@ import type { Octokit } from '@octokit/rest';
 import { logger } from '@/lib/logger';
 import type {
   ArtefactSource,
+  DiscoverLinkedPRsParams,
   IssueContentParams,
   PRExtractionParams,
 } from '../engine/ports/artefact-source';
@@ -25,6 +26,30 @@ const DEFAULT_TEST_PATTERNS = [
 
 const MAX_FILES_FOR_CONTENT = 10;
 
+// GraphQL query for Story 19.2 — fetches cross-reference events on an issue
+// to discover PRs that close or reference it. Limited to the first 100 events
+// per issue (GitHub's per-page max).
+const CROSS_REF_QUERY = `
+  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+    repository(owner: $owner, name: $repo) {
+      issue(number: $issueNumber) {
+        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+          nodes {
+            ... on CrossReferencedEvent {
+              source {
+                ... on PullRequest {
+                  number
+                  merged
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -34,6 +59,17 @@ interface GitHubFileEntry {
   status: string;
   additions: number;
   deletions: number;
+}
+
+/** GraphQL response shape for {@link CROSS_REF_QUERY}. */
+interface CrossRefQueryResponse {
+  repository: {
+    issue: {
+      timelineItems: {
+        nodes: Array<{ source?: { number?: number; merged?: boolean } }>;
+      };
+    } | null;
+  };
 }
 
 /** Groups the owner and repo strings to avoid primitive obsession across API calls. */
@@ -95,6 +131,39 @@ export class GitHubArtefactSource implements ArtefactSource {
       params.issueNumbers.map(n => this.fetchSingleIssue(coords, n)),
     );
     return issues.filter((i): i is LinkedIssue => i !== null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Linked PR discovery (Story 19.2) — finds merged PRs that close or reference
+  // the given issues via CROSS_REFERENCED_EVENT timeline items. One GraphQL query
+  // per issue, concurrent via Promise.all. Only merged PRs are included; open and
+  // closed-unmerged PRs are filtered out. Returns deduplicated PR numbers.
+  // ---------------------------------------------------------------------------
+
+  async discoverLinkedPRs(params: DiscoverLinkedPRsParams): Promise<number[]> {
+    const perIssue = await Promise.all(
+      params.issueNumbers.map(n => this.queryCrossRefMergedPRs(params.owner, params.repo, n)),
+    );
+    return Array.from(new Set(perIssue.flat()));
+  }
+
+  // Justification: extracted from discoverLinkedPRs to keep the public method short
+  // and Promise.all-driven. Filters the timeline nodes to merged PRs only; open/closed
+  // -unmerged PRs are dropped with an info-level log (Story 19.2 AC).
+  private async queryCrossRefMergedPRs(owner: string, repo: string, issueNumber: number): Promise<number[]> {
+    const result = await this.octokit.graphql<CrossRefQueryResponse>(CROSS_REF_QUERY, { owner, repo, issueNumber });
+    const nodes = result.repository.issue?.timelineItems.nodes ?? [];
+    const merged: number[] = [];
+    for (const node of nodes) {
+      const source = node.source;
+      if (source === undefined || typeof source.number !== 'number') continue;
+      if (source.merged === true) {
+        merged.push(source.number);
+      } else {
+        logger.info({ issueNumber, prNumber: source.number }, 'discoverLinkedPRs: skipping non-merged cross-reference');
+      }
+    }
+    return merged;
   }
 
   // Justification: private helper extracted from fetchIssueContent so that the public method

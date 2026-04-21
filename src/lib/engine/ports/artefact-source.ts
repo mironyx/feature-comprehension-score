@@ -19,7 +19,16 @@ export const IssueContentParamsSchema = z.object({
 
 export type IssueContentParams = z.infer<typeof IssueContentParamsSchema>;
 
+export const DiscoverLinkedPRsParamsSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  issueNumbers: z.array(z.number().int().positive()).min(1),
+});
+
+export type DiscoverLinkedPRsParams = z.infer<typeof DiscoverLinkedPRsParamsSchema>;
+
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
   fetchIssueContent(params: IssueContentParams): Promise<LinkedIssue[]>;
+  discoverLinkedPRs(params: DiscoverLinkedPRsParams): Promise<number[]>;
 }

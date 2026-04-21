@@ -538,9 +538,10 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const repoRef = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
+  const mergedPrNumbers = await resolveMergedPrSet(source, repoRef, prNumbers, issueNumbers);
   const [raw, issueContent, organisation_context] = await Promise.all([
-    prNumbers.length > 0
-      ? source.extractFromPRs({ ...repoRef, prNumbers })
+    mergedPrNumbers.length > 0
+      ? source.extractFromPRs({ ...repoRef, prNumbers: mergedPrNumbers })
       : emptyRawArtefactSet(),
     issueNumbers.length > 0
       ? source.fetchIssueContent({ ...repoRef, issueNumbers })
@@ -549,6 +550,23 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
   ]);
   const merged = mergeIssueContent(raw, issueContent);
   return { ...merged, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(merged), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
+}
+
+// Justification: Story 19.2 (#288) — resolves the union of explicit PR numbers and
+// PRs discovered from issue cross-references, deduplicated. Kept out of extractArtefacts
+// to hold it under the 20-line budget and to isolate the discovery log at the join point.
+interface RepoRef { owner: string; repo: string }
+async function resolveMergedPrSet(
+  source: GitHubArtefactSource,
+  repoRef: RepoRef,
+  explicitPrs: number[],
+  issueNumbers: number[],
+): Promise<number[]> {
+  if (issueNumbers.length === 0) return explicitPrs;
+  const discoveredPrs = await source.discoverLinkedPRs({ ...repoRef, issueNumbers });
+  const merged = Array.from(new Set([...explicitPrs, ...discoveredPrs]));
+  logger.info({ explicitPrs, discoveredPrs, mergedPrs: merged }, 'extractArtefacts: linked PR discovery');
+  return merged;
 }
 
 // Justification: when only issue numbers are provided (no PRs), we still need a

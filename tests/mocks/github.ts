@@ -150,6 +150,43 @@ export function mockIssueComments(
 }
 
 // ---------------------------------------------------------------------------
+// GraphQL — cross-reference timeline items (Story 19.2, discoverLinkedPRs)
+// ---------------------------------------------------------------------------
+
+/** Cross-reference entry: a PR that references or closes the issue. */
+export interface MockCrossRefPR {
+  number: number;
+  merged: boolean;
+}
+
+/**
+ * Factory: mock the GitHub GraphQL endpoint for `discoverLinkedPRs`.
+ * Routes cross-reference responses by `issueNumber` variable. Any issue not
+ * present in `byIssue` resolves to an empty timeline. Non-cross-reference
+ * events in the timeline (releases, labels, etc.) return empty `source` objects.
+ */
+export function mockGraphQLCrossRefs(
+  byIssue: Record<number, MockCrossRefPR[]>,
+) {
+  return http.post('https://api.github.com/graphql', async ({ request }) => {
+    const payload = (await request.json()) as { variables?: { issueNumber?: number } };
+    const issueNumber = payload.variables?.issueNumber ?? -1;
+    const prs = byIssue[issueNumber] ?? [];
+    const nodes = prs.map((pr) => ({ source: { number: pr.number, merged: pr.merged } }));
+    return HttpResponse.json({
+      data: { repository: { issue: { timelineItems: { nodes } } } },
+    });
+  });
+}
+
+/** Factory: mock the GraphQL endpoint to return a GraphQL error payload. */
+export function mockGraphQLError(message = 'GraphQL error') {
+  return http.post('https://api.github.com/graphql', () =>
+    HttpResponse.json({ errors: [{ message }] }, { status: 200 }),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Git trees (for context file pattern resolution)
 // ---------------------------------------------------------------------------
 
