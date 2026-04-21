@@ -1,10 +1,15 @@
-# LLD — E11: Artefact Quality Scoring (epic: TBD)
+# LLD — E11: Artefact Quality Scoring (epic: #233 — CANCELLED)
+
+> **Status: Cancelled — 2026-04-18.** Deterministic signals don't need LLM evaluation; E17
+> tool-call logs provide organic quality signals. See ADR-0023 §"Artefact quality feedback"
+> and session log `2026-04-18-session-1-e11-cancellation.md`. All code reverted.
 
 ## Change Log
 
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-16 | Claude | Initial LLD covering V2 Stories 11.1 and 11.2 |
+| 2026-04-18 | Claude | Epic cancelled — design review found over-engineering. Code reverted. |
 
 ## Part A — Human-Reviewable
 

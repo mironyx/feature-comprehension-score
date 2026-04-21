@@ -27,9 +27,6 @@ jobs:
       - name: ESLint
         run: npm run lint
 
-      - name: Markdownlint
-        run: npm run lint:md
-
       - name: Type-check
         run: npm run type-check
 

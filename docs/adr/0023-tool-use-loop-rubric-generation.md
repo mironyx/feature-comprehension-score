@@ -1,7 +1,7 @@
 # ADR-0023: Tool-Use Loop for Rubric Generation
 
-- Status: Proposed
-- Date: 2026-04-16
+- Status: Accepted
+- Date: 2026-04-16 (proposed), 2026-04-21 (accepted — E17 fully shipped, PRs #263–#270)
 - Deciders: LS / Claude
 - Supersedes: N/A
 - Related: ADR-0015 (OpenRouter as LLM gateway), [V2 Epic 17](../requirements/v2-requirements.md)

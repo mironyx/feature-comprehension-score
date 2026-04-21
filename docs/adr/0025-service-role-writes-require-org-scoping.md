@@ -94,9 +94,10 @@ Exempt:
   (`orgId`). Minor boilerplate.
 - Tests must exercise the filter, not just the payload — requires mock clients to capture
   chain arguments, not only the final `update()` shape.
-- Existing service-role writes added before this ADR need auditing. Identified follow-up:
+- Existing service-role writes added before this ADR need auditing. ~~Identified follow-up:
   `retriggerRubricForAssessment` in `src/app/api/fcs/service.ts` currently performs a
-  service-role UPDATE without `org_id` scoping. Separate issue to track.
+  service-role UPDATE without `org_id` scoping.~~ Resolved in E18.2 (PR #277) — now scopes
+  by `.eq('id', assessmentId).eq('org_id', orgId)`. Full audit tracked in #278.
 
 **Neutral:**
 
