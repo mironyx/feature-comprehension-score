@@ -240,14 +240,14 @@ function validateFinalContent<T extends ZodType>(
     parsed = JSON.parse(content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return fail({ code: 'malformed_response', message: `parse error: ${msg}`, retryable: false });
+    return fail({ code: 'malformed_response', message: `parse error: ${msg}`, retryable: true });
   }
   const validation = schema.safeParse(parsed);
   if (!validation.success) {
     return fail({
       code: 'malformed_response',
       message: `schema validation failed: ${validation.error.message}`,
-      retryable: false,
+      retryable: true,
       context: { zodErrors: validation.error.issues },
     });
   }
@@ -262,7 +262,7 @@ function finalise<T extends ZodType>(
   startMs: number,
 ): LLMResult<GenerateWithToolsData<z.infer<T>>> {
   if (!msg.content) {
-    return fail({ code: 'malformed_response', message: 'empty final content', retryable: false });
+    return fail({ code: 'malformed_response', message: 'empty final content', retryable: true });
   }
   const validated = validateFinalContent(msg.content, schema);
   if (!validated.success) return validated;
@@ -300,12 +300,12 @@ export async function runToolLoop<T extends ZodType>(
       response_format: { type: 'json_object' },
     });
     const msg = resp?.choices?.[0]?.message;
-    if (!msg) return fail({ code: 'malformed_response', message: 'no assistant message', retryable: false });
+    if (!msg) return fail({ code: 'malformed_response', message: 'no assistant message', retryable: true });
     if (msg.tool_calls?.length) {
       await processToolCalls(msg, req, bounds, state, loopSignal);
       continue;
     }
     return finalise(msg, req.schema, state, resp.usage, startMs);
   }
-  return fail({ code: 'malformed_response', message: 'loop turn cap exceeded', retryable: false });
+  return fail({ code: 'malformed_response', message: 'loop turn cap exceeded', retryable: true });
 }
