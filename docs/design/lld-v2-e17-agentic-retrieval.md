@@ -15,6 +15,7 @@
 | 2026-04-19 | Claude | §17.1c sync (issue #250): loop extracted to a dedicated pure module `src/lib/engine/llm/tool-loop.ts` (adapter file became a thin delegator); internal SDK-shape types (`SdkRequest`/`SdkResponse`/`SdkAssistantMessage`/`SdkToolCallRequest`/`SdkUsage`/`ChatCallFn`) keep OpenAI types out of the loop module; decomposed `executeToolCall` into sub-helpers (`parseToolInput`, `runHandler`, `recordOutcome`, `pushToolMessage`, `breach`, `processOneToolCall`) to fit the 20-line function budget; budget check switched to predictive heuristic (`cumulativeBytes + lastBytesReturned >= maxBytes`); manual `setTimeout + AbortController` instead of `AbortSignal.timeout()` (vitest fake timers don't mock the latter) with `.unref()` so the timer does not hold the Node event loop open; turn cap `maxCalls + 2` replaces the `while (true)` sketch; message ordering corrected — assistant message pushed before tool responses (OpenAI Chat Completions requires the assistant-with-tool_calls turn to precede the matching `role:'tool'` messages). |
 | 2026-04-19 | LS / Claude | §17.1e sync (issue #246): engine emits flat observability fields (`inputTokens`, `outputTokens`, `toolCalls`, `durationMs`) via a `GenerateQuestionsData = QuestionGenerationResponse & { ... }` intersection — not the `_usage`/`_toolCalls`/`_durationMs` shape sketched in the LLD; schema reference corrected to `QuestionGenerationResponseSchema`; service reads org settings via `loadOrgRetrievalSettings` helper rather than an inline `org_config` query; service decomposed into `buildRubricTools` + `persistRubricFinalisation` helpers to keep `finaliseRubric` under the 20-line budget; `bounds` is a `Partial<ToolLoopBounds>` with only `timeoutMs` set (cost-cap → `maxExtraInputTokens` derivation not wired — deferred); `src/lib/github/tools/types.ts` now re-exports `ToolDefinition`/`ToolResult` from `@/lib/engine/llm/tools` (the adapter-local duplicate would break handler variance when composed through the engine's `GenerateWithToolsRequest`). |
 | 2026-04-19 | LS / Claude | §17.2b sync (issue #247): corrected results-page path — the FCS results page is `src/app/assessments/[id]/results/page.tsx` (no `(app)` route group) and reads the observability columns directly from Supabase via the secret server client, so no changes were required to `src/lib/api/contracts/assessment.ts` or `src/app/api/assessments/[id]/service.ts`. Component imports `ToolCallLogEntry`/`ToolCallOutcome` from `@/lib/engine/llm/tools` and narrows the `rubric_tool_calls` JSONB column at the page boundary. Warning styling uses Tailwind `text-destructive`; `iteration_limit_reached` included alongside `forbidden_path` and `budget_exhausted` in the warning set (the LLD component-behaviour bullet omitted it but the BDD specs required it). |
+| 2026-04-21 | Claude | §17.1c sync (issue #279): the original pseudocode omitted the `response_format: { type: 'json_object' }` constraint on the OpenAI Chat Completions request, diverging from the non-tool `generateStructured` path. Production observed prose output on finalisation turns after large tool results (50KB+), causing `malformed_response`. Tool-loop `chatCall` now always passes `response_format: { type: 'json_object' }`, and `SdkRequest` has an optional `response_format` field to reflect this. |
 
 ---
 
@@ -485,6 +486,14 @@ describe('listDirectory tool')
 > — no `openai` imports cross into the loop. The pseudocode below is retained as a
 > specification; the divergences are called out inline.
 
+> **Implementation note (issue #279):** the `chatCall` request must carry
+> `response_format: { type: 'json_object' }` on every turn — both the tool-requesting
+> turns and the finalisation turn. This mirrors the non-tool `generateStructured` path
+> (`client.ts:91`). Omitting it allowed the LLM to produce prose after large tool results,
+> which the schema validator then rejected as `malformed_response`. `SdkRequest` carries
+> this as an optional field (`readonly response_format?: { readonly type: 'json_object' }`)
+> so the constraint is explicit at the type boundary.
+
 **Files to modify (as built):**
 
 - `src/lib/engine/llm/client.ts` — `generateWithTools` delegates to `runToolLoop`
@@ -545,7 +554,9 @@ async generateWithTools<T>(req: GenerateWithToolsRequest<T>): Promise<...> {
   // `role:'tool'` response messages. OpenAI Chat Completions requires this order — each
   // tool_call_id must be answered by a tool message that follows the assistant turn.
   while (true) {
-    const resp = await openrouterChat({ messages, tools: req.tools.map(toOpenRouterToolDef), signal: loopSignal });
+    // `response_format: { type: 'json_object' }` is passed on every turn (issue #279) —
+    // matches generateStructured and keeps the LLM constrained to JSON after tool results.
+    const resp = await openrouterChat({ messages, tools: req.tools.map(toOpenRouterToolDef), response_format: { type: 'json_object' }, signal: loopSignal });
     if (resp.tool_calls?.length) {
       messages.push(resp.assistantMessage);
       for (const tc of resp.tool_calls) {
