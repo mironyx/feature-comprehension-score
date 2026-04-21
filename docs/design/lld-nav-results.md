@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
-| Status | Draft |
+| Version | 1.1 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-21 |
+| Revised | 2026-04-21 — Issue #296 sync |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #294 |
 
@@ -186,7 +187,11 @@ describe('My Assessments page')
 **Task:** #296
 **Stories:** 5.4, 6.3
 **Layers:** FE
-**Affected file:** `src/app/(authenticated)/organisation/page.tsx`
+**Affected files:** `src/app/(authenticated)/organisation/page.tsx`, `src/app/(authenticated)/organisation/assessment-overview-table.tsx`, `src/app/(authenticated)/organisation/load-assessments.ts`
+
+> **Implementation note (issue #296):** The table and the Supabase query were extracted into sibling
+> files rather than inlined in `page.tsx`. This keeps the page within the 25-line route-body budget
+> and lets the table component be exercised directly by isolated tests.
 
 #### HLD reference
 
@@ -205,18 +210,47 @@ The page shows `PageHeader` with title "Organisation" and two forms: `OrgContext
 
 #### Data query
 
-The page is a server component using `createServerSupabaseClient`. Query:
+The page is a server component using `createServerSupabaseClient`. The query and
+participant-count enrichment are wrapped in an exported loader in
+`load-assessments.ts`:
 
 ```typescript
-const { data: assessments } = await supabase
-  .from('assessments')
-  .select('id, type, status, feature_name, aggregate_score, created_at, repositories!inner(github_repo_name)')
-  .eq('org_id', orgId)
-  .order('created_at', { ascending: false })
-  .limit(50);
+export async function loadOrgAssessmentsOverview(
+  supabase: SupabaseClient<Database>,
+  orgId: string,
+): Promise<AssessmentListItem[]> {
+  const { data, error } = await supabase
+    .from('assessments')
+    .select(
+      'id, type, status, pr_number, feature_name, aggregate_score, conclusion, ' +
+      'config_comprehension_depth, created_at, repositories!inner(github_repo_name)',
+    )
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw new Error(`loadOrgAssessmentsOverview: ${error.message}`);
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+
+  const counts = await fetchParticipantCounts(rows.map((r) => r.id));
+  return rows.map((row) => toListItem(row, counts));
+}
 ```
 
-For participant counts, use `createSecretSupabaseClient` (same pattern as `fetchParticipantCounts` in API helpers — RLS on `assessment_participants` restricts non-admin reads to own rows only, so the admin page needs the service client for accurate totals).
+For participant counts, `fetchParticipantCounts` (in `src/app/api/assessments/helpers.ts`)
+uses `createSecretSupabaseClient` — RLS on `assessment_participants` restricts non-admin
+reads to own rows only, so the admin page needs the service client for accurate totals.
+
+> **Implementation note (issue #296):** The select list was extended to include
+> `pr_number`, `conclusion`, and `config_comprehension_depth` so the loader can reuse
+> `toListItem` and return the shared `AssessmentListItem` shape already used by
+> `/api/assessments`. Keeping one projection across surfaces avoids a second row-mapping
+> helper for the overview table.
+>
+> The loader throws on Supabase errors rather than silently returning an empty array
+> (matching the `loadOrgPromptContext` pattern) — the evaluator flagged the silent-
+> failure risk during Step 6b.
 
 #### Table columns
 
@@ -234,12 +268,34 @@ Each row links to `/assessments/[id]/results`.
 
 #### Internal decomposition
 
-No API route — server component. Extract the table into a presentational component if it exceeds 25 lines:
+No API route — server component. Two sibling modules plus a handful of private helpers:
 
 ```typescript
-// Inline in organisation/page.tsx or extracted if needed
-function AssessmentOverviewTable({ assessments, participantCounts }: Props): JSX.Element
+// load-assessments.ts
+const ROW_LIMIT = 50;
+export async function loadOrgAssessmentsOverview(
+  supabase: SupabaseClient<Database>,
+  orgId: string,
+): Promise<AssessmentListItem[]>;
+
+// assessment-overview-table.tsx
+export function AssessmentOverviewTable(
+  { assessments }: { assessments: AssessmentListItem[] },
+): JSX.Element;
+
+// Private helpers inside assessment-overview-table.tsx:
+function formatFeature(item: AssessmentListItem): string;   // feature_name || 'PR #N' || '—'
+function formatScore(score: number | null): string;         // '82%' or '—'
+function formatDate(iso: string): string;                   // ISO date slice
+function renderRow(a: AssessmentListItem): JSX.Element;
+function renderEmptyState(): JSX.Element;
 ```
+
+> **Implementation note (issue #296):** The signature was simplified from
+> `{ assessments, participantCounts }` to `{ assessments }`. Participant counts are baked
+> into each `AssessmentListItem` by `toListItem` in the loader, so the table does not
+> need a second prop. This keeps the component's props aligned with the shape returned
+> by `/api/assessments` and the My Assessments list.
 
 #### BDD specs
 
