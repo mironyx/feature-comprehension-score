@@ -41,6 +41,9 @@ Read broadly. The goal is to build a complete picture, not sample.
 - `src/types/` — Zod schemas and TypeScript types define the actual contracts.
 - `supabase/schemas/` — database schema, the persistence layer truth.
 
+**Tests as coverage indicators:**
+- Scan `tests/` and co-located `*.test.ts` files. For each story you are uncertain about, check whether a test exists that exercises the specific AC. A test that asserts "only the participant's own assessments are returned" is stronger evidence of delivery than reading the query in isolation. Conversely, a missing test for a claimed AC is a signal to read the implementation more carefully before classifying as Delivered.
+
 **Closed issues and git history:**
 - `gh issue list --state closed --limit 300 --json number,title,labels,closedAt,body` — what was delivered.
 - `git log --oneline --all` — commit history to trace what was built and when.
@@ -62,6 +65,10 @@ For each epic/story in the requirements docs, determine its actual status by cro
 | **Descoped** | Was in requirements but explicitly removed or deferred (ADR, session log, or issue close reason). |
 
 **Code is primary.** When code and docs disagree, record what the code does and flag the discrepancy. Do not silently adopt the doc version.
+
+**AC-level verification, not file-level.** For any story you are about to classify as Delivered or Partial, enumerate its acceptance criteria and check each one against the code — not just whether the relevant file exists. A page that exists but queries the wrong data scope fails an AC and is Divergent, not Partial. A route that exists but skips an auth or ownership check fails an AC. File existence is necessary but not sufficient.
+
+**Use tests to confirm intent.** Where a test exists for a story, use it to determine the *intended* behaviour, then verify the implementation matches. Where no test exists for a story classified as Delivered, note it as a gap — the story may be correct but unverified and at risk of silent regression.
 
 **Verify before reporting.** When a prior drift report or design doc claims a bug or missing code exists, **read the actual source file and check whether the problem is still present**. Code may have been fixed since the report was written. Do not parrot claims from old reports without verification. This is especially critical for findings you intend to classify as Critical or Divergent — every such finding must include a line reference to the current code that demonstrates the problem still exists. If the code has already been fixed, note it as resolved.
 
