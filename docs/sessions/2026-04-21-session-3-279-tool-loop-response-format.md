@@ -33,9 +33,9 @@ One correction recorded: the original pseudocode silently assumed the LLM would 
 
 ## Cost
 
-- **PR creation (Step 8 of `/feature-core`):** $3.99, 9 min, 1,211 in / 18,723 out / 3,834,973 cache-read / 300,947 cache-write.
-- **Final total (PR through `/feature-end`):** $7.86, 1,371 in / 35,406 out / 9,777,171 cache-read / 410,050 cache-write.
-- **Delta post-PR:** ≈$3.87 — covers CI probe fixes, LLD sync, session log, final cost query.
+- **PR creation:** $3.99, 9 min, 1,211 in / 18,723 out / 3,834,973 cache-read / 300,947 cache-write.
+- **Final total:** $9.26, 1,391 in / 41,997 out / 12,124,649 cache-read / 419,861 cache-write.
+- **Delta post-PR:** +$5.27 — extra CI cycle (MD041 fix commit + re-run + ci-probe), `/lld-sync` (reads 960-line LLD), session log, `/feature-end` orchestration.
 
 ## Cost retrospective
 

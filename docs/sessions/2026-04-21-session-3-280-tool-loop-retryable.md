@@ -72,8 +72,8 @@ lead. Own worktree: `../fcs-feat-280-tool-loop-retryable` on branch
 | Stage | Cost | Tokens (in / out) | Cache (read / write) |
 |-------|------|-------------------|----------------------|
 | PR creation | $3.9063 | 4,499 / 26,291 | 5,071,498 / 174,205 |
-| Final | $7.6326 | 4,683 / 43,748 | 10,841,890 / 275,796 |
-| Delta | +$3.7263 | +184 / +17,457 | post-PR work |
+| Final | $10.7810 | 6,566 / 65,752 | 14,875,342 / 367,342 |
+| Delta | +$6.8747 | +2,067 / +39,461 | post-PR work |
 
 Time to PR: 11 min.
 
