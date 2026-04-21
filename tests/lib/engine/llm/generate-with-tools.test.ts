@@ -1042,4 +1042,79 @@ describe('OpenRouter generateWithTools', () => {
       });
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Response format constraint (regression — #279)
+  //
+  // Bug: tool-loop.ts did not pass `response_format: { type: 'json_object' }`
+  // to chatCall(). After large tool results the LLM dropped back to prose,
+  // causing malformed_response failures in production.
+  //
+  // Contract: every chatCall invocation in the tool loop must carry the same
+  // response_format constraint that generateStructured uses (client.ts:91).
+  //
+  // Observable properties:
+  //   A. No-tool path   — the single chatCall includes response_format.
+  //   B. Multi-turn path — BOTH the initial and the finalisation chatCall
+  //      invocations include response_format.
+  // -------------------------------------------------------------------------
+
+  describe('Response format constraint (regression — #279)', () => {
+    // Property A: no-tool path — single chatCall carries response_format.
+    // [issue #279] [bug-report-21-04-26.md]
+    describe('Given the LLM returns a final JSON response immediately (no tool calls)', () => {
+      it('then chatCall is invoked with response_format: { type: "json_object" }', async () => {
+        mockOpenAI.chat.completions.create.mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(makeBaseRequest({ tools: [] }));
+
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledOnce();
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+          expect.objectContaining({ response_format: { type: 'json_object' } }),
+        );
+      });
+    });
+
+    // Property B1: multi-turn path — first (tool-requesting) chatCall carries
+    // response_format.
+    // [issue #279] [bug-report-21-04-26.md — prose returned after first tool call]
+    describe('Given the LLM makes one tool call then finalises (multi-turn)', () => {
+      it('then the first chatCall (turn 1 — tool request) includes response_format: { type: "json_object" }', async () => {
+        const tool = makeSuccessTool('readFile');
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([{ id: 'call-1', name: 'readFile', arguments: { path: 'docs/lld.md' } }]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(makeBaseRequest({ tools: [tool] }));
+
+        // Inspect the first invocation specifically
+        const firstCallArg = mockOpenAI.chat.completions.create.mock.calls[0]?.[0] as Record<string, unknown>;
+        expect(firstCallArg).toBeDefined();
+        expect(firstCallArg['response_format']).toEqual({ type: 'json_object' });
+      });
+
+      // Property B2: multi-turn path — finalisation chatCall also carries
+      // response_format. This is the turn where the LLM dropped back to prose
+      // in the production bug.
+      // [issue #279] [bug-report-21-04-26.md]
+      it('then the second chatCall (turn 2 — finalisation) includes response_format: { type: "json_object" }', async () => {
+        const tool = makeSuccessTool('readFile');
+        mockOpenAI.chat.completions.create
+          .mockResolvedValueOnce(
+            makeToolCallResponse([{ id: 'call-1', name: 'readFile', arguments: { path: 'docs/lld.md' } }]),
+          )
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        await client.generateWithTools(makeBaseRequest({ tools: [tool] }));
+
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(2);
+        // Inspect the second invocation — the finalisation turn that was producing prose
+        const secondCallArg = mockOpenAI.chat.completions.create.mock.calls[1]?.[0] as Record<string, unknown>;
+        expect(secondCallArg).toBeDefined();
+        expect(secondCallArg['response_format']).toEqual({ type: 'json_object' });
+      });
+    });
+  });
 });
