@@ -97,7 +97,7 @@ export default async function AssessmentsPage(
                   {a.feature_name ?? `Assessment ${a.id}`}
                 </Link>
                 <div className="flex items-center gap-2">
-                  {created === a.id && a.status === 'rubric_generation'
+                  {a.status === 'rubric_generation'
                     ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
                     : <StatusBadge status={a.status} />}
                   {a.status === 'rubric_failed' && a.rubric_error_code && (

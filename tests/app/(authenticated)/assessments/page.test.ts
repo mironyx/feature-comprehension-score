@@ -271,7 +271,9 @@ describe('Assessments page', () => {
       expect(rendered).toContain('"assessmentId":"new-assessment"');
     });
 
-    it('does not use PollingStatusBadge without created param', async () => {
+    // Regression test for #281 — polling was gated on ?created=<id> param;
+    // a rubric_generation row without the param fell through to static StatusBadge.
+    it('uses PollingStatusBadge for rubric_generation assessment even without created param', async () => {
       const client = makeClient({
         assessments: [
           {
@@ -289,7 +291,112 @@ describe('Assessments page', () => {
       });
       const rendered = JSON.stringify(result);
 
+      // Property A: PollingStatusBadge must be rendered for any rubric_generation row,
+      // regardless of whether ?created is present.
+      expect(rendered).toContain('"assessmentId":"a1"');
+      expect(rendered).toContain('"initialStatus":"rubric_generation"');
+    });
+
+    // Property C: multiple rubric_generation rows each get their own PollingStatusBadge.
+    it('Given multiple rubric_generation assessments, When page renders, Then each row has its own PollingStatusBadge with distinct assessmentId', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'row-1',
+            feature_name: 'Feature One',
+            status: 'rubric_generation',
+            created_at: '2026-01-01',
+          },
+          {
+            id: 'row-2',
+            feature_name: 'Feature Two',
+            status: 'rubric_generation',
+            created_at: '2026-01-02',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({}),
+      });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('"assessmentId":"row-1"');
+      expect(rendered).toContain('"assessmentId":"row-2"');
+      // Both must carry initialStatus, confirming PollingStatusBadge is used for each.
+      const matchCount = (rendered.match(/"initialStatus":"rubric_generation"/g) ?? []).length;
+      expect(matchCount).toBe(2);
+    });
+
+    // Property B: terminal-status rows render static StatusBadge, NOT PollingStatusBadge.
+    it('Given awaiting_responses assessment, When page renders, Then PollingStatusBadge is not used for that row', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'terminal-1',
+            feature_name: 'Ready Feature',
+            status: 'awaiting_responses',
+            created_at: '2026-01-01',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({}),
+      });
+      const rendered = JSON.stringify(result);
+
+      // No PollingStatusBadge props should appear for a non-rubric_generation row.
       expect(rendered).not.toContain('"initialStatus"');
+    });
+
+    it('Given rubric_failed assessment, When page renders, Then PollingStatusBadge is not used for that row', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'failed-1',
+            feature_name: 'Failed Feature',
+            status: 'rubric_failed',
+            created_at: '2026-01-01',
+            rubric_error_code: null,
+            rubric_retry_count: 0,
+            rubric_error_retryable: null,
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({}),
+      });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).not.toContain('"initialStatus"');
+    });
+
+    // Property D: the ?created param still triggers the flash message (unchanged behaviour).
+    it('Given created param is set, When page renders, Then assessment-created flash message appears', async () => {
+      const client = makeClient({
+        assessments: [
+          {
+            id: 'brand-new',
+            feature_name: 'New Feature',
+            status: 'rubric_generation',
+            created_at: '2026-01-01',
+          },
+        ],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({
+        searchParams: Promise.resolve({ created: 'brand-new' }),
+      });
+      const rendered = JSON.stringify(result);
+
+      // The flash message text must be present when ?created is supplied.
+      expect(rendered).toContain('Assessment created successfully');
     });
 
     it('shows empty message when no assessments', async () => {
