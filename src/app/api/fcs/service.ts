@@ -268,13 +268,23 @@ async function createAssessmentWithParticipants(
 
 // Justification: logArtefactSummary extracted from finaliseRubric to log artefact metadata
 // before the LLM call (#136). Not in LLD §2.4 — added for observability.
+// E19.3 (#282): logs filePaths (capped to keep entries small) and issueCount for debuggability.
+const FILE_PATHS_LOG_LIMIT = 50;
+
 function logArtefactSummary(artefacts: AssembledArtefactSet): void {
+  const allPaths = artefacts.file_contents.map((f) => f.path);
+  const truncated = allPaths.length > FILE_PATHS_LOG_LIMIT;
+  const filePaths = truncated ? allPaths.slice(0, FILE_PATHS_LOG_LIMIT) : allPaths;
+  const issueCount = artefacts.linked_issues?.length ?? 0;
   logger.info({
     fileCount: artefacts.file_contents.length,
     testFileCount: artefacts.test_files?.length ?? 0,
     artefactQuality: artefacts.artefact_quality,
     questionCount: artefacts.question_count,
     tokenBudgetApplied: artefacts.token_budget_applied,
+    filePaths,
+    ...(truncated && { filePaths_truncated: true }),
+    ...(issueCount > 0 && { issueCount }),
   }, 'Rubric generation: artefact summary');
 }
 

@@ -1,5 +1,6 @@
 // Tests for LLM logging in FCS service layer.
 // Verifies artefact summary is logged before rubric generation.
+// Enhanced logging tests added for issue #282 (E19.3).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -33,18 +34,12 @@ vi.mock('@/lib/github/client', () => ({
   createGithubClient: vi.fn(),
 }));
 
+// Shared mock for extractFromPRs — overridden per test scenario via mockResolvedValue.
+const mockExtractFromPRs = vi.fn();
+
 vi.mock('@/lib/github', () => {
   class MockGitHubArtefactSource {
-    extractFromPRs = vi.fn().mockResolvedValue({
-      artefact_type: 'pull_request',
-      pr_diff: 'diff --git a/f.ts b/f.ts',
-      file_listing: [{ path: 'f.ts', additions: 10, deletions: 2, status: 'modified' }],
-      file_contents: [
-        { path: 'f.ts', content: 'export const x = 1;' },
-        { path: 'g.ts', content: 'export const y = 2;' },
-      ],
-      test_files: [{ path: 'f.test.ts', content: 'test("x", () => {});' }],
-    });
+    extractFromPRs = mockExtractFromPRs;
   }
   return { GitHubArtefactSource: MockGitHubArtefactSource };
 });
@@ -80,6 +75,30 @@ import type { ApiContext } from '@/lib/api/context';
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
 const USER_ID = 'a0000000-0000-0000-0000-000000000001';
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+/** Baseline artefact returned by the mock GitHub source (2 files, 1 test file, no linked issues). */
+const BASE_ARTEFACT = {
+  artefact_type: 'pull_request' as const,
+  pr_diff: 'diff --git a/f.ts b/f.ts',
+  file_listing: [{ path: 'f.ts', additions: 10, deletions: 2, status: 'modified' }],
+  file_contents: [
+    { path: 'f.ts', content: 'export const x = 1;' },
+    { path: 'g.ts', content: 'export const y = 2;' },
+  ],
+  test_files: [{ path: 'f.test.ts', content: 'test("x", () => {});' }],
+};
+
+/** Build a file_contents array of length n with synthetic paths. */
+function makeFileContents(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    path: `src/file-${i}.ts`,
+    content: `export const v${i} = ${i};`,
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Mock clients
@@ -155,6 +174,38 @@ function makeMockAdminClient() {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: invoke createFcs end-to-end and wait for the async pipeline tick
+// ---------------------------------------------------------------------------
+
+async function runCreateFcs() {
+  const ctx: ApiContext = {
+    supabase: makeMockUserClient() as never,
+    adminSupabase: makeMockAdminClient() as never,
+    user: { id: USER_ID, email: 'admin@example.com' },
+  };
+  const body: FcsCreateBody = {
+    org_id: ORG_ID,
+    repository_id: REPO_ID,
+    feature_name: 'Test Feature',
+    merged_pr_numbers: [42],
+    participants: [{ github_username: 'alice' }],
+  };
+  await createFcs(ctx, body);
+  // triggerRubricGeneration runs async — give it a tick to complete
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+
+/** Returns the payload object from the artefact-summary log call, or undefined. */
+function getArtefactSummaryLogPayload(): Record<string, unknown> | undefined {
+  for (const call of mockLoggerInfo.mock.calls) {
+    if (call[1] === 'Rubric generation: artefact summary') {
+      return call[0] as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -162,29 +213,13 @@ describe('FCS service LLM logging', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
+    // Default: 2 files, 1 test file, no linked_issues
+    mockExtractFromPRs.mockResolvedValue(BASE_ARTEFACT);
   });
 
   describe('Given a valid assessment creation request', () => {
     it('then it logs the artefact summary before rubric generation', async () => {
-      const userClient = makeMockUserClient();
-      const adminClient = makeMockAdminClient();
-      const ctx: ApiContext = {
-        supabase: userClient as never,
-        adminSupabase: adminClient as never,
-        user: { id: USER_ID, email: 'admin@example.com' },
-      };
-      const body: FcsCreateBody = {
-        org_id: ORG_ID,
-        repository_id: REPO_ID,
-        feature_name: 'Test Feature',
-        merged_pr_numbers: [42],
-        participants: [{ github_username: 'alice' }],
-      };
-
-      await createFcs(ctx, body);
-
-      // triggerRubricGeneration runs async — give it a tick to complete
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await runCreateFcs();
 
       expect(mockLoggerInfo).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -196,6 +231,164 @@ describe('FCS service LLM logging', () => {
         }),
         'Rubric generation: artefact summary',
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #282 — E19.3: Enhanced artefact extraction logging
+  // -------------------------------------------------------------------------
+
+  describe('logArtefactSummary — enhanced logging', () => {
+    it('includes filePaths array in log entry', async () => {
+      // [req §19.3] filePaths sourced from file_contents.map(f => f.path)
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload).toBeDefined();
+      expect(payload).toHaveProperty('filePaths');
+    });
+
+    it('filePaths values match the file_contents paths sent to the LLM', async () => {
+      // [req §19.3] exact path values, not just presence of the array
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload?.filePaths).toEqual(['f.ts', 'g.ts']);
+    });
+
+    it('truncates filePaths at 50 entries with filePaths_truncated flag', async () => {
+      // [req §19.3] > 50 files triggers truncation to exactly 50 paths
+      const sixtyFiles = makeFileContents(60);
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        file_listing: sixtyFiles.map((f) => ({
+          path: f.path,
+          additions: 1,
+          deletions: 0,
+          status: 'added',
+        })),
+        file_contents: sixtyFiles,
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(Array.isArray(payload?.filePaths)).toBe(true);
+      expect((payload?.filePaths as unknown[]).length).toBe(50);
+    });
+
+    it('sets filePaths_truncated: true when file_contents exceeds 50 entries', async () => {
+      // [req §19.3] truncation flag must accompany the truncated list
+      const sixtyFiles = makeFileContents(60);
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        file_listing: sixtyFiles.map((f) => ({
+          path: f.path,
+          additions: 1,
+          deletions: 0,
+          status: 'added',
+        })),
+        file_contents: sixtyFiles,
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload?.filePaths_truncated).toBe(true);
+    });
+
+    it('does not set filePaths_truncated when file_contents has exactly 50 entries', async () => {
+      // [issue AC] boundary: exactly 50 files — no truncation flag
+      const fiftyFiles = makeFileContents(50);
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        file_listing: fiftyFiles.map((f) => ({
+          path: f.path,
+          additions: 1,
+          deletions: 0,
+          status: 'added',
+        })),
+        file_contents: fiftyFiles,
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload?.filePaths_truncated).toBeFalsy();
+    });
+
+    it('includes issueCount when linked_issues are present', async () => {
+      // [issue AC] issueCount = linked_issues.length when linked_issues is non-empty
+      // NOTE: req §19.3 specifies `issueNumbers` but the implementation uses `issueCount`
+      // because LinkedIssue has no `number` field — see issue #282 contradiction flag.
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        linked_issues: [
+          { title: 'Fix the thing', body: 'Body A' },
+          { title: 'Add the feature', body: 'Body B' },
+        ],
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload).toHaveProperty('issueCount');
+    });
+
+    it('issueCount equals the number of linked_issues', async () => {
+      // [issue AC] exact value check
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        linked_issues: [
+          { title: 'Fix the thing', body: 'Body A' },
+          { title: 'Add the feature', body: 'Body B' },
+        ],
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload?.issueCount).toBe(2);
+    });
+
+    it('omits issueCount when no linked_issues', async () => {
+      // [issue AC] field must be absent (not 0) when linked_issues is absent
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        // no linked_issues field
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload).not.toHaveProperty('issueCount');
+    });
+
+    it('omits issueCount when linked_issues is an empty array', async () => {
+      // [issue AC] boundary: explicitly empty array — no issues present, field omitted
+      mockExtractFromPRs.mockResolvedValue({
+        ...BASE_ARTEFACT,
+        linked_issues: [],
+      });
+
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload).not.toHaveProperty('issueCount');
+    });
+
+    it('preserves all existing log fields unchanged', async () => {
+      // [req §19.3] fileCount, testFileCount, artefactQuality, questionCount, tokenBudgetApplied
+      await runCreateFcs();
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload).toMatchObject({
+        fileCount: 2,
+        testFileCount: 1,
+        artefactQuality: 'code_and_tests',
+        questionCount: 5,
+        tokenBudgetApplied: false,
+      });
     });
   });
 });
