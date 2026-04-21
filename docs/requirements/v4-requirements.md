@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft — Complete |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-22 |
@@ -15,6 +15,8 @@
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | 2026-04-22 | LS / Claude | Initial draft — structure |
+| 0.2 | 2026-04-22 | LS / Claude | Acceptance criteria, resolved open questions |
+| 1.0 | 2026-04-22 | LS / Claude | Finalised — all open questions resolved, testability validated |
 
 ---
 
