@@ -2,8 +2,7 @@ import type { Octokit } from '@octokit/rest';
 import { logger } from '@/lib/logger';
 import type {
   ArtefactSource,
-  DiscoverLinkedPRsParams,
-  IssueContentParams,
+  IssueQueryParams,
   PRExtractionParams,
   RepoCoords,
 } from '../engine/ports/artefact-source';
@@ -120,7 +119,7 @@ export class GitHubArtefactSource implements ArtefactSource {
   // Missing or inaccessible issues surface as null and are filtered out.
   // ---------------------------------------------------------------------------
 
-  async fetchIssueContent(params: IssueContentParams): Promise<LinkedIssue[]> {
+  async fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]> {
     const coords: RepoCoords = { owner: params.owner, repo: params.repo };
     const issues = await Promise.all(
       params.issueNumbers.map(n => this.fetchSingleIssue(coords, n)),
@@ -135,7 +134,7 @@ export class GitHubArtefactSource implements ArtefactSource {
   // closed-unmerged PRs are filtered out. Returns deduplicated PR numbers.
   // ---------------------------------------------------------------------------
 
-  async discoverLinkedPRs(params: DiscoverLinkedPRsParams): Promise<number[]> {
+  async discoverLinkedPRs(params: IssueQueryParams): Promise<number[]> {
     const perIssue = await Promise.all(
       params.issueNumbers.map(n => this.queryCrossRefMergedPRs(params.owner, params.repo, n)),
     );

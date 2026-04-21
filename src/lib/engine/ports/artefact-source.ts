@@ -16,20 +16,14 @@ export const PRExtractionParamsSchema = RepoCoordsSchema.extend({
 
 export type PRExtractionParams = z.infer<typeof PRExtractionParamsSchema>;
 
-export const IssueContentParamsSchema = RepoCoordsSchema.extend({
+export const IssueQueryParamsSchema = RepoCoordsSchema.extend({
   issueNumbers: z.array(z.number().int().positive()).min(1),
 });
 
-export type IssueContentParams = z.infer<typeof IssueContentParamsSchema>;
-
-export const DiscoverLinkedPRsParamsSchema = RepoCoordsSchema.extend({
-  issueNumbers: z.array(z.number().int().positive()).min(1),
-});
-
-export type DiscoverLinkedPRsParams = z.infer<typeof DiscoverLinkedPRsParamsSchema>;
+export type IssueQueryParams = z.infer<typeof IssueQueryParamsSchema>;
 
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
-  fetchIssueContent(params: IssueContentParams): Promise<LinkedIssue[]>;
-  discoverLinkedPRs(params: DiscoverLinkedPRsParams): Promise<number[]>;
+  fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>;
+  discoverLinkedPRs(params: IssueQueryParams): Promise<number[]>;
 }
