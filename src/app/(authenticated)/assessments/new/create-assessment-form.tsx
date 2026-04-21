@@ -67,6 +67,8 @@ function parseParticipants(raw: string): { github_username: string }[] {
     .map((github_username) => ({ github_username }));
 }
 
+// Justification: extracted from validate() so we can surface the invalid tokens verbatim
+// in the error message rather than a generic "not a positive integer" line.
 function findInvalidNumbers(raw: string): string[] {
   return raw
     .split(',')

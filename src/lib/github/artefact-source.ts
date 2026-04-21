@@ -97,6 +97,9 @@ export class GitHubArtefactSource implements ArtefactSource {
     return issues.filter((i): i is LinkedIssue => i !== null);
   }
 
+  // Justification: private helper extracted from fetchIssueContent so that the public method
+  // stays short and Promise.all-driven. Missing / inaccessible issues are logged and returned
+  // as null; the caller filters them out.
   private async fetchSingleIssue(coords: RepoCoords, issueNumber: number): Promise<LinkedIssue | null> {
     try {
       const [issueResp, commentsResp] = await Promise.all([

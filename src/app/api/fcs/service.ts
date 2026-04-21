@@ -553,8 +553,9 @@ function emptyRawArtefactSet(): RawArtefactSet {
   };
 }
 
-// Merge explicit issue content with whatever linked_issues were discovered from PR bodies.
-// Dedupe by title — matches the existing mergeRawArtefacts semantics.
+// Justification: not in §Story 19.1's call graph — extracted from extractArtefacts so the
+// latter stays under the 20-line budget. Merges explicit issue content with whatever
+// linked_issues were discovered from PR bodies, dedupes by title (matches mergeRawArtefacts).
 function mergeIssueContent(raw: RawArtefactSet, issues: LinkedIssue[]): RawArtefactSet {
   if (issues.length === 0) return raw;
   const byTitle = new Map<string, LinkedIssue>();
