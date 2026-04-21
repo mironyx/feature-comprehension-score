@@ -556,6 +556,7 @@ export interface Database {
           org_id: string;
           assessment_id: string;
           issue_number: number;
+          issue_title: string;
           created_at: string;
         };
         Insert: {
@@ -563,6 +564,7 @@ export interface Database {
           org_id: string;
           assessment_id: string;
           issue_number: number;
+          issue_title: string;
           created_at?: string;
         };
         Update: {
@@ -570,6 +572,7 @@ export interface Database {
           org_id?: string;
           assessment_id?: string;
           issue_number?: number;
+          issue_title?: string;
           created_at?: string;
         };
         Relationships: [];

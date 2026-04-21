@@ -371,32 +371,70 @@ describe('POST /api/fcs — issue numbers', () => {
   // -------------------------------------------------------------------------
 
   describe('persistence', () => {
-    it('stores issue numbers in fcs_issue_sources table via RPC p_issue_sources param', async () => {
-      // [req §Story 19.1 Persistence] issue numbers go to fcs_issue_sources (separate from fcs_merged_prs)
+    it('stores issue numbers AND titles in fcs_issue_sources table via RPC p_issue_sources param', async () => {
+      // [lld §19.1 — ValidatedIssue] p_issue_sources must include issue_title, not just issue_number.
+      // Default mock returns title: 'My Issue' (line 177). Regression for issue #291.
       await callPost(BASE_BODY_WITH_ISSUES);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
         expect.objectContaining({
-          p_issue_sources: [{ issue_number: 101 }],
+          p_issue_sources: [{ issue_number: 101, issue_title: 'My Issue' }],
         }),
       );
     });
 
-    it('stores multiple issue numbers in fcs_issue_sources as separate objects', async () => {
-      // [req §Story 19.1] each issue number becomes a separate row via p_issue_sources
+    it('captures issue_title from the GitHub REST issues.get response title field', async () => {
+      // [lld §19.1 — validateIssues] issue_title must come from data.title of the issues.get call.
+      // Distinct title used to prove the value flows end-to-end, not coincidentally matched. #291
+      mockOctokit.rest.issues.get.mockResolvedValue({
+        data: { number: 101, title: 'Add dark mode toggle', body: 'some body', pull_request: undefined },
+      });
+      await callPost(BASE_BODY_WITH_ISSUES);
+      expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+        'create_fcs_assessment',
+        expect.objectContaining({
+          p_issue_sources: [{ issue_number: 101, issue_title: 'Add dark mode toggle' }],
+        }),
+      );
+    });
+
+    it('maps each issue its own title when multiple issues have distinct titles', async () => {
+      // [lld §19.1 — ValidatedIssue[]] per-issue title mapping: each row carries the title
+      // returned for that specific issue number, proving it is not collapsed to a single value.
+      mockOctokit.rest.issues.get
+        .mockResolvedValueOnce({ data: { number: 101, title: 'Implement login page', pull_request: undefined } })
+        .mockResolvedValueOnce({ data: { number: 202, title: 'Fix broken header', pull_request: undefined } });
+      const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
+      await callPost(body);
+      expect(mockAdminClient.rpc).toHaveBeenCalledWith(
+        'create_fcs_assessment',
+        expect.objectContaining({
+          p_issue_sources: expect.arrayContaining([
+            { issue_number: 101, issue_title: 'Implement login page' },
+            { issue_number: 202, issue_title: 'Fix broken header' },
+          ]),
+        }),
+      );
+    });
+
+    it('stores multiple issue numbers with their titles as separate objects', async () => {
+      // [lld §19.1] each issue number becomes a separate row via p_issue_sources; titles included
       mockOctokit.rest.issues.get.mockResolvedValue({ data: { number: 0, title: 'Issue', pull_request: undefined } });
       const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
       await callPost(body);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
         expect.objectContaining({
-          p_issue_sources: [{ issue_number: 101 }, { issue_number: 202 }],
+          p_issue_sources: [
+            { issue_number: 101, issue_title: 'Issue' },
+            { issue_number: 202, issue_title: 'Issue' },
+          ],
         }),
       );
     });
 
     it('passes empty p_issue_sources when no issue_numbers provided', async () => {
-      // [req §Story 19.1] when only PRs are provided, p_issue_sources is empty
+      // [lld §19.1] when only PRs are provided, p_issue_sources is empty (no titles either)
       await callPost(BASE_BODY_WITH_PRS);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -406,15 +444,16 @@ describe('POST /api/fcs — issue numbers', () => {
       );
     });
 
-    it('passes p_merged_prs alongside p_issue_sources when both are provided', async () => {
-      // [req §Story 19.1] both tables populated when request includes both PR and issue numbers
+    it('passes p_merged_prs alongside p_issue_sources with titles when both are provided', async () => {
+      // [lld §19.1] both tables populated when request includes both PR and issue numbers;
+      // p_issue_sources entries must include issue_title
       const body = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
       await callPost(body);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
         expect.objectContaining({
           p_merged_prs: expect.arrayContaining([expect.objectContaining({ pr_number: 42 })]),
-          p_issue_sources: [{ issue_number: 101 }],
+          p_issue_sources: [{ issue_number: 101, issue_title: 'My Issue' }],
         }),
       );
     });
