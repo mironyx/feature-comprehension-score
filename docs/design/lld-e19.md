@@ -3,8 +3,9 @@
 | Field | Value |
 |-------|-------|
 | Epic | E19 |
-| Status | Draft |
+| Status | Revised |
 | Created | 2026-04-21 |
+| Revised | 2026-04-21 | Issue #288 — port uses shared `IssueQueryParams`; `RepoCoordsSchema` as base; `resolveMergedPrSet` helper in `extractArtefacts` |
 | Requirements | `docs/requirements/v2-requirements.md` — Epic 19 |
 | HLD reference | `docs/design/v1-design.md` §C5 (Artefact Extraction), §4.2 (POST /api/fcs) |
 
@@ -226,10 +227,10 @@ async function validateIssues(
 **New function — `fetchIssueContent`** (`artefact-source.ts`):
 
 ```typescript
-async fetchIssueContent(
-  coords: RepoCoords, issueNumbers: number[],
-): Promise<LinkedIssue[]>
+async fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>
 ```
+
+> **Implementation note (issue #288):** The port now uses a params-object signature (`IssueQueryParams = RepoCoordsSchema.extend({ issueNumbers })`) instead of positional `coords, issueNumbers`. This keeps the Zod schema as the single source of truth at the port boundary and matches the sibling `PRExtractionParams` shape. `IssueQueryParams` is shared with `discoverLinkedPRs` since both methods take the same input — a set of issues on a repo.
 
 - For each issue: fetch body via `octokit.rest.issues.get`, fetch comments via `octokit.rest.issues.listComments`.
 - Map to `LinkedIssue`: `title` = issue title, `body` = issue body + `\n\n---\n\n### Comments\n\n` + joined comment bodies.
@@ -240,7 +241,7 @@ async fetchIssueContent(
 ```typescript
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
-  fetchIssueContent(owner: string, repo: string, issueNumbers: number[]): Promise<LinkedIssue[]>;
+  fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>;
 }
 ```
 
@@ -353,10 +354,10 @@ describe('CreateAssessmentForm — issue numbers', () => {
 **New method — `discoverLinkedPRs`** (`artefact-source.ts`):
 
 ```typescript
-async discoverLinkedPRs(
-  owner: string, repo: string, issueNumbers: number[],
-): Promise<number[]>
+async discoverLinkedPRs(params: IssueQueryParams): Promise<number[]>
 ```
+
+> **Implementation note (issue #288):** `discoverLinkedPRs` reuses `IssueQueryParams` (the shared schema introduced for `fetchIssueContent`) since both methods take `{ owner, repo, issueNumbers }` as input. A separate `DiscoverLinkedPRsParamsSchema` was dropped — two schemas with identical fields is duplication for no gain. The output differs (issue content vs. PR numbers) and that's already expressed by the return type.
 
 Uses `this.octokit.graphql()` to fetch cross-reference events:
 
@@ -388,19 +389,34 @@ query($owner: String!, $repo: String!, $issueNumber: Int!) {
 **Port extension** (`src/lib/engine/ports/artefact-source.ts`):
 
 ```typescript
+export const RepoCoordsSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+});
+export type RepoCoords = z.infer<typeof RepoCoordsSchema>;
+
+export const IssueQueryParamsSchema = RepoCoordsSchema.extend({
+  issueNumbers: z.array(z.number().int().positive()).min(1),
+});
+export type IssueQueryParams = z.infer<typeof IssueQueryParamsSchema>;
+
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
-  fetchIssueContent(owner: string, repo: string, issueNumbers: number[]): Promise<LinkedIssue[]>;
-  discoverLinkedPRs(owner: string, repo: string, issueNumbers: number[]): Promise<number[]>;
+  fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>;
+  discoverLinkedPRs(params: IssueQueryParams): Promise<number[]>;
 }
 ```
 
+> **Implementation note (issue #288):** `RepoCoordsSchema` is extracted as the shared base so `PRExtractionParamsSchema`, `IssueQueryParamsSchema` all `.extend()` from it. `GitHubArtefactSource` imports `RepoCoords` from the port (no local duplicate). `src/app/api/fcs/service.ts` also uses it in place of an inline `{ owner, repo }` shape.
+
 **`extractArtefacts` update** (`service.ts`):
 
-1. If `issueNumbers` provided, call `source.discoverLinkedPRs(owner, repo, issueNumbers)`.
-2. Merge discovered PRs with explicit `prNumbers`, deduplicate.
-3. Log discovered PRs at `info` level: `{ discoveredPrs, explicitPrs, mergedPrs }`.
+1. If `issueNumbers` provided, call `source.discoverLinkedPRs({ ...coords, issueNumbers })` via a private helper `resolveMergedPrSet`.
+2. Merge discovered PRs with explicit `prNumbers`, deduplicate (Set union).
+3. Log discovered PRs at `info` level: `{ explicitPrs, discoveredPrs, mergedPrs }`.
 4. Pass merged set to `source.extractFromPRs`.
+
+> **Implementation note (issue #288):** the discovery + union logic is extracted into a private helper `resolveMergedPrSet(source, coords: RepoCoords, explicitPrs, issueNumbers): Promise<number[]>` so `extractArtefacts` stays under the 20-line complexity budget and the single info-level discovery log sits at the join point.
 
 **Edge cases:**
 

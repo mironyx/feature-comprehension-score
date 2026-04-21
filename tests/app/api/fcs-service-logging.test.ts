@@ -34,12 +34,16 @@ vi.mock('@/lib/github/client', () => ({
   createGithubClient: vi.fn(),
 }));
 
-// Shared mock for extractFromPRs — overridden per test scenario via mockResolvedValue.
+// Shared mocks — overridden per test scenario via mockResolvedValue.
 const mockExtractFromPRs = vi.fn();
+const mockDiscoverLinkedPRs = vi.fn();
+const mockFetchIssueContent = vi.fn();
 
 vi.mock('@/lib/github', () => {
   class MockGitHubArtefactSource {
     extractFromPRs = mockExtractFromPRs;
+    discoverLinkedPRs = mockDiscoverLinkedPRs;
+    fetchIssueContent = mockFetchIssueContent;
   }
   return { GitHubArtefactSource: MockGitHubArtefactSource };
 });
@@ -132,6 +136,11 @@ const mockOctokit = {
         data: { id: 99001, login: 'alice' },
       }),
     },
+    issues: {
+      get: vi.fn().mockResolvedValue({
+        data: { number: 101, title: 'Epic issue', body: 'body', pull_request: undefined },
+      }),
+    },
   },
 };
 
@@ -177,7 +186,7 @@ function makeMockAdminClient() {
 // Helper: invoke createFcs end-to-end and wait for the async pipeline tick
 // ---------------------------------------------------------------------------
 
-async function runCreateFcs() {
+async function runCreateFcs(bodyOverrides: Partial<FcsCreateBody> = {}) {
   const ctx: ApiContext = {
     supabase: makeMockUserClient() as never,
     adminSupabase: makeMockAdminClient() as never,
@@ -189,6 +198,7 @@ async function runCreateFcs() {
     feature_name: 'Test Feature',
     merged_pr_numbers: [42],
     participants: [{ github_username: 'alice' }],
+    ...bodyOverrides,
   };
   await createFcs(ctx, body);
   // triggerRubricGeneration runs async — give it a tick to complete
@@ -215,6 +225,10 @@ describe('FCS service LLM logging', () => {
     vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
     // Default: 2 files, 1 test file, no linked_issues
     mockExtractFromPRs.mockResolvedValue(BASE_ARTEFACT);
+    // Default: no discovered PRs and no explicit issue content — preserves
+    // backward-compat tests that pass only merged_pr_numbers.
+    mockDiscoverLinkedPRs.mockResolvedValue([]);
+    mockFetchIssueContent.mockResolvedValue([]);
   });
 
   describe('Given a valid assessment creation request', () => {
@@ -389,6 +403,82 @@ describe('FCS service LLM logging', () => {
         questionCount: 5,
         tokenBudgetApplied: false,
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Story 19.2 (#288) — extractArtefacts wires discoverLinkedPRs into the
+  // PR extraction call and merges the discovered set with explicit PR numbers.
+  // -------------------------------------------------------------------------
+
+  describe('extractArtefacts with issue numbers — Story 19.2 (#288)', () => {
+    it('passes the union of explicit and discovered PR numbers to extractFromPRs', async () => {
+      // [req §Story 19.2] discovered PRs are merged with explicit merged_pr_numbers
+      mockDiscoverLinkedPRs.mockResolvedValue([99]);
+
+      await runCreateFcs({ merged_pr_numbers: [42], issue_numbers: [101] });
+
+      expect(mockExtractFromPRs).toHaveBeenCalledWith(
+        expect.objectContaining({ prNumbers: expect.arrayContaining([42, 99]) }),
+      );
+    });
+
+    it('deduplicates a discovered PR that is already in the explicit list', async () => {
+      // [req §Story 19.2] overlapping explicit+discovered sets → no duplicates
+      mockDiscoverLinkedPRs.mockResolvedValue([42]);
+
+      await runCreateFcs({ merged_pr_numbers: [42], issue_numbers: [101] });
+
+      const call = mockExtractFromPRs.mock.calls[0]?.[0] as { prNumbers: number[] };
+      expect(call.prNumbers).toEqual([42]);
+    });
+
+    it('invokes extractFromPRs with the discovered PR set when only issue_numbers are supplied', async () => {
+      // [req §Story 19.2] issue-only request → discovered PRs feed extractFromPRs
+      mockDiscoverLinkedPRs.mockResolvedValue([77]);
+
+      await runCreateFcs({ merged_pr_numbers: undefined, issue_numbers: [101] });
+
+      expect(mockExtractFromPRs).toHaveBeenCalledWith(
+        expect.objectContaining({ prNumbers: [77] }),
+      );
+    });
+
+    it('does not call discoverLinkedPRs when no issue_numbers are provided', async () => {
+      // [req §Story 19.2] PR-only request → no GraphQL discovery call
+      await runCreateFcs({ merged_pr_numbers: [42] });
+
+      expect(mockDiscoverLinkedPRs).not.toHaveBeenCalled();
+    });
+
+    it('logs discovered, explicit, and merged PR numbers at info', async () => {
+      // [issue AC] "Discovery results logged: discovered vs explicit vs merged set"
+      mockDiscoverLinkedPRs.mockResolvedValue([99, 100]);
+
+      await runCreateFcs({ merged_pr_numbers: [42], issue_numbers: [101] });
+
+      const discoveryLog = mockLoggerInfo.mock.calls.find(
+        (c) => c[1] === 'extractArtefacts: linked PR discovery',
+      );
+      expect(discoveryLog).toBeDefined();
+      expect(discoveryLog?.[0]).toMatchObject({
+        explicitPrs: [42],
+        discoveredPrs: [99, 100],
+        mergedPrs: expect.arrayContaining([42, 99, 100]),
+      });
+    });
+
+    it('combines issue content with PR artefacts in linked_issues', async () => {
+      // [req §Story 19.2] explicit issue content merges into the artefact set's linked_issues
+      mockDiscoverLinkedPRs.mockResolvedValue([99]);
+      mockFetchIssueContent.mockResolvedValue([
+        { title: 'Epic: checkout', body: 'Design rationale.' },
+      ]);
+
+      await runCreateFcs({ merged_pr_numbers: [42], issue_numbers: [101] });
+
+      const payload = getArtefactSummaryLogPayload();
+      expect(payload?.issueCount).toBe(1);
     });
   });
 });

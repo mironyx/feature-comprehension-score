@@ -10,6 +10,7 @@ import { logger } from '@/lib/logger';
 import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
+import type { RepoCoords } from '@/lib/engine/ports/artefact-source';
 import { generateRubric, type RubricObservability } from '@/lib/engine/pipeline';
 import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
@@ -536,19 +537,36 @@ interface ExtractArtefactsParams {
 
 async function extractArtefacts(params: ExtractArtefactsParams): Promise<AssembledArtefactSet> {
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
-  const repoRef = { owner: repoInfo.orgName, repo: repoInfo.repoName };
+  const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
+  const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, issueNumbers);
   const [raw, issueContent, organisation_context] = await Promise.all([
-    prNumbers.length > 0
-      ? source.extractFromPRs({ ...repoRef, prNumbers })
+    mergedPrNumbers.length > 0
+      ? source.extractFromPRs({ ...coords, prNumbers: mergedPrNumbers })
       : emptyRawArtefactSet(),
     issueNumbers.length > 0
-      ? source.fetchIssueContent({ ...repoRef, issueNumbers })
+      ? source.fetchIssueContent({ ...coords, issueNumbers })
       : Promise.resolve([] as LinkedIssue[]),
     loadOrgPromptContext(adminSupabase, repoInfo.orgId),
   ]);
   const merged = mergeIssueContent(raw, issueContent);
   return { ...merged, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(merged), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
+}
+
+// Justification: Story 19.2 (#288) — resolves the union of explicit PR numbers and
+// PRs discovered from issue cross-references, deduplicated. Kept out of extractArtefacts
+// to hold it under the 20-line budget and to isolate the discovery log at the join point.
+async function resolveMergedPrSet(
+  source: GitHubArtefactSource,
+  coords: RepoCoords,
+  explicitPrs: number[],
+  issueNumbers: number[],
+): Promise<number[]> {
+  if (issueNumbers.length === 0) return explicitPrs;
+  const discoveredPrs = await source.discoverLinkedPRs({ ...coords, issueNumbers });
+  const merged = Array.from(new Set([...explicitPrs, ...discoveredPrs]));
+  logger.info({ explicitPrs, discoveredPrs, mergedPrs: merged }, 'extractArtefacts: linked PR discovery');
+  return merged;
 }
 
 // Justification: when only issue numbers are provided (no PRs), we still need a
