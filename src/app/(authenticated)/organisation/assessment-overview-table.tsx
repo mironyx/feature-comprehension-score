@@ -29,10 +29,6 @@ function formatDate(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
-// Plain render helpers (not React components) so JSX output is emitted inline
-// in the parent tree — sub-components would be stripped from serialised output
-// in the test harness.
-
 function renderRow(a: AssessmentListItem) {
   return (
     <tr key={a.id} className="border-t border-border hover:bg-surface-hover">

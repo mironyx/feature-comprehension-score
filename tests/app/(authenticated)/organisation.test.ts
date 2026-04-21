@@ -69,18 +69,13 @@ vi.mock(
 );
 
 // Stub the presentational table for page-level tests; tested in isolation below.
-// The mock returns a plain marker object (rather than a pre-stringified JSON
-// string) so the outer JSON.stringify of the page tree serialises `count: N`
-// directly — otherwise the inner quotes would be escaped and the literal
-// `"count":N` substring assertion would fail.
+// Uses a string-typed named export (same pattern as next/link and the form
+// mocks above) so JSX in the page produces an element with `type: 'Assessment
+// OverviewTable'` that serialises verbatim through JSON.stringify, and the
+// assessments prop is preserved in the serialised output for assertion.
 vi.mock(
   '@/app/(authenticated)/organisation/assessment-overview-table',
-  () => ({
-    AssessmentOverviewTable: ({ assessments }: { assessments: unknown[] }) => ({
-      type: 'assessment-overview-table-mock',
-      props: { component: 'AssessmentOverviewTable', count: assessments.length },
-    }),
-  }),
+  () => ({ AssessmentOverviewTable: 'AssessmentOverviewTable' }),
 );
 
 // ---------------------------------------------------------------------------
@@ -296,8 +291,11 @@ describe('Organisation page', () => {
       );
 
       const result = await OrganisationPage();
-      // The stub renders count; 2 items were passed.
-      expect(JSON.stringify(result)).toContain('"count":2');
+      // String-typed mock preserves the `assessments` prop verbatim; assert
+      // both loaded ids reach the table.
+      const rendered = JSON.stringify(result);
+      expect(rendered).toContain('"id":"assess-001"');
+      expect(rendered).toContain('"id":"assess-002"');
     });
 
     it('calls loadOrgAssessmentsOverview with the supabase client and org id', async () => {

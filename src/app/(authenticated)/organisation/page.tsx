@@ -58,7 +58,7 @@ export default async function OrganisationPage() {
         subtitle="Manage assessments and context settings"
         action={newAssessmentAction}
       />
-      {AssessmentOverviewTable({ assessments })}
+      <AssessmentOverviewTable assessments={assessments} />
       <OrgContextForm orgId={orgId} initial={context ?? {}} />
       <RetrievalSettingsForm orgId={orgId} initial={retrievalSettings} />
     </div>
