@@ -56,6 +56,13 @@ commit. If the rebase only resolves a doc conflict (no source changes), the CI r
 the source code is identical to what already passed. The `gh run watch` cost (RC2) is then paid
 again for zero new information.
 
+### RC6: No enforced cost recording standard in session logs
+
+Session logs are written by agents with no template for the cost section. Each agent invents its
+own format; some omit the section entirely when the Prometheus query fails. Post-PR delta — the
+most actionable number — is rarely calculated explicitly. This makes it impossible to track cost
+trends across features or identify regressions in overhead without manual reconstruction.
+
 ### RC5: `PROM_PORT` not inherited in worktrees
 
 Teammates run from git worktrees. Shell env vars set in `~/.bashrc` (including `PROM_PORT=19090`)
@@ -139,6 +146,54 @@ applied at PR time and `/feature-end` time are accurate.
 **Note:** `.env.test.local` is gitignored; this is a local machine configuration, not a project
 convention. Document in `docs/runbooks/` so it survives machine rebuilds.
 
+### P7: Enforce rigorous cost recording in session logs (addresses RC5, extends it)
+
+**Current state — three failure modes observed this run:**
+
+1. **Teammate Prometheus queries failed silently** — `PROM_PORT` was not set in the worktree
+   environment; `query-feature-cost.py` fell back to `localhost:9090` (unreachable), returned no
+   data, and the teammate wrote estimated or zero-value costs into the session log. The lead had
+   to re-query post-run and correct all three logs manually.
+
+2. **Inconsistent session log cost format** — the three session logs for this run used three
+   different formats: a bullet list, a Markdown table, and a `Final feature cost` section. There
+   is no template; each teammate invented its own layout.
+
+3. **Post-PR delta not calculated** — even when both at-PR and final costs are present, the delta
+   (post-PR rework overhead) was either missing or required mental arithmetic. This is the most
+   actionable number for process improvement: it shows how much work happened *after* the code was
+   correct.
+
+**Proposed standard:**
+
+Every session log must include a `## Cost` section in this exact format:
+
+```markdown
+## Cost
+
+| Stage | Cost | Input tokens | Output tokens | Cache read | Cache write |
+|-------|-----:|-------------:|--------------:|-----------:|------------:|
+| At PR creation | $X.XX | N | N | N | N |
+| Final (post-merge) | $X.XX | N | N | N | N |
+| **Post-PR delta** | **+$X.XX** | +N | +N | — | — |
+
+**Post-PR overhead: X%** (delta / at-PR cost)
+
+Main post-PR drivers: [list from cost retrospective]
+```
+
+The `At PR creation` row comes from the PR body `Usage` section (always available).
+The `Final` row comes from `scripts/query-feature-cost.py --stage final` (requires Prometheus).
+If Prometheus is unreachable, the Final row must be marked `(Prometheus unavailable — estimate)`
+rather than silently omitted or filled with wrong values.
+
+**Enforcement:** the `/feature-end` skill Step 2 (session log) should explicitly fail if the
+`## Cost` section is missing or contains `$0.00` / empty rows. The cost query step (Step 2.5)
+must run *before* the session log is written, not after, so the numbers are available.
+
+**Impact:** cost data becomes comparable across features, queryable in retrospectives, and does
+not require post-hoc correction by the lead.
+
 ### P6: Skip `/lld-sync` for `bug`-labelled issues with no design change (addresses RC1, partial)
 
 **Current:** `/feature-end` always runs `/lld-sync`.
@@ -166,6 +221,7 @@ should still run lld-sync manually.
 | P4 Skip CI on doc rebase | ~$1.50 | Tooling |
 | P5 PROM_PORT in env | ~$0.20 | Config |
 | P6 Skip lld-sync for bugs | ~$1.00 | Process |
+| P7 Rigorous cost recording | ~$0.00 saving | Observability |
 | **Total per issue** | **~$6.70** | |
 
 On today's run that would have reduced post-PR overhead from $20 to ~$0 (actual fix cost
@@ -181,10 +237,12 @@ remaining: `/feature-end` orchestration, session log, final cost query — unavo
 | 2 | P2: Replace `gh run watch` with polling | Low — change one command | High — every CI run | RC2 |
 | 3 | P6: Skip lld-sync for bug fixes | Low — add label check | Medium — bug fixes only | RC1 |
 | 4 | P4: `[skip ci]` for doc rebase commits | Low — add diff check | Medium — parallel runs | RC4 |
-| 5 | P5: `PROM_PORT` in `.env.test.local` | Trivial | Low — cost accuracy | RC5 |
-| 6 | P1: Split LLD by story | Medium — convention change | High — grows over time | RC1 |
+| 5 | P7: Enforce cost section template in session logs | Low — add template + validation | High — observability | RC6 |
+| 6 | P5: `PROM_PORT` in `.env.test.local` | Trivial | Low — prerequisite for P7 | RC5 |
+| 7 | P1: Split LLD by story | Medium — convention change | High — grows over time | RC1 |
 
-P1–P5 are all low-effort. P6 (LLD split) is a longer-term structural change.
+P2–P6 are all low-effort and could ship in a single session. P7 (LLD split) is the only
+structural change requiring design thought.
 
 ---
 
