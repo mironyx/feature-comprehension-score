@@ -13,6 +13,7 @@
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #274, PR #276): updated §18.3 to reflect `updateProgress` signature change (added `orgId` for tenant-scoping), `pendingWrites` flush pattern replacing fire-and-forget void, and LLD-deviation helpers (`makeToolCallProgressHandler`, `extractArtefacts`, `toSnapshot`). |
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #272, PR #275): §18.1 — `markRubricFailed` now takes `orgId` (ADR-0025) and clears `rubric_progress` via `buildFailureUpdate`; helper renamed `extractLlmError` → `toFailureDetails`; `malformed_response` warn log carries `LLMError` fields instead of raw response shape. |
 | 2026-04-21 | LS / Claude | Post-implementation sync (issue #273, PR #277): §18.2 — initial assessment SELECT switched from `ctx.adminSupabase` to `ctx.supabase` (RLS-scoped) to prevent cross-org existence leaks; `retriggerRubricForAssessment` update now scoped by both `id` and `org_id` (ADR-0025); private helpers `buildRetryResetUpdate` and `getDisabledReason` extracted to keep callers under the 20-line body budget (with `// Justification:` comments); error-display format deviated from the inline `Failed: malformed_response` example — rendered as two adjacent elements (`<StatusBadge>` + error-code span) to avoid hard-coding literal text in the badge; added exported constant `MAX_RUBRIC_RETRIES = 3` in `src/app/api/fcs/service.ts`. |
+| 2026-04-21 | LS / Claude | Post-implementation sync (issue #281, PR #284): §18.3 — added explicit activation rule for `PollingStatusBadge` on the list page. The initial implementation gated polling on `?created=<id>` matching the row id, which broke polling on any subsequent visit (navigation, refresh, restart) and after retry. Gate reduced to `status === 'rubric_generation'`. |
 
 ---
 
@@ -706,6 +707,12 @@ const PROGRESS_LABELS: Record<string, string> = {
 #### Stale detection (client-side)
 
 In `PollingStatusBadge`, compare `rubric_progress_updated_at` against `Date.now()`. If older than 240 seconds, show warning: "Generation may be stalled — consider retrying". Warning is removed when status transitions to a terminal state.
+
+#### PollingStatusBadge activation rule (list page)
+
+On `src/app/(authenticated)/assessments/page.tsx`, any row with `status === 'rubric_generation'` renders `PollingStatusBadge`. The `?created=<id>` query param is used only for the post-creation flash message — it does not gate polling.
+
+> **Implementation note (issue #281):** the initial implementation gated polling on `created === a.id && a.status === 'rubric_generation'`. After any navigation, refresh, or app restart the `?created` param was gone, so all in-progress rows fell through to the static `StatusBadge` and never polled. The gate was reduced to `a.status === 'rubric_generation'` so polling activates for any row the pipeline is working on — including retry-initiated generation (where `?created` is never set) and concurrent assessments.
 
 ### BDD specs
 
