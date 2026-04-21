@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-21 |
-| Revised | 2026-04-21 — Issue #296 sync |
+| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issue #297 sync |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #294 |
 
@@ -341,7 +341,9 @@ Expose these to the page component (currently used only for the 404 guard).
 
 #### Self-view data: participant's own scores
 
-New query in `fetchResultsData` (only when `isParticipant`):
+New query in `fetchResultsData` (only when `isParticipant`). The caller passes the viewer's own
+`participant_id` (from `participationResult.data.id`) into the helper so the query stays tight
+regardless of which RLS policy admits the rows:
 
 ```typescript
 // Use the user's own session (RLS enforced) — NOT adminSupabase
@@ -350,11 +352,19 @@ const { data: myAnswers } = await userSupabase
   .from('participant_answers')
   .select('question_id, answer_text, score, score_rationale')
   .eq('assessment_id', assessmentId)
+  .eq('participant_id', participantId)    // defence-in-depth vs OR'd admin RLS
   .eq('is_reassessment', false)
   .order('created_at', { ascending: true });
 ```
 
-RLS policy `answers_select_own` ensures this returns only the authenticated user's answers. No admin client needed — this enforces invariant I4.
+> **Implementation note (issue #297):** The original spec relied on `answers_select_own` alone
+> to restrict rows to the authenticated user. In practice `policies.sql` OR's `answers_select_own`
+> with `answers_select_admin`, so an admin-who-is-also-a-participant viewer would have received
+> every participant's answers; `MyScoresSection`'s `.find(a => a.question_id === q.id)` would
+> then have rendered an arbitrary match as "Your score"/"Your answer" — a correctness bug and a
+> cross-participant data leak. The explicit `.eq('participant_id', participantId)` filter makes
+> the helper correct regardless of which RLS policy admits the rows. This still satisfies
+> invariant I4 (no admin client used).
 
 #### Contract types
 
@@ -408,15 +418,28 @@ For each question:
 
 #### Internal decomposition
 
-Extract view sections into helper components if the page exceeds complexity budget:
+View sections are presentational — no data fetching, no side effects:
 
 ```typescript
-function AdminAggregateView({ questions, assessment, revealAnswers, ... }: Props): JSX.Element
-function SelfDirectedView({ questions, myAnswers }: Props): JSX.Element
-function MyScoresSection({ questions, myAnswers }: Props): JSX.Element
+function HeaderSection({ assessment, repoFullName, participantTotal, participantCompleted })
+function AdminAggregateView({ assessment, questions, revealAnswers })
+function SelfDirectedView({ questions, myAnswers })
+function MyScoresSection({ questions, myAnswers })
 ```
 
-These are presentational — no data fetching, no side effects.
+Data-fetching and formatting helpers:
+
+```typescript
+async function fetchMyAnswers(assessmentId: string, participantId: string): Promise<MyAnswer[]>
+function toPercent(score: number | null): string       // aggregate scores
+function toDecimalScore(score: number | null): string  // participant self-view scores (0.0–1.0)
+function formatDate(iso: string): string
+```
+
+> **Implementation note (issue #297):** `HeaderSection` was extracted so the shared page
+> header (feature name, repo, date, participant completion, depth badge) is rendered once
+> across all three role branches. `toDecimalScore` complements `toPercent` because Story 3.4
+> requires own scores in `0.00`–`1.00` form while aggregate scores stay in percentage form.
 
 #### BDD specs
 
