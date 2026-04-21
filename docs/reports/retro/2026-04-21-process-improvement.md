@@ -259,3 +259,11 @@ structural change requiring design thought.
 
 3. **CI polling interval** — 30 s keeps the agent responsive; 60 s halves the polling calls.
    Given the CI suite runs ~5–6 min, the difference is 5–6 vs. 10–12 polls. Either is fine.
+
+4. **Lightweight mode for trivial tasks** — the full `/feature-core` pipeline (TDD, `/lld-sync`,
+   `/pr-review-v2`, feature-evaluator, session log) is designed for multi-file features. For
+   trivial changes — a one-line logging improvement, a config tweak, a typo fix — the ceremony
+   costs more than the code. Example: a simple logging improvement cost ~$4, where the actual
+   code change was worth ~$0.50. We need a "fast path" that skips expensive steps (evaluator,
+   lld-sync, multi-agent review) for issues below a complexity threshold. Possible trigger:
+   a `trivial` label, or automatic detection when the diff is < ~20 lines and touches ≤ 2 files.
