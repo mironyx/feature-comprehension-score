@@ -7,6 +7,7 @@
 | Created | 2026-04-21 |
 | Revised | 2026-04-21 | Issue #288 — port uses shared `IssueQueryParams`; `RepoCoordsSchema` as base; `resolveMergedPrSet` helper in `extractArtefacts` |
 | Revised | 2026-04-21 | Issue #291 — implementation realigned with §19.1 spec: `validateIssues` now returns `ValidatedIssue[]`; `fcs_issue_sources.issue_title` added (was specified in §19.1 but dropped from initial implementation) |
+| Revised | 2026-04-21 | Issue #282 — §19.3 Part A AC corrected: `issueNumbers` → `issueCount` (scalar); `LinkedIssue` lacks `number` field so list form was not implementable in scope |
 | Requirements | `docs/requirements/v2-requirements.md` — Epic 19 |
 | HLD reference | `docs/design/v1-design.md` §C5 (Artefact Extraction), §4.2 (POST /api/fcs) |
 
@@ -126,7 +127,7 @@ Consolidated from requirements (Stories 19.1, 19.2, 19.3) plus the missing front
 **Story 19.3 — Enhanced artefact extraction logging (#282):**
 
 - `logArtefactSummary` includes `filePaths` field (from `file_contents`)
-- `logArtefactSummary` includes `issueNumbers` field when issues present
+- `logArtefactSummary` includes `issueCount` field (scalar) when issues present
 - Existing log fields preserved unchanged
 - File paths truncated at 50 entries with `filePaths_truncated: true`
 
@@ -473,6 +474,8 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
 ```
 
 Note: `issueNumbers` (the actual numbers) are not available in `AssembledArtefactSet` — only `linked_issues` titles/bodies. The log will include `issueCount`. If the caller (19.1) needs to log specific issue numbers, that should happen at the `extractArtefacts` call site, not in `logArtefactSummary`.
+
+> **Implementation note (issue #282):** Part A AC originally said `issueNumbers` (a list). The implementation uses `issueCount` (scalar) because `LinkedIssue` has only `{title, body}` — no `number` field — so `issueNumbers` would require a type-model change outside scope. Additionally, `linked_issues.length` covers both explicit and PR-discovered issues; `issueNumbers` would only cover explicit ones. Part A AC updated to reflect `issueCount`. The magic number `50` is extracted into a named constant `FILE_PATHS_LOG_LIMIT` for clarity.
 
 #### BDD specs — Story 19.3
 
