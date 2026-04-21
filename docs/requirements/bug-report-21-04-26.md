@@ -1,3 +1,5 @@
+# Bug report — 2026-04-21: malformed_response on tool-use assessments
+
 [09:55:55.787] INFO (fcs/19004): pipeline: extracting artefacts
     assessmentId: "5ab898a4-791b-469f-94c2-d2eac04d54df"
     orgId: "271f61a8-12a8-4b76-ae39-547c3e03de23"
