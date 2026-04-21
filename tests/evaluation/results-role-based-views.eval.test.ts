@@ -183,11 +183,14 @@ function makeServerClient(opts: ServerClientOptions) {
     },
     from: vi.fn((table: string) => {
       if (table === 'participant_answers') {
+        // Chain: .eq('assessment_id').eq('participant_id').eq('is_reassessment').order(...)
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
+                eq: vi.fn().mockReturnValue({
+                  order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
+                }),
               }),
             }),
           }),

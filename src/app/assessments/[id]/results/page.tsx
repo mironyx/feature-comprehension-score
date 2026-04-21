@@ -109,13 +109,14 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
   }
 
   const isAdmin = (orgMembershipResult.data as { github_role: string } | null)?.github_role === 'admin';
-  const isParticipant = !!participationResult.data;
+  const participationId = (participationResult.data as { id: string } | null)?.id ?? null;
+  const isParticipant = participationId !== null;
 
   if (!isAdmin && !isParticipant) notFound();
 
   const questions = (questionsResult.data ?? []) as ScoredQuestion[];
   const allParticipants = (participantsResult.data ?? []) as { id: string; status: string }[];
-  const myAnswers = isParticipant ? await fetchMyAnswers(assessmentId) : [];
+  const myAnswers = participationId ? await fetchMyAnswers(assessmentId, participationId) : [];
 
   return {
     assessment,
@@ -129,13 +130,16 @@ async function fetchResultsData(assessmentId: string, userId: string): Promise<R
 }
 
 // Invariant I4: query the participant's own answers via the user-scoped client so RLS
-// restricts the result set to the authenticated user. Never use the admin/secret client.
-async function fetchMyAnswers(assessmentId: string): Promise<MyAnswer[]> {
+// restricts the result set to the authenticated user. The explicit participant_id
+// filter also defends against the OR'd admin RLS policy leaking other participants'
+// rows to an admin-who-is-also-a-participant viewer.
+async function fetchMyAnswers(assessmentId: string, participantId: string): Promise<MyAnswer[]> {
   const userSupabase = await createServerSupabaseClient();
   const { data, error } = await userSupabase
     .from('participant_answers')
     .select('question_id, answer_text, score, score_rationale')
     .eq('assessment_id', assessmentId)
+    .eq('participant_id', participantId)
     .eq('is_reassessment', false)
     .order('created_at', { ascending: true });
   if (error) {

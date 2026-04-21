@@ -206,11 +206,14 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
     },
     from: vi.fn((table: string) => {
       if (table === 'participant_answers') {
+        // Chain: .eq('assessment_id').eq('participant_id').eq('is_reassessment').order(...)
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
+                eq: vi.fn().mockReturnValue({
+                  order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
+                }),
               }),
             }),
           }),
@@ -798,6 +801,58 @@ describe('FCS results page', () => {
         (c: unknown[]) => c[0],
       );
       expect(secretFromCalls).not.toContain('participant_answers');
+    });
+
+    // Property 14 [lld §3 I4, security]: participant_answers query must include an
+    // explicit `.eq('participant_id', <own id>)` filter. RLS alone is not enough:
+    // `answers_select_admin` is OR'd with `answers_select_own`, so an admin-who-is-also-
+    // a-participant viewer would otherwise receive every participant's answers for
+    // the assessment.
+    it('filters participant_answers by the viewer\'s own participant_id', async () => {
+      const Q1 = makeQuestion(1);
+      const PARTICIPATION_ID = 'part-own-001';
+
+      const secretOpts: SecretClientOptions = {
+        assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+        orgMembership: { github_role: 'admin' },
+        participation: { id: PARTICIPATION_ID },
+        questions: [Q1],
+        participants: [makeParticipant('submitted')],
+      };
+
+      // Spy-capable mock: record every (column, value) pair passed to .eq().
+      const eqCalls: Array<[string, unknown]> = [];
+      const orderSpy = vi.fn().mockResolvedValue({ data: [makeMyAnswer(Q1.id)], error: null });
+      const makeEqChain = (): { eq: ReturnType<typeof vi.fn>; order: ReturnType<typeof vi.fn> } => {
+        const chain = {
+          eq: vi.fn((col: string, val: unknown) => {
+            eqCalls.push([col, val]);
+            return chain;
+          }),
+          order: orderSpy,
+        };
+        return chain;
+      };
+
+      const serverClientMock = {
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user: AUTHED_USER }, error: null }),
+        },
+        from: vi.fn((table: string) => {
+          if (table === 'participant_answers') {
+            return { select: vi.fn().mockReturnValue(makeEqChain()) };
+          }
+          return {};
+        }),
+      };
+
+      mockCreateServer.mockResolvedValue(serverClientMock as never);
+      mockCreateSecret.mockReturnValue(makeSecretClient(secretOpts) as never);
+
+      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      await ResultsPage({ params: makeParams() });
+
+      expect(eqCalls).toContainEqual(['participant_id', PARTICIPATION_ID]);
     });
   });
 });
