@@ -643,8 +643,8 @@ export async function retriggerRubricForAssessment(
   if (error) throw new ApiError(500, 'Failed to reset assessment status');
   const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
   const [{ data: prs }, { data: issues }] = await Promise.all([
-    adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId),
-    adminSupabase.from('fcs_issue_sources').select('issue_number').eq('assessment_id', assessmentId),
+    adminSupabase.from('fcs_merged_prs').select('pr_number').eq('assessment_id', assessmentId).eq('org_id', orgId),
+    adminSupabase.from('fcs_issue_sources').select('issue_number').eq('assessment_id', assessmentId).eq('org_id', orgId),
   ]);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
   const issueNumbers = (issues ?? []).map((i: { issue_number: number }) => i.issue_number);
