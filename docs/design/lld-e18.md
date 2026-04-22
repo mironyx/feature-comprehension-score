@@ -14,6 +14,7 @@
 | 2026-04-20 | LS / Claude | Post-implementation sync (issue #272, PR #275): §18.1 — `markRubricFailed` now takes `orgId` (ADR-0025) and clears `rubric_progress` via `buildFailureUpdate`; helper renamed `extractLlmError` → `toFailureDetails`; `malformed_response` warn log carries `LLMError` fields instead of raw response shape. |
 | 2026-04-21 | LS / Claude | Post-implementation sync (issue #273, PR #277): §18.2 — initial assessment SELECT switched from `ctx.adminSupabase` to `ctx.supabase` (RLS-scoped) to prevent cross-org existence leaks; `retriggerRubricForAssessment` update now scoped by both `id` and `org_id` (ADR-0025); private helpers `buildRetryResetUpdate` and `getDisabledReason` extracted to keep callers under the 20-line body budget (with `// Justification:` comments); error-display format deviated from the inline `Failed: malformed_response` example — rendered as two adjacent elements (`<StatusBadge>` + error-code span) to avoid hard-coding literal text in the badge; added exported constant `MAX_RUBRIC_RETRIES = 3` in `src/app/api/fcs/service.ts`. |
 | 2026-04-21 | LS / Claude | Post-implementation sync (issue #281, PR #284): §18.3 — added explicit activation rule for `PollingStatusBadge` on the list page. The initial implementation gated polling on `?created=<id>` matching the row id, which broke polling on any subsequent visit (navigation, refresh, restart) and after retry. Gate reduced to `status === 'rubric_generation'`. |
+| 2026-04-22 | LS / Claude | Post-implementation sync (issue #304, PR #305): §18.3 — added creation-page inline progress UX. The LLD originally specified redirect-to-list after creation (line 713). Issue #304 changed this: the form now stays on `/assessments/new` and renders a `CreationProgress` sub-component inline, reusing `PollingStatusBadge` and `useStatusPoll`. Three-state rendering: in-progress (polling badge), success (`awaiting_responses` → link to assessment detail), failure (`rubric_failed` → link to list). |
 
 ---
 
@@ -713,6 +714,20 @@ In `PollingStatusBadge`, compare `rubric_progress_updated_at` against `Date.now(
 On `src/app/(authenticated)/assessments/page.tsx`, any row with `status === 'rubric_generation'` renders `PollingStatusBadge`. The `?created=<id>` query param is used only for the post-creation flash message — it does not gate polling.
 
 > **Implementation note (issue #281):** the initial implementation gated polling on `created === a.id && a.status === 'rubric_generation'`. After any navigation, refresh, or app restart the `?created` param was gone, so all in-progress rows fell through to the static `StatusBadge` and never polled. The gate was reduced to `a.status === 'rubric_generation'` so polling activates for any row the pipeline is working on — including retry-initiated generation (where `?created` is never set) and concurrent assessments.
+
+#### Creation-page inline progress (issue #304)
+
+After a successful POST to `/api/fcs`, the creation form (`create-assessment-form.tsx`) no longer redirects to the assessments list. Instead, it sets a `created` state (`CreationResult { assessmentId, featureName }`) and renders a `CreationProgress` sub-component inline on `/assessments/new`.
+
+`CreationProgress` reuses `useStatusPoll(assessmentId, 'rubric_generation')` and `PollingStatusBadge` directly. Three-state rendering:
+
+| `status` value | Renders |
+|---|---|
+| `rubric_generation` (in-progress) | Assessment name + `PollingStatusBadge` + link to assessments list |
+| `awaiting_responses` (success) | Success message + `<Link href={/assessments/${assessmentId}}>` to assessment detail |
+| `rubric_failed` (failure) | Failure message + `<Link href="/assessments">` to assessments list |
+
+> **Implementation note (issue #304):** the LLD originally documented redirect-and-poll-on-list as intentional (line 713 above). Issue #304 specified "fire and monitor" instead of "fire and redirect" — the admin stays on the creation page and sees progress inline. The `router.push` call and `useRouter` import were removed entirely. The `CreationProgress` component is co-located as a private sub-component in `create-assessment-form.tsx`, not extracted to its own file, because it is only used in this one context.
 
 ### BDD specs
 
