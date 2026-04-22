@@ -12,6 +12,7 @@ import type { Database } from '@/lib/supabase/types';
 import type { ToolCallLogEntry } from '@/lib/engine/llm/tools';
 import { logger } from '@/lib/logger';
 import RetrievalDetailsCard from '@/components/assessment/RetrievalDetailsCard';
+import { FormattedText } from '@/components/ui/formatted-text';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -263,7 +264,7 @@ function AdminAggregateView({ assessment, questions, revealAnswers }: AdminAggre
               {revealAnswers && (
                 <details>
                   <summary>Reference answer</summary>
-                  <p>{q.reference_answer}</p>
+                  <FormattedText content={q.reference_answer} />
                 </details>
               )}
             </li>
@@ -292,7 +293,12 @@ function SelfDirectedView({ questions, myAnswers }: SelfDirectedViewProps) {
               {q.hint && <p className="text-caption text-text-secondary italic">{q.hint}</p>}
               <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
               <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
-              {mine && <p>Your answer: {mine.answer_text}</p>}
+              {mine && (
+                <>
+                  <p>Your answer:</p>
+                  <FormattedText content={mine.answer_text} className="text-text-secondary" />
+                </>
+              )}
             </li>
           );
         })}
@@ -312,7 +318,12 @@ function MyScoresSection({ questions, myAnswers }: SelfDirectedViewProps) {
             <li key={q.id}>
               <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
               <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
-              {mine && <p>Your answer: {mine.answer_text}</p>}
+              {mine && (
+                <>
+                  <p>Your answer:</p>
+                  <FormattedText content={mine.answer_text} className="text-text-secondary" />
+                </>
+              )}
             </li>
           );
         })}
