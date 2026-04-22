@@ -27,16 +27,16 @@
 
 ## Next steps
 
-- Human reviews PR #305
-- After approval, run `/feature-end` to merge
-- LLD updated; no further `/lld-sync` needed
+- PR #305 merged and issue #304 closed
+- LLD synced; no further updates needed
 
 ## Cost retrospective
 
 ### Cost summary
 
 - **PR-creation cost:** $6.9959
-- **Final cost:** TBD (will be populated by cost query)
+- **Final cost:** $10.4033 (1,400 input / 72,351 output / 11.7M cache-read / 703K cache-write)
+- **Post-PR overhead:** $3.41 (lld-sync, session log, feature-end merge workflow)
 
 ### Cost drivers
 
