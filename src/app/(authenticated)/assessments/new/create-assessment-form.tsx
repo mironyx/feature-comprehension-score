@@ -205,8 +205,8 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         if (prs.length > 0) payload.merged_pr_numbers = prs;
         if (issues.length > 0) payload.issue_numbers = issues;
         const result = await postAssessment(payload);
-        if (result.error) { setErrors([result.error]); return; }
-        setCreated({ assessmentId: result.assessmentId!, featureName: form.featureName.trim() });
+        if (result.error || !result.assessmentId) { setErrors([result.error ?? 'Missing assessment ID in response.']); return; }
+        setCreated({ assessmentId: result.assessmentId, featureName: form.featureName.trim() });
       } catch (err) {
         console.error('CreateAssessmentForm: submit failed:', err);
         setErrors(['Network error. Please try again.']);
