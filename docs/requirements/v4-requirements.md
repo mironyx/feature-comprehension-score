@@ -183,6 +183,7 @@ The union of both strategies is deduplicated by issue number.
 **Logging:**
 
 - Given child issues are discovered, when the artefact summary is logged, then the log entry includes `childIssueCount`, `childIssueNumbers`, and `discoveryMechanism` (one of `sub_issues`, `task_list`, or `both`) fields.
+- Given no child issues are discovered, when the artefact summary is logged, then `childIssueCount` is `0` and `discoveryMechanism` is omitted from the log entry.
 
 **Notes:** The `ArtefactSource` port gains a new method `discoverChildIssues(params: IssueQueryParams): Promise<number[]>` (or the existing interface is extended). The GraphQL query should batch-fetch sub-issues for all provided issue numbers in a single request where possible. Task list parsing operates on issue body text already fetched by `fetchIssueContent`.
 
@@ -241,7 +242,7 @@ This story extends `resolveMergedPrSet` to include child-issue-discovered PRs in
 
 **Token budget:**
 
-- Given the combined issue content (epic + children) exceeds the token budget, when truncation applies, then child issue comments are truncated before child issue bodies, and child issue bodies are truncated before the epic body. The truncation order preserves the highest-context content.
+- Given the combined issue content (epic + children) exceeds the token budget, when truncation applies, then child issue comments are truncated before child issue bodies, and child issue bodies are truncated before the epic body. The truncation order preserves the highest-context content. (Note: token budgeting is defined but not yet active — this AC applies when it is enabled.)
 
 **Artefact quality classification:**
 
