@@ -1,10 +1,9 @@
-# Question Generation Quality & Epic-Aware Discovery — V4 Requirements
-## Document Control
+# Question Generation Quality & Epic-Aware Discovery — V4 Requirements## Document Control
 
 | Field | Value |
 |-------|-------|
-| Version | 1.1 |
-| Status | Draft — Complete |
+| Version | 2.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-22 |
@@ -17,6 +16,7 @@
 | 0.2 | 2026-04-22 | LS / Claude | Acceptance criteria, resolved open questions |
 | 1.0 | 2026-04-22 | LS / Claude | Finalised — all open questions resolved, testability validated |
 | 1.1 | 2026-04-22 | LS / Claude | Added Epic 2: Epic-Aware Artefact Discovery. Extends V2 Epic 19 to traverse child issues from epics (sub-issues + task list references). Gradual GraphQL adoption. Resolved OQ-3 (union both, deduplicated) and OQ-4 (always attempt discovery). |
+| 2.0 | 2026-04-22 | LS / Claude | Finalised. Added reliability note for task list parsing — sub-issues are reliable path, task list is best-effort, manual workaround always available. |
 
 ---
 
@@ -186,6 +186,8 @@ The union of both strategies is deduplicated by issue number.
 - Given no child issues are discovered, when the artefact summary is logged, then `childIssueCount` is `0` and `discoveryMechanism` is omitted from the log entry.
 
 **Notes:** The `ArtefactSource` port gains a new method `discoverChildIssues(params: IssueQueryParams): Promise<number[]>` (or the existing interface is extended). The GraphQL query should batch-fetch sub-issues for all provided issue numbers in a single request where possible. Task list parsing operates on issue body text already fetched by `fetchIssueContent`.
+
+**Reliability note:** Sub-issues (native API) are the reliable discovery path. Task list parsing is best-effort — it handles the standard GitHub checkbox format but not every variation (numbered lists, plain links, non-standard formatting). The admin always has a manual workaround: provide child issue numbers or PR numbers explicitly in the assessment creation request. Smarter discovery (e.g. agentic retrieval, V2 Epic 17) is the future path for handling non-standard formats.
 
 ### Story 2.2: Feed child issue PRs into artefact extraction
 
