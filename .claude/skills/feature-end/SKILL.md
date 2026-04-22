@@ -170,6 +170,9 @@ COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-$ISS
 echo "$COST_OUTPUT"
 ```
 
+**If the command runs as a background task**, use the **Read tool** to read the output file —
+never `cat`, which can silently produce empty output on some platforms.
+
 Post the output as a PR comment:
 
 ```bash

@@ -1,6 +1,6 @@
 ---
 name: feature-core
-description: Core implementation cycle: read design, TDD, verify, silent-swallow check, diagnostics, commit, PR, CI probe, review, report. Called by /feature and /feature-team skills after branch setup.
+description: Core implementation cycle: read design, TDD, verify, diagnostics, commit, PR, CI probe, review, report. Called by /feature and /feature-team skills after branch setup.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -105,8 +105,14 @@ to make the tests pass.
 - If a test is uncompilable because a type is wrong, fix the test's type annotation but
   keep the assertion identical.
 
-Run `npx vitest run <test-file>` after each small increment. Continue until all tests
-in the file pass.
+Run only the target test file after each increment — **never the full suite here:**
+
+```bash
+npx vitest run <test-file>
+```
+
+The full suite runs once in Step 5. Running it here on every edit is the single largest
+token waste in the pipeline.
 
 #### Step 4d: Self-check coverage before Step 5
 
@@ -117,14 +123,15 @@ into the sub-agent's prompt).
 
 ### Step 5: Full verification
 
-Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
+Run all checks in a **single Bash call**. All must pass — zero failures, including
+integration tests — before proceeding.
 
 ```bash
-npx vitest run                                   # full suite — unit + integration, not just new tests
-npx tsc --noEmit                                 # no type errors
-npm run lint                                     # no lint errors
-npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5   # no markdown lint errors
+npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5
 ```
+
+**One command, one turn.** Do not split these into separate Bash calls — each call adds
+a full context round-trip (cache-write + cache-read of the entire conversation so far).
 
 **Run the full suite, not just the test files you wrote.** `npx vitest run` with no filter runs
 every test in the repo. If you see pre-existing failures, they are your problem — fix them.
@@ -143,16 +150,6 @@ NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
 ```
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
-
-### Step 5b: Silent-swallow check (blocking gate)
-
-Before proceeding, grep for catch blocks that swallow errors without logging or user feedback:
-
-```bash
-grep -rn "catch" src/ --include="*.ts" | grep -v "logger\.\|console\.\|setError\|throw\|// fire-and-forget"
-```
-
-Any match must be resolved — add logging, surface the error, or add a `// fire-and-forget` justification comment. Do not proceed to Step 6 with unguarded catch blocks.
 
 ### Step 6: Diagnostics (blocking gate)
 
