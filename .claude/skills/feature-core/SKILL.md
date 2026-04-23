@@ -308,15 +308,11 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
-### Step 10b: Compact (Standard/Heavy only)
+### Step 10b: Compact
 
 **Light pressure: skip.**
 
-Run `/compact` immediately after the Step 10 report — while the cache is still warm. The
-compaction input hits the cached prefix cheaply. By the time human review completes and
-`/feature-end` runs, the cache TTL (5 min) will have expired; without compaction every
-feature-end turn pays full price on the accumulated context. The Step 10 report is the
-summary anchor — all handoff facts (issue#, branch, PR URL, test counts) survive compaction.
+Run `/compact` immediately after the Step 10 report — while the cache is still warm. 
 
 **Stop here.** User reviews the PR. `/feature-end` handles post-merge.
 
