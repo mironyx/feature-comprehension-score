@@ -1,4 +1,4 @@
----
+Ok, ---
 name: baseline
 description: Reconcile reality (code, issues, docs, git history) into a consolidated as-built requirements document. Produces a point-in-time snapshot in docs/reports/baseline/. Use at phase transitions, before from-scratch reimplementations, or when requirements docs feel stale. Propose-only — never mutates requirements, design, or issues.
 allowed-tools: Read, Write, Bash, Glob, Grep, WebFetch
@@ -94,8 +94,10 @@ These are not bugs — they may be legitimate implementation details, infrastruc
 Map every epic to its actual state:
 
 ```markdown
-| Epic | Stories | Delivered | Partial | Divergent | Not started | Descoped |
+| Epic | Source file | Stories | Delivered | Partial | Divergent | Not started | Descoped | Coverage % |
 ```
+
+**Source file** is the requirements file path (e.g. `docs/requirements/v1-requirements.md`). Every epic section header must also include the source file reference (e.g. `### Epic 4: Shared Assessment Engine — \`docs/requirements/v1-requirements.md\``).
 
 ### 5. Write the report
 
@@ -115,12 +117,12 @@ Save to `docs/reports/baseline/YYYY-MM-DD-baseline.md` using this structure:
 
 ## Coverage Matrix
 
-| Epic | Stories | Delivered | Partial | Divergent | Not started | Descoped | Coverage % |
-|------|---------|-----------|---------|-----------|-------------|----------|------------|
+| Epic | Source file | Stories | Delivered | Partial | Divergent | Not started | Descoped | Coverage % |
+|------|------------|---------|-----------|---------|-----------|-------------|----------|------------|
 
 ## Delivered (matches spec)
 
-### Epic N: <title>
+### Epic N: <title> — `docs/requirements/<source-file>.md`
 
 #### Story N.M: <title>
 - **Status:** Delivered
