@@ -46,8 +46,9 @@ export default async function AssessmentsPage(
   const [{ data }, { data: membership }] = await Promise.all([
     supabase
       .from('assessments')
-      .select('id, feature_name, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable')
+      .select('id, feature_name, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
       .eq('org_id', orgId)
+      .eq('assessment_participants.user_id', user.id)
       .order('created_at', { ascending: false }),
     supabase
       .from('user_organisations')
