@@ -40,7 +40,13 @@ This assessment measures reasoning and design understanding, not code recall:
 - Accept semantically equivalent descriptions even without exact identifier names.
 - Weight demonstration of reasoning and understanding of constraints over recall of specifics.
 - Do not penalise for omitting file paths, type names, or function signatures when the conceptual understanding is correct.
-- If the participant provides exact identifiers, accept them — specificity is welcomed but not required.`;
+- If the participant provides exact identifiers, accept them — specificity is welcomed but not required.
+
+### Scoring Examples
+
+- **High score (>= 0.8):** "The payment flow uses an idempotency key pattern to prevent duplicate charges under concurrent requests. The key is checked before processing and stored atomically with the transaction." — Demonstrates correct reasoning about the approach and constraints without naming specific types or files.
+- **Low score (<= 0.3):** "It prevents duplicate payments somehow." — Vague, does not demonstrate understanding of the mechanism or constraints.
+- A directionally correct answer with system-specific reasoning scores higher than a textbook-perfect answer that could apply to any codebase.`;
 
 const DETAILED_CALIBRATION = `## Scoring Calibration — Detailed Depth
 
@@ -49,7 +55,13 @@ This assessment measures understanding of the implementation at the specific lev
 - Specific identifiers (type names, file paths, function signatures) are the expected vocabulary — use them to anchor reasoning, not as the reasoning itself.
 - Accept answers that name the right identifiers and explain the role each plays; prefer them over answers that list names without context.
 - Score lower when answers remain conceptual where specifics matter, OR list specifics without demonstrating understanding of their role.
-- Purely recall-style answers ("the type is X") without reasoning about why or how should not score full marks.`;
+- Purely recall-style answers ("the type is X") without reasoning about why or how should not score full marks.
+
+### Scoring Examples
+
+- **High score (>= 0.8):** "The \`PaymentProcessor.execute()\` method wraps the Stripe call in a \`withIdempotencyKey()\` helper that checks the \`idempotency_keys\` table first. If the key exists, it returns the cached result. This prevents duplicate charges when the webhook fires twice for the same event." — Names the identifiers AND explains their role and composition.
+- **Low score (<= 0.4):** "It uses \`PaymentProcessor\`, \`withIdempotencyKey\`, and the \`idempotency_keys\` table." — Lists identifiers without explaining why they compose this way or what would break if the structure changed.
+- A directionally correct answer with system-specific reasoning scores higher than an answer that merely lists correct identifiers without demonstrating understanding of their roles.`;
 
 function buildScoringPrompt(depth?: 'conceptual' | 'detailed'): string {
   const calibration = depth === 'detailed' ? DETAILED_CALIBRATION : CONCEPTUAL_CALIBRATION;

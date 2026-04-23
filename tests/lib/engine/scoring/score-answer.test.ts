@@ -334,6 +334,130 @@ describe('scoreAnswer', () => {
     });
   });
 
+  // Story 1.3 — scoring calibration examples (#312)
+
+  describe('Given comprehensionDepth is "conceptual" — calibration examples (Story 1.3)', () => {
+    it('includes a high-scoring conceptual example in system prompt', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('High score (>= 0.8)');
+    });
+
+    it('includes a low-scoring conceptual example in system prompt', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Low score (<= 0.3)');
+    });
+
+    it('instructs that system-specific reasoning scores higher than generic answers', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'conceptual',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain(
+        'system-specific reasoning scores higher',
+      );
+    });
+  });
+
+  describe('Given comprehensionDepth is "detailed" — calibration examples (Story 1.3)', () => {
+    it('includes a high-scoring detailed example in system prompt', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('High score (>= 0.8)');
+    });
+
+    it('includes a low-scoring detailed example in system prompt', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain('Low score (<= 0.4)');
+    });
+
+    it('instructs that identifiers with reasoning score higher than identifiers alone', async () => {
+      const generateStructured = vi.fn().mockResolvedValue({
+        success: true,
+        data: scoringFixture.valid,
+      });
+      const llmClient = { generateStructured };
+
+      await scoreAnswer({
+        questionText: 'Q',
+        referenceAnswer: 'A',
+        participantAnswer: 'B',
+        llmClient,
+        comprehensionDepth: 'detailed',
+      });
+
+      const { systemPrompt } = generateStructured.mock.calls[0][0];
+      expect(systemPrompt).toContain(
+        'merely lists correct identifiers',
+      );
+    });
+  });
+
   describe('Given comprehensionDepth is omitted', () => {
     it('defaults to conceptual calibration — system prompt contains "Conceptual Depth"', async () => {
       const generateStructured = vi.fn().mockResolvedValue({
