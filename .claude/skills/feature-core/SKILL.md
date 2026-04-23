@@ -310,8 +310,6 @@ Summarise what was done:
 
 ### Step 10b: Compact
 
-**Light pressure: skip.**
-
 Run `/compact` immediately after the Step 10 report — while the cache is still warm. 
 
 **Stop here.** User reviews the PR. `/feature-end` handles post-merge.
