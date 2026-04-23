@@ -308,6 +308,10 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
+### Step 10b: Compact context
+
+Call `/compact` skill immediately after the Step 10 report.
+
 **Stop here.** User reviews the PR. `/feature-end` handles post-merge.
 
 ## Blocker policy
