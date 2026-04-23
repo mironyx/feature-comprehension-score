@@ -497,3 +497,111 @@ describe('depthInstruction', () => {
     expect(result).toContain('specific type names');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Story 1.1 — Scaffolding hints (#311)
+// ---------------------------------------------------------------------------
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — scaffolding hints (Story 1.1)', () => {
+  it('instructs the LLM to produce landmark-style hints', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('code landmark');
+  });
+
+  it('includes a positive example of a landmark hint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('validatePath');
+  });
+
+  it('includes a negative example of a format-style hint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('restates the question');
+  });
+
+  it('instructs to set hint to null when no landmark exists', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT.toLowerCase()).toContain(
+      'no obvious code landmark',
+    );
+  });
+
+  it('retains the max 200 characters constraint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('max 200 characters');
+  });
+
+  it('retains the non-disclosure constraint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('WITHOUT revealing');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 1.4 — Theory-building question focus (#311)
+// ---------------------------------------------------------------------------
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — theory-building focus (Story 1.4)', () => {
+  it('includes a system-specific knowledge constraint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'specific to THIS system',
+    );
+  });
+
+  it('includes a positive example of a system-specific question', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'requires knowing the specific design decision',
+    );
+  });
+
+  it('includes a negative example of a generic-knowledge question', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'any engineer would answer',
+    );
+  });
+
+  it('instructs reference answers to define 2–3 essential points', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      '2–3 essential points',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 1.2 — Depth enforcement (#311)
+// ---------------------------------------------------------------------------
+
+describe('CONCEPTUAL_DEPTH_INSTRUCTION — depth enforcement (Story 1.2)', () => {
+  it('includes a DO NOT constraint against specific identifiers', () => {
+    const instruction = depthInstruction('conceptual');
+    expect(instruction).toContain(
+      'DO NOT use specific type names, file paths, or function signatures',
+    );
+  });
+
+  it('includes a negative example question with specific identifiers', () => {
+    const instruction = depthInstruction('conceptual');
+    expect(instruction).toContain('tool-loop.ts');
+  });
+
+  it('includes a positive example question without specific identifiers', () => {
+    const instruction = depthInstruction('conceptual');
+    expect(instruction).toContain(
+      'Why is the tool execution logic kept separate',
+    );
+  });
+});
+
+describe('DETAILED_DEPTH_INSTRUCTION — depth enforcement (Story 1.2)', () => {
+  it('includes a DO NOT constraint against pure-recall questions', () => {
+    const instruction = depthInstruction('detailed');
+    expect(instruction).toContain(
+      'DO NOT generate pure-recall questions',
+    );
+  });
+
+  it('includes a negative example of a recall question', () => {
+    const instruction = depthInstruction('detailed');
+    expect(instruction).toContain('tests file-system recall');
+  });
+
+  it('includes a positive example of a reasoning question anchored in specifics', () => {
+    const instruction = depthInstruction('detailed');
+    expect(instruction).toContain(
+      'pass an empty tools array',
+    );
+  });
+});
