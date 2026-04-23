@@ -92,7 +92,8 @@ function makeClient({
   captureSelect?: (cols: string) => void;
 } = {}) {
   const mockOrder = vi.fn().mockResolvedValue({ data: assessments, error: null });
-  const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+  const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder });
+  const mockEq = vi.fn().mockReturnValue({ eq: mockEq2, order: mockOrder });
 
   return {
     auth: {
@@ -178,9 +179,12 @@ describe('Assessments page', () => {
           return {
             select: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                in: vi.fn().mockImplementation(() => {
-                  inCalled = true;
-                  return { order: mockOrder };
+                eq: vi.fn().mockReturnValue({
+                  in: vi.fn().mockImplementation(() => {
+                    inCalled = true;
+                    return { order: mockOrder };
+                  }),
+                  order: mockOrder,
                 }),
                 order: mockOrder,
               }),

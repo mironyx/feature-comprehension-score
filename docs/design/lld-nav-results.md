@@ -132,7 +132,7 @@ The page queries assessments with `.in('status', ['rubric_generation', 'rubric_f
 
 #### Changes
 
-1. **Remove status filter** — query all assessments for the org (remove the `.in('status', [...])` filter).
+1. **Remove status filter** — query all assessments for the org (remove the `.in('status', [...])` filter). **Scope to participant** — join through `assessment_participants!inner(user_id)` and filter `.eq('assessment_participants.user_id', user.id)` so the page shows only assessments the current user participates in, regardless of admin status. The admin RLS policy (`assessments_select_admin`) intentionally returns all org assessments for admin-specific views (Organisation page); this application-layer filter ensures the My Assessments page shows the correct personal scope. (Issue #306.)
 2. **Partition into two groups** — in the component, split the fetched assessments into:
    - `pending`: status in `rubric_generation`, `rubric_failed`, `awaiting_responses`
    - `completed`: status in `completed`, `scoring`
