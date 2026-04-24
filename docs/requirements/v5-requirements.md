@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
-| Status | Draft — Complete |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-24 |
 | Last updated | 2026-04-24 |
@@ -17,6 +17,7 @@
 | 0.1 | 2026-04-24 | LS / Claude | Initial draft — structure |
 | 0.2 | 2026-04-24 | LS / Claude | Acceptance criteria for all stories |
 | 0.3 | 2026-04-24 | LS / Claude | Review comments: default fallback 130K (Deepseek-aligned), clarified truncateArtefacts() already tested, clarified truncation details are persisted in DB |
+| 1.0 | 2026-04-24 | LS / Claude | Finalised — all reviews addressed, testability validated |
 
 ---
 
@@ -172,3 +173,10 @@ Truncation events should be logged with the same structured format as existing a
 |---|----------|---------|---------|--------|
 | 1 | Should truncation priority treat linked issues (epic + child bodies) differently from PR-sourced content for epic assessments? | For epics, issue bodies contain acceptance criteria and design context — often higher signal than individual file diffs. Current priority puts linked issues above file contents but below PR description. | A) Keep current priority (issues > files). B) Elevate issue bodies above PR diff for epic artefact types. | Affects which content survives truncation for large epics. |
 | ~~2~~ | ~~Where should model context limits be stored?~~ | Resolved: Fetch from OpenRouter `GET /api/v1/models` endpoint, which returns `context_length` per model. Cache to avoid repeated API calls. | Decided: Auto-detect from OpenRouter API. | Story 1.1 fetches and caches the context limit. No local mapping needed. |
+
+---
+
+## Next steps
+
+1. Run `/architect docs/requirements/v5-requirements.md` to produce the LLD for Epic 1.
+2. Run `/feature` for each story in order: 1.1 → 1.2 → 1.3.
