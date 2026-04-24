@@ -81,11 +81,11 @@ function makeClient(assessments: unknown[], githubRole: string | null = 'member'
           }),
         };
       }
+      const mockOrder = vi.fn().mockResolvedValue({ data: assessments, error: null });
+      const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder });
       return {
         select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({ data: assessments, error: null }),
-          }),
+          eq: vi.fn().mockReturnValue({ eq: mockEq2, order: mockOrder }),
         }),
       };
     }),

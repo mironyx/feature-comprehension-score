@@ -6,6 +6,10 @@
         "playwright",
         "run-test-mcp-server"
       ]
+    },
+    "codescene": {
+      "command": "cs-mcp",
+      "args": []
     }
   }
 }

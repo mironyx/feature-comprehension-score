@@ -2,8 +2,13 @@
 
 | Field | Value |
 |-------|-------|
+<<<<<<< fix/results-formatting
 | Version | 2.0 |
 | Status | Final |
+=======
+| Version | 1.1 |
+| Status | Draft |
+>>>>>>> main
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-22 |
@@ -15,8 +20,12 @@
 | 0.1 | 2026-04-22 | LS / Claude | Initial draft — structure |
 | 0.2 | 2026-04-22 | LS / Claude | Acceptance criteria, resolved open questions |
 | 1.0 | 2026-04-22 | LS / Claude | Finalised — all open questions resolved, testability validated |
+<<<<<<< fix/results-formatting
 | 1.1 | 2026-04-22 | LS / Claude | Added Epic 2: Epic-Aware Artefact Discovery. Extends V2 Epic 19 to traverse child issues from epics (sub-issues + task list references). Gradual GraphQL adoption. Resolved OQ-3 (union both, deduplicated) and OQ-4 (always attempt discovery). |
 | 2.0 | 2026-04-22 | LS / Claude | Finalised. Added reliability note for task list parsing — sub-issues are reliable path, task list is best-effort, manual workaround always available. |
+=======
+| 1.1 | 2026-04-23 | LS / Claude | Added Story 1.4: theory-building question focus — questions must test system-specific understanding, not general architecture knowledge |
+>>>>>>> main
 
 ---
 
@@ -132,6 +141,22 @@ Improve the rubric generation prompt to produce higher-quality hints and enforce
 - Given the base scoring scale (0.0–1.0), then the anchor point descriptions remain unchanged — only the depth-specific calibration blocks are modified.
 
 **Notes:** Modifies `CONCEPTUAL_CALIBRATION` and `DETAILED_CALIBRATION` in score-answer.ts (lines 37-52). The base scoring prompt and function signature are unchanged.
+
+### Story 1.4: Theory-building question focus
+
+**As the** system,
+**I want to** generate questions that can only be answered by someone who worked on this specific codebase,
+**so that** the assessment measures Naur's theory building — local, system-specific understanding — not general software architecture knowledge.
+
+**Acceptance Criteria:**
+
+- Given the question generation prompt, then it includes an explicit constraint: questions must test knowledge specific to THIS system's decisions, behaviour, and trade-offs — not general software engineering principles that any experienced developer could answer without seeing the codebase.
+- Given a generated question, then it should NOT be answerable correctly by a senior engineer who has never seen the codebase. Bad: "Why was the tool-use loop extracted into a separate pure module?" (any engineer would say "separation of concerns"). Good: "Why does the tool-use loop pass an empty tools array instead of skipping the loop entirely when tool_use_enabled is false?"
+- Given the question generation prompt, then it includes at least one positive and one negative example illustrating the difference between a general-knowledge question and a system-specific theory question.
+- Given a generated reference answer, then it defines 2–3 essential points that demonstrate system-specific understanding, not an exhaustive checklist. The scoring prompt should treat a correct answer that demonstrates understanding as high-scoring even if it does not enumerate every detail from the reference.
+- Given Story 1.3 scoring calibration, then the scoring prompt is aligned: a directionally correct answer with system-specific reasoning scores higher than a textbook-perfect answer that could apply to any codebase.
+
+**Notes:** Modifies `QUESTION_GENERATION_SYSTEM_PROMPT` in prompt-builder.ts (same surface as Stories 1.1 and 1.2) and the reference answer guidance within it. Also requires alignment with Story 1.3's scoring calibration in score-answer.ts to avoid penalising concise but correct answers.
 
 ---
 
@@ -258,7 +283,11 @@ This story extends `resolveMergedPrSet` to include child-issue-discovered PRs in
 
 ### Prompt coordination (Epic 1)
 
+<<<<<<< fix/results-formatting
 All three Epic 1 stories modify overlapping prompt text. Changes should be integrated in a single coherent prompt update per file, not applied independently. Story 1.1 and 1.2 both modify `prompt-builder.ts`; Story 1.3 modifies `score-answer.ts`.
+=======
+All four stories modify overlapping prompt text. Changes should be integrated in a single coherent prompt update per file, not applied independently. Stories 1.1, 1.2, and 1.4 modify `prompt-builder.ts`; Stories 1.3 and 1.4 modify `score-answer.ts`.
+>>>>>>> main
 
 ### Evaluation (Epic 1)
 
@@ -300,7 +329,12 @@ Epic 2 must extend the existing artefact summary log (V2 Story 19.3) to include 
 
 ## Next steps
 
+<<<<<<< fix/results-formatting
 1. Run `/architect` for Epic 1 (single LLD given shared prompt surface).
 2. Run `/feature` for Epic 1 stories in order: 1.1 → 1.2 → 1.3.
 3. Run `/architect` for Epic 2 (separate LLD — different codebase surface).
 4. Run `/feature` for Epic 2 stories in order: 2.1 → 2.2 → 2.3.
+=======
+1. Run `/architect` to produce LLD for the epic (single LLD given shared prompt surface).
+2. Run `/feature` for each story in order: 1.1 → 1.2 → 1.3 → 1.4.
+>>>>>>> main

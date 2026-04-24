@@ -33,13 +33,34 @@ should handle both without the user needing to predict the outcome upfront.
 
 | Tier | Scope | Pipeline | When to use |
 |------|-------|----------|-------------|
-| 1 | Bug / hotfix | Issue → `/feature` | Well-scoped fix, no design decisions |
+| 1a | Bug (vague symptom) | `/bug` → `/feature` | Symptom known, root cause unknown — `/bug` investigates and creates the issue |
+| 1b | Bug / hotfix (known fix) | Issue → `/feature` | Well-scoped fix, no design decisions |
 | 2 | Feature (single or small epic) | `/requirements` → `/architect` → `/feature` | New capability within existing project |
 | 3 | Large epic / new phase | `/requirements` → `/kickoff` → `/architect` → `/feature` | Multiple features, needs HLD update or new ADRs |
 | 4 | New project | `/discovery` → `/requirements` → `/kickoff` → `/architect` → `/feature` | Greenfield, problem space unexplored |
 
 The human decides the tier. When in doubt, start at tier 2 — if `/requirements`
 reveals the scope is larger than expected, escalate to tier 3.
+
+### `/bug` automates tier 1 triage
+
+Tier 1a adds an investigation step before `/feature`. When the user has a
+symptom but not a root cause, `/bug` takes free-form input (error message,
+behaviour description, file reference) and:
+
+1. Researches the codebase — traces affected code paths, identifies root cause.
+2. Checks existing LLDs — the bug often exists because the LLD was incomplete
+   or wrong. Notes the design gap alongside the code fix.
+3. Creates a GitHub issue with: root cause analysis, affected files, fix
+   approach, BDD specs, and acceptance criteria.
+4. Assesses complexity:
+   - **Simple** (single component, clear fix): issue is ready for `/feature`.
+   - **Complex** (cross-cutting, architectural, multiple components): adds
+     `needs-design` label, recommends `/architect` before `/feature`.
+
+The skill replaces the manual "someone writes a bug issue" step. After `/bug`,
+the normal flow resumes: `/feature` for simple bugs, or
+`/architect` → `/feature` for complex ones.
 
 ### `/architect` accepts requirements docs as input
 
@@ -70,6 +91,9 @@ requirements but is proportionally smaller.
 
 ## Consequences
 
+- Tier 1a bugs get structured triage — root cause, affected files, LLD gap
+  analysis — without manual investigation. The issue `/bug` creates is
+  well-formed enough for `/feature` to implement autonomously.
 - Single features get design review (LLD Part A) without the overhead of
   `/kickoff`. The "mistakes at design stage are most costly" principle is
   preserved.

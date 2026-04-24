@@ -277,9 +277,10 @@ function makePageClient(assessments: unknown[] = []) {
           }),
         };
       }
+      const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder });
       return {
         select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({ order: mockOrder }),
+          eq: vi.fn().mockReturnValue({ eq: mockEq2, order: mockOrder }),
         }),
       };
     }),

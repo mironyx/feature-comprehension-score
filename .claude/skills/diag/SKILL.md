@@ -1,7 +1,7 @@
 ---
 name: diag
 description: Check diagnostics-exporter output for changed files. Use when the user wants to check code quality, review diagnostics, or before committing code.
-allowed-tools: Read, Write, Edit, MultiEdit, Glob, Bash
+allowed-tools: Read, Write, Edit, MultiEdit, Glob, Bash, mcp__codescene__code_health_review, mcp__codescene__code_health_score
 ---
 
 # Check Diagnostics — On-Demand Code Quality Check
@@ -56,6 +56,25 @@ This means: after making fixes in a CLI session, the diagnostics file may be **s
    sleep 5
    ```
    then re-read once more as a safety net.
+
+6. **CodeScene MCP code health check.**
+
+   After the diagnostics-exporter pass (Steps 1–5), run `mcp__codescene__code_health_score` on each target source file (use absolute paths, forward slashes). This works independently of the editor — no need for files to be open.
+
+   - **Score ≥ 9.0 (green/optimal):** clean — no action needed.
+   - **Score 4.0–8.9 (yellow):** run `mcp__codescene__code_health_review` for the detailed smell breakdown. Fix all findings that are within the scope of the current change. If a finding is pre-existing and unrelated to the current work, note it but do not fix.
+   - **Score < 4.0 (red):** blocking — run `mcp__codescene__code_health_review`, fix all findings, and re-check until the score is at least 4.0 (ideally 9.0+).
+
+   Report MCP scores alongside the diagnostics-exporter findings:
+
+   ```
+   ### Code Health (MCP)
+   - `src/lib/engine/scoring/score-answer.ts` — 10.0 ✓
+   - `src/lib/engine/pipeline/assess-pipeline.ts` — 7.2 ⚠ (complex conditional, bumpy road)
+   - `tests/engine/scoring.test.ts` — 9.5 ✓
+   ```
+
+   **If any file scores below 9.0**, include the detailed review findings in the report and fix them before proceeding, following the same fix-and-recheck loop as Step 5.
 
 ## Diagnostics JSON Format
 

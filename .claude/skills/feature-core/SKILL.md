@@ -1,6 +1,6 @@
 ---
 name: feature-core
-description: Core implementation cycle: read design, TDD, verify, silent-swallow check, diagnostics, commit, PR, CI probe, review, report. Called by /feature and /feature-team skills after branch setup.
+description: Core implementation cycle: read design, TDD, verify, diagnostics, commit, PR, CI probe, review, report. Called by /feature and /feature-team skills after branch setup.
 allowed-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, Agent, Skill, TodoWrite
 ---
 
@@ -13,6 +13,16 @@ Executes the implementation cycle from design reading through PR review. Called 
 - The session has been tagged
 
 **Usage:** `/feature-core <issue-number>` — not typically invoked directly; called by `/feature` and `/feature-team` skills.
+
+## Critical rules
+
+These override any conflicting instinct. Violations are the top cost drivers.
+
+1. **Never run `npx vitest run` without a file filter in Step 4.** Use `npx vitest run <test-file>`. The full suite runs once in Step 5 — nowhere else.
+2. **One Bash call for Step 5.** Chain all checks with `&&`. Each separate Bash call costs a full context round-trip.
+3. **Pass pointers to sub-agents, not content.** File paths, issue numbers, LLD paths. Never paste diffs or file contents into agent prompts.
+4. **Never invoke `/simplify`.** Only if the user explicitly asks.
+5. **Do not move the board item to Done.** `/feature-end` handles that.
 
 ## Steps
 
@@ -41,15 +51,60 @@ unnecessarily complex for the actual problem, you may implement a simpler altern
 Do not deviate silently — traceability matters. `/lld-sync` reads the PR body to pick up these
 notes and update the design doc accordingly.
 
-### Step 4: Implement with independent test authorship
+### Step 3c: Classify change pressure
 
-The tests must be written by a separate agent, against the spec only, before any
-implementation behaviour is written. This is the only way to stop the LLM from picking
-assertions it already knows its about-to-be-written code will satisfy.
+After picking the approach but before writing code, estimate the change size and set the
+**pressure tier**. This controls how much ceremony the rest of the pipeline applies.
 
-The flow is four sub-steps: interface → independent tests → implementation → green.
+**How to estimate:** Count the lines of production code you expect to add or modify (exclude
+tests, docs, config). Use your approach from Step 3b as the basis — you know the fix by now.
 
-#### Step 4a: Write the interface, not the behaviour
+| Tier | Estimated src lines | Files touched | Pipeline adjustments |
+|------|-------------------|---------------|---------------------|
+| **Light** | < 30 lines | ≤ 3 files | Inline tests (skip test-author agent), skip evaluator, /diag on src/ only |
+| **Standard** | 30–150 lines | any | Full pipeline as documented |
+| **Heavy** | 150+ lines | any | Full pipeline, consider splitting into sub-issues |
+
+**Bug fixes default to Light** unless the fix is genuinely complex (multi-file refactor,
+new module, schema change). A 3-line query fix does not need a 256-line test file from
+a sub-agent.
+
+State the tier and reasoning in one line before proceeding:
+> **Pressure: Light** — 3-line query filter change in one file.
+
+### Step 4: Implement with test authorship
+
+The approach depends on the **pressure tier** set in Step 3c.
+
+---
+
+#### Light pressure path (< 30 src lines, bug fixes)
+
+No sub-agents. Write the fix and regression tests in one pass.
+
+1. **Write the fix** directly in the source file.
+2. **Write 2–5 focused regression tests** in the target test file. Each test should:
+   - Reference the issue number in a comment or test name
+   - Test through the public interface, not internals
+   - Include at least one test that would fail on the pre-fix behaviour (for bug fixes)
+   - Match the style of neighbouring test files (grep for sibling tests first)
+3. **Run the target test file** to confirm tests pass:
+   ```bash
+   npx vitest run <test-file>
+   ```
+4. Proceed directly to Step 5 (full verification).
+
+**Do not** launch the test-author or feature-evaluator agents.
+
+---
+
+#### Standard / Heavy pressure path (≥ 30 src lines, new features)
+
+Tests must be written by a separate agent against the spec only, before implementation.
+
+Flow: interface → independent tests → implementation → green.
+
+##### Step 4a: Write the interface, not the behaviour
 
 Main agent writes only the *public surface* of the unit under change: exported types,
 Zod schemas, function signatures, and stub bodies that throw `not implemented`. No
@@ -62,7 +117,7 @@ requires a new signature (e.g. adding a parameter), commit the signature change 
 The PostToolUse hook opens edited files in the editor automatically for diagnostics analysis.
 If the hook fires with inline findings, address them before moving on.
 
-#### Step 4b: Hand off to the `test-author` sub-agent
+##### Step 4b: Hand off to the `test-author` sub-agent
 
 Launch the `test-author` agent with:
 
@@ -75,23 +130,17 @@ Input:
   target_test_file: <tests/.../<unit>.test.ts>
   unit_under_test: <src/.../<unit>.ts>
   mode: "feature" | "bugfix"
+  pressure: "standard"
 ```
 
 For `requirements_paths`: pass the project requirements doc plus any per-feature
-requirements files the issue or LLD references. The requirements are the contract of
-record — the test-author will cross-reference all three sources (requirements, LLD,
-issue) and flag contradictions in its report.
-
-The sub-agent reads the issue and LLD only, enumerates every observable property of the
-contract, and writes the complete test file. It does not read implementation bodies. It
-returns a report listing each property and the test that covers it.
+requirements files the issue or LLD references.
 
 **If the sub-agent reports fewer than three observable properties** or reports unresolved
 spec gaps, **stop and escalate to the user** — the spec is too vague to implement against.
-Do not try to paper over this by writing the tests yourself; that re-introduces the
-same-agent bias the sub-agent exists to prevent.
+Do not write the tests yourself.
 
-#### Step 4c: Implement against the tests
+##### Step 4c: Implement against the tests
 
 Main agent reads the test file written by the sub-agent and implements the stub bodies
 to make the tests pass.
@@ -99,16 +148,16 @@ to make the tests pass.
 - You MAY NOT modify the tests to match what you built, except for: fixing typos in
   test names, fixing imports the sub-agent got wrong, and renaming a test for clarity
   without changing its assertion.
-- If a test looks semantically wrong (the sub-agent misread the spec), stop and report
-  to the user. Do not change the test unilaterally — the independence of the test
-  authorship is the whole point.
-- If a test is uncompilable because a type is wrong, fix the test's type annotation but
-  keep the assertion identical.
+- If a test looks semantically wrong (sub-agent misread the spec), stop and report to the user.
+- If a test is uncompilable because a type is wrong, fix the type annotation but keep the assertion.
 
-Run `npx vitest run <test-file>` after each small increment. Continue until all tests
-in the file pass.
+Run only the target test file after each increment:
 
-#### Step 4d: Self-check coverage before Step 5
+```bash
+npx vitest run <test-file>
+```
+
+##### Step 4d: Self-check coverage before Step 5
 
 Before running the full suite, re-read the sub-agent's report and confirm every listed
 property maps to a passing test. If the sub-agent missed a property you can see in the
@@ -117,21 +166,16 @@ into the sub-agent's prompt).
 
 ### Step 5: Full verification
 
-Run all checks. **All must pass — zero failures, including integration tests — before proceeding.**
+Run all checks in a **single Bash call**. All must pass — zero failures, including
+integration tests — before proceeding.
 
 ```bash
-npx vitest run                                   # full suite — unit + integration, not just new tests
-npx tsc --noEmit                                 # no type errors
-npm run lint                                     # no lint errors
-npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5   # no markdown lint errors
+npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5
 ```
 
-**Run the full suite, not just the test files you wrote.** `npx vitest run` with no filter runs
-every test in the repo. If you see pre-existing failures, they are your problem — fix them.
+**One command, one turn.** Do not split into separate Bash calls.
 
-**Integration test failures are not pre-existing — fix them.** If `npx vitest run` reports
-failures in `*.integration.test.ts` files, diagnose and resolve before continuing. Do not
-dismiss integration failures as "unrelated to this PR" and proceed to create the PR.
+Run the full suite — all tests including integration. Fix any failures, including pre-existing ones.
 
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
@@ -144,42 +188,31 @@ NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
 
 If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
 
-### Step 5b: Silent-swallow check (blocking gate)
-
-Before proceeding, grep for catch blocks that swallow errors without logging or user feedback:
-
-```bash
-grep -rn "catch" src/ --include="*.ts" | grep -v "logger\.\|console\.\|setError\|throw\|// fire-and-forget"
-```
-
-Any match must be resolved — add logging, surface the error, or add a `// fire-and-forget` justification comment. Do not proceed to Step 6 with unguarded catch blocks.
-
 ### Step 6: Diagnostics (blocking gate)
 
-Run `/diag` on all files changed in this cycle. This is a **blocking gate** — do not proceed to Step 7 until clean.
+Run `/diag` on changed files. This is a **blocking gate** — do not proceed to Step 7 until clean.
 
-**Both `src/` and `tests/` files must be checked.** CodeScene analyses test files and flags Code
-Duplication in them (repeated `it()` blocks, repeated arrange/render patterns). These warnings
-are blocking — fix them before proceeding to Step 7.
+**Scope depends on pressure tier:**
+
+- **Light:** Run `/diag` on changed `src/` files only. Skip MCP code health checks on test
+  files — they add cost for low-value findings on small test additions.
+- **Standard / Heavy:** Run `/diag` on all changed files — including every modified test
+  file under `tests/`. CodeScene analyses test files and flags Code Duplication in them
+  (repeated `it()` blocks, repeated arrange/render patterns). These warnings are blocking.
 
 Then:
 
-1. Run `/diag` on all changed files — including every modified test file under `tests/`.
-2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`) — CodeScene exclusions are configured but may not cover every generated file.
-3. After fixing, re-run `/diag` to confirm the findings are gone — do not assume a fix worked without seeing the updated diagnostics.
+1. Run `/diag` on the scoped file set.
+2. If any findings exist, fix them all. **Exception: ignore smells on generated files** (e.g. `supabase/migrations/`).
+3. After fixing, re-run `/diag` to confirm the findings are gone.
 4. Repeat until `/diag` reports zero findings on non-generated files.
 5. Re-run Step 5 (full verification) after any fixes.
 
-Only proceed to Step 6b when `/diag` reports zero findings on non-generated files.
+### Step 6b: Evaluate (pressure-gated)
 
-### Step 6b: Evaluate (blocking gate)
+**Light pressure: skip.** Proceed to Step 7.
 
-Launch the `feature-evaluator` agent as a sub-agent. Its primary job is now a *coverage
-audit*, not a test factory — Step 4b already produced independent tests, so the
-evaluator's role is to confirm that the contract is fully covered and probe for genuine
-gaps only.
-
-Pass it:
+**Standard / Heavy pressure:** Launch the `feature-evaluator` agent. Pass it:
 
 - `requirements_paths` — same list passed to the test-author in Step 4b
 - `lld_path` — the LLD file read in Step 3 (or the issue number if no LLD exists)
@@ -199,15 +232,9 @@ Input: requirements_paths=<list> lld_path=<path> issue_number=<N> changed_files=
 - **PASS WITH WARNINGS** — minor gaps found, evaluator added a small number of adversarial tests. Review warnings, fix quick wins, note the rest in the PR body. Proceed to Step 7.
 - **FAIL** — a criterion is uncovered or an adversarial test exposed a real defect. Fix the implementation, re-run Step 5 (verification) and Step 6 (`/diag`). Do NOT re-run the evaluator — proceed to Step 7 after verification passes.
 
-**Volume signal (report-only, never blocks):** if the evaluator writes more than three
-adversarial tests, note the count and the evaluator's per-test category breakdown in the
-Step 10 report and in the PR body under "process notes". Do not pause, do not escalate,
-do not re-run anything. The PR still ships on this commit — the signal exists purely so
-the test-author prompt can be tightened in future iterations.
+If evaluator writes > 3 adversarial tests, note count in Step 10 report and PR body — but do not block.
 
-The evaluator writes tests, if any, to `tests/evaluation/<slug>.eval.test.ts`. These
-files are committed alongside the feature code in Step 7. They should be short or empty
-when Step 4b did its job; volume here is diagnostic, not the point.
+Evaluator tests go to `tests/evaluation/<slug>.eval.test.ts`, committed in Step 7.
 
 ### Step 7: Commit
 
@@ -226,82 +253,24 @@ One commit per issue. Do not batch multiple issues.
 git push -u origin HEAD
 ```
 
-Create the PR first with a placeholder Usage section, then run the cost script once after the PR
-exists so labels are applied to both issue and PR in a single call, and patch the body.
+Create the PR using the script (handles PR body template, cost tracking, and session ID):
 
 ```bash
-PR_URL=$(gh pr create --title "<short title>" --base main --body "$(cat <<'EOF'
-## Summary
-<1-3 bullet points of what was implemented>
-
-## Issue
-Closes #<number>
-
-## Design reference
-<path to design doc section>
-
-## Test plan
-- [ ] `npx vitest run` — all tests pass
-- [ ] `npx tsc --noEmit` — clean
-- [ ] `npm run lint` — clean
-- [ ] Design contracts verified (field names, types, schemas match)
-
-## Verification
-- **Tests added:** N
-- **Total tests:** N (M test files)
-
-## Usage
-- **Cost:** TBD
-- **Tokens:** TBD
-- **Time to PR:** TBD
-
-<!-- claude-session-id: TBD -->
-EOF
-)")
-
+PR_URL=$(./scripts/create-feature-pr.sh \
+  --issue <number> \
+  --title "<short title>" \
+  --summary "<1-3 bullet points>" \
+  --design-ref "<path to design doc section>" \
+  --tests-added <N> \
+  --tests-total "<N (M test files)>")
 PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
-
-# Single cost script call — applies labels to issue + PR and outputs cost summary
-COST_OUTPUT=$(.claude/hooks/run-python.sh scripts/query-feature-cost.py FCS-<issue-number> --issue <issue-number> --pr $PR_NUMBER --stage pr)
-
-# Patch the PR body with the actual cost figures (replace TBD placeholders)
-COST_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Cost:')
-TOKEN_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Tokens:')
-TIME_LINE=$(echo "$COST_OUTPUT" | grep '^\- \*\*Time to PR:')
-CURRENT_BODY=$(gh pr view $PR_NUMBER --json body -q '.body')
-SESSION_ID=$(python3 -c "
-import re, pathlib, os, subprocess
-result = subprocess.run(['git', 'rev-parse', '--git-common-dir'], capture_output=True, text=True)
-root = pathlib.Path(result.stdout.strip()).parent.resolve()
-prom_dir = pathlib.Path(os.environ.get('FCS_FEATURE_PROM_DIR') or root / 'monitoring' / 'textfile_collector')
-prom = prom_dir / 'session_feature.prom'
-if prom.exists():
-    m = re.search(r'session_id=\"([^\"]+)\",feature_id=\"FCS-<issue-number>\"', prom.read_text())
-    print(m.group(1) if m else 'unknown')
-else:
-    print('unknown')
-")
-
-UPDATED_BODY=$(echo "$CURRENT_BODY" | .claude/hooks/run-python.sh -c "
-import sys
-cost_line = '''$COST_LINE'''
-token_line = '''$TOKEN_LINE'''
-time_line = '''$TIME_LINE'''
-session_id = '''$SESSION_ID'''
-body = sys.stdin.read()
-body = body.replace('- **Cost:** TBD', cost_line)
-body = body.replace('- **Tokens:** TBD', token_line)
-body = body.replace('- **Time to PR:** TBD', time_line)
-body = body.replace('<!-- claude-session-id: TBD -->', f'<!-- claude-session-id: {session_id} -->')
-print(body, end='')
-")
-gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH -f body="$UPDATED_BODY" > /dev/null
 ```
+
+If you deviated from the LLD (Step 3b), patch the PR body to add a `## Design deviations` section.
 
 ### Step 8b: CI probe (background)
 
-Immediately after the PR is created, launch the `ci-probe` agent in the background.
-It will block on `gh run watch` and report back when CI completes — no polling needed.
+Launch `ci-probe` in the background (uses status polling). **Do not wait** — continue with Step 9.
 
 ```
 Launch Agent: ci-probe
@@ -309,8 +278,7 @@ Input: pr=<pr-number>
 run_in_background: true
 ```
 
-Continue with Step 9 immediately — do not wait for the CI probe.
-When the probe reports back, triage its findings the same way as review findings:
+When the probe reports back:
 
 - **CI failure** — fix the root cause, push, note in the Step 10 report.
 - **CI pass** — note in the Step 10 report.
@@ -340,9 +308,11 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
-**Stop here.** User reviews the PR. Post-PR workflow (merge, close, board update) is handled by `/feature-end`.
+### Step 10b: Compact
 
-**DO NOT** move the board item to `done`. Leave it at `in progress` — `/feature-end` handles that after merge.
+Run `/compact` immediately after the Step 10 report — while the cache is still warm. 
+
+**Stop here.** User reviews the PR. `/feature-end` handles post-merge.
 
 ## Blocker policy
 
@@ -354,12 +324,4 @@ Summarise what was done:
 - External dependency is unavailable (e.g., a function from an unmerged PR)
 - Issue has no acceptance criteria
 
-**Do NOT pause for:**
-
-- Linting issues (fix them)
-- Minor test adjustments (refactor)
-- Missing barrel exports (create them)
-- Diagnostic warnings (fix them)
-- PR size slightly over 200 lines (warn in PR description, continue)
-
-**Never invoke `/simplify`** — it is too costly for routine features and redundant with `/pr-review-v2`'s code quality checks. Only run it if the user explicitly asks.
+**Do NOT pause for:** lint issues, minor test adjustments, missing exports, diagnostic warnings, PR slightly over 200 lines.
