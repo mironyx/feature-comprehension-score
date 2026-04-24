@@ -78,6 +78,15 @@ vi.mock(
   () => ({ AssessmentOverviewTable: 'AssessmentOverviewTable' }),
 );
 
+// The page renders DeleteableAssessmentTable (issue #319), which wraps the
+// overview table. Stub it with a string-typed named export so the page test
+// assertions can verify the wrapper is rendered and the initialAssessments
+// prop reaches it verbatim via JSON.stringify.
+vi.mock(
+  '@/app/(authenticated)/organisation/deleteable-assessment-table',
+  () => ({ DeleteableAssessmentTable: 'DeleteableAssessmentTable' }),
+);
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -263,9 +272,10 @@ describe('Organisation page', () => {
   // -------------------------------------------------------------------------
 
   describe('assessment overview table (page integration)', () => {
-    it('renders the AssessmentOverviewTable component when an admin loads the page', async () => {
+    it('renders the DeleteableAssessmentTable component when an admin loads the page', async () => {
       // AC2: Page shows a table of all assessments for the org.
       // [lld §2 "Add assessment overview table between header and settings forms"]
+      // [lld §3.2 "Replace AssessmentOverviewTable with DeleteableAssessmentTable" — issue #319]
       mockCreateServer.mockResolvedValue(makeClient('admin') as never);
       mockLoadAssessments.mockResolvedValue([makeAssessmentItem()]);
 
@@ -274,12 +284,13 @@ describe('Organisation page', () => {
       );
 
       const result = await OrganisationPage();
-      expect(JSON.stringify(result)).toContain('AssessmentOverviewTable');
+      expect(JSON.stringify(result)).toContain('DeleteableAssessmentTable');
     });
 
-    it('passes the loaded assessments to AssessmentOverviewTable', async () => {
+    it('passes the loaded assessments to DeleteableAssessmentTable', async () => {
       // AC2: All assessments for the org must reach the table component.
       // [lld §2 "Data fetching — query assessments for the org"]
+      // [lld §3.2 page wires initialAssessments through the wrapper — issue #319]
       mockCreateServer.mockResolvedValue(makeClient('admin') as never);
       mockLoadAssessments.mockResolvedValue([
         makeAssessmentItem({ id: 'assess-001' }),
@@ -291,8 +302,8 @@ describe('Organisation page', () => {
       );
 
       const result = await OrganisationPage();
-      // String-typed mock preserves the `assessments` prop verbatim; assert
-      // both loaded ids reach the table.
+      // String-typed mock preserves the `initialAssessments` prop verbatim; assert
+      // both loaded ids reach the wrapper.
       const rendered = JSON.stringify(result);
       expect(rendered).toContain('"id":"assess-001"');
       expect(rendered).toContain('"id":"assess-002"');
@@ -332,6 +343,7 @@ describe('Organisation page', () => {
     it('renders overview table before settings forms in the output', async () => {
       // AC6 (ordering): table must appear before settings forms.
       // [lld §2 "between the header and the settings forms"]
+      // [lld §3.2 wrapper is DeleteableAssessmentTable — issue #319]
       mockCreateServer.mockResolvedValue(makeClient('admin') as never);
 
       const { default: OrganisationPage } = await import(
@@ -340,7 +352,7 @@ describe('Organisation page', () => {
 
       const result = await OrganisationPage();
       const rendered = JSON.stringify(result);
-      const tablePos = rendered.indexOf('AssessmentOverviewTable');
+      const tablePos = rendered.indexOf('DeleteableAssessmentTable');
       const formsPos = Math.min(
         rendered.indexOf('OrgContextForm'),
         rendered.indexOf('RetrievalSettingsForm'),
