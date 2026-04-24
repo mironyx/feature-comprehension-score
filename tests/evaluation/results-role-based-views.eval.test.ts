@@ -312,6 +312,39 @@ describe('FCS results page — adversarial evaluation (#297)', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Gap: AC6 hint styling in SelfDirectedView (participant-only path)
+  // The primary styling test (results-styling.test.ts) checks border-l-2 only via
+  // the admin path (AdminQuestionCard). SelfDirectedView has a separate code path
+  // for hint rendering (page.tsx line 336) that is not exercised by any existing test.
+  // AC6 says "Given a question with a non-null hint, then the hint is visually
+  // distinct (has border-l-2)" — this must hold for both view components.
+  // -------------------------------------------------------------------------
+
+  describe('AC6 — hint styling in participant SelfDirectedView', () => {
+    it('renders the hint with border-l-2 in the participant-only (SelfDirectedView) path', async () => {
+      // AC6 [issue §AC6]: SelfDirectedView wraps hints in border-l-2 just like
+      // AdminQuestionCard. A future refactor that removes this from SelfDirectedView
+      // would otherwise be invisible to the test suite.
+      const HINT_TEXT = 'Think about the data flow boundary.';
+      const html = await renderPage(
+        {
+          assessment: makeAssessment({ aggregate_score: 0.72, scoring_incomplete: false }),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [makeQuestion(1, { hint: HINT_TEXT })],
+          participants: [makeParticipant('submitted')],
+        },
+        {
+          user: AUTHED_USER,
+          participantAnswers: [],
+        },
+      );
+      expect(html).toContain(HINT_TEXT);
+      expect(html).toContain('border-l-2');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Gap: SelfDirectedView boundary — participant with no matching answer
   // The spec says the self-view shows per-question scores. If a question has
   // no matching answer in myAnswers (e.g., scoring not yet complete), the
