@@ -18,6 +18,7 @@ export type FileListingEntry = z.infer<typeof FileListingEntrySchema>;
 export const LinkedIssueSchema = z.object({
   title: z.string().min(1),
   body: z.string(),
+  number: z.number().int().positive().optional(),
 });
 export type LinkedIssue = z.infer<typeof LinkedIssueSchema>;
 
