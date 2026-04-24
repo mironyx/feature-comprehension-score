@@ -1,4 +1,6 @@
-# Question Generation Quality & Epic-Aware Discovery — V4 Requirements## Document Control
+# Question Generation Quality, Epic-Aware Discovery & Assessment Deletion — V4 Requirements
+
+## Document Control
 
 | Field | Value |
 |-------|-------|
@@ -6,12 +8,12 @@
 | Version | 2.0 |
 | Status | Final |
 =======
-| Version | 1.1 |
-| Status | Draft |
+| Version | 2.1 |
+| Status | Draft — Structure |
 >>>>>>> main
 | Author | LS / Claude |
 | Created | 2026-04-22 |
-| Last updated | 2026-04-22 |
+| Last updated | 2026-04-24 |
 
 ## Change Log
 
@@ -20,12 +22,10 @@
 | 0.1 | 2026-04-22 | LS / Claude | Initial draft — structure |
 | 0.2 | 2026-04-22 | LS / Claude | Acceptance criteria, resolved open questions |
 | 1.0 | 2026-04-22 | LS / Claude | Finalised — all open questions resolved, testability validated |
-<<<<<<< fix/results-formatting
 | 1.1 | 2026-04-22 | LS / Claude | Added Epic 2: Epic-Aware Artefact Discovery. Extends V2 Epic 19 to traverse child issues from epics (sub-issues + task list references). Gradual GraphQL adoption. Resolved OQ-3 (union both, deduplicated) and OQ-4 (always attempt discovery). |
 | 2.0 | 2026-04-22 | LS / Claude | Finalised. Added reliability note for task list parsing — sub-issues are reliable path, task list is best-effort, manual workaround always available. |
-=======
 | 1.1 | 2026-04-23 | LS / Claude | Added Story 1.4: theory-building question focus — questions must test system-specific understanding, not general architecture knowledge |
->>>>>>> main
+| 2.1 | 2026-04-24 | LS / Claude | Added Epic 3: Assessment Deletion — delete assessments (any status) from org page with confirmation dialog |
 
 ---
 
@@ -279,15 +279,35 @@ This story extends `resolveMergedPrSet` to include child-issue-discovered PRs in
 
 ---
 
+## Epic 3: Assessment Deletion [Priority: Medium]
+
+Allow Org Admins to delete assessments from the organisation dashboard. Applies to assessments in any status — both in-progress and completed. Deletion is permanent (hard delete) with a confirmation dialog to prevent accidental data loss. The database schema already cascades deletes to child tables (questions, participants, answers, artefacts, issues).
+
+**Priority rationale:** Housekeeping capability. Not blocking any other feature, but needed for real-world usage — test assessments, failed generations, and obsolete assessments accumulate without a way to remove them.
+
+### Story 3.1: Delete assessment API endpoint
+
+**As an** Org Admin,
+**I want to** delete an assessment via the API,
+**so that** the assessment and all its associated data are permanently removed.
+
+*(Acceptance criteria in next pass)*
+
+### Story 3.2: Delete assessment from organisation page
+
+**As an** Org Admin,
+**I want to** delete an assessment from the organisation dashboard with a confirmation step,
+**so that** I can remove unwanted assessments without accidental deletion.
+
+*(Acceptance criteria in next pass)*
+
+---
+
 ## Cross-Cutting Concerns
 
 ### Prompt coordination (Epic 1)
 
-<<<<<<< fix/results-formatting
-All three Epic 1 stories modify overlapping prompt text. Changes should be integrated in a single coherent prompt update per file, not applied independently. Story 1.1 and 1.2 both modify `prompt-builder.ts`; Story 1.3 modifies `score-answer.ts`.
-=======
 All four stories modify overlapping prompt text. Changes should be integrated in a single coherent prompt update per file, not applied independently. Stories 1.1, 1.2, and 1.4 modify `prompt-builder.ts`; Stories 1.3 and 1.4 modify `score-answer.ts`.
->>>>>>> main
 
 ### Evaluation (Epic 1)
 
@@ -301,6 +321,10 @@ Epic 2 introduces GraphQL for child-issue and PR batch discovery. The existing `
 
 Epic 2 must extend the existing artefact summary log (V2 Story 19.3) to include child issue discovery results — how many children were found, via which mechanism (sub-issues vs task list), and how many additional PRs were discovered through them. This enables the same diagnostic capability that caught the original problem.
 
+### RLS and authorisation (Epic 3)
+
+Assessment deletion requires a new RLS DELETE policy on the `assessments` table restricted to org admins (matching the existing `assessments_update_admin` pattern). Cascade deletes handle child tables — no additional policies needed on `assessment_questions`, `assessment_participants`, or `participant_answers`.
+
 ---
 
 ## What We Are NOT Building
@@ -313,6 +337,8 @@ Epic 2 must extend the existing artefact summary log (V2 Story 19.3) to include 
 - **Jira or generic issue tracker adapter** — the `ArtefactSource` port interface should remain provider-agnostic where cheap, but no Jira implementation or abstract issue tracker interface is built. GitHub is the only supported provider.
 - **Recursive epic traversal** — only one level of traversal is supported (epic → child issues). Sub-epics containing further sub-epics are not recursively expanded.
 - **Migration of existing REST calls to GraphQL** — existing REST-based GitHub API calls are not touched. GraphQL is used only for new functionality in Epic 2.
+- **Soft-delete / archive for assessments** — deletion is permanent (hard delete with cascade). No recycle bin, undo, or archive status. The confirmation dialog is the safety net.
+- **Bulk delete** — assessments are deleted one at a time. Bulk selection and batch delete are not in scope.
 
 ---
 
@@ -329,12 +355,9 @@ Epic 2 must extend the existing artefact summary log (V2 Story 19.3) to include 
 
 ## Next steps
 
-<<<<<<< fix/results-formatting
 1. Run `/architect` for Epic 1 (single LLD given shared prompt surface).
-2. Run `/feature` for Epic 1 stories in order: 1.1 → 1.2 → 1.3.
+2. Run `/feature` for each Epic 1 story in order: 1.1 → 1.2 → 1.3 → 1.4.
 3. Run `/architect` for Epic 2 (separate LLD — different codebase surface).
 4. Run `/feature` for Epic 2 stories in order: 2.1 → 2.2 → 2.3.
-=======
-1. Run `/architect` to produce LLD for the epic (single LLD given shared prompt surface).
-2. Run `/feature` for each story in order: 1.1 → 1.2 → 1.3 → 1.4.
->>>>>>> main
+5. Run `/architect` for Epic 3 (API + UI — separate LLD).
+6. Run `/feature` for Epic 3 stories in order: 3.1 → 3.2.
