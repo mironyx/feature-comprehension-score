@@ -1,6 +1,8 @@
 # Markdownlint configuration
 # Rules disabled below have widespread violations in existing docs.
 # Tighten incrementally — fix existing files in a cleanup PR, then re-enable.
+ignores:
+  - node_modules
 config:
   line-length: false
   single-h1: false

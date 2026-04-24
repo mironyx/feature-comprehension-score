@@ -13,6 +13,8 @@ import type { ToolCallLogEntry } from '@/lib/engine/llm/tools';
 import { logger } from '@/lib/logger';
 import RetrievalDetailsCard from '@/components/assessment/RetrievalDetailsCard';
 import { FormattedText } from '@/components/ui/formatted-text';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -208,11 +210,11 @@ function HeaderSection(props: HeaderSectionProps) {
   const { assessment, repoFullName, participantTotal, participantCompleted } = props;
   const depth = assessment.config_comprehension_depth ?? 'conceptual';
   return (
-    <section>
-      <h2>{assessment.feature_name ?? 'Unnamed Feature'}</h2>
-      <p>Repository: {repoFullName}</p>
-      <p>Date: {formatDate(assessment.created_at)}</p>
-      <p>Participants: {participantCompleted} of {participantTotal} completed</p>
+    <section className="space-y-2">
+      <h2 className="text-heading-md">{assessment.feature_name ?? 'Unnamed Feature'}</h2>
+      <p className="text-body text-text-secondary">Repository: {repoFullName}</p>
+      <p className="text-body text-text-secondary">Date: {formatDate(assessment.created_at)}</p>
+      <p className="text-body text-text-secondary">Participants: {participantCompleted} of {participantTotal} completed</p>
       <p>
         <span className="inline-block rounded-sm bg-surface-raised px-2 py-0.5 text-caption text-text-primary">
           Depth: {DEPTH_LABELS[depth]}
@@ -227,16 +229,75 @@ interface AdminAggregateViewProps {
   assessment: AssessmentWithRelations;
   questions: ScoredQuestion[];
   revealAnswers: boolean;
+  myAnswers?: MyAnswer[];
 }
 
-function AdminAggregateView({ assessment, questions, revealAnswers }: AdminAggregateViewProps) {
+// QuestionHeader and PersonalScoresBlock are shared between AdminQuestionCard and
+// SelfDirectedView to avoid duplicating the Card/Badge/hint layout structure.
+
+function QuestionHeader({ q }: { q: ScoredQuestion }) {
   return (
     <>
-      <section>
-        <h2>Comprehension Score</h2>
-        <p aria-label="Aggregate comprehension score">{toPercent(assessment.aggregate_score)}</p>
+      <div className="flex items-center gap-2">
+        <span className="text-label text-text-secondary">Q{q.question_number}.</span>
+        <Badge className="bg-surface-raised text-text-primary">{NAUR_LABELS[q.naur_layer]}</Badge>
+      </div>
+      <p className="text-body text-text-primary">{q.question_text}</p>
+      {q.hint && (
+        <p className="border-l-2 border-accent-muted pl-3 text-body text-text-secondary italic">{q.hint}</p>
+      )}
+    </>
+  );
+}
+
+function PersonalScoresBlock({ mine }: { mine: MyAnswer | undefined }) {
+  return (
+    <div className="border-t border-border pt-3 space-y-2">
+      <p className="text-label text-text-secondary font-medium">My Scores</p>
+      <p className="text-body">Your score: {toDecimalScore(mine?.score ?? null)}</p>
+      {mine && <FormattedText content={mine.answer_text} className="text-text-secondary" />}
+    </div>
+  );
+}
+
+interface AdminQuestionCardProps {
+  q: ScoredQuestion;
+  scoringIncomplete: boolean;
+  revealAnswers: boolean;
+  mine?: MyAnswer;
+  isPersonalised: boolean;
+}
+
+// Justification: LLD §3 specified MyScoresSection as a separate section repeating all
+// question text. This component merges personal scores inline per question (issue #315
+// bug fix) — see ## Design deviations in PR #316.
+function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine, isPersonalised }: AdminQuestionCardProps) {
+  return (
+    <Card className="space-y-3">
+      <QuestionHeader q={q} />
+      <p className="text-body">Aggregate score: {toPercent(q.aggregate_score)}</p>
+      {scoringIncomplete && q.aggregate_score === null && (
+        <p className="text-body text-text-secondary">Unable to score</p>
+      )}
+      {revealAnswers && (
+        <details>
+          <summary className="text-label cursor-pointer">Reference answer</summary>
+          <FormattedText content={q.reference_answer} className="mt-2" />
+        </details>
+      )}
+      {isPersonalised && <PersonalScoresBlock mine={mine} />}
+    </Card>
+  );
+}
+
+function AdminAggregateView({ assessment, questions, revealAnswers, myAnswers }: AdminAggregateViewProps) {
+  return (
+    <>
+      <section className="space-y-3">
+        <h2 className="text-heading-lg">Comprehension Score</h2>
+        <p aria-label="Aggregate comprehension score" className="text-heading-xl font-display">{toPercent(assessment.aggregate_score)}</p>
         {assessment.scoring_incomplete && (
-          <p>Note: scoring incomplete — some answers could not be scored.</p>
+          <p className="text-body text-text-secondary">Note: scoring incomplete — some answers could not be scored.</p>
         )}
       </section>
 
@@ -248,25 +309,19 @@ function AdminAggregateView({ assessment, questions, revealAnswers }: AdminAggre
         rubric_duration_ms={assessment.rubric_duration_ms}
       />
 
-      <section>
-        <h2>Question Breakdown</h2>
-        {!revealAnswers && <p>{ANSWERS_WITHHELD_MESSAGE}</p>}
-        <ol>
+      <section className="space-y-4">
+        <h2 className="text-heading-lg">Question Breakdown</h2>
+        {!revealAnswers && <p className="text-body text-text-secondary">{ANSWERS_WITHHELD_MESSAGE}</p>}
+        <ol className="space-y-4 list-none p-0">
           {questions.map(q => (
             <li key={q.id}>
-              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
-              {q.hint && <p className="text-caption text-text-secondary italic">{q.hint}</p>}
-              <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
-              <p>Aggregate score: {toPercent(q.aggregate_score)}</p>
-              {assessment.scoring_incomplete && q.aggregate_score === null && (
-                <p>Unable to score</p>
-              )}
-              {revealAnswers && (
-                <details>
-                  <summary>Reference answer</summary>
-                  <FormattedText content={q.reference_answer} />
-                </details>
-              )}
+              <AdminQuestionCard
+                q={q}
+                scoringIncomplete={assessment.scoring_incomplete ?? false}
+                revealAnswers={revealAnswers}
+                mine={myAnswers?.find(a => a.question_id === q.id)}
+                isPersonalised={myAnswers !== undefined}
+              />
             </li>
           ))}
         </ol>
@@ -282,48 +337,18 @@ interface SelfDirectedViewProps {
 
 function SelfDirectedView({ questions, myAnswers }: SelfDirectedViewProps) {
   return (
-    <section>
-      <h2>Question Breakdown</h2>
-      <ol>
+    <section className="space-y-4">
+      <h2 className="text-heading-lg">Question Breakdown</h2>
+      <ol className="space-y-4 list-none p-0">
         {questions.map(q => {
           const mine = myAnswers.find(a => a.question_id === q.id);
           return (
             <li key={q.id}>
-              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
-              {q.hint && <p className="text-caption text-text-secondary italic">{q.hint}</p>}
-              <p>Layer: {NAUR_LABELS[q.naur_layer]}</p>
-              <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
-              {mine && (
-                <>
-                  <p>Your answer:</p>
-                  <FormattedText content={mine.answer_text} className="text-text-secondary" />
-                </>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
-function MyScoresSection({ questions, myAnswers }: SelfDirectedViewProps) {
-  return (
-    <section>
-      <h2>My Scores</h2>
-      <ol>
-        {questions.map(q => {
-          const mine = myAnswers.find(a => a.question_id === q.id);
-          return (
-            <li key={q.id}>
-              <p><strong>Q{q.question_number}.</strong> {q.question_text}</p>
-              <p>Your score: {toDecimalScore(mine?.score ?? null)}</p>
-              {mine && (
-                <>
-                  <p>Your answer:</p>
-                  <FormattedText content={mine.answer_text} className="text-text-secondary" />
-                </>
-              )}
+              <Card className="space-y-3">
+                <QuestionHeader q={q} />
+                <p className="text-body">Your score: {toDecimalScore(mine?.score ?? null)}</p>
+                {mine && <FormattedText content={mine.answer_text} className="text-text-secondary" />}
+              </Card>
             </li>
           );
         })}
@@ -355,8 +380,8 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
   });
 
   return (
-    <main>
-      <h1>Assessment Results</h1>
+    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap">
+      <h1 className="text-heading-xl font-display">Assessment Results</h1>
 
       <HeaderSection
         assessment={assessment}
@@ -370,15 +395,12 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           assessment={assessment}
           questions={questions}
           revealAnswers={revealAnswers}
+          myAnswers={isParticipant ? myAnswers : undefined}
         />
       )}
 
       {!isAdmin && isParticipant && (
         <SelfDirectedView questions={questions} myAnswers={myAnswers} />
-      )}
-
-      {isAdmin && isParticipant && (
-        <MyScoresSection questions={questions} myAnswers={myAnswers} />
       )}
     </main>
   );

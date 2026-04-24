@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.3 |
+| Version | 1.4 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-21 |
-| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issues #297 + #295 sync |
+| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issues #297 + #295 sync; 2026-04-24 — Issue #315 sync |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #294 |
 
@@ -66,7 +66,7 @@ flowchart TD
     A[Viewer arrives at /assessments/id/results] --> B{Is org admin?}
     B -->|Yes| C{Is also participant?}
     B -->|No| D{Is participant?}
-    C -->|Yes| E[Admin view + My Scores section]
+    C -->|Yes| E[Admin view with inline personal scores per question]
     C -->|No| F[Admin view only]
     D -->|Yes| G[Self-directed view only]
     D -->|No| H[404 Not Found]
@@ -93,7 +93,6 @@ graph TD
     RES -->|"admin"| AV[Admin Aggregate View]
     RES -->|"participant"| SV[Self-Directed View]
     RES -->|"admin+participant"| AV
-    RES -->|"admin+participant"| MS[My Scores Section]
 ```
 
 ### Invariants
@@ -403,19 +402,18 @@ interface ResultsData {
 ```typescript
 // In the page component:
 if (isAdmin) {
-  // Render admin aggregate view (existing code)
+  // Render AdminAggregateView.
+  // Pass myAnswers when isParticipant — AdminQuestionCard renders personal scores inline.
 }
 
 if (!isAdmin && isParticipant) {
-  // Render self-directed view only
+  // Render SelfDirectedView only
   // - Questions with own scores and Naur layer labels
   // - Own submitted answers
   // - NO reference answers
 }
 
-if (isAdmin && isParticipant) {
-  // Render admin view (above) PLUS "My Scores" section
-}
+// Combined admin+participant: handled above — AdminAggregateView receives myAnswers prop.
 ```
 
 #### Self-directed view layout
@@ -433,10 +431,16 @@ View sections are presentational — no data fetching, no side effects:
 
 ```typescript
 function HeaderSection({ assessment, repoFullName, participantTotal, participantCompleted })
-function AdminAggregateView({ assessment, questions, revealAnswers })
+function AdminAggregateView({ assessment, questions, revealAnswers, myAnswers? })
+function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine?, isPersonalised })
 function SelfDirectedView({ questions, myAnswers })
-function MyScoresSection({ questions, myAnswers })
+
+// Shared sub-components used by both AdminQuestionCard and SelfDirectedView:
+function QuestionHeader({ q })           // question number + Badge(naur_layer) + question text + hint
+function PersonalScoresBlock({ mine })   // "My Scores" label + decimal score + submitted answer text
 ```
+
+> **Implementation note (issue #315):** The original spec included `MyScoresSection({ questions, myAnswers })` — a separate section that re-rendered all question text for combined admin+participant viewers. This caused verbatim question-text duplication (the core bug in #315). The section was removed and replaced with `AdminQuestionCard`, which merges personal scores inline within each question card in `AdminAggregateView`. The `AdminAggregateView` now accepts an optional `myAnswers` prop; when present, each card renders a `PersonalScoresBlock` beneath the aggregate data. The "My Scores" label is preserved inside each card, satisfying the existing test contract (`html.toContain('My Scores')`). `QuestionHeader` and `PersonalScoresBlock` are shared helpers that eliminate layout duplication between `AdminQuestionCard` and `SelfDirectedView`.
 
 Data-fetching and formatting helpers:
 
@@ -468,7 +472,8 @@ describe('Results page')
     it('does not show reference answers')
   describe('admin + participant combined view')
     it('shows admin aggregate view')
-    it('appends "My Scores" section with own per-question scores')
+    it('shows personal score inline per question card (no separate My Scores section)')
+    it('renders each question text exactly once (no duplication)')
   describe('access control')
     it('returns 404 for non-admin non-participant')
 ```
