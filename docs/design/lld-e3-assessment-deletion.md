@@ -34,23 +34,15 @@ sequenceDiagram
     Route->>Ctx: createApiContext(request)
     Ctx-->>Route: { user, supabase, adminSupabase }
     Route->>Svc: deleteAssessment(ctx, assessmentId)
-    Svc->>DB: supabase.from('assessments').select('id, org_id').eq('id', assessmentId).single()
-    Note over DB: RLS SELECT filters by org membership
-    alt Row not found (RLS hides or non-existent)
+    Svc->>DB: supabase.from('assessments').delete().eq('id', assessmentId).select('id').single()
+    Note over DB: Single query: RLS DELETE policy checks is_org_admin(org_id).<br/>RETURNING gives back deleted row (like .select().single()).
+    alt Row not found or RLS denies (not admin / wrong org)
         DB-->>Svc: error/null
         Svc-->>Route: throw ApiError(404)
         Route-->>Admin: 404 Not Found
     end
-    DB-->>Svc: { id, org_id }
-    Svc->>DB: supabase.from('assessments').delete().eq('id', assessmentId)
-    Note over DB: RLS DELETE policy checks is_org_admin(org_id)
-    alt RLS denies (not admin)
-        DB-->>Svc: error (0 rows affected)
-        Svc-->>Route: throw ApiError(404)
-        Route-->>Admin: 404 Not Found
-    end
     Note over DB: ON DELETE CASCADE removes child rows
-    DB-->>Svc: success
+    DB-->>Svc: { id } (deleted row)
     Svc-->>Route: void
     Route-->>Admin: 204 No Content
 ```
