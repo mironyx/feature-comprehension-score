@@ -7,8 +7,9 @@
 | Epic | #317 — V4 assessment deletion |
 | Requirements | `docs/requirements/v4-requirements.md` §Epic 3 |
 | HLD reference | `docs/design/v1-design.md` §L4 (schema, RLS, API contracts) |
-| Status | Draft |
+| Status | Story 3.1 implemented (#318); Story 3.2 draft |
 | Created | 2026-04-24 |
+| Revised | 2026-04-24 — Story 3.1 (#318) synced |
 
 ---
 
@@ -215,6 +216,10 @@ describe('DELETE /api/assessments/[id]', () => {
 | `src/app/api/assessments/[id]/delete-service.ts` | New file — `deleteAssessment` service function |
 | `supabase/migrations/<generated>` | Generated via `supabase db diff` |
 | `tests/app/api/assessments/delete-assessment.test.ts` | New test file |
+
+> **Implementation note (issue #318):** Built exactly as specified. Policy, service, controller,
+> and contract JSDoc match the LLD verbatim. 13 tests covering all 7 acceptance criteria and
+> invariants I1–I3. No design deviations.
 
 ---
 
