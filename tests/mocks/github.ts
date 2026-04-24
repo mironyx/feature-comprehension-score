@@ -187,6 +187,96 @@ export function mockGraphQLError(message = 'GraphQL error') {
 }
 
 // ---------------------------------------------------------------------------
+// Epic-aware discovery — Query 1 (buildEpicDiscoveryQuery) and Query 2 (buildBatchCrossRefQuery)
+// Epic 2 — Stories 2.1 + 2.2, issue #322
+// ---------------------------------------------------------------------------
+
+/** A sub-issue entry within Query 1's response: its number and the PRs that reference it. */
+export interface MockSubIssue {
+  number: number;
+  prs: MockCrossRefPR[];
+}
+
+/**
+ * Mock entry for a single issue returned by Query 1 (epic discovery).
+ * `body` is the issue body used for task list parsing.
+ * `subIssues` are the native GitHub sub-issues with their linked PRs.
+ */
+export interface MockEpicIssue {
+  body: string | null;
+  subIssues: MockSubIssue[];
+}
+
+/**
+ * Factory: mock Query 1 — the batched epic discovery query.
+ *
+ * Matches any POST to the GraphQL endpoint whose body contains `subIssues`.
+ * Responds with one `issueN` alias per entry in `byIssue`.
+ *
+ * @param byIssue  Map from issue number → { body, subIssues[] }.
+ */
+export function mockGraphQLEpicDiscovery(byIssue: Record<number, MockEpicIssue>) {
+  return http.post('https://api.github.com/graphql', async ({ request }) => {
+    // Clone before reading — when this handler returns undefined and MSW falls
+    // through to the next registered handler, the next handler also reads the
+    // body. Without a clone, the second read throws "Body has already been read".
+    const payload = (await request.clone().json()) as { query?: string };
+    // Only intercept Query 1 — it contains the `subIssues` field name.
+    if (!payload.query?.includes('subIssues')) return undefined;
+
+    const repositoryData: Record<string, unknown> = {};
+    for (const [issueNumStr, issue] of Object.entries(byIssue)) {
+      const n = Number(issueNumStr);
+      repositoryData[`issue${n}`] = {
+        body: issue.body,
+        subIssues: {
+          nodes: issue.subIssues.map((sub) => ({
+            number: sub.number,
+            timelineItems: {
+              nodes: sub.prs.map((pr) => ({
+                source: { number: pr.number, merged: pr.merged },
+              })),
+            },
+          })),
+        },
+      };
+    }
+    return HttpResponse.json({ data: { repository: repositoryData } });
+  });
+}
+
+/**
+ * Factory: mock Query 2 — the batch cross-ref query for task-list-only children.
+ *
+ * Matches any POST to the GraphQL endpoint whose body does NOT contain `subIssues`
+ * (i.e. it is the cross-ref-only query). Responds with one `issueN` alias per entry.
+ *
+ * @param byIssue  Map from issue number → PRs that cross-reference it.
+ */
+export function mockGraphQLBatchCrossRef(byIssue: Record<number, MockCrossRefPR[]>) {
+  return http.post('https://api.github.com/graphql', async ({ request }) => {
+    // See comment in mockGraphQLEpicDiscovery — clone the request before reading
+    // the body so a previous handler that also called json() doesn't poison this one.
+    const payload = (await request.clone().json()) as { query?: string };
+    // Only intercept Query 2 — it does NOT include `subIssues`.
+    if (payload.query?.includes('subIssues')) return undefined;
+
+    const repositoryData: Record<string, unknown> = {};
+    for (const [issueNumStr, prs] of Object.entries(byIssue)) {
+      const n = Number(issueNumStr);
+      repositoryData[`issue${n}`] = {
+        timelineItems: {
+          nodes: prs.map((pr) => ({
+            source: { number: pr.number, merged: pr.merged },
+          })),
+        },
+      };
+    }
+    return HttpResponse.json({ data: { repository: repositoryData } });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Git trees (for context file pattern resolution)
 // ---------------------------------------------------------------------------
 

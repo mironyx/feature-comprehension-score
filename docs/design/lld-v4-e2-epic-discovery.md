@@ -8,8 +8,10 @@
 | Requirements | `docs/requirements/v4-requirements.md` §Epic 2 |
 | HLD reference | `docs/design/v1-design.md` §C5 (Artefact Extraction) |
 | Predecessor | `docs/design/lld-e19.md` — V2 Epic 19: GitHub Issues as Artefact Source |
-| Status | Draft |
+| Status | Revised |
 | Created | 2026-04-24 |
+| Version | 0.2 |
+| Revised | 2026-04-24 — Issue #322 (post-implementation lld-sync) |
 
 ---
 
@@ -308,67 +310,56 @@ function extractMergedPrNumbers(
 
 #### Adapter method
 
+> **Implementation note (issue #322):** The inline reduce-loop below was extracted into a
+> pure helper `collectDiscoveryResults(issueNumbers, q1Results)` so `discoverChildIssues`
+> itself stays under the 20-line complexity budget. The helper also tracks a
+> `DiscoveryMechanism = 'sub_issues' | 'task_list' | 'both' | 'none'` flag per call for
+> logging traceability (satisfies the AC "logs … discoveryMechanism"). Method signatures
+> for `queryEpicDiscovery` / `batchDiscoverLinkedPRs` take a single `RepoCoords` argument
+> rather than separate `(owner, repo)` params (refactor commit `e824d5f`), to match the
+> rest of the file. Wider type-consolidation (RepoCoords / RepoRef / inline) deferred to
+> issue #325.
+
 ```typescript
 async discoverChildIssues(params: IssueQueryParams): Promise<EpicDiscoveryResult> {
-  // Query 1 (batched): all provided issues in one request
-  const q1Results = await this.queryEpicDiscovery(params.owner, params.repo, params.issueNumbers);
-
-  const allSubIssueNumbers: number[] = [];
-  const allSubIssuePrs: number[] = [];
-  const allTaskListOnly: number[] = [];
-
-  for (const issueNumber of params.issueNumbers) {
-    const q1 = q1Results.get(issueNumber);
-    if (!q1) continue;
-
-    const subIssueNumbers = q1.subIssues.map(s => s.number);
-    const subIssuePrs = q1.subIssues.flatMap(s => s.mergedPrs);
-    const taskListNumbers = q1.body !== null ? parseTaskListReferences(q1.body) : [];
-
-    allSubIssueNumbers.push(...subIssueNumbers);
-    allSubIssuePrs.push(...subIssuePrs);
-
-    // Task-list children not already in sub-issues need a PR lookup
-    const subIssueSet = new Set(subIssueNumbers);
-    const taskListOnly = taskListNumbers.filter(n => !subIssueSet.has(n));
-    allTaskListOnly.push(...taskListOnly);
-
-    // Also collect task-list issue numbers for the final union
-    allSubIssueNumbers.push(...taskListNumbers);
-  }
-
-  // Query 2 (conditional): batch PR discovery for task-list-only children
-  const uniqueTaskListOnly = Array.from(new Set(allTaskListOnly));
+  const coords: RepoCoords = { owner: params.owner, repo: params.repo };
+  const q1Results = await this.queryEpicDiscovery(coords, params.issueNumbers);
+  const { childNumbers, childPrs, taskListOnly, mechanism } =
+    collectDiscoveryResults(params.issueNumbers, q1Results);
+  const uniqueTaskListOnly = Array.from(new Set(taskListOnly));
   const taskListPrs = uniqueTaskListOnly.length > 0
-    ? await this.batchDiscoverLinkedPRs(params.owner, params.repo, uniqueTaskListOnly)
+    ? await this.batchDiscoverLinkedPRs(coords, uniqueTaskListOnly)
     : [];
-
-  const childIssueNumbers = Array.from(new Set(allSubIssueNumbers));
-  const childIssuePrs = Array.from(new Set([...allSubIssuePrs, ...taskListPrs]));
-
+  const childIssueNumbers = Array.from(new Set(childNumbers));
+  const childIssuePrs = Array.from(new Set([...childPrs, ...taskListPrs]));
   if (childIssueNumbers.length > 0) {
     logger.info({
       childIssueCount: childIssueNumbers.length,
       childIssueNumbers,
+      discoveryMechanism: mechanism,
       childIssuePrCount: childIssuePrs.length,
     }, 'discoverChildIssues: children found');
   }
-
   return { childIssueNumbers, childIssuePrs };
 }
 ```
+
+`collectDiscoveryResults` is pure — given `issueNumbers` and the Query 1 result map, it
+returns `{ childNumbers, childPrs, taskListOnly, mechanism }`. The `mechanism` flag is
+derived from per-issue flags `sawSubIssue` / `sawTaskList`: both → `both`; only sub-issues
+→ `sub_issues`; only task-list → `task_list`; neither → `none`.
 
 Private helper `queryEpicDiscovery` — executes Query 1 (batched):
 
 ```typescript
 private async queryEpicDiscovery(
-  owner: string, repo: string, issueNumbers: number[],
+  coords: RepoCoords, issueNumbers: number[],
 ): Promise<Map<number, { body: string | null; subIssues: Array<{ number: number; mergedPrs: number[] }> }>> {
   const results = new Map<number, { body: string | null; subIssues: Array<{ number: number; mergedPrs: number[] }> }>();
   if (issueNumbers.length === 0) return results;
   try {
     const query = buildEpicDiscoveryQuery(issueNumbers);
-    const result = await this.octokit.graphql<EpicDiscoveryQueryResponse>(query, { owner, repo });
+    const result = await this.octokit.graphql<EpicDiscoveryQueryResponse>(query, coords);
     for (const issueNumber of issueNumbers) {
       const issue = result.repository[`issue${issueNumber}`];
       if (!issue) continue;
@@ -391,12 +382,12 @@ Private helper `batchDiscoverLinkedPRs` — executes Query 2:
 
 ```typescript
 private async batchDiscoverLinkedPRs(
-  owner: string, repo: string, issueNumbers: number[],
+  coords: RepoCoords, issueNumbers: number[],
 ): Promise<number[]> {
   if (issueNumbers.length === 0) return [];
   try {
     const query = buildBatchCrossRefQuery(issueNumbers);
-    const result = await this.octokit.graphql<BatchCrossRefResponse>(query, { owner, repo });
+    const result = await this.octokit.graphql<BatchCrossRefResponse>(query, coords);
     const prs: number[] = [];
     for (const issueNum of issueNumbers) {
       const issueData = result.repository[`issue${issueNum}`];
@@ -489,8 +480,11 @@ describe('buildBatchCrossRefQuery', () => {
 | File | Change |
 |------|--------|
 | `src/lib/engine/ports/artefact-source.ts` | Add `EpicDiscoveryResult`, update `ArtefactSource` interface |
-| `src/lib/github/artefact-source.ts` | Add `EPIC_DISCOVERY_FRAGMENT`, `buildEpicDiscoveryQuery`, `buildBatchCrossRefQuery`, `extractMergedPrNumbers`, `parseTaskListReferences`, `discoverChildIssues`, `queryEpicDiscovery`, `batchDiscoverLinkedPRs` |
-| `tests/lib/github/artefact-source.test.ts` | Tests for all new functions |
+| `src/lib/github/artefact-source.ts` | Add `EPIC_DISCOVERY_FRAGMENT`, `buildEpicDiscoveryQuery`, `buildBatchCrossRefQuery`, `extractMergedPrNumbers`, `parseTaskListReferences`, `collectDiscoveryResults`, `DiscoveryMechanism`, `discoverChildIssues`, `queryEpicDiscovery`, `batchDiscoverLinkedPRs` |
+| `tests/lib/github/epic-discovery.test.ts` | Tests for all new functions (42 cases) |
+| `tests/app/api/fcs-child-issues.test.ts` | Tests for service wiring, dedup-by-number (17 cases) |
+| `tests/evaluation/epic-discovery.eval.test.ts` | Adversarial tests added by evaluator — multi-epic overlap, duplicate sub-issues, mechanism log field (3 cases) |
+| `tests/mocks/github.ts` | New `mockGraphQLEpicDiscovery`, `mockGraphQLBatchCrossRef` factories |
 
 ---
 

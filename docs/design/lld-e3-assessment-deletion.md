@@ -7,9 +7,10 @@
 | Epic | #317 — V4 assessment deletion |
 | Requirements | `docs/requirements/v4-requirements.md` §Epic 3 |
 | HLD reference | `docs/design/v1-design.md` §L4 (schema, RLS, API contracts) |
-| Status | Story 3.1 implemented (#318); Story 3.2 draft |
+| Status | Revised — Stories 3.1 (#318) & 3.2 (#319) synced |
 | Created | 2026-04-24 |
 | Revised | 2026-04-24 — Story 3.1 (#318) synced |
+| Revised | 2026-04-24 — Story 3.2 (#319) synced |
 
 ---
 
@@ -264,23 +265,37 @@ Updated `AssessmentOverviewTable` signature:
 ```typescript
 interface AssessmentOverviewTableProps {
   assessments: AssessmentListItem[];
-  onDelete?: (id: string) => void;
+  onDelete?: (assessment: AssessmentListItem) => void;
 }
 ```
 
 When `onDelete` is provided, add an "Actions" column with a delete button (trash icon or text).
 
+> **Implementation note (issue #319):** `onDelete` receives the full `AssessmentListItem`, not just
+> the `id`. The caller needs the feature name / PR number immediately (to populate the confirmation
+> dialog label and the button's `aria-label`), so passing the row avoids a re-lookup by id inside the
+> wrapper.
+
 **`DeleteAssessmentDialog`** (`src/app/(authenticated)/organisation/delete-assessment-dialog.tsx`):
 
 Client component that renders a modal/dialog:
-- Props: `assessment: { id: string; feature_name: string | null; pr_number: number | null } | null`, `onConfirm: () => void`, `onCancel: () => void`, `isDeleting: boolean`, `error: string | null`
+- Props: `assessment: AssessmentListItem | null`, `onConfirm: () => void`, `onCancel: () => void`, `isDeleting: boolean`, `error: string | null`
 - Shows assessment name (feature name or `PR #N`)
 - States: "Delete {name}? This action is permanent and cannot be undone."
 - Two buttons: "Cancel" (secondary) and "Delete" (destructive/red)
 - While deleting: "Delete" button shows loading state
 - On error: inline error message below the dialog text
 
-Uses the native HTML `<dialog>` element (no library dependency needed). Style with existing design tokens.
+Rendered as `<div role="dialog" aria-modal="true">` with a full-screen backdrop, styled with the
+project's existing Tailwind design tokens. No external dialog library, no native `<dialog>` element.
+
+> **Implementation note (issue #319):** The dialog uses the shared `AssessmentListItem` type from
+> `@/app/api/assessments/helpers` rather than a narrowed structural type. Reason: reuse over
+> duplication — the caller already has the full row, and a bespoke subset type would drift if the
+> shared type grew. Extra fields are ignored. Also, the LLD originally suggested the native HTML
+> `<dialog>` element; the implementation uses a styled `<div role="dialog">` instead because the
+> native element's default browser styling clashed with the project's design tokens and added no
+> value over the ARIA-annotated div.
 
 **`DeleteableAssessmentTable`** (`src/app/(authenticated)/organisation/deleteable-assessment-table.tsx`):
 
@@ -341,4 +356,12 @@ describe('DeleteableAssessmentTable', () => {
 | `src/app/(authenticated)/organisation/deleteable-assessment-table.tsx` | New client component — delete state management |
 | `src/app/(authenticated)/organisation/delete-assessment-dialog.tsx` | New client component — confirmation dialog |
 | `src/app/(authenticated)/organisation/page.tsx` | Replace `AssessmentOverviewTable` with `DeleteableAssessmentTable` |
-| `tests/app/(authenticated)/organisation/deleteable-assessment-table.test.tsx` | New test file |
+| `tests/app/(authenticated)/organisation/deleteable-assessment-table.test.ts` | New test file (24 tests) |
+| `tests/app/(authenticated)/organisation.test.ts` | Updated: stub new wrapper, adjust page-integration assertions |
+
+> **Implementation note (issue #319):** Built close to the spec with three minor deviations,
+> captured above: (1) `onDelete` receives the full row not just `id`; (2) dialog uses the shared
+> `AssessmentListItem` type rather than a narrowed structural type; (3) dialog renders as a styled
+> `<div role="dialog">` instead of the native `<dialog>` element. Test file uses the `.test.ts`
+> extension (project convention — vitest include glob is `*.test.ts` only). 24 tests covering all
+> 6 acceptance criteria plus invariants I4 and I5.

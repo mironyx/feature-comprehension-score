@@ -546,13 +546,17 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
-  const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, issueNumbers);
+  const { childIssueNumbers, childIssuePrs } = issueNumbers.length > 0
+    ? await source.discoverChildIssues({ ...coords, issueNumbers })
+    : { childIssueNumbers: [], childIssuePrs: [] };
+  const allIssueNumbers = Array.from(new Set([...issueNumbers, ...childIssueNumbers]));
+  const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, issueNumbers, childIssuePrs);
   const [raw, issueContent, organisation_context] = await Promise.all([
     mergedPrNumbers.length > 0
       ? source.extractFromPRs({ ...coords, prNumbers: mergedPrNumbers })
       : emptyRawArtefactSet(),
-    issueNumbers.length > 0
-      ? source.fetchIssueContent({ ...coords, issueNumbers })
+    allIssueNumbers.length > 0
+      ? source.fetchIssueContent({ ...coords, issueNumbers: allIssueNumbers })
       : Promise.resolve([] as LinkedIssue[]),
     loadOrgPromptContext(adminSupabase, repoInfo.orgId),
   ]);
@@ -560,19 +564,25 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
   return { ...merged, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(merged), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
 }
 
-// Justification: Story 19.2 (#288) — resolves the union of explicit PR numbers and
-// PRs discovered from issue cross-references, deduplicated. Kept out of extractArtefacts
-// to hold it under the 20-line budget and to isolate the discovery log at the join point.
+// Story 19.2 (#288) + Epic 2 (#322): unions explicit PRs, PRs discovered from
+// the provided issues, and PRs discovered from their child issues. The
+// `providedIssueNumbers` argument is deliberately scoped to the originally-
+// provided issues — child-issue PRs are already resolved by discoverChildIssues,
+// so calling discoverLinkedPRs for them again would duplicate work.
 async function resolveMergedPrSet(
   source: GitHubArtefactSource,
   coords: RepoCoords,
   explicitPrs: number[],
-  issueNumbers: number[],
+  providedIssueNumbers: number[],
+  childIssuePrs: number[],
 ): Promise<number[]> {
-  if (issueNumbers.length === 0) return explicitPrs;
-  const discoveredPrs = await source.discoverLinkedPRs({ ...coords, issueNumbers });
-  const merged = Array.from(new Set([...explicitPrs, ...discoveredPrs]));
-  logger.info({ explicitPrs, discoveredPrs, mergedPrs: merged }, 'extractArtefacts: linked PR discovery');
+  const discoveredPrs = providedIssueNumbers.length > 0
+    ? await source.discoverLinkedPRs({ ...coords, issueNumbers: providedIssueNumbers })
+    : [];
+  const merged = Array.from(new Set([...explicitPrs, ...discoveredPrs, ...childIssuePrs]));
+  if (discoveredPrs.length > 0 || childIssuePrs.length > 0) {
+    logger.info({ explicitPrs, discoveredPrs, childIssuePrs, mergedPrs: merged }, 'extractArtefacts: linked PR discovery');
+  }
   return merged;
 }
 
@@ -592,11 +602,17 @@ function emptyRawArtefactSet(): RawArtefactSet {
 // latter stays under the 20-line budget. Merges explicit issue content with whatever
 // linked_issues were discovered from PR bodies, dedupes by title (matches mergeRawArtefacts).
 function mergeIssueContent(raw: RawArtefactSet, issues: LinkedIssue[]): RawArtefactSet {
-  if (issues.length === 0) return raw;
-  const byTitle = new Map<string, LinkedIssue>();
-  for (const issue of raw.linked_issues ?? []) byTitle.set(issue.title, issue);
-  for (const issue of issues) byTitle.set(issue.title, issue);
-  return { ...raw, linked_issues: Array.from(byTitle.values()) };
+  const rawIssues = raw.linked_issues ?? [];
+  if (issues.length === 0 && rawIssues.length === 0) return raw;
+  // Key by #<number> when known; fall back to title for PR-body-discovered issues
+  // that don't carry a number. Prevents distinct issues with the same title from
+  // being merged (Epic 2, Invariant I6).
+  const keyOf = (issue: LinkedIssue): string =>
+    issue.number !== undefined ? `#${issue.number}` : issue.title;
+  const byKey = new Map<string, LinkedIssue>();
+  for (const issue of rawIssues) byKey.set(keyOf(issue), issue);
+  for (const issue of issues) byKey.set(keyOf(issue), issue);
+  return { ...raw, linked_issues: Array.from(byKey.values()) };
 }
 
 async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {

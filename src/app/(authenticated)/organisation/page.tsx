@@ -15,7 +15,7 @@ import { isOrgAdmin, type MembershipRow } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import OrgContextForm from './org-context-form';
 import RetrievalSettingsForm from './retrieval-settings-form';
-import { AssessmentOverviewTable } from './assessment-overview-table';
+import { DeleteableAssessmentTable } from './deleteable-assessment-table';
 import { loadOrgAssessmentsOverview } from './load-assessments';
 
 const NEW_ASSESSMENT_CLASSES =
@@ -58,7 +58,7 @@ export default async function OrganisationPage() {
         subtitle="Manage assessments and context settings"
         action={newAssessmentAction}
       />
-      <AssessmentOverviewTable assessments={assessments} />
+      <DeleteableAssessmentTable initialAssessments={assessments} />
       <OrgContextForm orgId={orgId} initial={context ?? {}} />
       <RetrievalSettingsForm orgId={orgId} initial={retrievalSettings} />
     </div>
