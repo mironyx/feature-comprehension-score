@@ -4,13 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-<<<<<<< fix/results-formatting
-| Version | 2.0 |
-| Status | Final |
-=======
 | Version | 2.1 |
-| Status | Draft — Structure |
->>>>>>> main
+| Status | Draft — Complete |
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-24 |
@@ -291,7 +286,18 @@ Allow Org Admins to delete assessments from the organisation dashboard. Applies 
 **I want to** delete an assessment via the API,
 **so that** the assessment and all its associated data are permanently removed.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given an authenticated Org Admin, when they send `DELETE /api/assessments/[id]` with a valid assessment ID belonging to their organisation, then the assessment row is deleted and the response is `204 No Content`.
+- Given an assessment with associated questions, participants, answers, artefact PRs, and artefact issues, when the assessment is deleted, then all child rows are removed by database cascade — no orphaned data remains.
+- Given an assessment in any status (`created`, `rubric_generation`, `generation_failed`, `rubric_failed`, `awaiting_responses`, `scoring`, `completed`, `invalidated`, `skipped`), when deletion is requested, then it succeeds regardless of status.
+- Given an unauthenticated request, when `DELETE /api/assessments/[id]` is called, then the response is `401 Unauthorized`.
+- Given an authenticated user who is not an Org Admin for the assessment's organisation, when they send `DELETE /api/assessments/[id]`, then the response is `404 Not Found` (RLS hides the row).
+- Given a non-existent assessment ID, when `DELETE /api/assessments/[id]` is called by an Org Admin, then the response is `404 Not Found`.
+
+**Notes:** Requires a new RLS DELETE policy on `assessments` restricted to org admins (`is_org_admin(org_id)`). The existing `ON DELETE CASCADE` foreign keys on `assessment_questions`, `assessment_participants`, `participant_answers`, `assessment_artefact_prs`, and `assessment_artefact_issues` handle child table cleanup. Contract: ADR-0014 inline types in route file.
+
+---
 
 ### Story 3.2: Delete assessment from organisation page
 
@@ -299,7 +305,16 @@ Allow Org Admins to delete assessments from the organisation dashboard. Applies 
 **I want to** delete an assessment from the organisation dashboard with a confirmation step,
 **so that** I can remove unwanted assessments without accidental deletion.
 
-*(Acceptance criteria in next pass)*
+**Acceptance Criteria:**
+
+- Given the assessment overview table on the organisation page, then each row displays a delete action (button or icon).
+- Given the Org Admin clicks the delete action on an assessment row, then a confirmation dialog appears before any deletion occurs.
+- Given the confirmation dialog, then it identifies the assessment being deleted (feature name or PR number) and warns that deletion is permanent.
+- Given the Org Admin confirms deletion in the dialog, then the `DELETE /api/assessments/[id]` endpoint is called and the assessment row is removed from the table without a full page reload.
+- Given the Org Admin cancels the confirmation dialog, then no deletion occurs and the table remains unchanged.
+- Given the delete API call fails (network error or server error), then an error message is displayed to the user and the assessment row remains in the table.
+
+**Notes:** The assessment overview table is currently a server component ([assessment-overview-table.tsx](src/app/(authenticated)/organisation/assessment-overview-table.tsx)). The delete action requires client-side interactivity (confirmation dialog + API call), so this story introduces a client component boundary. Approach options (dialog library vs native `confirm()`, optimistic removal vs refetch) are design decisions for the LLD.
 
 ---
 
