@@ -61,3 +61,7 @@ supabase/.temp/
 /.remember
 .claude/settings.local.json
 .tmp-*.md
+
+# Python
+__pycache__/
+*.pyc
