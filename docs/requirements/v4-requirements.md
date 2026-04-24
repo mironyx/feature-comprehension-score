@@ -309,10 +309,10 @@ Allow Org Admins to delete assessments from the organisation dashboard. Applies 
 
 - Given the assessment overview table on the organisation page, then each row displays a delete action (button or icon).
 - Given the Org Admin clicks the delete action on an assessment row, then a confirmation dialog appears before any deletion occurs.
-- Given the confirmation dialog, then it identifies the assessment being deleted (feature name or PR number) and warns that deletion is permanent.
+- Given the confirmation dialog, then it displays the assessment's feature name (or `PR #N` if no feature name) and states that deletion is permanent and cannot be undone.
 - Given the Org Admin confirms deletion in the dialog, then the `DELETE /api/assessments/[id]` endpoint is called and the assessment row is removed from the table without a full page reload.
 - Given the Org Admin cancels the confirmation dialog, then no deletion occurs and the table remains unchanged.
-- Given the delete API call fails (network error or server error), then an error message is displayed to the user and the assessment row remains in the table.
+- Given the delete API call fails (network error or non-2xx response), then an inline error message is displayed near the table and the assessment row remains in the table unchanged.
 
 **Notes:** The assessment overview table is currently a server component ([assessment-overview-table.tsx](src/app/(authenticated)/organisation/assessment-overview-table.tsx)). The delete action requires client-side interactivity (confirmation dialog + API call), so this story introduces a client component boundary. Approach options (dialog library vs native `confirm()`, optimistic removal vs refetch) are design decisions for the LLD.
 
