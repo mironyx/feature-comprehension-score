@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 2.1 |
-| Status | Draft — Complete |
+| Version | 2.2 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-22 |
 | Last updated | 2026-04-24 |
@@ -21,6 +21,7 @@
 | 2.0 | 2026-04-22 | LS / Claude | Finalised. Added reliability note for task list parsing — sub-issues are reliable path, task list is best-effort, manual workaround always available. |
 | 1.1 | 2026-04-23 | LS / Claude | Added Story 1.4: theory-building question focus — questions must test system-specific understanding, not general architecture knowledge |
 | 2.1 | 2026-04-24 | LS / Claude | Added Epic 3: Assessment Deletion — delete assessments (any status) from org page with confirmation dialog |
+| 2.2 | 2026-04-24 | LS / Claude | Finalised Epic 3 — testability validated, no open questions |
 
 ---
 
