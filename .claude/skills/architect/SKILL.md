@@ -188,10 +188,10 @@ For each epic, assess whether it should be split into multiple task issues. The 
 
 **Split if and only if both conditions hold:**
 
-1. **Size** — estimated implementation exceeds 200 lines.
+1. **Size** — estimated **total PR diff** exceeds 200 lines (production code + tests + fixtures + types). Rule of thumb: production code is ~30% of the total diff when following TDD with fixtures, so ~70 lines of production code ≈ 200-line PR. If you estimate 150 lines of production code, the PR will likely be 400–500 lines — that needs splitting.
 2. **Natural seam** — there is an independently testable or independently deployable unit that does not share files with the remainder.
 
-If only one condition holds (large but no clean seam, or clean seam but small), do **not** split.
+If only one condition holds (large but no clean seam, or clean seam but small), do **not** split. However, if the size vastly exceeds the limit (e.g. 3×+), prioritise splitting even if seams are imperfect — large PRs are harder to review than slightly awkward boundaries.
 
 When a split is warranted, propose the task issues with explicit dependency order (A completes → B starts) and note which files each task touches. Tasks that do not share files and have no dependency can be assigned to the same execution wave for parallel implementation. Add the proposed split to the summary table and explain the rationale briefly. The user confirms or rejects before any issues are created.
 
@@ -271,7 +271,7 @@ Follow the LLD template from `/lld` (Part A + Part B structure):
   - See the LLD template's "Internal decomposition" section for the full pattern
 - Include internal decomposition for non-trivial components
 - Write BDD specs and acceptance criteria
-- Append tasks sized for single `/feature` cycles (< 200 lines)
+- Append tasks sized for single `/feature` cycles (< 200 lines total PR diff — estimate tests + fixtures at ~2–3× production code)
 
 **File naming:** `docs/design/lld-<epic-slug>.md` — one LLD per epic. The `<epic-slug>` is derived from the epic identifier (e.g. `e21` for E2.1, `e1` for E1).
 
