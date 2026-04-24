@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-04-24 | LS / Claude | Initial draft — structure |
 | 0.2 | 2026-04-24 | LS / Claude | Acceptance criteria for all stories |
+| 0.3 | 2026-04-24 | LS / Claude | Review comments: default fallback 130K (Deepseek-aligned), clarified truncateArtefacts() already tested, clarified truncation details are persisted in DB |
 
 ---
 
@@ -83,8 +84,8 @@ OpenRouter exposes `context_length` per model via `GET /api/v1/models`. The pipe
 
 - Given the configured model identifier (e.g. `anthropic/claude-sonnet-4-6`), when the pipeline needs the token budget, then it fetches the model's `context_length` from the OpenRouter `GET /api/v1/models` endpoint.
 - Given a successful API response, when the model is found in the response `data` array by matching `id`, then `context_length` is returned as an integer.
-- Given a successful API response, when the model is not found in the response (unknown model ID), then the system falls back to a conservative default context limit of 100,000 tokens and logs a warning with the unrecognised model ID.
-- Given the OpenRouter API returns `context_length: null` for the model, then the system falls back to the same conservative default (100,000 tokens) and logs a warning.
+- Given a successful API response, when the model is not found in the response (unknown model ID), then the system falls back to a conservative default context limit of 130,000 tokens (aligned with Deepseek's 160K window × 0.8) and logs a warning with the unrecognised model ID.
+- Given the OpenRouter API returns `context_length: null` for the model, then the system falls back to the same conservative default (130,000 tokens) and logs a warning.
 - Given the OpenRouter API call fails (network error, non-2xx response), then the system falls back to the conservative default and logs a warning — rubric generation is not blocked by a metadata API failure.
 - Given the context limit has been fetched for a model, when the same model is used again within the same process lifetime, then the cached value is used (no repeated API call).
 
@@ -104,7 +105,7 @@ OpenRouter exposes `context_length` per model via `GET /api/v1/models`. The pipe
 
 - Given an assembled artefact set from `extractArtefacts()`, when the pipeline prepares for rubric generation, then `truncateArtefacts()` is called with `tokenBudget` set to `Math.floor(contextLimit * 0.8)` where `contextLimit` comes from Story 1.1.
 - Given an artefact set that fits within the token budget without truncation, when `truncateArtefacts()` runs, then all content is preserved unchanged, `token_budget_applied` is `false`, and `truncation_notes` is `undefined`.
-- Given an artefact set that exceeds the token budget, when `truncateArtefacts()` runs, then content is truncated following the existing priority ordering: test files dropped first, then file contents dropped from tail, then diff truncated, then context files truncated. PR description, linked issues, and file listing are never truncated.
+- Given an artefact set that exceeds the token budget, when `truncateArtefacts()` runs, then content is truncated following the existing priority ordering: test files dropped first, then file contents dropped from tail, then diff truncated, then context files truncated. PR description, linked issues, and file listing are never truncated. (Note: `truncateArtefacts()` is already implemented and tested — 10 test cases in `tests/lib/engine/prompts/truncate.test.ts`. This story wires the existing function into the pipeline, not reimplements it.)
 - Given truncation occurs, when the `AssembledArtefactSet` is returned, then `token_budget_applied` is `true` and `truncation_notes` contains one or more human-readable strings describing what was dropped (e.g. "12 of 33 file contents dropped", "Code diff truncated", "All 16 test files dropped").
 - Given the artefact set previously had `token_budget_applied` hardcoded to `false` in `extractArtefacts()`, when this story is complete, then that hardcoded value is removed and the field reflects actual truncation state from `truncateArtefacts()`.
 - Given truncation is applied, when the artefact summary log is emitted, then it includes `tokenBudgetApplied: true`, the `truncation_notes` array, the computed `tokenBudget`, and the model `contextLimit` that drove it.
@@ -130,7 +131,7 @@ OpenRouter exposes `context_length` per model via `GET /api/v1/models`. The pipe
 
 **Results page:**
 
-- Given an assessment where `token_budget_applied` is `true`, when the Org Admin views the results page, then a "Truncation details" section is visible showing each note from `truncation_notes` as a list item.
+- Given an assessment where `token_budget_applied` is `true`, when the Org Admin views the assessment page (`/assessments/[id]/results`), then a "Truncation details" section is visible showing each note from `truncation_notes` as a list item. This data is persisted in the `assessments` table (DB columns from the schema AC above), so it is visible on every visit — not just immediately after creation.
 - Given an assessment where `token_budget_applied` is `true` and agentic retrieval was not enabled, when the Org Admin views the truncation details, then a message is displayed recommending: "Some artefacts were truncated to fit the model's context window. Enable retrieval in organisation settings to let the LLM fetch additional content on demand."
 - Given an assessment where `token_budget_applied` is `false` or `null`, when the Org Admin views the results page, then no truncation section is shown.
 - Given an assessment where both truncation and retrieval details exist, when the Org Admin views the results page, then both sections are visible — truncation details appear above retrieval details.
