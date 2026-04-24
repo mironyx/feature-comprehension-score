@@ -22,8 +22,14 @@ export const IssueQueryParamsSchema = RepoCoordsSchema.extend({
 
 export type IssueQueryParams = z.infer<typeof IssueQueryParamsSchema>;
 
+export interface EpicDiscoveryResult {
+  childIssueNumbers: number[];
+  childIssuePrs: number[];
+}
+
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
   fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>;
   discoverLinkedPRs(params: IssueQueryParams): Promise<number[]>;
+  discoverChildIssues(params: IssueQueryParams): Promise<EpicDiscoveryResult>;
 }

@@ -38,12 +38,14 @@ vi.mock('@/lib/github/client', () => ({
 const mockExtractFromPRs = vi.fn();
 const mockDiscoverLinkedPRs = vi.fn();
 const mockFetchIssueContent = vi.fn();
+const mockDiscoverChildIssues = vi.fn().mockResolvedValue({ childIssueNumbers: [], childIssuePrs: [] });
 
 vi.mock('@/lib/github', () => {
   class MockGitHubArtefactSource {
     extractFromPRs = mockExtractFromPRs;
     discoverLinkedPRs = mockDiscoverLinkedPRs;
     fetchIssueContent = mockFetchIssueContent;
+    discoverChildIssues = mockDiscoverChildIssues;
   }
   return { GitHubArtefactSource: MockGitHubArtefactSource };
 });
