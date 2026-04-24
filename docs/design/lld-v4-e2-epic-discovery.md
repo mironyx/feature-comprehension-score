@@ -21,49 +21,55 @@ When an Org Admin provides an epic issue number as an assessment source, the pip
 
 Three stories, all modifying the same adapter and service surface:
 
-1. **2.1** — Discover child issues (sub-issues API + task list parsing)
+1. **2.1** — Discover child issues (sub-issues API + task list parsing) and their linked PRs
 2. **2.2** — Feed child issue PRs into the merged PR set
 3. **2.3** — Include child issue content in LLM context
 
+### GraphQL batching strategy
+
+The design uses **at most 2 GraphQL queries** to discover children and their PRs, leveraging nested fields and dynamic aliases:
+
+| Query | What it fetches | When |
+|-------|----------------|------|
+| **Query 1 — Epic Discovery** | Per provided issue: body (for task list parsing) + native sub-issues + each sub-issue's linked PRs (nested) | Always (one per provided issue, concurrent) |
+| **Query 2 — Task List Children PRs** | Linked PRs for task-list-discovered children not already in sub-issues (batched via dynamic aliases) | Only when task list parsing finds children absent from sub-issues |
+
+**Why GraphQL over REST:**
+
+- Query 1 replaces 1 + N REST calls (1 body fetch + N sub-issue PR lookups) with a single request per provided issue. The nested `subIssues → timelineItems` field fetches children AND their PRs in one shot.
+- Query 2 uses dynamic aliases (`issue295: issue(number: 295) { ... }`) to batch all task-list children's PR discovery into one request, instead of one REST/GraphQL call per child.
+- The existing `discoverLinkedPRs` (E19) handles the provided issues' own PRs — unchanged.
+
 ### Behavioural Flows
 
-#### 2.1 — Child issue discovery
-
-```mermaid
-sequenceDiagram
-    participant Svc as service.ts
-    participant Adapter as GitHubArtefactSource
-    participant GQL as GitHub GraphQL API
-    participant Parse as Task list parser
-
-    Svc->>Adapter: discoverChildIssues({ owner, repo, issueNumbers })
-    loop For each issue number
-        par Sub-issues query
-            Adapter->>GQL: query subIssues(issueNumber)
-            GQL-->>Adapter: child issue numbers (native sub-issues)
-        and Task list parsing
-            Adapter->>Adapter: parse issue body for "- [x] #N" / "- [ ] #N"
-        end
-        Adapter->>Adapter: union + deduplicate by issue number
-    end
-    Adapter-->>Svc: childIssueNumbers[]
-```
-
-#### 2.2 — Child issue PRs fed into artefact extraction
+#### 2.1 + 2.2 — Child issue discovery and PR resolution
 
 ```mermaid
 sequenceDiagram
     participant Svc as extractArtefacts
-    participant Resolve as resolveMergedPrSet
     participant Adapter as GitHubArtefactSource
+    participant GQL as GitHub GraphQL API
+    participant Resolve as resolveMergedPrSet
 
     Svc->>Adapter: discoverChildIssues({ owner, repo, issueNumbers })
-    Adapter-->>Svc: childIssueNumbers[]
+    loop Query 1 — per provided issue (concurrent)
+        Adapter->>GQL: EPIC_DISCOVERY_QUERY(issueNumber)
+        GQL-->>Adapter: body + subIssues[{ number, PRs[] }]
+        Adapter->>Adapter: parse body for task list refs
+        Adapter->>Adapter: union sub-issues + task list, dedup
+    end
+    Note over Adapter: Collect PRs from sub-issues (already in Query 1)
+    opt Task-list-only children exist (not in sub-issues)
+        Adapter->>GQL: Query 2 — BATCH_CROSS_REF_QUERY (aliased)
+        GQL-->>Adapter: PRs for task-list children
+    end
+    Adapter-->>Svc: { childIssueNumbers[], childIssuePrs[] }
     Svc->>Svc: allIssueNumbers = union(provided, children)
-    Svc->>Resolve: resolveMergedPrSet(source, coords, explicitPrs, allIssueNumbers)
-    Resolve->>Adapter: discoverLinkedPRs({ allIssueNumbers })
-    Adapter-->>Resolve: discoveredPrs[]
-    Resolve-->>Svc: mergedPrNumbers[]
+    Svc->>Resolve: resolveMergedPrSet(source, coords, explicitPrs, providedIssues, childIssuePrs)
+    Resolve->>Adapter: discoverLinkedPRs(providedIssues)
+    Note over Adapter: Existing E19 — PRs for the provided issues themselves
+    Adapter-->>Resolve: providedIssuePrs[]
+    Resolve-->>Svc: union(explicit, providedIssuePrs, childIssuePrs)
 ```
 
 #### 2.3 — Child issue content included in LLM context
@@ -85,11 +91,11 @@ sequenceDiagram
 ```mermaid
 graph TD
     EA["extractArtefacts\n(service.ts)"]
-    DCI["discoverChildIssues\n(new — Story 2.1)"]
+    DCI["discoverChildIssues\n(new — Stories 2.1 + 2.2)"]
     RMPS["resolveMergedPrSet\n(modified — Story 2.2)"]
     FIC["fetchIssueContent\n(existing — expanded input)"]
     MIC["mergeIssueContent\n(modified — Story 2.3)"]
-    DLP["discoverLinkedPRs\n(existing)"]
+    DLP["discoverLinkedPRs\n(existing — provided issues only)"]
     EFP["extractFromPRs\n(existing — unchanged)"]
 
     EA --> DCI
@@ -97,7 +103,9 @@ graph TD
     EA --> FIC
     EA --> MIC
     RMPS --> DLP
-    DCI --> GQL["GitHub GraphQL API\n(sub-issues query)"]
+
+    DCI -->|"Query 1"| GQL["GitHub GraphQL API"]
+    DCI -->|"Query 2 (conditional)"| GQL
     DCI --> TLP["parseTaskListReferences\n(new pure helper)"]
 
     subgraph "ArtefactSource port"
@@ -132,34 +140,52 @@ See Part B for per-story BDD specs.
 
 #### Layers
 
-- **BE** — New `discoverChildIssues` method on port + adapter, new GraphQL query, task list parser
+- **BE** — New `discoverChildIssues` method on port + adapter, two GraphQL queries, task list parser
 
 #### Port extension
 
 Add to `src/lib/engine/ports/artefact-source.ts`:
 
 ```typescript
+export interface EpicDiscoveryResult {
+  childIssueNumbers: number[];
+  childIssuePrs: number[];
+}
+
 export interface ArtefactSource {
   extractFromPRs(params: PRExtractionParams): Promise<RawArtefactSet>;
   fetchIssueContent(params: IssueQueryParams): Promise<LinkedIssue[]>;
   discoverLinkedPRs(params: IssueQueryParams): Promise<number[]>;
-  discoverChildIssues(params: IssueQueryParams): Promise<number[]>;  // NEW
+  discoverChildIssues(params: IssueQueryParams): Promise<EpicDiscoveryResult>;  // NEW
 }
 ```
 
-Same `IssueQueryParams` shape — `{ owner, repo, issueNumbers }`.
+Returns both child issue numbers AND their linked PRs in one call — the adapter resolves both internally via nested GraphQL fields.
 
-#### GraphQL query — sub-issues
+#### Query 1 — Epic Discovery Query
 
-Add to `src/lib/github/artefact-source.ts`:
+Add to `src/lib/github/artefact-source.ts`. One query per provided issue, fetches everything needed for child discovery:
 
 ```graphql
 query($owner: String!, $repo: String!, $issueNumber: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $issueNumber) {
+      body
       subIssues(first: 50) {
         nodes {
           number
+          timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+            nodes {
+              ... on CrossReferencedEvent {
+                source {
+                  ... on PullRequest {
+                    number
+                    merged
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -170,20 +196,71 @@ query($owner: String!, $repo: String!, $issueNumber: Int!) {
 Response type:
 
 ```typescript
-interface SubIssuesQueryResponse {
+interface EpicDiscoveryQueryResponse {
   repository: {
     issue: {
+      body: string | null;
       subIssues: {
-        nodes: Array<{ number: number }>;
+        nodes: Array<{
+          number: number;
+          timelineItems: {
+            nodes: Array<{ source?: { number?: number; merged?: boolean } }>;
+          };
+        }>;
       };
     } | null;
   };
 }
 ```
 
-Notes:
-- `subIssues` is GitHub's native sub-issues API (available since 2025). Fetches up to 50 child issues per parent — sufficient for typical epics.
-- One query per provided issue number, concurrent via `Promise.all` (same pattern as `discoverLinkedPRs`).
+This single query yields:
+- `body` — for task list parsing
+- Sub-issue numbers — native children
+- Each sub-issue's cross-referenced merged PRs — no follow-up query needed for these
+
+#### Query 2 — Batch Cross-Ref Query (task-list children)
+
+When task list parsing discovers children NOT already in the sub-issues set, their PRs need to be fetched. Use **dynamic aliases** to batch all of them into one GraphQL request:
+
+```typescript
+function buildBatchCrossRefQuery(issueNumbers: number[]): string {
+  const fragments = issueNumbers.map(n =>
+    `issue${n}: issue(number: ${n}) {
+      timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+        nodes {
+          ... on CrossReferencedEvent {
+            source {
+              ... on PullRequest {
+                number
+                merged
+              }
+            }
+          }
+        }
+      }
+    }`
+  ).join('\n    ');
+  return `query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      ${fragments}
+    }
+  }`;
+}
+```
+
+Response type — dynamic keys:
+
+```typescript
+type BatchCrossRefResponse = {
+  repository: Record<string, {
+    timelineItems: {
+      nodes: Array<{ source?: { number?: number; merged?: boolean } }>;
+    };
+  } | null>;
+};
+```
+
+This replaces N individual `CROSS_REF_QUERY` calls with one batched request.
 
 #### Task list reference parsing
 
@@ -207,79 +284,141 @@ Key constraints:
 - Does NOT match prose references like `see #123` or `closes #456`
 - Returns raw numbers — deduplication happens in the caller
 
-#### Adapter method
+#### Cross-ref node filtering
+
+Reusable pure helper — extracts merged PR numbers from cross-reference timeline nodes. Shared between Query 1 (sub-issue nodes) and Query 2 (task-list children), and matches the existing `queryCrossRefMergedPRs` pattern:
 
 ```typescript
-async discoverChildIssues(params: IssueQueryParams): Promise<number[]> {
-  const perIssue = await Promise.all(
-    params.issueNumbers.map(n => this.discoverChildrenForIssue(params.owner, params.repo, n)),
-  );
-  return Array.from(new Set(perIssue.flat()));
+function extractMergedPrNumbers(
+  nodes: Array<{ source?: { number?: number; merged?: boolean } }>,
+): number[] {
+  const prs: number[] = [];
+  for (const node of nodes) {
+    const source = node.source;
+    if (source === undefined || typeof source.number !== 'number') continue;
+    if (source.merged === true) prs.push(source.number);
+  }
+  return prs;
 }
 ```
 
-Private helper `discoverChildrenForIssue`:
+#### Adapter method
+
+```typescript
+async discoverChildIssues(params: IssueQueryParams): Promise<EpicDiscoveryResult> {
+  const perIssue = await Promise.all(
+    params.issueNumbers.map(n => this.discoverChildrenForIssue(params.owner, params.repo, n)),
+  );
+  // Flatten and dedup across all provided issues
+  const allChildren = new Set(perIssue.flatMap(r => r.childIssueNumbers));
+  const allPrs = new Set(perIssue.flatMap(r => r.childIssuePrs));
+  return {
+    childIssueNumbers: Array.from(allChildren),
+    childIssuePrs: Array.from(allPrs),
+  };
+}
+```
+
+Private helper `discoverChildrenForIssue` — orchestrates both queries:
 
 ```typescript
 private async discoverChildrenForIssue(
   owner: string, repo: string, issueNumber: number,
-): Promise<number[]> {
-  const [subIssueNumbers, issueBody] = await Promise.all([
-    this.querySubIssues(owner, repo, issueNumber),
-    this.fetchIssueBody(owner, repo, issueNumber),
-  ]);
-  const taskListNumbers = issueBody !== null ? parseTaskListReferences(issueBody) : [];
-  const combined = new Set([...subIssueNumbers, ...taskListNumbers]);
-  if (combined.size > 0) {
+): Promise<EpicDiscoveryResult> {
+  // Query 1: sub-issues + their PRs + body (for task list parsing)
+  const q1 = await this.queryEpicDiscovery(owner, repo, issueNumber);
+
+  const subIssueNumbers = q1.subIssues.map(s => s.number);
+  const subIssuePrs = q1.subIssues.flatMap(s => s.mergedPrs);
+  const taskListNumbers = q1.body !== null ? parseTaskListReferences(q1.body) : [];
+
+  // Task-list children not already in sub-issues need a PR lookup
+  const subIssueSet = new Set(subIssueNumbers);
+  const taskListOnly = taskListNumbers.filter(n => !subIssueSet.has(n));
+
+  // Query 2 (conditional): batch PR discovery for task-list-only children
+  const taskListPrs = taskListOnly.length > 0
+    ? await this.batchDiscoverLinkedPRs(owner, repo, taskListOnly)
+    : [];
+
+  const childIssueNumbers = Array.from(new Set([...subIssueNumbers, ...taskListNumbers]));
+  const childIssuePrs = Array.from(new Set([...subIssuePrs, ...taskListPrs]));
+
+  if (childIssueNumbers.length > 0) {
     logger.info({
       issueNumber,
-      childIssueCount: combined.size,
-      childIssueNumbers: Array.from(combined),
-      discoveryMechanism: subIssueNumbers.length > 0 && taskListNumbers.length > 0
+      childIssueCount: childIssueNumbers.length,
+      childIssueNumbers,
+      discoveryMechanism: subIssueNumbers.length > 0 && taskListOnly.length > 0
         ? 'both' : subIssueNumbers.length > 0 ? 'sub_issues' : 'task_list',
+      childIssuePrCount: childIssuePrs.length,
     }, 'discoverChildIssues: children found');
   }
-  return Array.from(combined);
+
+  return { childIssueNumbers, childIssuePrs };
 }
 ```
 
-Private helper `querySubIssues`:
+Private helper `queryEpicDiscovery` — executes Query 1:
 
 ```typescript
-private async querySubIssues(owner: string, repo: string, issueNumber: number): Promise<number[]> {
+private async queryEpicDiscovery(
+  owner: string, repo: string, issueNumber: number,
+): Promise<{ body: string | null; subIssues: Array<{ number: number; mergedPrs: number[] }> }> {
   try {
-    const result = await this.octokit.graphql<SubIssuesQueryResponse>(SUB_ISSUES_QUERY, { owner, repo, issueNumber });
-    return result.repository.issue?.subIssues.nodes.map(n => n.number) ?? [];
+    const result = await this.octokit.graphql<EpicDiscoveryQueryResponse>(
+      EPIC_DISCOVERY_QUERY, { owner, repo, issueNumber },
+    );
+    const issue = result.repository.issue;
+    if (!issue) return { body: null, subIssues: [] };
+    return {
+      body: issue.body,
+      subIssues: issue.subIssues.nodes.map(node => ({
+        number: node.number,
+        mergedPrs: extractMergedPrNumbers(node.timelineItems.nodes),
+      })),
+    };
   } catch (err) {
-    logger.warn({ err, issueNumber }, 'querySubIssues: GraphQL query failed — falling back to task list only');
+    logger.warn({ err, issueNumber }, 'queryEpicDiscovery: GraphQL failed — falling back to task list only');
+    return { body: null, subIssues: [] };
+  }
+}
+```
+
+Private helper `batchDiscoverLinkedPRs` — executes Query 2:
+
+```typescript
+private async batchDiscoverLinkedPRs(
+  owner: string, repo: string, issueNumbers: number[],
+): Promise<number[]> {
+  if (issueNumbers.length === 0) return [];
+  try {
+    const query = buildBatchCrossRefQuery(issueNumbers);
+    const result = await this.octokit.graphql<BatchCrossRefResponse>(query, { owner, repo });
+    const prs: number[] = [];
+    for (const issueNum of issueNumbers) {
+      const issueData = result.repository[`issue${issueNum}`];
+      if (issueData) prs.push(...extractMergedPrNumbers(issueData.timelineItems.nodes));
+    }
+    return Array.from(new Set(prs));
+  } catch (err) {
+    logger.warn({ err, issueNumbers }, 'batchDiscoverLinkedPRs: GraphQL failed');
     return [];
   }
 }
 ```
 
-Private helper `fetchIssueBody` — fetches only the issue body text (not comments) for task list parsing:
-
-```typescript
-private async fetchIssueBody(owner: string, repo: string, issueNumber: number): Promise<string | null> {
-  try {
-    const { data } = await this.octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
-    return data.body ?? null;
-  } catch (err) {
-    logger.warn({ err, issueNumber }, 'fetchIssueBody: failed');
-    return null;
-  }
-}
-```
-
-Note: this fetches the issue body a second time (it's also fetched later by `fetchIssueContent`). The cost is one extra REST call per provided issue, which is acceptable given that epic discovery runs on 1–3 issues typically. Caching is a future optimisation if needed.
-
 #### BDD specs — Story 2.1
 
 ```typescript
 describe('discoverChildIssues', () => {
-  describe('sub-issue discovery', () => {
-    it('returns sub-issue numbers from the GraphQL API')
-    it('returns empty array when the issue has no sub-issues')
+  describe('Query 1 — epic discovery (sub-issues + body)', () => {
+    it('returns sub-issue numbers from the GraphQL sub-issues field')
+    it('returns merged PRs for each sub-issue from nested timelineItems')
+    it('filters out non-merged PRs from sub-issue cross-references')
+    it('returns empty result when the issue has no sub-issues and no task list')
+    it('returns body for task list parsing')
+    it('gracefully handles GraphQL failure — falls back to empty')
   })
 
   describe('task list reference parsing', () => {
@@ -291,19 +430,27 @@ describe('discoverChildIssues', () => {
     it('returns empty array when body has no task list items')
   })
 
+  describe('Query 2 — batch PR discovery for task-list children', () => {
+    it('fetches PRs for task-list children not already in sub-issues — single batched query')
+    it('skips Query 2 when all task-list children are already in sub-issues')
+    it('skips Query 2 when there are no task-list children')
+    it('gracefully handles GraphQL failure — returns empty PRs')
+  })
+
   describe('union and deduplication', () => {
     it('returns union of sub-issues and task list references, deduplicated by issue number')
+    it('returns union of sub-issue PRs and task-list PRs, deduplicated')
     it('handles overlapping results from both strategies')
   })
 
   describe('scope', () => {
     it('always attempts discovery — no label check needed')
-    it('returns empty array for non-epic issues (no error)')
+    it('returns empty result for non-epic issues (no error)')
   })
 
   describe('logging', () => {
-    it('logs childIssueCount, childIssueNumbers, and discoveryMechanism when children found')
-    it('does not log discovery mechanism when no children found')
+    it('logs childIssueCount, childIssueNumbers, discoveryMechanism, and childIssuePrCount')
+    it('does not log when no children found')
   })
 })
 
@@ -315,15 +462,26 @@ describe('parseTaskListReferences', () => {
   it('handles multiple references in one body')
   it('returns empty array for body with no task list items')
 })
+
+describe('extractMergedPrNumbers', () => {
+  it('extracts PR numbers where merged is true')
+  it('filters out non-merged PRs')
+  it('handles nodes with missing source')
+})
+
+describe('buildBatchCrossRefQuery', () => {
+  it('builds a query with one alias per issue number')
+  it('returns a valid GraphQL query string')
+})
 ```
 
 #### Files touched
 
 | File | Change |
 |------|--------|
-| `src/lib/engine/ports/artefact-source.ts` | Add `discoverChildIssues` to `ArtefactSource` interface |
-| `src/lib/github/artefact-source.ts` | Add `SUB_ISSUES_QUERY`, `SubIssuesQueryResponse`, `parseTaskListReferences`, `discoverChildIssues`, `discoverChildrenForIssue`, `querySubIssues`, `fetchIssueBody` |
-| `tests/lib/github/artefact-source.test.ts` | Tests for `discoverChildIssues` and `parseTaskListReferences` |
+| `src/lib/engine/ports/artefact-source.ts` | Add `EpicDiscoveryResult`, update `ArtefactSource` interface |
+| `src/lib/github/artefact-source.ts` | Add `EPIC_DISCOVERY_QUERY`, `buildBatchCrossRefQuery`, `extractMergedPrNumbers`, `parseTaskListReferences`, `discoverChildIssues`, `discoverChildrenForIssue`, `queryEpicDiscovery`, `batchDiscoverLinkedPRs` |
+| `tests/lib/github/artefact-source.test.ts` | Tests for all new functions |
 
 ---
 
@@ -335,20 +493,20 @@ describe('parseTaskListReferences', () => {
 
 #### Changes to `extractArtefacts`
 
-Insert child issue discovery between the `coords` setup and `resolveMergedPrSet`:
+Insert child issue discovery between the `coords` setup and `resolveMergedPrSet`. The `discoverChildIssues` call returns both children and their PRs — the PRs are passed directly to `resolveMergedPrSet`:
 
 ```typescript
 async function extractArtefacts(params: ExtractArtefactsParams): Promise<AssembledArtefactSet> {
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
-  // Story 2.1: discover child issues from provided issues
-  const childIssueNumbers = issueNumbers.length > 0
+  // Story 2.1: discover child issues + their PRs
+  const { childIssueNumbers, childIssuePrs } = issueNumbers.length > 0
     ? await source.discoverChildIssues({ ...coords, issueNumbers })
-    : [];
+    : { childIssueNumbers: [], childIssuePrs: [] };
   const allIssueNumbers = Array.from(new Set([...issueNumbers, ...childIssueNumbers]));
-  // Story 2.2: pass all issue numbers (provided + children) to PR discovery
-  const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, allIssueNumbers);
+  // Story 2.2: pass child PRs to resolveMergedPrSet
+  const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, issueNumbers, childIssuePrs);
   const [raw, issueContent, organisation_context] = await Promise.all([
     mergedPrNumbers.length > 0
       ? source.extractFromPRs({ ...coords, prNumbers: mergedPrNumbers })
@@ -364,11 +522,33 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
 }
 ```
 
-Key change: `issueNumbers` → `allIssueNumbers` in both `resolveMergedPrSet` and `fetchIssueContent`. The union + dedup ensures that PRs and content from child issues are included.
+#### Changes to `resolveMergedPrSet`
 
-#### Logging extension
+Add `childIssuePrs` parameter — these are PRs already discovered by `discoverChildIssues` (from Query 1 + Query 2). The existing `discoverLinkedPRs` call handles only the provided issues' own PRs:
 
-The existing `resolveMergedPrSet` log entry includes `explicitPrs`, `discoveredPrs`, and `mergedPrs`. No change to `resolveMergedPrSet` itself — it already receives the expanded `allIssueNumbers` and treats them uniformly. The child-vs-provided distinction is visible in the `discoverChildIssues` log (Story 2.1).
+```typescript
+async function resolveMergedPrSet(
+  source: GitHubArtefactSource,
+  coords: RepoCoords,
+  explicitPrs: number[],
+  providedIssueNumbers: number[],
+  childIssuePrs: number[],
+): Promise<number[]> {
+  const discoveredPrs = providedIssueNumbers.length > 0
+    ? await source.discoverLinkedPRs({ ...coords, issueNumbers: providedIssueNumbers })
+    : [];
+  const merged = Array.from(new Set([...explicitPrs, ...discoveredPrs, ...childIssuePrs]));
+  if (discoveredPrs.length > 0 || childIssuePrs.length > 0) {
+    logger.info({ explicitPrs, discoveredPrs, childIssuePrs, mergedPrs: merged }, 'extractArtefacts: linked PR discovery');
+  }
+  return merged;
+}
+```
+
+Key changes vs. current:
+- `issueNumbers` parameter renamed to `providedIssueNumbers` — `discoverLinkedPRs` runs only for the originally provided issues, not children (their PRs are already known)
+- New `childIssuePrs` parameter unioned into the merged set
+- Log entry includes `childIssuePrs` as a separate field for traceability
 
 #### BDD specs — Story 2.2
 
@@ -380,6 +560,13 @@ describe('extractArtefacts with child issues', () => {
   it('deduplicates child-issue-discovered PRs against explicit merged_pr_numbers')
   it('handles child issues with no linked PRs — no error, other PRs still included')
   it('continues unchanged when no children are discovered')
+  it('calls discoverLinkedPRs only for provided issues, not children')
+})
+
+describe('resolveMergedPrSet', () => {
+  it('unions explicit PRs, provided-issue PRs, and child-issue PRs')
+  it('logs childIssuePrs separately from discoveredPrs')
+  it('deduplicates across all three sources')
 })
 ```
 
@@ -387,7 +574,7 @@ describe('extractArtefacts with child issues', () => {
 
 | File | Change |
 |------|--------|
-| `src/app/api/fcs/service.ts` | `extractArtefacts`: add child issue discovery + union before PR resolution and content fetch |
+| `src/app/api/fcs/service.ts` | `extractArtefacts`: child discovery + union; `resolveMergedPrSet`: add `childIssuePrs` param |
 
 ---
 
@@ -494,6 +681,6 @@ describe('child issue content in LLM context', () => {
 
 | # | Task | Stories | Est. lines | Key files |
 |---|------|---------|-----------|-----------|
-| T1 | Epic-aware artefact discovery | 2.1, 2.2, 2.3 | ~150 | `artefact-source.ts` (port + adapter), `artefact-types.ts`, `service.ts` |
+| T1 | Epic-aware artefact discovery | 2.1, 2.2, 2.3 | ~170 | `artefact-source.ts` (port + adapter), `artefact-types.ts`, `service.ts` |
 
 **Execution:** Single task. Stories are implemented in order (2.1 → 2.2 → 2.3) within the same PR since they share files and each depends on the previous.
