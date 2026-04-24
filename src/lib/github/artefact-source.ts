@@ -204,12 +204,13 @@ export class GitHubArtefactSource implements ArtefactSource {
   // ---------------------------------------------------------------------------
 
   async discoverChildIssues(params: IssueQueryParams): Promise<EpicDiscoveryResult> {
-    const q1Results = await this.queryEpicDiscovery(params.owner, params.repo, params.issueNumbers);
+    const coords: RepoCoords = { owner: params.owner, repo: params.repo };
+    const q1Results = await this.queryEpicDiscovery(coords, params.issueNumbers);
     const { childNumbers, childPrs, taskListOnly, mechanism } =
       collectDiscoveryResults(params.issueNumbers, q1Results);
     const uniqueTaskListOnly = Array.from(new Set(taskListOnly));
     const taskListPrs = uniqueTaskListOnly.length > 0
-      ? await this.batchDiscoverLinkedPRs(params.owner, params.repo, uniqueTaskListOnly)
+      ? await this.batchDiscoverLinkedPRs(coords, uniqueTaskListOnly)
       : [];
     const childIssueNumbers = Array.from(new Set(childNumbers));
     const childIssuePrs = Array.from(new Set([...childPrs, ...taskListPrs]));
@@ -228,13 +229,13 @@ export class GitHubArtefactSource implements ArtefactSource {
   // On GraphQL failure, logs a warn and returns an empty map — discoverChildIssues
   // degenerates to the task-list-only path (or empty if body is null).
   private async queryEpicDiscovery(
-    owner: string, repo: string, issueNumbers: number[],
+    coords: RepoCoords, issueNumbers: number[],
   ): Promise<Map<number, EpicDiscoveryPerIssue>> {
     const results = new Map<number, EpicDiscoveryPerIssue>();
     if (issueNumbers.length === 0) return results;
     try {
       const query = buildEpicDiscoveryQuery(issueNumbers);
-      const result = await this.octokit.graphql<EpicDiscoveryQueryResponse>(query, { owner, repo });
+      const result = await this.octokit.graphql<EpicDiscoveryQueryResponse>(query, coords);
       for (const issueNumber of issueNumbers) {
         const issue = result.repository[`issue${issueNumber}`];
         if (!issue) continue;
@@ -259,12 +260,12 @@ export class GitHubArtefactSource implements ArtefactSource {
   // Query 2 — batched cross-ref lookup for task-list-only children. One request per call.
   // On GraphQL failure, logs a warn and returns [] so sub-issue PRs still flow through.
   private async batchDiscoverLinkedPRs(
-    owner: string, repo: string, issueNumbers: number[],
+    coords: RepoCoords, issueNumbers: number[],
   ): Promise<number[]> {
     if (issueNumbers.length === 0) return [];
     try {
       const query = buildBatchCrossRefQuery(issueNumbers);
-      const result = await this.octokit.graphql<BatchCrossRefResponse>(query, { owner, repo });
+      const result = await this.octokit.graphql<BatchCrossRefResponse>(query, coords);
       const prs: number[] = [];
       for (const issueNum of issueNumbers) {
         const issueData = result.repository[`issue${issueNum}`];
