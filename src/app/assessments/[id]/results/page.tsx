@@ -232,17 +232,12 @@ interface AdminAggregateViewProps {
   myAnswers?: MyAnswer[];
 }
 
-interface AdminQuestionCardProps {
-  q: ScoredQuestion;
-  scoringIncomplete: boolean;
-  revealAnswers: boolean;
-  mine?: MyAnswer;
-  isPersonalised: boolean;
-}
+// QuestionHeader and PersonalScoresBlock are shared between AdminQuestionCard and
+// SelfDirectedView to avoid duplicating the Card/Badge/hint layout structure.
 
-function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine, isPersonalised }: AdminQuestionCardProps) {
+function QuestionHeader({ q }: { q: ScoredQuestion }) {
   return (
-    <Card className="space-y-3">
+    <>
       <div className="flex items-center gap-2">
         <span className="text-label text-text-secondary">Q{q.question_number}.</span>
         <Badge className="bg-surface-raised text-text-primary">{NAUR_LABELS[q.naur_layer]}</Badge>
@@ -251,6 +246,35 @@ function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine, isPerson
       {q.hint && (
         <p className="border-l-2 border-accent-muted pl-3 text-body text-text-secondary italic">{q.hint}</p>
       )}
+    </>
+  );
+}
+
+function PersonalScoresBlock({ mine }: { mine: MyAnswer | undefined }) {
+  return (
+    <div className="border-t border-border pt-3 space-y-2">
+      <p className="text-label text-text-secondary font-medium">My Scores</p>
+      <p className="text-body">Your score: {toDecimalScore(mine?.score ?? null)}</p>
+      {mine && <FormattedText content={mine.answer_text} className="text-text-secondary" />}
+    </div>
+  );
+}
+
+interface AdminQuestionCardProps {
+  q: ScoredQuestion;
+  scoringIncomplete: boolean;
+  revealAnswers: boolean;
+  mine?: MyAnswer;
+  isPersonalised: boolean;
+}
+
+// Justification: LLD §3 specified MyScoresSection as a separate section repeating all
+// question text. This component merges personal scores inline per question (issue #315
+// bug fix) — see ## Design deviations in PR #316.
+function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine, isPersonalised }: AdminQuestionCardProps) {
+  return (
+    <Card className="space-y-3">
+      <QuestionHeader q={q} />
       <p className="text-body">Aggregate score: {toPercent(q.aggregate_score)}</p>
       {scoringIncomplete && q.aggregate_score === null && (
         <p className="text-body text-text-secondary">Unable to score</p>
@@ -261,13 +285,7 @@ function AdminQuestionCard({ q, scoringIncomplete, revealAnswers, mine, isPerson
           <FormattedText content={q.reference_answer} className="mt-2" />
         </details>
       )}
-      {isPersonalised && (
-        <div className="border-t border-border pt-3 space-y-2">
-          <p className="text-label text-text-secondary font-medium">My Scores</p>
-          <p className="text-body">Your score: {toDecimalScore(mine?.score ?? null)}</p>
-          {mine && <FormattedText content={mine.answer_text} className="text-text-secondary" />}
-        </div>
-      )}
+      {isPersonalised && <PersonalScoresBlock mine={mine} />}
     </Card>
   );
 }
@@ -327,18 +345,9 @@ function SelfDirectedView({ questions, myAnswers }: SelfDirectedViewProps) {
           return (
             <li key={q.id}>
               <Card className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-label text-text-secondary">Q{q.question_number}.</span>
-                  <Badge className="bg-surface-raised text-text-primary">{NAUR_LABELS[q.naur_layer]}</Badge>
-                </div>
-                <p className="text-body text-text-primary">{q.question_text}</p>
-                {q.hint && (
-                  <p className="border-l-2 border-accent-muted pl-3 text-body text-text-secondary italic">{q.hint}</p>
-                )}
+                <QuestionHeader q={q} />
                 <p className="text-body">Your score: {toDecimalScore(mine?.score ?? null)}</p>
-                {mine && (
-                  <FormattedText content={mine.answer_text} className="text-text-secondary" />
-                )}
+                {mine && <FormattedText content={mine.answer_text} className="text-text-secondary" />}
               </Card>
             </li>
           );
