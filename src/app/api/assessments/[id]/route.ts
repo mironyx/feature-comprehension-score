@@ -9,6 +9,8 @@ import { json } from '@/lib/api/response';
 import type { Database } from '@/lib/supabase/types';
 import { filterQuestionFields } from './helpers';
 import type { FilteredQuestion } from './helpers';
+import { deleteAssessment } from './delete-service';
+import { NextResponse } from 'next/server';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type AssessmentStatus = AssessmentRow['status'];
@@ -204,6 +206,25 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const parallelData = await fetchParallelData({ supabase, adminSupabase, assessmentId, userId: user.id, orgId: assessment.org_id });
 
     return json(buildResponse(assessment, parallelData));
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+/**
+ * DELETE /api/assessments/[id]
+ *
+ * Path parameters:
+ *   id  (string, required) — assessment UUID
+ *
+ * Returns 204 No Content | 401 unauthenticated | 404 not found (RLS hides)
+ */
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
+  try {
+    const { id: assessmentId } = await params;
+    const ctx = await createApiContext(request);
+    await deleteAssessment(ctx, assessmentId);
+    return new NextResponse(null, { status: 204 });
   } catch (error) {
     return handleApiError(error);
   }

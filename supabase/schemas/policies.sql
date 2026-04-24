@@ -61,6 +61,9 @@ CREATE POLICY assessments_select_participant ON assessments
 CREATE POLICY assessments_update_admin ON assessments
   FOR UPDATE USING (is_org_admin(org_id));
 
+CREATE POLICY assessments_delete_admin ON assessments
+  FOR DELETE USING (is_org_admin(org_id));
+
 -- assessment_questions: org admins see all; participants see questions on their assessments.
 -- Note: reference answer column filtering is handled at the application layer, not RLS.
 ALTER TABLE assessment_questions ENABLE ROW LEVEL SECURITY;
