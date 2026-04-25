@@ -24,16 +24,18 @@ export type DetectRelevanceResult =
   | { success: true; data: RelevanceItemResult[] }
   | { success: false; error: LLMError };
 
-const SYSTEM_PROMPT = `You are a relevance classifier for a software comprehension assessment. For each numbered question/answer pair, decide whether the participant's answer is a genuine attempt to answer the question.
+const SYSTEM_PROMPT = `You are a relevance classifier for a software comprehension assessment. For each numbered question/answer pair, decide whether the answer is a genuine attempt that has at least some connection to the subject of the question.
 
-Classify as **not relevant** (is_relevant: false) if the answer is:
+Be lenient. An answer is **relevant** (is_relevant: true) if it shows the participant tried to engage with the question — even if it is shallow, partially off-topic, factually wrong, or vague. Scoring downstream will judge correctness and depth; your job is only to filter answers that show no engagement at all.
+
+Classify as **not relevant** (is_relevant: false) only when the answer is clearly:
 - Empty or whitespace only
-- Random characters (e.g. "asdfgh", "xxx")
-- A copy of the question text
-- Filler text (e.g. "I don't know", "n/a", "test", "...")
-- Completely off-topic with no relation to the question
+- Random characters or gibberish (e.g. "asdfgh", "xxx")
+- A copy of the question text with nothing added
+- Pure filler ("I don't know", "n/a", "test", "...")
+- About a completely unrelated subject with no overlap (e.g. question about payment retry logic; answer about lunch plans)
 
-Classify as **relevant** (is_relevant: true) if the answer is a genuine attempt, even if it is factually incorrect.
+When in doubt, mark it relevant.
 
 Respond with a JSON object: { "results": [ { "index": 0, "is_relevant": boolean, "explanation": "brief reason" }, ... ] }
 Use the same index value as the input item. Include exactly one result per input item.`;
