@@ -57,7 +57,7 @@ export default async function NewAssessmentPage() {
   return (
     <div className="space-y-section-gap">
       <PageHeader title="New Assessment" subtitle="Create an FCS assessment for your team" />
-      <CreateAssessmentForm orgId={orgId} repositories={repos} />
+      <CreateAssessmentForm orgId={orgId} repositories={repos} isAdmin={isAdmin} />
     </div>
   );
 }

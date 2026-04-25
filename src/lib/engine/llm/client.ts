@@ -52,13 +52,18 @@ export class OpenRouterClient implements LLMClient {
   generateWithTools<T extends z.ZodType>(
     request: GenerateWithToolsRequest<T>,
   ): Promise<LLMResult<GenerateWithToolsData<z.infer<T>>>> {
-    return runToolLoop({
-      req: request,
-      chatCall: (args: SdkRequest) =>
-        this.client.chat.completions.create(args as never) as unknown as Promise<SdkResponse>,
-      defaultModel: this.defaultModel,
-      startMs: Date.now(),
-    });
+    return this.withRetry(() =>
+      runToolLoop({
+        req: request,
+        chatCall: (args: SdkRequest) =>
+          this.client.chat.completions.create(
+            { ...args, signal: undefined } as never,
+            { signal: args.signal },
+          ) as unknown as Promise<SdkResponse>,
+        defaultModel: this.defaultModel,
+        startMs: Date.now(),
+      }),
+    );
   }
 
   async generateStructured<T extends z.ZodType>(

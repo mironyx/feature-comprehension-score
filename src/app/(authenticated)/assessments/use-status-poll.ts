@@ -1,5 +1,6 @@
 // useStatusPoll — React hook wrapping poll-status for rubric_generation.
 // Issue: #207 (progress fields added for V2 Epic 18, Story 18.3).
+// Error fields added for #333.
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -9,6 +10,9 @@ export interface PollResult {
   status: string;
   rubricProgress: string | null;
   rubricProgressUpdatedAt: string | null;
+  rubricErrorCode: string | null;
+  rubricRetryCount: number;
+  rubricErrorRetryable: boolean | null;
   timedOut: boolean;
 }
 
@@ -20,6 +24,9 @@ export function useStatusPoll(
     status: initialStatus,
     rubricProgress: null,
     rubricProgressUpdatedAt: null,
+    rubricErrorCode: null,
+    rubricRetryCount: 0,
+    rubricErrorRetryable: null,
   });
   const [timedOut, setTimedOut] = useState(false);
 
@@ -36,6 +43,9 @@ export function useStatusPoll(
     status: snapshot.status,
     rubricProgress: snapshot.rubricProgress,
     rubricProgressUpdatedAt: snapshot.rubricProgressUpdatedAt,
+    rubricErrorCode: snapshot.rubricErrorCode,
+    rubricRetryCount: snapshot.rubricRetryCount,
+    rubricErrorRetryable: snapshot.rubricErrorRetryable,
     timedOut,
   };
 }

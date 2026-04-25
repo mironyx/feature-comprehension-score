@@ -1069,8 +1069,10 @@ describe('OpenRouter generateWithTools', () => {
         await client.generateWithTools(makeBaseRequest({ tools: [] }));
 
         expect(mockOpenAI.chat.completions.create).toHaveBeenCalledOnce();
+        // Fix D adds a second arg (request options with signal) — match any Object for it
         expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
           expect.objectContaining({ response_format: { type: 'json_object' } }),
+          expect.any(Object),
         );
       });
     });
@@ -1114,6 +1116,172 @@ describe('OpenRouter generateWithTools', () => {
         const secondCallArg = mockOpenAI.chat.completions.create.mock.calls[1]?.[0] as Record<string, unknown>;
         expect(secondCallArg).toBeDefined();
         expect(secondCallArg['response_format']).toEqual({ type: 'json_object' });
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix A — Retry on transient errors (#333)
+  //
+  // Contract: generateWithTools must retry when chatCall throws a retryable
+  // HTTP error (429, 5xx) up to retryConfig.maxRetries times.
+  // Non-retryable errors (401, 403) must fail immediately.
+  // Each retry starts a fresh tool loop (I3).
+  //
+  // Sources: [lld §Fix A invariants I1, I2, I3]
+  // -------------------------------------------------------------------------
+
+  describe('generateWithTools retry on transient errors (#333 Fix A)', () => {
+    // -----------------------------------------------------------------------
+    // Test 1 — I1: 429 on first call, success on second → called twice
+    // -----------------------------------------------------------------------
+    describe('Given chatCall throws 429 on first call and succeeds on second', () => {
+      it('when generateWithTools is called, then result is successful and chatCall was called twice', async () => {
+        const retryClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+        });
+
+        const rateLimitError = Object.assign(new Error('Rate limit'), { status: 429 });
+        mockOpenAI.chat.completions.create
+          .mockRejectedValueOnce(rateLimitError)
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        const result = await retryClient.generateWithTools(makeBaseRequest());
+
+        expect(result.success).toBe(true);
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 2 — I1: 429 on every call → exhausts retries → rate_limit error
+    // Called 2 times (1 initial + 1 retry when maxRetries=1)
+    // -----------------------------------------------------------------------
+    describe('Given chatCall throws 429 on every call', () => {
+      it('when generateWithTools exhausts retries, then result.error.code === "rate_limit"', async () => {
+        const retryClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0 },
+        });
+
+        const rateLimitError = Object.assign(new Error('Rate limit'), { status: 429 });
+        mockOpenAI.chat.completions.create.mockRejectedValue(rateLimitError);
+
+        const result = await retryClient.generateWithTools(makeBaseRequest());
+
+        expect(result.success).toBe(false);
+        if (result.success) throw new Error('expected failure');
+        expect(result.error.code).toBe('rate_limit');
+        // 1 initial attempt + 1 retry = 2 total calls
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 3 — I2: 401 is non-retryable → fails immediately with one call
+    // -----------------------------------------------------------------------
+    describe('Given chatCall throws 401 (non-retryable)', () => {
+      it('when generateWithTools is called, then it fails immediately with one call', async () => {
+        // Use the default client (retryConfig.maxRetries=0 already set in beforeEach)
+        const authError = Object.assign(new Error('Unauthorised'), { status: 401 });
+        mockOpenAI.chat.completions.create.mockRejectedValue(authError);
+
+        const result = await client.generateWithTools(makeBaseRequest());
+
+        expect(result.success).toBe(false);
+        // Must not retry — exactly 1 call
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 4 — I3: 429 twice then success → each retry starts fresh loop
+    // Validates that runToolLoop is called fresh on each retry attempt.
+    // With maxRetries=2, three attempts are allowed: fail, fail, succeed.
+    // -----------------------------------------------------------------------
+    describe('Given chatCall throws 429 twice then succeeds on the third attempt', () => {
+      it('when generateWithTools retries, then each retry starts a fresh tool loop (startMs resets) and result is successful', async () => {
+        const retryClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+        });
+
+        const rateLimitError = Object.assign(new Error('Rate limit'), { status: 429 });
+        mockOpenAI.chat.completions.create
+          .mockRejectedValueOnce(rateLimitError)
+          .mockRejectedValueOnce(rateLimitError)
+          .mockResolvedValueOnce(DEFAULT_FINAL);
+
+        const result = await retryClient.generateWithTools(makeBaseRequest());
+
+        // Succeeds on third attempt — each retry is a fresh runToolLoop call
+        expect(result.success).toBe(true);
+        // 1 initial + 2 retries = 3 total chatCall invocations
+        expect(mockOpenAI.chat.completions.create).toHaveBeenCalledTimes(3);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix D — AbortSignal passed to chatCall (#333)
+  //
+  // Contract: the loop-level AbortSignal (created from timeoutMs) must be
+  // threaded through to the OpenAI SDK call so that the in-flight HTTP request
+  // is cancelled when the timeout fires.
+  //
+  // The OpenAI SDK accepts signal as the second argument options object:
+  //   client.chat.completions.create(body, { signal })
+  //
+  // Sources: [lld §Fix D invariant I7]
+  // -------------------------------------------------------------------------
+
+  describe('AbortSignal passed to chatCall (#333 Fix D)', () => {
+    describe('Given the loop AbortSignal fires during chatCall', () => {
+      it('when the signal is aborted, then the signal passed to chatCall is aborted', async () => {
+        vi.useFakeTimers();
+
+        const retryClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+        });
+
+        // Capture the second argument (options) passed to create — that is where
+        // Fix D places the signal: create(body, { signal })
+        // The mock settles immediately (via rejection) so the outer promise
+        // always resolves, allowing us to assert capturedSignal after the fact.
+        let capturedSignal: AbortSignal | undefined;
+        let resolveCreate!: () => void;
+        const createBlocker = new Promise<void>((resolve) => { resolveCreate = resolve; });
+
+        mockOpenAI.chat.completions.create.mockImplementation(
+          (_body: unknown, options: { signal?: AbortSignal } | undefined) => {
+            capturedSignal = options?.signal;
+            // Wait until the caller unblocks us (after timers advance)
+            return createBlocker.then(() => {
+              throw new DOMException('Aborted', 'AbortError');
+            });
+          },
+        );
+
+        // timeoutMs=1000 → loop AbortSignal fires after 1000ms
+        const resultPromise = retryClient.generateWithTools(
+          makeBaseRequest({ bounds: { timeoutMs: 1_000 } }),
+        );
+
+        // Advance past the loop timeout so the loop AbortSignal fires
+        await vi.advanceTimersByTimeAsync(2_000);
+
+        // Unblock the mock so resultPromise can settle
+        resolveCreate();
+        await resultPromise.catch(() => undefined);
+
+        // After the timeout, the signal passed to create must be aborted [lld I7]
+        expect(capturedSignal?.aborted).toBe(true);
       });
     });
   });

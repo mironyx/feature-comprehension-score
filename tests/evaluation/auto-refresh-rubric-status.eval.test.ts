@@ -9,6 +9,10 @@ import {
   isTerminalStatus,
   POLL_INTERVAL_MS,
   MAX_POLLS,
+  FAST_INTERVAL_MS,
+  SLOW_INTERVAL_MS,
+  FAST_POLLS,
+  SLOW_POLLS,
 } from '@/app/(authenticated)/assessments/poll-status';
 
 // Reuse helpers from the feature's own test file pattern.
@@ -104,8 +108,14 @@ describe('AC-3: timeout still fires when all responses are non-ok', () => {
 
     startStatusPoll('a1', callbacks, fetchFn);
 
-    for (let i = 0; i <= MAX_POLLS; i++) {
-      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    // Exhaust fast phase (polls 1–21, each scheduled at FAST_INTERVAL_MS)
+    for (let i = 0; i <= FAST_POLLS; i++) {
+      await vi.advanceTimersByTimeAsync(FAST_INTERVAL_MS);
+    }
+
+    // Exhaust slow phase (polls 22–44) plus one more to fire the timeout check
+    for (let i = 0; i <= SLOW_POLLS; i++) {
+      await vi.advanceTimersByTimeAsync(SLOW_INTERVAL_MS);
     }
 
     expect(callbacks.onTimeout).toHaveBeenCalledTimes(1);

@@ -82,19 +82,26 @@ export default async function AssessmentsPage(
                   </Link>
                   <div className="flex items-center gap-2">
                     {a.status === 'rubric_generation'
-                      ? <PollingStatusBadge assessmentId={a.id} initialStatus={a.status} />
-                      : <StatusBadge status={a.status} />}
-                    {a.status === 'rubric_failed' && a.rubric_error_code && (
-                      <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
-                    )}
-                    {admin && a.status === 'rubric_failed' && (
-                      <RetryButton
-                        assessmentId={a.id}
-                        retryCount={a.rubric_retry_count}
-                        maxRetries={MAX_RETRIES}
-                        errorRetryable={a.rubric_error_retryable}
-                      />
-                    )}
+                      ? <PollingStatusBadge
+                          assessmentId={a.id}
+                          initialStatus={a.status}
+                          admin={admin}
+                          maxRetries={MAX_RETRIES}
+                        />
+                      : <>
+                          <StatusBadge status={a.status} />
+                          {a.status === 'rubric_failed' && a.rubric_error_code && (
+                            <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
+                          )}
+                          {admin && a.status === 'rubric_failed' && (
+                            <RetryButton
+                              assessmentId={a.id}
+                              retryCount={a.rubric_retry_count}
+                              maxRetries={MAX_RETRIES}
+                              errorRetryable={a.rubric_error_retryable}
+                            />
+                          )}
+                        </>}
                   </div>
                 </Card>
               </li>
