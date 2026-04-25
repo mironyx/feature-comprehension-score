@@ -50,4 +50,30 @@ describe('PageHeader', () => {
       expect(right).toBe(action);
     });
   });
+
+  // Regression tests for #345 — mobile stacking + overflow handling.
+  describe('Given a viewport-aware layout', () => {
+    it('then stacks title and action vertically on mobile (< 640px)', () => {
+      const el = PageHeader({ title: 'Title', action: 'action' });
+
+      expect(el.props.className).toContain('flex-col');
+    });
+
+    it('then places title and action side-by-side on desktop (>= 640px)', () => {
+      const el = PageHeader({ title: 'Title', action: 'action' });
+
+      expect(el.props.className).toContain('sm:flex-row');
+      expect(el.props.className).toContain('sm:items-start');
+      expect(el.props.className).toContain('sm:justify-between');
+    });
+
+    it('then wraps long titles without horizontal overflow', () => {
+      const el = PageHeader({ title: 'A'.repeat(200) });
+      const left = el.props.children[0];
+      const heading = left.props.children[0];
+
+      expect(left.props.className).toContain('min-w-0');
+      expect(heading.props.className).toContain('break-words');
+    });
+  });
 });
