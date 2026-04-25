@@ -521,8 +521,13 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT — scaffolding hints (Story 1.1)', 
     );
   });
 
-  it('retains the max 200 characters constraint', () => {
-    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('max 200 characters');
+  // #336 — LLM output tolerance: hard char limit replaced with brevity guidance.
+  it('does not contain a hard character limit for hints', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).not.toContain('max 200 characters');
+  });
+
+  it('contains brevity guidance for hints', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('concise');
   });
 
   it('retains the non-disclosure constraint', () => {
