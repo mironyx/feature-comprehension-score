@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-25 | LS / Claude | Initial LLD — four fixes: withRetry on generateWithTools, client-side retry button, adaptive polling, AbortSignal on chatCall. |
+| 2026-04-25 | LS / Claude | Revised post-implementation: currentInterval signature, Fix B scope (create-assessment-form.tsx + new/page.tsx), timing comment, backward-compat exports. |
 
 ---
 
@@ -251,6 +252,14 @@ Extend `PollResult` with the new snapshot fields (`rubricErrorCode`, `rubricRetr
 
 For rows with `status === 'rubric_generation'`, pass `admin` and `maxRetries` to `PollingStatusBadge`. Remove the separate `RetryButton` conditional for these rows — the badge now handles it.
 
+> **Implementation note (issue #333):** The LLD omitted two additional files in Fix B scope.
+> `src/app/(authenticated)/assessments/new/create-assessment-form.tsx` renders `PollingStatusBadge`
+> inside a `CreationProgress` sub-component after a successful POST; it also required `admin` and
+> `maxRetries` props, threaded from the `CreateAssessmentFormProps` interface. Correspondingly,
+> `src/app/(authenticated)/assessments/new/page.tsx` — which already computed `isAdmin` — needed to
+> pass `isAdmin={isAdmin}` to `<CreateAssessmentForm>`. This was caught as a blocker by the PR review
+> (hardcoded `admin={true}` violated defence-in-depth).
+
 Keep the existing server-side `RetryButton` rendering for rows that are already `rubric_failed` on page load (those don't need polling).
 
 ```tsx
@@ -301,8 +310,8 @@ Replace fixed `MAX_POLLS` with a two-phase approach:
 ```typescript
 export const FAST_INTERVAL_MS = 3_000;
 export const SLOW_INTERVAL_MS = 10_000;
-export const FAST_POLLS = 20;   // ~60s at 3s
-export const SLOW_POLLS = 24;   // ~240s at 10s — total ~300s
+export const FAST_POLLS = 20;   // 21 intervals at 3s (~63s — initial poll also scheduled at FAST)
+export const SLOW_POLLS = 24;   // ~240s at 10s — total ~303s ≥ 300s invariant
 ```
 
 Update `startStatusPoll` to track which phase the poll is in:
@@ -317,8 +326,8 @@ export function startStatusPoll(
   let pollCount = 0;
   let timerId: ReturnType<typeof setTimeout>;
 
-  function currentInterval(): number {
-    return pollCount <= FAST_POLLS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
+  function currentInterval(count: number): number {
+    return count <= FAST_POLLS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
   }
 
   function maxTotalPolls(): number {
@@ -360,7 +369,12 @@ export function startStatusPoll(
 }
 ```
 
-**Backward compatibility:** `POLL_INTERVAL_MS` and `MAX_POLLS` are currently exported. Check if anything imports them. If so, re-export `FAST_INTERVAL_MS` as `POLL_INTERVAL_MS` and `FAST_POLLS + SLOW_POLLS` as `MAX_POLLS` for compatibility — or update importers directly.
+**Backward compatibility:** `POLL_INTERVAL_MS` and `MAX_POLLS` are re-exported as aliases:
+`POLL_INTERVAL_MS = FAST_INTERVAL_MS` and `MAX_POLLS = FAST_POLLS + SLOW_POLLS` (= 44).
+Eval tests import both; using aliases preserves those imports without modification.
+
+> **Implementation note (issue #333):** `currentInterval` takes `pollCount` as an explicit parameter
+> (not a closure over the outer variable) for testability and clarity.
 
 **Test file:** `tests/app/(authenticated)/assessments/poll-status.test.ts`
 
