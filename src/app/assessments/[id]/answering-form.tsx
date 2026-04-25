@@ -49,7 +49,9 @@ function buildAnswerPayload(
   if (!relevanceResults) {
     return questions.map(q => ({ question_id: q.id, answer_text: answers[q.id] ?? '' }));
   }
-  const flaggedIds = new Set(relevanceResults.filter(r => !r.is_relevant).map(r => r.question_id));
+  // Both is_relevant === false (irrelevant) and is_relevant === null (LLM failed) need
+  // re-submission. is_relevant !== true keeps both states editable. Issue #335.
+  const flaggedIds = new Set(relevanceResults.filter(r => r.is_relevant !== true).map(r => r.question_id));
   return questions
     .filter(q => flaggedIds.has(q.id))
     .map(q => ({ question_id: q.id, answer_text: answers[q.id] ?? '' }));
@@ -61,7 +63,7 @@ function isSubmitReady(
   relevanceResults: AnswerResult[] | null,
 ): boolean {
   const requiredIds = relevanceResults
-    ? relevanceResults.filter(r => !r.is_relevant).map(r => r.question_id)
+    ? relevanceResults.filter(r => r.is_relevant !== true).map(r => r.question_id)
     : questions.map(q => q.id);
   return requiredIds.every(id => (answers[id] ?? '').trim().length > 0);
 }

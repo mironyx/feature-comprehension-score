@@ -47,11 +47,19 @@ export const ScoringResponseSchema = z.object({
 });
 export type ScoringResponse = z.infer<typeof ScoringResponseSchema>;
 
-export const RelevanceResponseSchema = z.object({
+// Batched relevance: one LLM call classifies all (question, answer) pairs in a submission.
+// See docs/design/lld-phase-2-web-auth-db.md §2.4 — issue #335.
+export const RelevanceBatchItemSchema = z.object({
+  index: z.number().int().min(0),
   is_relevant: z.preprocess(
     (val) => (typeof val === 'string' ? val.toLowerCase() === 'true' : val),
     z.boolean(),
   ),
   explanation: z.string(),
 });
-export type RelevanceResponse = z.infer<typeof RelevanceResponseSchema>;
+export type RelevanceBatchItem = z.infer<typeof RelevanceBatchItemSchema>;
+
+export const RelevanceBatchResponseSchema = z.object({
+  results: z.array(RelevanceBatchItemSchema),
+});
+export type RelevanceBatchResponse = z.infer<typeof RelevanceBatchResponseSchema>;

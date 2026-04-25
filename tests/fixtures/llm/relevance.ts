@@ -1,23 +1,25 @@
-import type { RelevanceResponse } from '@/lib/engine/llm/schemas';
+import type { RelevanceBatchResponse } from '@/lib/engine/llm/schemas';
 
+// Single-item batch — convenience for unit tests that exercise one Q/A pair at a time.
 export const relevanceFixture = {
   valid: {
-    is_relevant: true,
-    explanation: 'The answer demonstrates genuine engagement with the question.',
-  } satisfies RelevanceResponse,
+    results: [
+      { index: 0, is_relevant: true, explanation: 'The answer demonstrates genuine engagement with the question.' },
+    ],
+  } satisfies RelevanceBatchResponse,
 
   irrelevantRandom: {
-    is_relevant: false,
-    explanation: 'Response consists of random characters with no semantic content.',
-  } satisfies RelevanceResponse,
+    results: [
+      { index: 0, is_relevant: false, explanation: 'Response consists of random characters with no semantic content.' },
+    ],
+  } satisfies RelevanceBatchResponse,
 
   irrelevantFiller: {
-    is_relevant: false,
-    explanation:
-      "Response is filler text (\"I don't know\") indicating no attempt to answer.",
-  } satisfies RelevanceResponse,
+    results: [
+      { index: 0, is_relevant: false, explanation: "Response is filler text (\"I don't know\") indicating no attempt to answer." },
+    ],
+  } satisfies RelevanceBatchResponse,
 
   malformedJson: 'not json at all',
-
-  partialResponse: '{"is_relevant": true, "expl',
+  partialResponse: '{"results": [{"index": 0, "is_relevant": true, "expl',
 };

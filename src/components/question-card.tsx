@@ -38,7 +38,12 @@ export default function QuestionCard({
   relevanceResult,
   onChange,
 }: QuestionCardProps) {
-  const isFlagged = relevanceResult !== undefined && !relevanceResult.is_relevant;
+  // Distinguish LLM evaluation failure (null) from genuine irrelevance (false). Issue #335.
+  const variant: 'irrelevant' | 'evaluation_failed' | null =
+    relevanceResult === undefined ? null
+      : relevanceResult.is_relevant === false ? 'irrelevant'
+      : relevanceResult.is_relevant === null ? 'evaluation_failed'
+      : null;
 
   const inputClasses = 'w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary resize-y disabled:opacity-50';
 
@@ -52,8 +57,9 @@ export default function QuestionCard({
       {hint && (
         <p className="text-caption text-text-secondary italic">{hint}</p>
       )}
-      {isFlagged && (
+      {variant !== null && relevanceResult && (
         <RelevanceWarning
+          variant={variant}
           explanation={relevanceResult.explanation}
           attemptsRemaining={relevanceResult.attempts_remaining}
         />

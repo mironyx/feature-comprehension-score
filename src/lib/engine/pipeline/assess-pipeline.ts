@@ -9,7 +9,6 @@ import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import type { Question, ArtefactQuality, AdditionalContextSuggestion } from '@/lib/engine/llm/schemas';
 import { generateQuestions } from '@/lib/engine/generation';
 import { scoreAnswer } from '@/lib/engine/scoring';
-import { detectRelevance } from '@/lib/engine/relevance';
 import { calculateAggregate, calculateQuestionAggregate, type ScoreEntry } from '@/lib/engine/aggregate';
 
 export interface Rubric {
@@ -119,29 +118,15 @@ type AnswerOutcome =
   | { kind: 'scored'; value: ScoredAnswer }
   | { kind: 'failed'; value: ScoringFailure };
 
+// Relevance is checked once per submission upstream (web API) before the answer reaches
+// scoring; the caller is expected to filter out irrelevant answers. Scoring decides for
+// itself how to score borderline content. See issue #335.
 async function processAnswer(
   answer: ParticipantAnswer,
   question: Question,
   config: LLMCallConfig,
 ): Promise<AnswerOutcome> {
-  // Check relevance first — skip the scoring LLM call for irrelevant answers
   const { llmClient, model, maxTokens, comprehensionDepth } = config;
-  const relevanceResult = await detectRelevance({
-    questionText: question.question_text,
-    participantAnswer: answer.answer,
-    llmClient,
-    model,
-    maxTokens,
-  });
-
-  if (!relevanceResult.success) {
-    return { kind: 'failed', value: { questionIndex: answer.questionIndex, participantId: answer.participantId, error: relevanceResult.error } };
-  }
-
-  if (!relevanceResult.data.is_relevant) {
-    return { kind: 'scored', value: { questionIndex: answer.questionIndex, participantId: answer.participantId, score: 0, rationale: 'Skipped — answer not relevant', is_relevant: false, relevance_explanation: relevanceResult.data.explanation } };
-  }
-
   const scoreResult = await scoreAnswer({
     questionText: question.question_text,
     referenceAnswer: question.reference_answer,
@@ -156,7 +141,7 @@ async function processAnswer(
     return { kind: 'failed', value: { questionIndex: answer.questionIndex, participantId: answer.participantId, error: scoreResult.error } };
   }
 
-  return { kind: 'scored', value: { questionIndex: answer.questionIndex, participantId: answer.participantId, score: scoreResult.data.score, rationale: scoreResult.data.rationale, is_relevant: true, relevance_explanation: relevanceResult.data.explanation } };
+  return { kind: 'scored', value: { questionIndex: answer.questionIndex, participantId: answer.participantId, score: scoreResult.data.score, rationale: scoreResult.data.rationale, is_relevant: true, relevance_explanation: '' } };
 }
 
 export async function scoreAnswers(

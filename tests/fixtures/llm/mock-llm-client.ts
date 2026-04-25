@@ -3,7 +3,7 @@ import type { LLMClient, LLMError, LLMErrorCode } from '@/lib/engine/llm/types';
 import {
   QuestionGenerationResponseSchema,
   ScoringResponseSchema,
-  RelevanceResponseSchema,
+  RelevanceBatchResponseSchema,
 } from '@/lib/engine/llm/schemas';
 import { questionGenerationFixture } from './question-generation';
 import { scoringFixture } from './scoring';
@@ -24,7 +24,7 @@ interface MockLLMClientOptions {
 const defaultResponses = new Map<ZodType, unknown>([
   [QuestionGenerationResponseSchema, questionGenerationFixture.valid],
   [ScoringResponseSchema, scoringFixture.valid],
-  [RelevanceResponseSchema, relevanceFixture.valid],
+  [RelevanceBatchResponseSchema, relevanceFixture.valid],
 ]);
 
 function success<T>(data: T) {

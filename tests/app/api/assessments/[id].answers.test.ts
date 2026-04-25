@@ -29,6 +29,17 @@ vi.mock('@/lib/engine/pipeline', () => ({
   calculateAssessmentAggregate: vi.fn().mockReturnValue({ overallScore: 0, participantScores: new Map(), questionScores: new Map() }),
 }));
 
+// Mock buildLlmClient so we can assert the logger argument (#335).
+vi.mock('@/lib/api/llm', () => ({
+  buildLlmClient: vi.fn(() => ({ generateStructured: vi.fn(), generateWithTools: vi.fn() })),
+}));
+
+// Helpers for the batched detectRelevance signature (#335).
+type RelevanceItemResult = { is_relevant: boolean; explanation: string };
+function relevanceBatch(items: RelevanceItemResult[]) {
+  return { success: true as const, data: items };
+}
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -36,6 +47,7 @@ vi.mock('@/lib/engine/pipeline', () => ({
 import { requireAuth } from '@/lib/api/auth';
 import { detectRelevance } from '@/lib/engine/relevance';
 import { scoreAnswers, calculateAssessmentAggregate } from '@/lib/engine/pipeline';
+import { buildLlmClient } from '@/lib/api/llm';
 import type { NextResponse } from 'next/server';
 
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => Promise<NextResponse>;
@@ -178,8 +190,13 @@ function setupQuestions() {
 }
 
 function setupAllRelevance() {
-  vi.mocked(detectRelevance)
-    .mockResolvedValue({ success: true, data: { is_relevant: true, explanation: 'Good answer' } });
+  // Batched: returns one entry per submitted answer. Tests in this file submit ≤ 2 answers,
+  // and detectRelevance trims by aligning to request.items[i] inside the engine — so a batch
+  // of 2 entries is sufficient and harmless when only 1 answer is submitted.
+  vi.mocked(detectRelevance).mockResolvedValue(relevanceBatch([
+    { is_relevant: true, explanation: 'Good answer' },
+    { is_relevant: true, explanation: 'Good answer' },
+  ]));
 }
 
 function setupPendingParticipant() {
@@ -288,7 +305,7 @@ describe('POST /api/assessments/[id]/answers', () => {
   });
 
   describe('Given a valid participant submitting answers for the first time', () => {
-    it('then answers are stored and relevance checked', async () => {
+    it('then answers are stored and relevance is checked in ONE batched LLM call (#335)', async () => {
       setupPendingParticipant();
       setupAllRelevance();
       setupTwoParticipantsOneStillPending();
@@ -303,7 +320,10 @@ describe('POST /api/assessments/[id]/answers', () => {
       expect(response.status).toBe(200);
       const body = await response.json() as Record<string, unknown>;
       expect(body.status).toBe('accepted');
-      expect(detectRelevance).toHaveBeenCalledTimes(2);
+      // Single batched call replaces the per-answer Promise.all (#335).
+      expect(detectRelevance).toHaveBeenCalledOnce();
+      const callArg = vi.mocked(detectRelevance).mock.calls[0]?.[0];
+      expect(callArg?.items).toHaveLength(2);
     });
   });
 
@@ -331,9 +351,10 @@ describe('POST /api/assessments/[id]/answers', () => {
     it('then it returns relevance_failed with explanations', async () => {
       setupPendingParticipant();
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: true, explanation: 'Good' } })
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Not relevant' } });
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: true, explanation: 'Good' },
+        { is_relevant: false, explanation: 'Not relevant' },
+      ]));
 
       const response = await postAnswers({
         answers: [
@@ -446,9 +467,10 @@ describe('POST /api/assessments/[id]/answers', () => {
       setupPendingParticipant();
       allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: true, explanation: 'Good' } })
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Off-topic' } });
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: true, explanation: 'Good' },
+        { is_relevant: false, explanation: 'Off-topic' },
+      ]));
 
       const response = await postAnswers({
         answers: [
@@ -474,8 +496,9 @@ describe('POST /api/assessments/[id]/answers', () => {
         { question_id: 'question-002', attempt_number: 1, is_relevant: false },
       ]);
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Still off-topic' } });
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: false, explanation: 'Still off-topic' },
+      ]));
 
       const response = await postAnswers({
         answers: [
@@ -498,8 +521,9 @@ describe('POST /api/assessments/[id]/answers', () => {
         { question_id: 'question-002', attempt_number: 2, is_relevant: false },
       ]);
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Gibberish' } });
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: false, explanation: 'Gibberish' },
+      ]));
 
       const response = await postAnswers({
         answers: [
@@ -511,13 +535,16 @@ describe('POST /api/assessments/[id]/answers', () => {
       expect(body.results[0]?.attempts_remaining).toBe(0);
     });
 
-    it('then LLM failure preserves remaining attempts instead of reporting 0', async () => {
+    it('then LLM failure on the batch sets every answer to is_relevant: null and preserves remaining attempts', async () => {
       setupPendingParticipant();
       allParticipantsResult = { data: [{ id: PARTICIPANT_ID, status: 'pending' }], error: null };
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: true, explanation: 'Good' } })
-        .mockResolvedValueOnce({ success: false, error: { code: 'malformed_response', message: 'Bad JSON', retryable: true } });
+      // Batched relevance: when the whole call fails, every answer must come back null
+      // so the user can retry without burning an attempt (#335).
+      vi.mocked(detectRelevance).mockResolvedValueOnce({
+        success: false,
+        error: { code: 'malformed_response', message: 'Bad JSON', retryable: true },
+      });
 
       const response = await postAnswers({
         answers: [
@@ -527,9 +554,8 @@ describe('POST /api/assessments/[id]/answers', () => {
       });
 
       const body = await response.json() as { results: Array<{ question_id: string; is_relevant: boolean | null; attempts_remaining: number }> };
-      const failed = body.results.find(r => r.question_id === 'question-002');
-      expect(failed?.is_relevant).toBeNull();
-      expect(failed?.attempts_remaining).toBe(2);
+      expect(body.results.every(r => r.is_relevant === null)).toBe(true);
+      expect(body.results.every(r => r.attempts_remaining === 2)).toBe(true);
     });
 
     it('then LLM exception on re-attempt preserves correct remaining attempts', async () => {
@@ -542,8 +568,7 @@ describe('POST /api/assessments/[id]/answers', () => {
         { question_id: 'question-002', attempt_number: 1, is_relevant: false },
       ]);
 
-      vi.mocked(detectRelevance)
-        .mockRejectedValueOnce(new Error('Network timeout'));
+      vi.mocked(detectRelevance).mockRejectedValueOnce(new Error('Network timeout'));
 
       const response = await postAnswers({
         answers: [
@@ -565,8 +590,9 @@ describe('POST /api/assessments/[id]/answers', () => {
         { question_id: 'question-002', attempt_number: 1, is_relevant: null as unknown as boolean },
       ]);
 
-      vi.mocked(detectRelevance)
-        .mockResolvedValueOnce({ success: true, data: { is_relevant: false, explanation: 'Off-topic' } });
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: false, explanation: 'Off-topic' },
+      ]));
 
       const response = await postAnswers({
         answers: [
@@ -577,6 +603,51 @@ describe('POST /api/assessments/[id]/answers', () => {
       const body = await response.json() as { results: Array<{ question_id: string; attempts_remaining: number }> };
       // Should still be attempt 1 (not 2), so remaining = MAX_ATTEMPTS - 1 = 2
       expect(body.results[0]?.attempts_remaining).toBe(2);
+    });
+  });
+
+  // Regression tests for #335.
+  describe('Given the answers service builds the LLM client (issue #335)', () => {
+    it('then a logger is passed to buildLlmClient so retries/failures are visible', async () => {
+      setupPendingParticipant();
+      setupAllRelevance();
+      setupTwoParticipantsOneStillPending();
+
+      await postAnswers({
+        answers: [
+          { question_id: 'question-001', answer_text: 'A' },
+          { question_id: 'question-002', answer_text: 'B' },
+        ],
+      });
+
+      expect(buildLlmClient).toHaveBeenCalled();
+      const arg = vi.mocked(buildLlmClient).mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
+      expect(typeof arg?.info).toBe('function');
+      expect(typeof arg?.error).toBe('function');
+    });
+  });
+
+  describe('Given a batched relevance response (issue #335)', () => {
+    it('then a missing item is treated as relevant by detectRelevance — service does not flag it', async () => {
+      // detectRelevance is responsible for padding missing items as is_relevant: true.
+      // The service receives a fully-aligned array, so this just exercises the contract.
+      setupPendingParticipant();
+      setupTwoParticipantsOneStillPending();
+      vi.mocked(detectRelevance).mockResolvedValueOnce(relevanceBatch([
+        { is_relevant: true, explanation: '' },
+        { is_relevant: true, explanation: '' },
+      ]));
+
+      const response = await postAnswers({
+        answers: [
+          { question_id: 'question-001', answer_text: 'A' },
+          { question_id: 'question-002', answer_text: 'B' },
+        ],
+      });
+
+      const body = await response.json() as { status: string };
+      expect(body.status).toBe('accepted');
     });
   });
 

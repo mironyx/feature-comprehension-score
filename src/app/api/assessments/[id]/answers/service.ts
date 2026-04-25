@@ -205,8 +205,13 @@ async function storeAnswers(
 }
 
 /**
- * Run relevance detection on each answer. Never throws.
- * Failed calls are treated as irrelevant (logged).
+ * Classify all answers in a single batched LLM call. Never throws.
+ *
+ * - Whole batch fails (LLM error / exception) → every answer gets is_relevant: null.
+ * - Per-item missing in the batch response → treated as is_relevant: true by detectRelevance.
+ * - Unknown question_id (shouldn't happen post-validation) → is_relevant: false.
+ *
+ * See issue #335.
  */
 async function runRelevanceChecks(
   answers: SubmitBody['answers'],
@@ -217,39 +222,47 @@ async function runRelevanceChecks(
   const questionMap = new Map(questions.map(q => [q.id, q]));
   const remaining = MAX_ATTEMPTS - attemptNumber;
 
-  const results = await Promise.all(
-    answers.map(async (answer): Promise<AnswerResult> => {
-      const question = questionMap.get(answer.question_id);
-      if (!question) {
-        return { question_id: answer.question_id, is_relevant: false, explanation: 'Unknown question', attempts_remaining: 0 };
-      }
+  const items = answers.map(a => {
+    const q = questionMap.get(a.question_id);
+    return q ? { questionText: q.question_text, participantAnswer: a.answer_text } : null;
+  });
 
-      try {
-        const result = await detectRelevance({
-          questionText: question.question_text,
-          participantAnswer: answer.answer_text,
-          llmClient,
-        });
+  try {
+    const result = await detectRelevance({
+      items: items.map(i => i ?? { questionText: '', participantAnswer: '' }),
+      llmClient,
+    });
+    if (!result.success) {
+      logger.error({ err: result.error }, 'runRelevanceChecks: batch detectRelevance failed');
+      return answers.map(a => ({ question_id: a.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining }));
+    }
+    return answers.map((a, i) => buildAnswerResult(a, items[i], result.data[i], remaining));
+  } catch (err) {
+    logger.error({ err }, 'runRelevanceChecks: unexpected error');
+    return answers.map(a => ({ question_id: a.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining }));
+  }
+}
 
-        if (!result.success) {
-          logger.error({ err: result.error }, 'runRelevanceChecks: detectRelevance failed');
-          return { question_id: answer.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining };
-        }
-
-        return {
-          question_id: answer.question_id,
-          is_relevant: result.data.is_relevant,
-          explanation: result.data.is_relevant ? null : result.data.explanation,
-          attempts_remaining: result.data.is_relevant ? 0 : remaining,
-        };
-      } catch (err) {
-        logger.error({ err }, 'runRelevanceChecks: unexpected error');
-        return { question_id: answer.question_id, is_relevant: null, explanation: null, attempts_remaining: remaining };
-      }
-    }),
-  );
-
-  return results;
+// Justification: buildAnswerResult is a pure mapping from a single batch item to the
+// AnswerResult shape, kept private to this module. Extracted from runRelevanceChecks to
+// satisfy the ≤20-line function budget (CLAUDE.md). LLD §2.4 names runRelevanceChecks only.
+function buildAnswerResult(
+  answer: SubmitBody['answers'][number],
+  item: { questionText: string; participantAnswer: string } | null | undefined,
+  data: { is_relevant: boolean; explanation: string } | undefined,
+  remaining: number,
+): AnswerResult {
+  if (!item) {
+    return { question_id: answer.question_id, is_relevant: false, explanation: 'Unknown question', attempts_remaining: 0 };
+  }
+  // detectRelevance pads missing items with is_relevant:true, so `data` is always defined here.
+  const { is_relevant, explanation } = data ?? { is_relevant: true, explanation: '' };
+  return {
+    question_id: answer.question_id,
+    is_relevant,
+    explanation: is_relevant ? null : explanation,
+    attempts_remaining: is_relevant ? 0 : remaining,
+  };
 }
 
 // Justification: buildLlmClient is imported from @/lib/api/llm so a single client instance
@@ -374,8 +387,11 @@ async function triggerScoring(
       artefact_quality_note: '',
     };
     const questionIndexMap = new Map(questions.map((q, i) => [q.id, i]));
+    // Only score answers that passed relevance (is_relevant === true). null answers
+    // (LLM failure) and false answers (irrelevant) are excluded — finaliseSubmission
+    // never reaches this path while any answer is still null/false (#335).
     const participantAnswers = answers
-      .filter(a => a.is_relevant !== false)
+      .filter(a => a.is_relevant === true)
       .map(a => ({ questionIndex: questionIndexMap.get(a.question_id) ?? -1, participantId: a.participant_id, answer: a.answer_text }))
       .filter(a => a.questionIndex >= 0);
     const result = await scoreAnswers({ rubric, answers: participantAnswers, llmClient, comprehensionDepth });
@@ -444,8 +460,8 @@ export async function submitAnswers(
   // 5. Store answers
   await storeAnswers(adminSupabase, participant.id, participant.org_id, assessmentId, body.answers, attemptNumber);
 
-  // 6. Build LLM client once for this request
-  const llmClient = buildLlmClient();
+  // 6. Build LLM client once for this request — pass logger so retries/failures are visible (#335).
+  const llmClient = buildLlmClient(logger);
 
   // 7. Run relevance checks
   const relevanceResults = await runRelevanceChecks(body.answers, questions, llmClient, attemptNumber);
@@ -469,9 +485,11 @@ export async function submitAnswers(
     }
   });
 
-  const anyIrrelevant = relevanceResults.some(r => !r.is_relevant);
+  // is_relevant !== true covers BOTH genuine irrelevance (false) and LLM failure (null).
+  // Both require participant retry; the frontend distinguishes them visually (#335).
+  const anyNotApproved = relevanceResults.some(r => r.is_relevant !== true);
 
-  if (anyIrrelevant) {
+  if (anyNotApproved) {
     // Return relevance_failed — participant stays 'pending'
     const { data: allParticipants } = await adminSupabase
       .from('assessment_participants')
