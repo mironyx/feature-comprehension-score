@@ -16,7 +16,6 @@ Measures whether engineering teams understand what they built, using Peter Naur'
 
 **Phase 1: Core Feature Implementation** — Assessment engine, GitHub integration, Supabase storage, API routes.
 Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS), OpenRouter (LLM gateway — see ADR-0015), GCP Cloud Run.
-See [implementation plan](docs/plans/2026-03-09-v1-implementation-plan.md) for full details.
 
 ## Engineering Process
 
@@ -81,12 +80,9 @@ Five levels, in order. No code until Level 5.
 
 ## TDD Discipline
 
-Strict Red-Green-Refactor. No exceptions.
-
-1. **RED** — Write a failing test. Run it. Confirm it fails for the right reason.
-2. **GREEN** — Minimum code to pass. No more.
-3. **REFACTOR** — Clean up while tests stay green.
-
+- Write a failing tests first
+- Run test in batches to reduce costs
+- Use MSW for HTTP mocking in tests unless there are good reasons not to.
 - Tests exercise behaviour through public interfaces, not internals.
 - BDD style: `Given/When/Then` in `describe`/`it` blocks.
 - Run after every change: `npx vitest run` (unit), `npx tsc --noEmit` (types).

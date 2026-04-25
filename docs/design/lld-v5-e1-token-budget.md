@@ -5,6 +5,8 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-25 | Claude | Initial LLD — all three stories |
+| 2026-04-25 | Claude | Story 1.1: cache full model list instead of per-model; remove DEFAULT_MODEL dot-format fix; add guardrails note |
+| 2026-04-25 | Claude | Story 1.1: use `/models/user` endpoint; replace `fetchFn` injection with MSW for testing |
 
 ## Design Reference
 
@@ -29,7 +31,7 @@ Wire the existing `truncateArtefacts()` function into the assessment pipeline wi
 sequenceDiagram
     participant TRG as triggerRubricGeneration
     participant EA as extractArtefacts
-    participant ORL as OpenRouter /models API
+    participant ORL as OpenRouter /models/user API
     participant TF as truncateArtefacts()
     participant FR as finaliseRubric
 
@@ -70,35 +72,45 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph "Adapter Layer"
-        ORM["src/lib/openrouter/\nmodel-limits.ts"]
-    end
-    subgraph "Pipeline (service.ts)"
-        EA["extractArtefacts()"]
-        FR["finaliseRubric()"]
-        PF["persistRubricFinalisation()"]
-    end
-    subgraph "Engine (pure domain)"
-        TA["truncateArtefacts()"]
-    end
-    subgraph "DB"
-        AT["assessments table\n+token_budget_applied\n+truncation_notes"]
-        FN["finalise_rubric RPC\n+truncation params"]
-    end
-    subgraph "UI"
-        TDC["TruncationDetailsCard"]
-        RP["Results Page"]
+    subgraph "Adapter: src/lib/openrouter/model-limits.ts"
+        GCMI["getConfiguredModelId()\n→ string\n(env OPENROUTER_MODEL or DEFAULT_MODEL)"]
+        GML["getModelContextLimit(modelId)\n→ number"]
+        Cache["modelListCache: Map‹id, context_length›\npopulated once from OpenRouter /models/user"]
+        FML["fetchModelList()\nGET /models/user\n→ Map‹string, number›"]
+        FML -->|"populate on first call"| Cache
+        Cache -->|"lookup by modelId"| GML
     end
 
-    ORM -->|context_length| EA
-    EA -->|RawArtefactSet| TA
-    TA -->|AssembledArtefactSet| EA
-    EA --> FR
-    FR --> PF
-    PF --> FN
-    FN --> AT
-    AT --> RP
-    RP --> TDC
+    subgraph "Pipeline: src/app/api/fcs/service.ts"
+        EA["extractArtefacts()\n· fetches PRs, issues, org context\n· mergeIssueContent(raw, issues)\n· calls getModelContextLimit()\n· calls truncateArtefacts()\n· returns AssembledArtefactSet"]
+        FR["finaliseRubric(artefacts)\n· calls runGeneration()\n· passes token_budget_applied\n  + truncation_notes to persist"]
+        PF["persistRubricFinalisation()\n· RPC finalise_rubric(\n    p_token_budget_applied,\n    p_truncation_notes)"]
+    end
+
+    subgraph "Engine: src/lib/engine/prompts/truncate.ts"
+        TA["truncateArtefacts(merged, opts)\n· opts: { tokenBudget, questionCount }\n· returns AssembledArtefactSet with:\n  token_budget_applied: boolean\n  truncation_notes: string[]"]
+    end
+
+    subgraph "DB: supabase/schemas/"
+        FN["finalise_rubric RPC\n+ p_token_budget_applied boolean\n+ p_truncation_notes jsonb"]
+        AT["assessments table\n+ token_budget_applied boolean\n+ truncation_notes jsonb"]
+    end
+
+    subgraph "UI: src/components/ + src/app/"
+        RP["Results Page\n/assessments/[id]/results\nrenders card when\ntoken_budget_applied = true"]
+        TDC["TruncationDetailsCard\n· lists truncation_notes[]\n· if retrieval disabled:\n  show recommendation"]
+    end
+
+    GCMI -->|"modelId: string"| GML
+    GML -->|"contextLimit → budget =\nfloor(contextLimit × 0.8)"| EA
+    EA -->|"RawArtefactSet +\n{ tokenBudget, questionCount }"| TA
+    TA -->|"AssembledArtefactSet\n(token_budget_applied,\ntruncation_notes)"| EA
+    EA -->|"AssembledArtefactSet"| FR
+    FR -->|"tokenBudgetApplied: boolean\ntruncationNotes: string[]"| PF
+    PF -->|"RPC call"| FN
+    FN -->|"UPDATE"| AT
+    AT -->|"row fetch"| RP
+    RP -->|"props"| TDC
 ```
 
 ### Invariants
@@ -107,7 +119,7 @@ graph TD
 |---|-----------|-------------|
 | I1 | Token budget = `Math.floor(contextLimit * 0.8)` | Unit test: budget derivation |
 | I2 | File listing is never truncated | Existing test in `truncate.test.ts` |
-| I3 | Context limit is cached per model per process lifetime | Unit test: mock fetch, assert single call for repeated lookups |
+| I3 | Full model list is fetched once per process lifetime; subsequent lookups are pure map reads | Unit test: MSW handler, request two different models, assert single fetch call |
 | I4 | OpenRouter API failure does not block rubric generation | Unit test: network error → fallback 130K + warning log |
 | I5 | `token_budget_applied` reflects actual truncation state, never hardcoded | Unit test: wiring produces correct value |
 | I6 | Truncation details section only renders when `token_budget_applied = true` | Component test |
@@ -139,37 +151,42 @@ Pure adapter function. No framework imports, no Supabase.
 ```typescript
 // src/lib/openrouter/model-limits.ts
 
-const DEFAULT_CONTEXT_LIMIT = 130_000;
-const cache = new Map<string, number>();
+export const DEFAULT_CONTEXT_LIMIT = 130_000;
 
-export async function getModelContextLimit(modelId: string): Promise<number> {
-  const cached = cache.get(modelId);
-  if (cached !== undefined) return cached;
+/** Cached model list: modelId → context_length. Populated on first call. */
+let modelListCache: Map<string, number> | null = null;
 
-  const limit = await fetchContextLimitFromApi(modelId);
-  cache.set(modelId, limit);
-  return limit;
+/** Clears the module-level cache. Test-only. */
+export function clearModelLimitsCache(): void {
+  modelListCache = null;
+}
+
+export async function getModelContextLimit(
+  modelId: string,
+): Promise<number> {
+  if (!modelListCache) {
+    modelListCache = await fetchModelList();
+  }
+  return modelListCache.get(modelId) ?? DEFAULT_CONTEXT_LIMIT;
 }
 ```
 
-**`fetchContextLimitFromApi(modelId: string): Promise<number>`**
+**`fetchModelList(): Promise<Map<string, number>>`**
 
-- Calls `GET https://openrouter.ai/api/v1/models` with `Authorization: Bearer ${OPENROUTER_API_KEY}`.
+- Calls `GET https://openrouter.ai/api/v1/models/user` with `Authorization: Bearer ${apiKey}`.
+  - `apiKey` from `process.env['OPENROUTER_API_KEY']`.
+- Returns only models the API key has access to (filtered by OpenRouter guardrails).
 - Parses response as `{ data: Array<{ id: string; context_length: number | null }> }`.
-- Finds the entry where `id === modelId`.
-- If found and `context_length` is a positive number, returns it.
-- If not found or `context_length` is null, logs warning and returns `DEFAULT_CONTEXT_LIMIT`.
-- If fetch fails (network error, non-2xx), logs warning and returns `DEFAULT_CONTEXT_LIMIT`.
+- Builds a `Map<string, number>` from entries where `context_length` is a positive number.
+  Entries with null or non-positive `context_length` are skipped (those models will fall back to `DEFAULT_CONTEXT_LIMIT` on lookup).
+- If fetch fails (network error, non-2xx), logs warning and returns an empty map (callers fall back to `DEFAULT_CONTEXT_LIMIT`).
+- The list is fetched once per process lifetime and cached. Subsequent `getModelContextLimit()` calls are pure map lookups — no network I/O.
 
-**Exported constant:**
-
-```typescript
-export const DEFAULT_CONTEXT_LIMIT = 130_000;
-```
+**Note on OpenRouter guardrails:** When guardrails are configured on the OpenRouter account, the `/models/user` response is filtered to allowed models (plus a few extras OpenRouter adds). This keeps the cached list small. The guardrail configuration is manual for now; automation is out of scope.
 
 **Model ID resolution:**
 
-The model ID comes from `process.env['OPENROUTER_MODEL']` or the `DEFAULT_MODEL` constant (`'anthropic/claude-sonnet-4-6'`) in `src/lib/engine/llm/client.ts`. A new helper `getConfiguredModelId()` is needed:
+The model ID comes from `process.env['OPENROUTER_MODEL']` or the `DEFAULT_MODEL` constant in `src/lib/engine/llm/client.ts`. A new helper `getConfiguredModelId()` is needed:
 
 ```typescript
 // src/lib/openrouter/model-limits.ts
@@ -180,41 +197,50 @@ export function getConfiguredModelId(): string {
 }
 ```
 
+**Testability:** Tests use MSW (`setupServer`) to intercept `GET /api/v1/models/user`
+and return controlled responses. `clearModelLimitsCache()` is called in `beforeEach`
+to reset singleton state between tests. This follows the project's established
+HTTP mocking pattern.
+
 #### BDD Specs
 
 ```typescript
+// Uses MSW setupServer to intercept GET https://openrouter.ai/api/v1/models/user
+// beforeEach: clearModelLimitsCache() to reset singleton
+
 describe('getModelContextLimit', () => {
-  describe('Given the OpenRouter API returns a valid context_length', () => {
+  describe('Given the OpenRouter API returns a valid model list', () => {
     it('should return the context_length for the matching model', async () => {
-      // Mock fetch: { data: [{ id: 'anthropic/claude-sonnet-4-6', context_length: 200000 }] }
-      // expect(result).toBe(200000)
+      // MSW handler returns { data: [{ id: 'deepseek/deepseek-v4-flash', context_length: 1000000 }] }
+      // expect(result).toBe(1000000)
     });
   });
 
   describe('Given the model is not found in the API response', () => {
-    it('should fall back to DEFAULT_CONTEXT_LIMIT and log a warning', async () => {
-      // Mock fetch: { data: [{ id: 'other-model', context_length: 100000 }] }
+    it('should fall back to DEFAULT_CONTEXT_LIMIT', async () => {
+      // MSW handler returns { data: [{ id: 'other-model', context_length: 100000 }] }
       // expect(result).toBe(130000)
     });
   });
 
   describe('Given the API returns context_length: null for the model', () => {
-    it('should fall back to DEFAULT_CONTEXT_LIMIT and log a warning', async () => {
-      // Mock fetch: { data: [{ id: 'anthropic/claude-sonnet-4-6', context_length: null }] }
+    it('should fall back to DEFAULT_CONTEXT_LIMIT', async () => {
+      // MSW handler returns { data: [{ id: 'deepseek/deepseek-v4-flash', context_length: null }] }
       // expect(result).toBe(130000)
     });
   });
 
   describe('Given the OpenRouter API call fails', () => {
     it('should fall back to DEFAULT_CONTEXT_LIMIT and log a warning', async () => {
-      // Mock fetch: throw network error
+      // MSW handler returns HttpResponse.error()
       // expect(result).toBe(130000)
     });
   });
 
-  describe('Given the same model is requested twice', () => {
-    it('should return the cached value without a second API call', async () => {
-      // Call twice, assert fetch called once
+  describe('Given two different models are requested', () => {
+    it('should fetch the model list once and serve both from cache', async () => {
+      // MSW handler returns two models, call getModelContextLimit for each
+      // Assert handler called once (via request count), both return correct values
     });
   });
 });
