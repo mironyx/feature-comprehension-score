@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
-| Status | Draft |
+| Version | 1.1 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
+| Revised | 2026-04-26 — issue #342 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -196,20 +197,31 @@ describe('Assessment page layout')
   --color-border:           #ddd8d0;
   --color-text-primary:     #1a1d23;
   --color-text-secondary:   #5c6370;
-  --color-accent:           #d97706;   /* slightly darker amber for light bg */
-  --color-accent-hover:     #b45309;
+  --color-accent:           #92400e;   /* amber-800 — meets AA on warm bg */
+  --color-accent-hover:     #78350f;   /* amber-900 */
   --color-accent-muted:     #fef3c7;
-  --color-destructive:      #dc2626;
+  --color-destructive:      #b91c1c;   /* red-700 */
   --color-destructive-muted: #fef2f2;
-  --color-success:          #16a34a;
+  --color-success:          #15803d;   /* green-700 */
 }
 ```
 
+> **Implementation note (issue #342):** The original draft of this section specified
+> `--color-accent: #d97706`, `--color-destructive: #dc2626`, and `--color-success: #16a34a`,
+> claiming `#d97706 on #f5f4f0 = 4.6:1`. The actual ratio is **2.89:1** — well below WCAG AA.
+> Acceptance criterion #3 mandates ≥ 4.5:1 for every foreground/background pair, so the
+> three foreground tokens were darkened to the values above. Verified by `tests/app/globals-light-theme.test.ts`,
+> which computes contrast inline using the WCAG sRGB → relative-luminance formula.
+
 **Default:** Dark remains default. The `:root` selector keeps dark values. `[data-theme="light"]` overrides.
 
-**Contrast verification:** All combinations must pass WCAG AA:
-- Light: `#1a1d23` on `#f5f4f0` = 14.5:1. `#5c6370` on `#f5f4f0` = 5.5:1. `#d97706` on `#f5f4f0` = 4.6:1.
-- Dark: `#e8eaf0` on `#0d0f14` = 15.2:1. `#8f96a8` on `#0d0f14` = 5.8:1.
+**Contrast verification:** All combinations must pass WCAG AA. Verified ratios on `#f5f4f0` light background:
+- `--color-text-primary` `#1a1d23` = 14.5:1
+- `--color-text-secondary` `#5c6370` = 5.5:1
+- `--color-accent` `#92400e` = 6.3:1 (on `#ffffff` surface = 7.7:1)
+- `--color-destructive` `#b91c1c` = 6.0:1
+- `--color-success` `#15803d` = 4.56:1 _(close to the AA threshold — re-check before darkening the bg)_
+- Dark theme: `#e8eaf0` on `#0d0f14` = 15.2:1; `#8f96a8` on `#0d0f14` = 5.8:1.
 
 **BDD specs:**
 
