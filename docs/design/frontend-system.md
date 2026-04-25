@@ -113,25 +113,27 @@ The accent is darker than the dark-mode value (`#f59e0b`) because amber-500 fail
 
 | Token (Tailwind class) | Size | Weight | Line height | Use |
 |------------------------|------|--------|-------------|-----|
-| `text-display` | 4rem (64px) | 700 (Syne) | 1.0 | Comprehension score number |
-| `text-heading-xl` | 2.25rem (36px) | 700 (Syne) | 1.2 | Page titles |
-| `text-heading-lg` | 1.5rem (24px) | 600 (Syne) | 1.3 | Section headings |
+| `text-display` | clamp(2.5rem, 6vw, 4rem) (40–64px) | 700 (Syne) | 1.0 | Comprehension score number |
+| `text-heading-xl` | clamp(1.5rem, 4vw, 2.25rem) (24–36px) | 700 (Syne) | 1.2 | Page titles |
+| `text-heading-lg` | clamp(1.25rem, 3vw, 1.5rem) (20–24px) | 600 (Syne) | 1.3 | Section headings |
 | `text-heading-md` | 1.125rem (18px) | 600 (Outfit) | 1.4 | Card titles, form section headers |
 | `text-body` | 0.9375rem (15px) | 400 (Outfit) | 1.6 | Body copy, descriptions |
 | `text-label` | 0.8125rem (13px) | 500 (Outfit) | 1.4 | Form labels, table column headers |
 | `text-caption` | 0.75rem (12px) | 400 (Outfit) | 1.5 | Metadata, timestamps, helper text |
 
+The three largest tokens (`display`, `heading-xl`, `heading-lg`) use `clamp(min, preferred, max)` so they scale with viewport width and avoid horizontal overflow on narrow mobile screens. The smaller sizes are already comfortable on mobile and remain fixed.
+
 ### Tailwind `fontSize` config entries (in `tailwind.config.ts`)
 
 ```ts
 fontSize: {
-  display:      ['4rem',    { lineHeight: '1.0',  fontWeight: '700' }],
-  'heading-xl': ['2.25rem', { lineHeight: '1.2',  fontWeight: '700' }],
-  'heading-lg': ['1.5rem',  { lineHeight: '1.3',  fontWeight: '600' }],
-  'heading-md': ['1.125rem',{ lineHeight: '1.4',  fontWeight: '600' }],
-  body:         ['0.9375rem',{ lineHeight: '1.6', fontWeight: '400' }],
-  label:        ['0.8125rem',{ lineHeight: '1.4', fontWeight: '500' }],
-  caption:      ['0.75rem', { lineHeight: '1.5',  fontWeight: '400' }],
+  display:      ['clamp(2.5rem, 6vw, 4rem)',    { lineHeight: '1.0',  fontWeight: '700' }],
+  'heading-xl': ['clamp(1.5rem, 4vw, 2.25rem)', { lineHeight: '1.2',  fontWeight: '700' }],
+  'heading-lg': ['clamp(1.25rem, 3vw, 1.5rem)', { lineHeight: '1.3',  fontWeight: '600' }],
+  'heading-md': ['1.125rem',                    { lineHeight: '1.4',  fontWeight: '600' }],
+  body:         ['0.9375rem',                   { lineHeight: '1.6',  fontWeight: '400' }],
+  label:        ['0.8125rem',                   { lineHeight: '1.4',  fontWeight: '500' }],
+  caption:      ['0.75rem',                     { lineHeight: '1.5',  fontWeight: '400' }],
 },
 ```
 

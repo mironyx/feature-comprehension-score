@@ -26,9 +26,9 @@ const config: Config = {
         success: 'var(--color-success)',
       },
       fontSize: {
-        display: ['4rem', { lineHeight: '1.0', fontWeight: '700' }],
-        'heading-xl': ['2.25rem', { lineHeight: '1.2', fontWeight: '700' }],
-        'heading-lg': ['1.5rem', { lineHeight: '1.3', fontWeight: '600' }],
+        display: ['clamp(2.5rem, 6vw, 4rem)', { lineHeight: '1.0', fontWeight: '700' }],
+        'heading-xl': ['clamp(1.5rem, 4vw, 2.25rem)', { lineHeight: '1.2', fontWeight: '700' }],
+        'heading-lg': ['clamp(1.25rem, 3vw, 1.5rem)', { lineHeight: '1.3', fontWeight: '600' }],
         'heading-md': ['1.125rem', { lineHeight: '1.4', fontWeight: '600' }],
         body: ['0.9375rem', { lineHeight: '1.6', fontWeight: '400' }],
         label: ['0.8125rem', { lineHeight: '1.4', fontWeight: '500' }],
