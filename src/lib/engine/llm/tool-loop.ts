@@ -42,6 +42,7 @@ export interface SdkRequest {
   readonly messages: readonly unknown[];
   readonly tools?: readonly unknown[];
   readonly response_format?: { readonly type: 'json_object' };
+  readonly signal?: AbortSignal;
 }
 
 export type ChatCallFn = (req: SdkRequest) => Promise<SdkResponse>;
@@ -298,6 +299,7 @@ export async function runToolLoop<T extends ZodType>(
       messages: state.messages,
       tools: req.tools.length ? req.tools.map(toOpenAIToolSpec) : undefined,
       response_format: { type: 'json_object' },
+      signal: loopSignal,
     });
     const msg = resp?.choices?.[0]?.message;
     if (!msg) return fail({ code: 'malformed_response', message: 'no assistant message', retryable: true });

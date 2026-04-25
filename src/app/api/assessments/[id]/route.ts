@@ -63,6 +63,9 @@ interface AssessmentDetailResponse {
   skip_info: { reason: string; skipped_at: string } | null;
   rubric_progress: string | null;
   rubric_progress_updated_at: string | null;
+  rubric_error_code: string | null;
+  rubric_retry_count: number;
+  rubric_error_retryable: boolean | null;
   created_at: string;
 }
 
@@ -183,6 +186,9 @@ function buildResponse(
       : null,
     rubric_progress: assessment.rubric_progress,
     rubric_progress_updated_at: assessment.rubric_progress_updated_at,
+    rubric_error_code: assessment.rubric_error_code,
+    rubric_retry_count: assessment.rubric_retry_count,
+    rubric_error_retryable: assessment.rubric_error_retryable,
     created_at: assessment.created_at,
   };
 }

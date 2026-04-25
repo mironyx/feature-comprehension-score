@@ -1,9 +1,16 @@
 // pollStatus — core polling logic for assessment status refresh.
 // Pure async function, framework-agnostic. Issue: #207
 // Progress fields added for V2 Epic 18, Story 18.3.
+// Adaptive polling and error fields added for #333.
 
-export const POLL_INTERVAL_MS = 3_000;
-export const MAX_POLLS = 20; // ~60s total
+export const FAST_INTERVAL_MS = 3_000;
+export const SLOW_INTERVAL_MS = 10_000;
+export const FAST_POLLS = 20;   // ~60s at 3s
+export const SLOW_POLLS = 24;   // ~240s at 10s — total ~300s
+
+// Backward-compat aliases used by eval tests
+export const POLL_INTERVAL_MS = FAST_INTERVAL_MS;
+export const MAX_POLLS = FAST_POLLS + SLOW_POLLS;
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   'awaiting_responses',
@@ -18,6 +25,9 @@ export interface PollSnapshot {
   readonly status: string;
   readonly rubricProgress: string | null;
   readonly rubricProgressUpdatedAt: string | null;
+  readonly rubricErrorCode: string | null;
+  readonly rubricRetryCount: number;
+  readonly rubricErrorRetryable: boolean | null;
 }
 
 export interface PollCallbacks {
@@ -29,6 +39,9 @@ interface AssessmentPollResponse {
   status: string;
   rubric_progress?: string | null;
   rubric_progress_updated_at?: string | null;
+  rubric_error_code?: string | null;
+  rubric_retry_count?: number;
+  rubric_error_retryable?: boolean | null;
 }
 
 function toSnapshot(data: AssessmentPollResponse): PollSnapshot {
@@ -36,7 +49,14 @@ function toSnapshot(data: AssessmentPollResponse): PollSnapshot {
     status: data.status,
     rubricProgress: data.rubric_progress ?? null,
     rubricProgressUpdatedAt: data.rubric_progress_updated_at ?? null,
+    rubricErrorCode: data.rubric_error_code ?? null,
+    rubricRetryCount: data.rubric_retry_count ?? 0,
+    rubricErrorRetryable: data.rubric_error_retryable ?? null,
   };
+}
+
+function currentInterval(pollCount: number): number {
+  return pollCount <= FAST_POLLS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
 }
 
 /**
@@ -64,7 +84,7 @@ export function startStatusPoll(
         signal: controller.signal,
       });
       if (!res.ok) {
-        timerId = setTimeout(poll, POLL_INTERVAL_MS);
+        timerId = setTimeout(poll, currentInterval(pollCount));
         return;
       }
       const data = await res.json() as AssessmentPollResponse;
@@ -75,10 +95,10 @@ export function startStatusPoll(
       if (controller.signal.aborted) return;
     }
 
-    timerId = setTimeout(poll, POLL_INTERVAL_MS);
+    timerId = setTimeout(poll, currentInterval(pollCount));
   };
 
-  timerId = setTimeout(poll, POLL_INTERVAL_MS);
+  timerId = setTimeout(poll, currentInterval(pollCount));
 
   return () => {
     controller.abort();

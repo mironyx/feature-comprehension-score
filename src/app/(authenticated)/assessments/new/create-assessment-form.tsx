@@ -159,7 +159,7 @@ function CreationProgress({ assessmentId, featureName }: CreationResult) {
         <p className="text-body text-text-primary">
           Creating assessment: <strong>{featureName}</strong>
         </p>
-        <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" />
+        <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" admin maxRetries={3} />
         <div>
           <Link href="/assessments" className="text-primary underline text-body">
             Go to assessments list
