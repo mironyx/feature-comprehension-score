@@ -14,7 +14,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-03-16 |
@@ -40,6 +40,7 @@
 | Revised | 2026-03-29 (Issue #122) |
 | Revised | 2026-03-30 (Issue #118) |
 | Revised | 2026-04-01 (Issue #133) |
+| Revised | 2026-04-25 (Issue #335) |
 | Parent | [v1-design.md](v1-design.md) |
 | Implementation plan | [Phase 2](../plans/2026-03-09-v1-implementation-plan.md#phase-2-web-app--auth--database) |
 
@@ -875,8 +876,8 @@ See [v1-design.md §4.4 POST /api/assessments/\[id\]/answers](v1-design.md#post-
    - First: require answers for all questions
    - Re-attempt: require answers only for flagged questions
 4. Store answers in participant_answers
-5. For each answer: call relevance detection (engine)
-6. If any irrelevant: return status='relevance_failed' with explanations
+5. Call relevance detection once for the whole submission (engine — single batched LLM call)
+6. If any answer is not approved (`is_relevant !== true`): return status='relevance_failed' with explanations
 7. If all relevant:
    a. Update participant status to 'submitted'
    b. Check if all participants submitted
@@ -906,7 +907,7 @@ Service (`answers/service.ts`):
   - `validateReAttemptCoverage(submittedIds, previouslyIrrelevantIds)` — 422 if any submitted ID was not previously flagged
   - `storeAnswers(adminSupabase, participantId, orgId, assessmentId, answers, attemptNumber)` — inserts `participant_answers` rows
   - `buildLlmClient()` — constructs `AnthropicClient` from env; throws ApiError(500) if key absent
-  - `runRelevanceChecks(answers, questions, llmClient)` — calls engine per answer; never throws; logs failures and treats as irrelevant
+  - `runRelevanceChecks(answers, questions, llmClient)` — calls engine once with the full batch of (question, answer) pairs; never throws; on whole-batch LLM failure logs and returns `is_relevant: null` for every answer (preserves attempts); on per-item missing in response, defaults that item to `is_relevant: true` (scoring sorts it out)
   - `finaliseSubmission(adminSupabase, participantId, assessmentId, llmClient)` — sets participant to `submitted`; calls `triggerScoring()` synchronously if all participants done; returns `{ completed, total }`
   - `triggerScoring(adminSupabase, assessmentId, llmClient)` — fetches scoring data, calls `scoreAnswers()` + `calculateAssessmentAggregate()`, persists results; wraps errors as ApiError(500)
   - `fetchScoringData(adminSupabase, assessmentId)` — fetches questions and answers for scoring in parallel
@@ -932,6 +933,15 @@ Service (`answers/service.ts`):
 > 10. `resolveAttemptNumber` — now checks whether the latest attempt has unevaluated (`null`) answers; if so, returns the same attempt number (retry) rather than incrementing.
 > 11. `deleteUnevaluatedAnswers` — new helper. Removes `is_relevant IS NULL` rows before re-inserting on retry, avoiding unique constraint violations.
 > 12. `previouslyIrrelevantIds` — filter changed from `=== false` to `!== true` to include both `false` and `null` answers as re-submittable.
+>
+> **Implementation note (issue #335):** Relevance redesigned from per-answer fan-out to a single batched call, plus `null` vs `false` correctly distinguished end-to-end:
+>
+> 13. `detectRelevance` (engine) — signature changed from single `{ questionText, participantAnswer }` to `{ items: RelevanceItem[] }` returning `RelevanceItemResult[]` aligned by index. One LLM call classifies every Q/A pair in a submission. Eliminates the rate-limit thundering herd that occurred under `Promise.all` over N independent calls.
+> 14. `runRelevanceChecks` — collapses to a single batched call. Whole-batch failure → all answers receive `is_relevant: null` (preserves attempts via `resolveAttemptNumber`). Per-item missing in the LLM response → defaults to `is_relevant: true` (scoring downstream judges correctness).
+> 15. `processAnswer` (engine `assess-pipeline`) — no longer calls `detectRelevance`. The scoring path is score-only; the API route filters on persisted `is_relevant === true` before scoring. Eliminates a redundant relevance call on every answer at scoring time.
+> 16. `buildLlmClient(logger)` — pino logger now passed to the LLM client constructor so retry/backoff events are observable. Previous calls passed no logger.
+> 17. Frontend `RelevanceWarning` — added `variant: 'irrelevant' | 'evaluation_failed'` prop. `null` (LLM unavailable) renders as "We could not evaluate your answer — please try again." instead of the irrelevance message; `false` keeps the original irrelevance message.
+> 18. Frontend approval check — `r.is_relevant !== true` (not `!r.is_relevant`) so `null` is treated as "not yet approved" without conflating with genuine irrelevance.
 
 Do NOT:
 - Create parameter structs whose only purpose is to bundle arguments — use a named type only when the parameters represent a genuine domain concept
