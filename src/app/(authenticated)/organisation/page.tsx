@@ -1,8 +1,9 @@
 // Organisation admin dashboard — assessment overview + settings.
 // Non-admins see a 403 Forbidden response inline.
 // Auth and orgId are enforced by the (authenticated) layout before this page renders.
-// Design reference: docs/design/lld-nav-results.md §2, docs/design/lld-phase-2-web-auth-db.md §2.6
-// Issue: #62, #158, #296
+// Design reference: docs/design/lld-nav-results.md §2, docs/design/lld-phase-2-web-auth-db.md §2.6,
+// docs/design/lld-v7-frontend-ux.md §T8 (tabbed layout).
+// Issue: #62, #158, #296, #347
 
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
@@ -13,6 +14,7 @@ import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
 import { isOrgAdmin, type MembershipRow } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
+import { Tabs } from '@/components/ui/tabs';
 import OrgContextForm from './org-context-form';
 import RetrievalSettingsForm from './retrieval-settings-form';
 import { DeleteableAssessmentTable } from './deleteable-assessment-table';
@@ -51,6 +53,24 @@ export default async function OrganisationPage() {
     loadOrgAssessmentsOverview(supabase, orgId),
   ]);
 
+  const tabs = [
+    {
+      id: 'assessments',
+      label: 'Assessments',
+      content: <DeleteableAssessmentTable initialAssessments={assessments} />,
+    },
+    {
+      id: 'context',
+      label: 'Context',
+      content: <OrgContextForm orgId={orgId} initial={context ?? {}} />,
+    },
+    {
+      id: 'retrieval',
+      label: 'Retrieval',
+      content: <RetrievalSettingsForm orgId={orgId} initial={retrievalSettings} />,
+    },
+  ];
+
   return (
     <div className="space-y-section-gap">
       <PageHeader
@@ -58,9 +78,7 @@ export default async function OrganisationPage() {
         subtitle="Manage assessments and context settings"
         action={newAssessmentAction}
       />
-      <DeleteableAssessmentTable initialAssessments={assessments} />
-      <OrgContextForm orgId={orgId} initial={context ?? {}} />
-      <RetrievalSettingsForm orgId={orgId} initial={retrievalSettings} />
+      <Tabs tabs={tabs} defaultTab="assessments" queryParam="tab" />
     </div>
   );
 }
