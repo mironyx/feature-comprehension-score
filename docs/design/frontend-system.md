@@ -38,7 +38,7 @@ No ADR required — all choices follow the skill's default recommendations.
 
 ## Colour Tokens
 
-**Mode: dark only** (MVP). Light mode is not in scope for Phase 2. The audience is engineers who spend the majority of their time in dark IDEs; dark mode reduces cognitive load for this use case.
+**Modes: dark (default) and light.** Dark remains the default — the audience is engineers who spend the majority of their time in dark IDEs. Light mode is opt-in via the `data-theme="light"` attribute on `<html>`, set by the theme toggle (see V7 LLD T4).
 
 ### CSS variables (defined in `globals.css`)
 
@@ -57,7 +57,36 @@ No ADR required — all choices follow the skill's default recommendations.
   --color-destructive-muted: #450a0a; /* destructive background tint */
   --color-success:        #22c55e;   /* positive states (score above threshold) */
 }
+
+[data-theme="light"] {
+  --color-background:     #f5f4f0;   /* page background — warm off-white */
+  --color-surface:        #ffffff;   /* card / panel background */
+  --color-surface-raised: #f0eeea;   /* elevated surfaces — dropdowns, modals */
+  --color-border:         #ddd8d0;   /* subtle dividers and input outlines */
+  --color-text-primary:   #1a1d23;   /* headings, primary labels — near-black */
+  --color-text-secondary: #5c6370;   /* supporting text, captions, placeholders */
+  --color-accent:         #92400e;   /* amber-800 — darker for WCAG AA on light bg */
+  --color-accent-hover:   #78350f;   /* accent on hover (darker still) */
+  --color-accent-muted:   #fef3c7;   /* accent background for subtle highlights */
+  --color-destructive:    #b91c1c;   /* errors, delete actions (red-700 for AA) */
+  --color-destructive-muted: #fef2f2; /* destructive background tint */
+  --color-success:        #15803d;   /* positive states (green-700 for AA) */
+}
 ```
+
+### Light theme contrast (WCAG AA)
+
+All foreground tokens pass WCAG AA (≥ 4.5:1) on light backgrounds:
+
+| Foreground | Background | Ratio |
+|------------|------------|-------|
+| `#1a1d23` (text-primary) | `#f5f4f0` (background) | 14.5:1 |
+| `#5c6370` (text-secondary) | `#f5f4f0` (background) | 5.5:1 |
+| `#92400e` (accent) | `#f5f4f0` (background) | 6.3:1 |
+| `#b91c1c` (destructive) | `#f5f4f0` (background) | 6.0:1 |
+| `#15803d` (success) | `#f5f4f0` (background) | 4.6:1 |
+
+The accent darker than the dark-mode value (`#f59e0b`) because amber-500 fails AA on a light background. The hover (`#78350f`) follows the convention of darkening on hover.
 
 ### Status colours (for assessment `StatusBadge`)
 
@@ -298,6 +327,6 @@ Once this document is approved, the following rules apply to all UI work:
 
 1. **Use only defined tokens.** Never use arbitrary hex values or hard-coded pixel sizes that have a token equivalent.
 2. **No new fonts.** Syne and Outfit are the only permitted typefaces.
-3. **No light mode components.** Do not add `dark:` Tailwind variants — the UI is dark-only for MVP.
+3. **Theme via CSS variables only.** Do not add `dark:` Tailwind variants. Both themes are defined as CSS variables in `globals.css` (`:root` for dark, `[data-theme="light"]` for light); components consume tokens like `bg-background` and `text-text-primary` and switch automatically.
 4. **Deviations require a doc update.** If a feature genuinely needs a new token or pattern, update this document in the same PR.
 5. **`/pr-review-v2` checks design conformance.** Reviewers should verify components use system tokens, not arbitrary values.

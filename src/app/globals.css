@@ -16,3 +16,18 @@
   --color-destructive-muted: #450a0a;
   --color-success: #22c55e;
 }
+
+[data-theme="light"] {
+  --color-background: #f5f4f0;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f0eeea;
+  --color-border: #ddd8d0;
+  --color-text-primary: #1a1d23;
+  --color-text-secondary: #5c6370;
+  --color-accent: #92400e;
+  --color-accent-hover: #78350f;
+  --color-accent-muted: #fef3c7;
+  --color-destructive: #b91c1c;
+  --color-destructive-muted: #fef2f2;
+  --color-success: #15803d;
+}
