@@ -172,7 +172,7 @@ beforeEach(async () => {
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   vi.mocked(detectRelevance).mockResolvedValue({
     success: true,
-    data: { is_relevant: true, explanation: 'Good answer' },
+    data: [{ is_relevant: true, explanation: 'Good answer' }],
   });
   vi.mocked(scoreAnswers).mockResolvedValue({
     status: 'success',

@@ -6,7 +6,7 @@ import { relevanceFixture } from './relevance';
 import {
   QuestionGenerationResponseSchema,
   ScoringResponseSchema,
-  RelevanceResponseSchema,
+  RelevanceBatchResponseSchema,
 } from '@/lib/engine/llm/schemas';
 
 describe('LLM mock factory', () => {
@@ -47,7 +47,7 @@ describe('LLM mock factory', () => {
       const result = await client.generateStructured({
         prompt: 'Is this relevant?',
         systemPrompt: 'You are a classifier',
-        schema: RelevanceResponseSchema,
+        schema: RelevanceBatchResponseSchema,
       });
 
       expect(result.success).toBe(true);
@@ -106,7 +106,7 @@ describe('LLM mock factory', () => {
       const result = await client.generateStructured({
         prompt: 'Is this relevant?',
         systemPrompt: 'You are a classifier',
-        schema: RelevanceResponseSchema,
+        schema: RelevanceBatchResponseSchema,
       });
 
       expect(result.success).toBe(false);

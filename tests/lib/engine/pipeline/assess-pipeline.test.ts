@@ -11,7 +11,6 @@ import type { LLMClient } from '@/lib/engine/llm/types';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { questionGenerationFixture } from '../../../fixtures/llm/question-generation';
 import { scoringFixture } from '../../../fixtures/llm/scoring';
-import { relevanceFixture } from '../../../fixtures/llm/relevance';
 
 const validArtefacts: AssembledArtefactSet = {
   artefact_type: 'pull_request',
@@ -100,12 +99,11 @@ describe('Assessment pipeline', () => {
         { questionIndex: 1, participantId: 'alice', answer: 'Distributed lock with Redis.' },
       ];
 
-      // Flow: relevance → (if relevant) score, per answer sequentially.
-      // Fail the 1st call (relevance for first answer), succeed on the rest.
+      // Scoring is one LLM call per answer (relevance is no longer invoked here — #335).
+      // Fail the first scoring call, succeed on the second.
       const failingClient: LLMClient = {
         generateStructured: vi.fn()
           .mockResolvedValueOnce({ success: false, error: { code: 'server_error', message: 'LLM unavailable', retryable: true } })
-          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid }),
         generateWithTools: vi.fn(),
       };
@@ -178,45 +176,54 @@ describe('Assessment pipeline', () => {
     ];
 
     describe('Given comprehensionDepth is "detailed" in ScoreAnswersRequest', () => {
-      it('passes comprehensionDepth through to individual scoreAnswer calls — system prompt contains "Detailed Depth"', async () => {
+      it('passes comprehensionDepth through to scoreAnswer — system prompt contains "Detailed Depth"', async () => {
         const generateStructured = vi.fn()
-          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
         const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'detailed' });
 
-        // The second call is the scoring call; check its system prompt carries the detailed calibration.
-        const scoringCall = generateStructured.mock.calls[1][0];
+        const scoringCall = generateStructured.mock.calls[0][0];
         expect(scoringCall.systemPrompt).toContain('Detailed Depth');
       });
     });
 
     describe('Given comprehensionDepth is "conceptual" in ScoreAnswersRequest', () => {
-      it('passes comprehensionDepth through to individual scoreAnswer calls — system prompt contains "Conceptual Depth"', async () => {
+      it('passes comprehensionDepth through to scoreAnswer — system prompt contains "Conceptual Depth"', async () => {
         const generateStructured = vi.fn()
-          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
         const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient, comprehensionDepth: 'conceptual' });
 
-        const scoringCall = generateStructured.mock.calls[1][0];
+        const scoringCall = generateStructured.mock.calls[0][0];
         expect(scoringCall.systemPrompt).toContain('Conceptual Depth');
       });
     });
 
     describe('Given comprehensionDepth is omitted from ScoreAnswersRequest', () => {
-      it('passes no depth — scoring call defaults to conceptual calibration, system prompt contains "Conceptual Depth"', async () => {
+      it('defaults to conceptual calibration — system prompt contains "Conceptual Depth"', async () => {
         const generateStructured = vi.fn()
-          .mockResolvedValueOnce({ success: true, data: relevanceFixture.valid })
           .mockResolvedValueOnce({ success: true, data: scoringFixture.valid });
         const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
 
         await scoreAnswers({ rubric, answers, llmClient });
 
-        const scoringCall = generateStructured.mock.calls[1][0];
+        const scoringCall = generateStructured.mock.calls[0][0];
         expect(scoringCall.systemPrompt).toContain('Conceptual Depth');
+      });
+    });
+
+    describe('Given a relevant answer (issue #335 — relevance no longer called from scoring)', () => {
+      it('then scoreAnswers issues exactly ONE LLM call per answer (no relevance call)', async () => {
+        const generateStructured = vi.fn()
+          .mockResolvedValue({ success: true, data: scoringFixture.valid });
+        const llmClient: LLMClient = { generateStructured, generateWithTools: vi.fn() };
+
+        await scoreAnswers({ rubric, answers, llmClient });
+
+        // 1 answer → 1 LLM call (was 2 before #335: relevance + score).
+        expect(generateStructured).toHaveBeenCalledOnce();
       });
     });
   });

@@ -36,6 +36,10 @@ import QuestionCard from '@/components/question-card';
 // Factory
 // ---------------------------------------------------------------------------
 
+type RelevanceResult =
+  | undefined
+  | { question_id: string; is_relevant: boolean | null; explanation: string | null; attempts_remaining: number };
+
 type QuestionCardPropsBase = {
   questionId: string;
   questionNumber: number;
@@ -44,7 +48,7 @@ type QuestionCardPropsBase = {
   hint: string | null;
   answer: string;
   locked: boolean;
-  relevanceResult: undefined;
+  relevanceResult: RelevanceResult;
   onChange: (id: string, val: string) => void;
 };
 
@@ -125,5 +129,35 @@ describe('QuestionCard — hint display', () => {
       const json = render(makeProps({ hint: null }));
       expect(json).toContain('textarea');
     });
+  });
+});
+
+// Issue #335 — distinguish LLM evaluation failure (null) from genuine irrelevance (false).
+// React.createElement preserves props on the element object; JSON.stringify exposes them
+// as `"props":{"variant":...}` so we can assert on the variant prop without rendering.
+describe('QuestionCard — relevance result variants', () => {
+  function makeRelevance(is_relevant: boolean | null): RelevanceResult {
+    return { question_id: 'q-001', is_relevant, explanation: 'because', attempts_remaining: 2 };
+  }
+
+  it('Given is_relevant is false, then it passes variant="irrelevant" to RelevanceWarning', () => {
+    const json = render(makeProps({ relevanceResult: makeRelevance(false) }));
+    expect(json).toContain('"variant":"irrelevant"');
+  });
+
+  it('Given is_relevant is null (LLM failed), then it passes variant="evaluation_failed", not "irrelevant"', () => {
+    const json = render(makeProps({ relevanceResult: makeRelevance(null) }));
+    expect(json).toContain('"variant":"evaluation_failed"');
+    expect(json).not.toContain('"variant":"irrelevant"');
+  });
+
+  it('Given is_relevant is true, then no RelevanceWarning is rendered', () => {
+    const json = render(makeProps({ relevanceResult: makeRelevance(true) }));
+    expect(json).not.toContain('"variant":');
+  });
+
+  it('Given relevanceResult is undefined, then no RelevanceWarning is rendered', () => {
+    const json = render(makeProps({ relevanceResult: undefined }));
+    expect(json).not.toContain('"variant":');
   });
 });
