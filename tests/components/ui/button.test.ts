@@ -60,6 +60,29 @@ describe('Button', () => {
     });
   });
 
+  describe('Given keyboard focus styling (issue #348)', () => {
+    it('then the base classes include focus-visible:ring-2 with the accent colour', () => {
+      const el = Button({ children: 'Focus' });
+
+      expect(el.props.className).toContain('focus-visible:ring-2');
+      expect(el.props.className).toContain('focus-visible:ring-accent');
+    });
+
+    it('then the default browser outline is suppressed via focus-visible:outline-none', () => {
+      const el = Button({ children: 'Focus' });
+
+      expect(el.props.className).toContain('focus-visible:outline-none');
+    });
+
+    it('then plain :focus (mouse click) is not styled — only :focus-visible', () => {
+      const el = Button({ children: 'Focus' });
+      const cls: string = el.props.className;
+
+      expect(cls).not.toMatch(/(?<!-)focus:ring/);
+      expect(cls).not.toMatch(/(?<!-)focus:outline/);
+    });
+  });
+
   describe('Given extra HTML attributes', () => {
     it('then passes them through to the button element', () => {
       const el = Button({ type: 'submit', disabled: true, children: 'Go' });

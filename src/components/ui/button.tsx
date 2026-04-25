@@ -33,6 +33,7 @@ export function Button({
     'inline-flex items-center justify-center',
     'rounded-sm text-label font-medium',
     'transition-colors cursor-pointer',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
     'disabled:opacity-50 disabled:pointer-events-none',
     variantClasses[variant],
     sizeClasses[size],

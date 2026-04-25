@@ -8,13 +8,21 @@
   --color-surface-raised: #1d2232;
   --color-border: #252b3b;
   --color-text-primary: #e8eaf0;
-  --color-text-secondary: #7a8499;
+  --color-text-secondary: #8f96a8;
   --color-accent: #f59e0b;
   --color-accent-hover: #d97706;
   --color-accent-muted: #92400e;
   --color-destructive: #ef4444;
   --color-destructive-muted: #450a0a;
   --color-success: #22c55e;
+}
+
+@layer base {
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-accent);
+    border-radius: inherit;
+  }
 }
 
 [data-theme="light"] {
