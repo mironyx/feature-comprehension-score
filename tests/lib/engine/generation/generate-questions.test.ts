@@ -142,44 +142,32 @@ describe('generateQuestions', () => {
     });
   });
 
-  describe('Given the LLM returns fewer questions than requested', () => {
-    it('then it returns a validation_failed error', async () => {
-      const twoQuestions: QuestionGenerationResponse = {
-        questions: [
-          {
-            question_number: 1,
-            question_text: 'Why was this change introduced?',
-            weight: 3,
-            naur_layer: 'world_to_program',
-            reference_answer: 'To fix a race condition.',
-          },
-          {
-            question_number: 2,
-            question_text: 'What does this change do?',
-            weight: 2,
-            naur_layer: 'design_justification',
-            reference_answer: 'Adds a distributed lock.',
-          },
-        ],
+  // #336 — LLM output tolerance: overshoot is now accepted.
+  describe('Given the LLM returns more questions than requested', () => {
+    it('then it accepts all questions without error', async () => {
+      const sevenQuestions: QuestionGenerationResponse = {
+        questions: Array.from({ length: 7 }, (_, i) => ({
+          question_number: i + 1,
+          question_text: `Question ${i + 1}?`,
+          weight: 2,
+          naur_layer: 'design_justification',
+          reference_answer: `Answer ${i + 1}.`,
+        })),
         artefact_quality: 'code_only',
         artefact_quality_note: 'Only source code.',
       };
       const responses = new Map([
-        [QuestionGenerationResponseSchema, twoQuestions],
+        [QuestionGenerationResponseSchema, sevenQuestions],
       ]);
       const llmClient = createMockLLMClient({ responses });
       const result = await generateQuestions({
-        artefacts: codeOnlyArtefacts,
+        artefacts: codeOnlyArtefacts, // requests 3 questions
         llmClient,
       });
 
-      expect(result.success).toBe(false);
-      if (result.success) return;
-
-      expect(result.error.code).toBe('validation_failed');
-      expect(result.error.message).toContain('3');
-      expect(result.error.message).toContain('2');
-      expect(result.error.retryable).toBe(true);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+      expect(result.data.questions).toHaveLength(7);
     });
   });
 

@@ -22,7 +22,7 @@ export const QuestionSchema = z.object({
   weight: z.number().int().min(1).max(3),
   naur_layer: NaurLayerSchema,
   reference_answer: z.string(),
-  hint: z.string().max(200).nullable().optional(),
+  hint: z.string().nullable().optional(),
 });
 export type Question = z.infer<typeof QuestionSchema>;
 
@@ -34,7 +34,7 @@ export const AdditionalContextSuggestionSchema = z.object({
 export type AdditionalContextSuggestion = z.infer<typeof AdditionalContextSuggestionSchema>;
 
 export const QuestionGenerationResponseSchema = z.object({
-  questions: z.array(QuestionSchema).min(3).max(5),
+  questions: z.array(QuestionSchema).min(3),
   artefact_quality: ArtefactQualitySchema,
   artefact_quality_note: z.string(),
   additional_context_suggestions: z.array(AdditionalContextSuggestionSchema).optional(),

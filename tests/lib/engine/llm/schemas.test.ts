@@ -169,12 +169,58 @@ describe('QuestionSchema', () => {
     });
   });
 
+  // #336 — LLM output tolerance: hint length is no longer capped at 200 chars.
   describe('Given a question with a hint longer than 200 characters', () => {
-    it('then it rejects the question (max 200 characters enforced)', () => {
-      const hint201 = 'a'.repeat(201);
+    it('then it accepts the question (no character limit enforced)', () => {
+      const hint300 = 'a'.repeat(300);
       const result = QuestionSchema.safeParse({
         ...validQuestion,
-        hint: hint201,
+        hint: hint300,
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hint).toBe(hint300);
+      }
+    });
+  });
+});
+
+// #336 — LLM output tolerance: question count overshoot is now accepted.
+describe('QuestionGenerationResponseSchema question count bounds', () => {
+  const baseQuestion = {
+    question_text: 'Why was this change introduced?',
+    weight: 2 as const,
+    naur_layer: 'design_justification' as const,
+    reference_answer: 'To fix a race condition.',
+  };
+  const buildQuestions = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      ...baseQuestion,
+      question_number: i + 1,
+    }));
+
+  describe('Given a response with more than 5 questions', () => {
+    it('then it accepts the response (no upper bound on question count)', () => {
+      const result = QuestionGenerationResponseSchema.safeParse({
+        questions: buildQuestions(7),
+        artefact_quality: 'code_only',
+        artefact_quality_note: 'Only source code.',
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.questions).toHaveLength(7);
+      }
+    });
+  });
+
+  describe('Given a response with fewer than 3 questions', () => {
+    it('then it rejects the response (min 3 enforced)', () => {
+      const result = QuestionGenerationResponseSchema.safeParse({
+        questions: buildQuestions(2),
+        artefact_quality: 'code_only',
+        artefact_quality_note: 'Only source code.',
       });
 
       expect(result.success).toBe(false);

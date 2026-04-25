@@ -53,16 +53,6 @@ export async function generateQuestions(
   }
 
   const response = result.data.data;
-  if (response.questions.length !== artefacts.question_count) {
-    return {
-      success: false,
-      error: {
-        code: 'validation_failed',
-        message: `Expected ${artefacts.question_count} questions but received ${response.questions.length}`,
-        retryable: true,
-      },
-    };
-  }
 
   return {
     success: true,

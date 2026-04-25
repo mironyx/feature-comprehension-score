@@ -51,7 +51,7 @@ Respond with a JSON object matching this exact schema:
 - weight: Integer 1-3 reflecting importance (3 = critical to understanding)
 - naur_layer: One of "world_to_program", "design_justification", "modification_capacity"
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts. Define 2–3 essential points that demonstrate system-specific understanding — not an exhaustive checklist. A participant who demonstrates genuine comprehension of the key points should score highly even if they do not enumerate every detail.
-- hint: A short guidance hint (max 200 characters) shown to participants alongside the question. The hint names a recognisable code landmark — a function, type, file, or observable behaviour — that the participant can reason from, WITHOUT revealing any reasoning, rationale, or trade-offs from the reference answer.
+- hint: A brief guidance hint shown to participants alongside the question. Keep it concise — one or two sentences. The hint names a recognisable code landmark — a function, type, file, or observable behaviour — that the participant can reason from, WITHOUT revealing any reasoning, rationale, or trade-offs from the reference answer.
   - GOOD: "Look at what \`validatePath\` rejects vs. what it passes through unchanged."
   - BAD: "Explain which real-world constraints are captured in the validation rules." (restates the question)
   - BAD: "The validation rejects paths that cross trust boundaries because of the security model." (reveals reference answer reasoning)
