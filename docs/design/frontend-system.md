@@ -86,7 +86,7 @@ All foreground tokens pass WCAG AA (≥ 4.5:1) on light backgrounds:
 | `#b91c1c` (destructive) | `#f5f4f0` (background) | 6.0:1 |
 | `#15803d` (success) | `#f5f4f0` (background) | 4.6:1 |
 
-The accent darker than the dark-mode value (`#f59e0b`) because amber-500 fails AA on a light background. The hover (`#78350f`) follows the convention of darkening on hover.
+The accent is darker than the dark-mode value (`#f59e0b`) because amber-500 fails AA on a light background. The hover (`#78350f`) follows the convention of darkening on hover. Success (`#15803d` → 4.56:1) sits close to the 4.5:1 AA threshold — any future change to `--color-background` should re-verify this combination.
 
 ### Status colours (for assessment `StatusBadge`)
 
