@@ -8,7 +8,7 @@
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
-| Revised | 2026-04-26 — issue #342 |
+| Revised | 2026-04-26 — Issue #340, #342 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -78,16 +78,19 @@ graph TD
 **Layer:** FE
 
 **Files:**
-- New: `src/components/ui/breadcrumbs.tsx`
+- New: `src/components/ui/breadcrumbs.tsx` — presentational component (no `'use client'`)
+- New: `src/components/breadcrumbs-bar.tsx` — client wrapper with `usePathname` and route map
+- Edit: `src/components/ui/index.ts` — barrel export for `Breadcrumbs`
 - Edit: `src/app/(authenticated)/layout.tsx`
+
+> **Implementation note (issue #340):** The LLD specified a single `breadcrumbs.tsx` with `'use client'` at the top. In practice, `Breadcrumbs` has no hooks or state and is purely presentational — it does not need the client directive. The `'use client'` boundary was moved to a separate `BreadcrumbsBar` wrapper (`src/components/breadcrumbs-bar.tsx`) which owns the `usePathname()` call and the route map. This matches the codebase pattern used by `Button` and `PageHeader`.
 
 **Component spec:**
 
 ```tsx
-// src/components/ui/breadcrumbs.tsx
-'use client';
+// src/components/ui/breadcrumbs.tsx — server-compatible, no 'use client'
 
-interface BreadcrumbSegment {
+export interface BreadcrumbSegment {
   label: string;
   href?: string; // undefined = current page (no link)
 }
@@ -96,21 +99,30 @@ interface BreadcrumbsProps {
   segments: BreadcrumbSegment[];
 }
 
-export function Breadcrumbs({ segments }: BreadcrumbsProps) { ... }
+export function Breadcrumbs({ segments }: BreadcrumbsProps): React.ReactElement { ... }
 ```
+
+```tsx
+// src/components/breadcrumbs-bar.tsx — client wrapper
+'use client';
+
+export function BreadcrumbsBar() { ... } // uses usePathname(); returns null for unknown routes
+```
+
+> **Implementation note (issue #340):** Links use native `<a>` elements rather than `next/link`. This matches the precedent in `org-switcher.tsx` and keeps `Breadcrumbs` free of framework-specific imports. Trade-off: full page reload on breadcrumb click. Can be revisited when the codebase adopts richer test infrastructure for `next/link`.
 
 **Route-to-breadcrumb mapping:**
 
-| Route | Segments |
-|-------|----------|
-| `/assessments` | `[{ label: "My Assessments" }]` |
-| `/assessments/new` | `[{ label: "My Assessments", href: "/assessments" }, { label: "New Assessment" }]` |
-| `/assessments/[id]` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }]` |
-| `/assessments/[id]/results` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name>, href: "/assessments/[id]" }, { label: "Results" }]` |
-| `/assessments/[id]/submitted` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }, { label: "Submitted" }]` |
-| `/organisation` | `[{ label: "Organisation" }]` |
+| Route | Segments | Status |
+|-------|----------|--------|
+| `/assessments` | `[{ label: "My Assessments" }]` | Implemented (#340) |
+| `/assessments/new` | `[{ label: "My Assessments", href: "/assessments" }, { label: "New Assessment" }]` | Implemented (#340) |
+| `/organisation` | `[{ label: "Organisation" }]` | Implemented (#340) |
+| `/assessments/[id]` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }]` | _(deferred → issue #341)_ |
+| `/assessments/[id]/results` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name>, href: "/assessments/[id]" }, { label: "Results" }]` | _(deferred → issue #341)_ |
+| `/assessments/[id]/submitted` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }, { label: "Submitted" }]` | _(deferred → issue #341)_ |
 
-**Integration:** Add breadcrumbs below the NavBar in the authenticated layout. Each page provides breadcrumb data via a wrapper or computed from pathname + page data.
+**Integration:** `BreadcrumbsBar` renders below the NavBar in the authenticated layout. It derives segments from `usePathname()` via the static route map; returns `null` for unrecognised routes.
 
 **Styling:** `text-caption text-text-secondary`. Separator: `>` or `/` in `text-text-secondary`. Current segment: `text-text-primary`, not linked. Links: `hover:text-accent`.
 

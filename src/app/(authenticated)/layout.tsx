@@ -8,6 +8,7 @@ import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { NavBar } from '@/components/nav-bar';
+import { BreadcrumbsBar } from '@/components/breadcrumbs-bar';
 import type { Database } from '@/lib/supabase/types';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
@@ -88,6 +89,7 @@ export default async function AuthenticatedLayout({ children }: AuthenticatedLay
         currentOrg={currentOrg}
         allOrgs={allOrgs}
       />
+      <BreadcrumbsBar />
       <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap">{children}</main>
     </div>
   );
