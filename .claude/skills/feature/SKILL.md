@@ -20,6 +20,14 @@ Implements a single feature end-to-end without user intervention unless blocked.
 
 Execute these steps sequentially. Do not skip steps. Do not ask for confirmation between steps — only pause if a step fails after remediation attempts.
 
+### Step 0: Pre-flight — ensure clean, up-to-date main
+
+```bash
+git checkout main && git pull origin main
+```
+
+If checkout fails due to uncommitted changes, stop and tell the user.
+
 ### Step 1: Pick the work item and tag the session
 
 **Determine the target issue:**

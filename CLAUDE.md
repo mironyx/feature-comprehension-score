@@ -12,11 +12,6 @@ Measures whether engineering teams understand what they built, using Peter Naur'
 
 **Goal-driven execution.** Transform tasks into verifiable goals. For multi-step tasks, state a brief plan with verification checks.
 
-## Current Phase
-
-**Phase 1: Core Feature Implementation** — Assessment engine, GitHub integration, Supabase storage, API routes.
-Tech stack: Next.js (App Router), TypeScript, Supabase (PostgreSQL + Auth + RLS), OpenRouter (LLM gateway — see ADR-0015), GCP Cloud Run.
-
 ## Engineering Process
 
 Pipeline: `idea → /discovery → /requirements → /kickoff → /architect → /feature → /feature-end → /retro`.
@@ -34,6 +29,13 @@ Full lifecycle: [docs/process/engineering-process.md](docs/process/engineering-p
 - **LLD naming:** `docs/design/lld-<epic-slug>-<task-slug>.md`
 - Every task issue must reference its parent epic. L1–L5 labels describe design level, not hierarchy.
 - Main HLD: `docs/design/v1-design.md`. Epics reference sections of it.
+
+## Compact Instructions
+Always preserve:
+- Current architectural decisions and their rationale
+- Open bugs and what has already been tried
+- The list of pending tasks / next steps
+- File paths of files currently being modified
 
 ### Board Scripts
 

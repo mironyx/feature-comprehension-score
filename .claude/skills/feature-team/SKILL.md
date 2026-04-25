@@ -26,6 +26,14 @@ For a single issue, use `/feature` instead. Epic issues (label `epic`) cannot be
 
 Execute these steps sequentially without pausing for confirmation.
 
+### Step 0: Pre-flight — ensure clean, up-to-date main
+
+```bash
+git checkout main && git pull origin main
+```
+
+If checkout fails due to uncommitted changes, stop and tell the user.
+
 ### Step 1: Parse arguments and collect issues
 
 If `epic <N>` is given:
