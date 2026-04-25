@@ -8,7 +8,7 @@
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
-| Revised | 2026-04-26 — Issue #340, #342 |
+| Revised | 2026-04-26 — Issues #340, #342, #347 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -431,6 +431,18 @@ interface TabsProps {
 export function Tabs({ tabs, defaultTab, queryParam }: TabsProps) { ... }
 ```
 
+**Internal decomposition (added in #347):**
+
+- `resolveInitialTab(tabs, defaultTab, urlTab)` — private helper. Precedence: URL value (when valid) > `defaultTab` (when matches a tab) > `tabs[0].id`. Unrecognised URL values fall back to `defaultTab`.
+- `TabButton({ tab, isActive, onSelect })` — private subcomponent rendering one tab trigger. Extracted from the `Tabs` body to keep the parent function within the 20-line budget (CLAUDE.md complexity).
+- `handleSelect(id)` — inline closure inside `Tabs`. Calls `setActiveId(id)` then, when `queryParam` is set, `router.replace('?<params>', { scroll: false })` — `replace` (not `push`) avoids polluting history; `{ scroll: false }` keeps tab switching scroll-stable.
+
+**Accessibility (added in #347 per issue acceptance criteria):**
+
+- Tab bar carries `role="tablist"`.
+- Each tab trigger is a `<button type="button">` (not an anchor) with `role="tab"` and `aria-selected={isActive}`.
+- Active panel carries `role="tabpanel"`.
+
 **Styling:** Tab bar: `flex border-b border-border`. Active tab: `text-accent border-b-2 border-accent`. Inactive: `text-text-secondary hover:text-text-primary`. Tab panels: `py-section-gap`.
 
 **Organisation page tabs:**
@@ -442,6 +454,8 @@ export function Tabs({ tabs, defaultTab, queryParam }: TabsProps) { ... }
 | `retrieval` | Retrieval | `<RetrievalSettingsForm>` |
 
 Default tab: `assessments`. URL sync: `?tab=context` allows deep linking.
+
+> **Implementation note (issue #347):** Initial active tab is read from the URL once on mount via `useState`'s initialiser. External URL changes (browser back/forward, programmatic `router.push`) do not currently re-sync — out of scope for this issue's acceptance criteria; flagged as a candidate follow-up. Inactive tab subtrees are unmounted (matches "only the active tab's content is visible"), so any local form state in the wrapped components resets on tab switch.
 
 **BDD specs:**
 
