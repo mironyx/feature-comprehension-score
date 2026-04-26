@@ -19,7 +19,7 @@ Executes the implementation cycle from design reading through PR review. Called 
 These override any conflicting instinct. Violations are the top cost drivers.
 
 1. **Never run `npx vitest run` without a file filter in Step 4.** Use `npx vitest run <test-file>`. The full suite runs once in Step 5 — nowhere else.
-2. **One Bash call for Step 5.** Chain all checks with `&&`. Each separate Bash call costs a full context round-trip.
+2. **Step 5 uses `test-runner` agent, not Bash.** All verification commands run inside the agent — zero test output reaches the main context. This applies to single-file runs during the fix loop too.
 3. **Pass pointers to sub-agents, not content.** File paths, issue numbers, LLD paths. Never paste diffs or file contents into agent prompts.
 4. **Never invoke `/simplify`.** Only if the user explicitly asks.
 5. **Do not move the board item to Done.** `/feature-end` handles that.
@@ -89,8 +89,9 @@ No sub-agents. Write the fix and regression tests in one pass.
    - Include at least one test that would fail on the pre-fix behaviour (for bug fixes)
    - Match the style of neighbouring test files (grep for sibling tests first)
 3. **Run the target test file** to confirm tests pass:
-   ```bash
-   npx vitest run <test-file>
+   ```
+   Launch Agent: test-runner
+   Input: command="npx vitest run <test-file>"
    ```
 4. Proceed directly to Step 5 (full verification).
 
@@ -153,8 +154,9 @@ to make the tests pass.
 
 Run only the target test file after each increment:
 
-```bash
-npx vitest run <test-file>
+```
+Launch Agent: test-runner
+Input: command="npx vitest run <test-file>"
 ```
 
 ##### Step 4d: Self-check coverage before Step 5
@@ -166,27 +168,23 @@ into the sub-agent's prompt).
 
 ### Step 5: Full verification
 
-Run all checks in a **single Bash call**. All must pass — zero failures, including
-integration tests — before proceeding.
+Delegate all checks to the `test-runner` agent — **do not run these as Bash directly**.
+This keeps verbose output out of the main context.
 
-```bash
-npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5
 ```
-
-**One command, one turn.** Do not split into separate Bash calls.
-
-Run the full suite — all tests including integration. Fix any failures, including pre-existing ones.
+Launch Agent: test-runner
+Input: command="npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 '**/*.md' 2>&1 | tail -5"
+```
 
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
 
-```bash
-NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key \
-  SUPABASE_SECRET_KEY=placeholder-secret-key \
-  npm run build && npx playwright test
+```
+Launch Agent: test-runner
+Input: command="NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key SUPABASE_SECRET_KEY=placeholder-secret-key npm run build && npx playwright test"
 ```
 
-If any fail, fix and re-run. If stuck after 3 attempts on the same failure, pause and report.
+All must pass — zero failures, including integration tests — before proceeding.
+If any fail, fix and re-run via `test-runner`. If stuck after 3 attempts on the same failure, pause and report.
 
 ### Step 6: Diagnostics (blocking gate)
 
