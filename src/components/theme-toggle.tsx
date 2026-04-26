@@ -11,13 +11,23 @@ export type Theme = 'light' | 'dark';
 
 export const THEME_STORAGE_KEY = 'fcs-theme';
 
+// Restricted-storage browsers (private mode, third-party cookie blocks) can throw
+// SecurityError on localStorage access; mirror the inline init script's guard.
 function readSavedTheme(): Theme | null {
-  const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' ? saved : null;
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return saved === 'light' || saved === 'dark' ? saved : null;
+  } catch {
+    return null;
+  }
 }
 
 function readPreferredTheme(): Theme {
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  try {
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'dark';
+  }
 }
 
 function applyTheme(theme: Theme): void {
@@ -36,7 +46,11 @@ export function ThemeToggle() {
   const handleClick = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);
-    localStorage.setItem(THEME_STORAGE_KEY, next);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // Storage unavailable — toggle still works for the session.
+    }
     setTheme(next);
   };
 
