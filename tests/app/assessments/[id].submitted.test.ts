@@ -118,7 +118,7 @@ const AUTHED_USER = { id: USER_ID };
 async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
   mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: SubmittedPage } = await import('@/app/assessments/[id]/submitted/page');
+  const { default: SubmittedPage } = await import('@/app/(authenticated)/assessments/[id]/submitted/page');
   return SubmittedPage;
 }
 

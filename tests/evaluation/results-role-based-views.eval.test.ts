@@ -211,7 +211,7 @@ async function renderPage(
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(serverOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(secretOpts) as never);
-  const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
   const element = await ResultsPage({ params: makeParams() });
   return renderToStaticMarkup(element);
 }

@@ -23,8 +23,11 @@ const createForm     = src('app/(authenticated)/assessments/new/create-assessmen
 const _newPage       = src('app/(authenticated)/assessments/new/page.tsx');
 const assessments    = src('app/(authenticated)/assessments/page.tsx');
 const retryButton    = src('app/(authenticated)/assessments/retry-button.tsx');
-const answeringForm  = src('app/assessments/[id]/answering-form.tsx');
-const submittedPage  = src('app/assessments/[id]/submitted/page.tsx');
+const answeringForm  = src('app/(authenticated)/assessments/[id]/answering-form.tsx');
+const submittedPage  = src('app/(authenticated)/assessments/[id]/submitted/page.tsx');
+// After #341, the (authenticated) layout owns the responsive <main> wrapper
+// (max-w-page + px-content-pad-sm + md:px-content-pad) for assessment pages.
+const authedLayout   = src('app/(authenticated)/layout.tsx');
 const orgSelect      = src('app/org-select/page.tsx');
 const questionCard   = src('components/question-card.tsx');
 const relevanceWarn  = src('components/relevance-warning.tsx');
@@ -117,15 +120,13 @@ describe('AC-1c — spacing tokens used, not arbitrary pixel values', () => {
 // AC-2: Responsive classes on pages that own their own <main> wrapper
 // ---------------------------------------------------------------------------
 
-describe('AC-2 — responsive padding on pages that own their own <main>', () => {
-  it('answering-form uses responsive padding (content-pad-sm + md:content-pad)', () => {
-    expect(answeringForm).toContain('px-content-pad-sm');
-    expect(answeringForm).toMatch(/md:px-content-pad/);
-  });
-
-  it('submitted page uses responsive padding (content-pad-sm + md:content-pad)', () => {
-    expect(submittedPage).toContain('px-content-pad-sm');
-    expect(submittedPage).toMatch(/md:px-content-pad/);
+describe('AC-2 — responsive padding on the layout shell', () => {
+  // For assessment pages, the (authenticated) layout owns the responsive <main>
+  // wrapper (#341 layout restructure). Standalone pages (sign-in, org-select)
+  // still own their own padding directly.
+  it('the (authenticated) layout uses responsive padding (content-pad-sm + md:content-pad)', () => {
+    expect(authedLayout).toContain('px-content-pad-sm');
+    expect(authedLayout).toMatch(/md:px-content-pad/);
   });
 
   it('sign-in page uses horizontal padding for narrow viewports', () => {
@@ -136,12 +137,8 @@ describe('AC-2 — responsive padding on pages that own their own <main>', () =>
     expect(orgSelect).toContain('px-content-pad-sm');
   });
 
-  it('answering-form caps width with max-w-page token', () => {
-    expect(answeringForm).toContain('max-w-page');
-  });
-
-  it('submitted page caps width with max-w-page token', () => {
-    expect(submittedPage).toContain('max-w-page');
+  it('the (authenticated) layout caps width with max-w-page token', () => {
+    expect(authedLayout).toContain('max-w-page');
   });
 });
 

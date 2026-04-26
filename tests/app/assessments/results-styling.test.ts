@@ -5,6 +5,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const AUTH_LAYOUT_SRC = readFileSync(
+  resolve(__dirname, '../../../src/app/(authenticated)/layout.tsx'),
+  'utf8',
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks — same pattern as sibling results.test.ts
@@ -217,7 +224,7 @@ async function renderPage(
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(serverOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
   const element = await ResultsPage({ params: makeParams() });
   return renderToStaticMarkup(element);
 }
@@ -271,23 +278,20 @@ describe('Results page styling (issue #315)', () => {
 
   describe('Results page styling', () => {
     describe('Given an admin viewing the results page', () => {
-      it('renders the page container with the max-w-page layout token', async () => {
-        // AC1 [issue §AC1]: <main> must carry max-w-page so the page is constrained
-        // to the standard content width defined in the design system.
-        const html = await renderPage(ADMIN_ONLY_OPTS);
-        expect(html).toContain('max-w-page');
+      // AC1 layout-shell tokens (max-w-page, px-content-pad) moved from the page
+      // to the (authenticated) layout in #341. Assert against the layout file so the
+      // regression intent survives the restructure; the page itself only owns
+      // section-gap rhythm now.
+      it('the (authenticated) layout container carries the max-w-page layout token', () => {
+        expect(AUTH_LAYOUT_SRC).toContain('max-w-page');
       });
 
-      it('renders the page container with a content-pad horizontal padding token', async () => {
-        // AC1 [issue §AC1]: <main> must carry px-content-pad-sm or px-content-pad
-        // so horizontal gutters match the design system spec.
-        const html = await renderPage(ADMIN_ONLY_OPTS);
-        expect(html).toMatch(/px-content-pad/);
+      it('the (authenticated) layout container carries a content-pad horizontal padding token', () => {
+        expect(AUTH_LAYOUT_SRC).toMatch(/px-content-pad/);
       });
 
       it('renders the page container with a section-gap spacing token', async () => {
-        // AC1 [issue §AC1]: <main> must carry py-section-gap or space-y-section-gap
-        // so vertical rhythm between sections matches the design system spec.
+        // AC1 [issue §AC1]: page still owns vertical rhythm between sections.
         const html = await renderPage(ADMIN_ONLY_OPTS);
         expect(html).toMatch(/section-gap/);
       });
