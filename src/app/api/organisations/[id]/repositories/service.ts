@@ -14,7 +14,7 @@ export interface RegisteredRepo {
   id: string;
   github_repo_id: number;
   github_repo_name: string;
-  status: 'active';
+  status: 'active' | 'inactive';
   created_at: string;
 }
 
@@ -61,7 +61,7 @@ async function loadRegistered(admin: AdminClient, orgId: string): Promise<Regist
     .eq('org_id', orgId)
     .eq('status', 'active');
   if (error) throw new ApiError(500, `loadRegistered: ${error.message}`);
-  return (data ?? []) as unknown as RegisteredRepo[];
+  return data ?? [];
 }
 
 async function loadInstallationId(admin: AdminClient, orgId: string): Promise<number | null> {
