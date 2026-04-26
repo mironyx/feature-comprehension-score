@@ -157,14 +157,14 @@ async function fetchParallelData(ctx: FetchContext): Promise<ParallelData> {
     { data: fcsIssues, error: fcsIssuesError },
   ] = await Promise.all([
     supabase.from('user_organisations').select('github_role').eq('user_id', userId).eq('org_id', orgId).maybeSingle(),
-    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, hint, aggregate_score').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
-    adminSupabase.from('assessment_participants').select('id, status, github_username').eq('assessment_id', assessmentId),
+    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, hint, aggregate_score').eq('assessment_id', assessmentId).eq('org_id', orgId).order('question_number', { ascending: true }),
+    adminSupabase.from('assessment_participants').select('id, status, github_username').eq('assessment_id', assessmentId).eq('org_id', orgId),
     supabase.from('assessment_participants').select('id, status, submitted_at').eq('assessment_id', assessmentId).eq('user_id', userId).maybeSingle(),
     assessmentType === 'fcs'
-      ? adminSupabase.from('fcs_merged_prs').select('pr_number, pr_title').eq('assessment_id', assessmentId)
+      ? adminSupabase.from('fcs_merged_prs').select('pr_number, pr_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
       : Promise.resolve(emptyTableResult),
     assessmentType === 'fcs'
-      ? adminSupabase.from('fcs_issue_sources').select('issue_number, issue_title').eq('assessment_id', assessmentId)
+      ? adminSupabase.from('fcs_issue_sources').select('issue_number, issue_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
       : Promise.resolve(emptyTableResult),
   ]);
 
