@@ -57,5 +57,6 @@
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true
-  }
+  },
+  "enableAllProjectMcpServers": true
 }
