@@ -11,6 +11,7 @@ type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 export interface AssessmentItem {
   id: string;
   feature_name: string | null;
+  feature_description: string | null;
   status: AssessmentRow['status'];
   aggregate_score: number | null;
   created_at: string;
