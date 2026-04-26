@@ -61,6 +61,8 @@ let orgMembershipResult: { data: unknown; error: unknown } = { data: null, error
 let myParticipationResult: { data: unknown; error: unknown } = { data: null, error: null };
 let questionsResult: { data: unknown; error: unknown } = { data: [], error: null };
 let participantCountsResult: { data: unknown; error: unknown } = { data: [], error: null };
+let fcsPrsResult: { data: unknown; error: unknown } = { data: [], error: null };
+let fcsIssuesResult: { data: unknown; error: unknown } = { data: [], error: null };
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
@@ -75,6 +77,8 @@ const mockServiceClient = {
   from: vi.fn((table: string) => {
     if (table === 'assessment_questions') return makeChain(() => questionsResult);
     if (table === 'assessment_participants') return makeChain(() => participantCountsResult);
+    if (table === 'fcs_merged_prs') return makeChain(() => fcsPrsResult);
+    if (table === 'fcs_issue_sources') return makeChain(() => fcsIssuesResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -266,6 +270,8 @@ beforeEach(() => {
   myParticipationResult = { data: null, error: null };
   questionsResult = { data: [], error: null };
   participantCountsResult = { data: [], error: null };
+  fcsPrsResult = { data: [], error: null };
+  fcsIssuesResult = { data: [], error: null };
 });
 
 describe('GET /api/assessments/[id]', () => {
@@ -319,7 +325,7 @@ describe('GET /api/assessments/[id]', () => {
       assessmentResult = { data: makeAssessmentRow({ type: 'fcs', status: 'completed', pr_number: null }), error: null };
       questionsResult = { data: [makeQuestion({ reference_answer: 'It does X.' })], error: null };
       participantCountsResult = {
-        data: [{ id: PARTICIPANT_ID, status: 'submitted' }],
+        data: [{ id: PARTICIPANT_ID, status: 'submitted', github_username: 'alice' }],
         error: null,
       };
       myParticipationResult = { data: null, error: null };
@@ -343,7 +349,7 @@ describe('GET /api/assessments/[id]', () => {
       };
       questionsResult = { data: [makeQuestion({ reference_answer: 'secret' })], error: null };
       participantCountsResult = {
-        data: [{ id: PARTICIPANT_ID, status: 'submitted' }],
+        data: [{ id: PARTICIPANT_ID, status: 'submitted', github_username: 'alice' }],
         error: null,
       };
       myParticipationResult = { data: makeParticipantRow(), error: null };
@@ -359,10 +365,10 @@ describe('GET /api/assessments/[id]', () => {
     });
   });
 
-  describe('Given a valid request', () => {
-    it('then it returns the full response shape', async () => {
+  describe('Given a valid request from a participant caller', () => {
+    it('then it returns the full response shape with participants summary', async () => {
       setupAuth();
-      setupAdminRole();
+      setupParticipantRole();
       assessmentResult = {
         data: makeAssessmentRow({
           type: 'fcs',
@@ -375,12 +381,12 @@ describe('GET /api/assessments/[id]', () => {
       questionsResult = { data: [makeQuestion()], error: null };
       participantCountsResult = {
         data: [
-          { id: 'p-001', status: 'submitted' },
-          { id: 'p-002', status: 'pending' },
+          { id: 'p-001', status: 'submitted', github_username: 'alice' },
+          { id: 'p-002', status: 'pending', github_username: 'bob' },
         ],
         error: null,
       };
-      myParticipationResult = { data: null, error: null };
+      myParticipationResult = { data: makeParticipantRow(), error: null };
 
       const { GET } = await import('@/app/api/assessments/[id]/route');
       const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
@@ -393,7 +399,6 @@ describe('GET /api/assessments/[id]', () => {
       expect(body.repository_full_name).toBe('my-org/my-repo');
       expect(body.feature_name).toBe('My Feature');
       expect(body.participants).toEqual({ total: 2, completed: 1 });
-      expect(body.my_participation).toBeNull();
       expect(body.skip_info).toBeNull();
     });
   });
@@ -506,6 +511,179 @@ describe('GET /api/assessments/[id]', () => {
       const body = await response.json() as Record<string, unknown>;
       expect(body['rubric_progress']).toBeNull();
       expect(body['rubric_progress_updated_at']).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // FCS enrichment + role-aware participants — V8 Epic 1, T1. Issue: #361
+  // The assessment detail endpoint must expose source PRs/issues for FCS
+  // assessments and a full participant list for admin callers.
+  // ---------------------------------------------------------------------------
+
+  describe('GET /api/assessments/[id] — FCS enrichment (T1)', () => {
+    function setupFcsAssessment(overrides: Record<string, unknown> = {}) {
+      assessmentResult = {
+        data: makeAssessmentRow({ type: 'fcs', status: 'completed', pr_number: null, ...overrides }),
+        error: null,
+      };
+    }
+
+    function setupPrccAssessment() {
+      assessmentResult = {
+        data: makeAssessmentRow({ type: 'prcc', status: 'completed' }),
+        error: null,
+      };
+    }
+
+    describe('Given an FCS assessment viewed by Org Admin', () => {
+      beforeEach(() => {
+        setupAuth();
+        setupAdminRole();
+        setupFcsAssessment();
+        questionsResult = { data: [], error: null };
+        participantCountsResult = {
+          data: [
+            { id: 'p-001', status: 'submitted', github_username: 'alice' },
+            { id: 'p-002', status: 'pending', github_username: 'bob' },
+          ],
+          error: null,
+        };
+        fcsPrsResult = {
+          data: [
+            { pr_number: 12, pr_title: 'Add billing service' },
+            { pr_number: 15, pr_title: 'Fix invoice rounding' },
+          ],
+          error: null,
+        };
+        fcsIssuesResult = {
+          data: [{ issue_number: 7, issue_title: 'Stripe webhook drops events' }],
+          error: null,
+        };
+        myParticipationResult = { data: null, error: null };
+      });
+
+      it('returns fcs_prs as array of { pr_number, pr_title }', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        expect(response.status).toBe(200);
+        const body = await response.json() as { fcs_prs: unknown };
+        expect(body.fcs_prs).toEqual([
+          { pr_number: 12, pr_title: 'Add billing service' },
+          { pr_number: 15, pr_title: 'Fix invoice rounding' },
+        ]);
+      });
+
+      it('returns fcs_issues as array of { issue_number, issue_title }', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { fcs_issues: unknown };
+        expect(body.fcs_issues).toEqual([
+          { issue_number: 7, issue_title: 'Stripe webhook drops events' },
+        ]);
+      });
+
+      it('returns participants as array of { github_login, status } objects', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { participants: unknown };
+        expect(body.participants).toEqual([
+          { github_login: 'alice', status: 'submitted' },
+          { github_login: 'bob', status: 'pending' },
+        ]);
+      });
+
+      it('includes caller_role: admin in the response', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { caller_role: unknown };
+        expect(body.caller_role).toBe('admin');
+      });
+    });
+
+    describe('Given an FCS assessment viewed by a participant', () => {
+      beforeEach(() => {
+        setupAuth();
+        setupParticipantRole();
+        setupFcsAssessment();
+        questionsResult = { data: [], error: null };
+        participantCountsResult = {
+          data: [
+            { id: 'p-001', status: 'submitted', github_username: 'alice' },
+            { id: 'p-002', status: 'pending', github_username: 'bob' },
+          ],
+          error: null,
+        };
+        fcsPrsResult = {
+          data: [{ pr_number: 12, pr_title: 'Add billing service' }],
+          error: null,
+        };
+        fcsIssuesResult = {
+          data: [{ issue_number: 7, issue_title: 'Stripe webhook drops events' }],
+          error: null,
+        };
+        myParticipationResult = { data: makeParticipantRow(), error: null };
+      });
+
+      it('also receives fcs_prs and fcs_issues populated', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { fcs_prs: unknown[]; fcs_issues: unknown[] };
+        expect(body.fcs_prs).toHaveLength(1);
+        expect(body.fcs_issues).toHaveLength(1);
+      });
+
+      it('returns participants as { total, completed } summary, not an array', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { participants: unknown };
+        expect(body.participants).toEqual({ total: 2, completed: 1 });
+      });
+
+      it('includes caller_role: participant in the response', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { caller_role: unknown };
+        expect(body.caller_role).toBe('participant');
+      });
+    });
+
+    describe('Given a PRCC assessment', () => {
+      beforeEach(() => {
+        setupAuth();
+        setupAdminRole();
+        setupPrccAssessment();
+        questionsResult = { data: [], error: null };
+        participantCountsResult = { data: [], error: null };
+        // Even if FCS tables had rows, they must not appear for prcc — ensure empty result
+        fcsPrsResult = { data: [], error: null };
+        fcsIssuesResult = { data: [], error: null };
+        myParticipationResult = { data: null, error: null };
+      });
+
+      it('returns empty fcs_prs and fcs_issues arrays', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        const response = await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const body = await response.json() as { fcs_prs: unknown[]; fcs_issues: unknown[] };
+        expect(body.fcs_prs).toEqual([]);
+        expect(body.fcs_issues).toEqual([]);
+      });
+
+      it('does not query fcs_merged_prs or fcs_issue_sources for prcc type', async () => {
+        const { GET } = await import('@/app/api/assessments/[id]/route');
+        await GET(makeRequest(), { params: Promise.resolve({ id: ASSESSMENT_ID }) });
+
+        const tablesQueried = mockServiceClient.from.mock.calls.map(c => c[0]);
+        expect(tablesQueried).not.toContain('fcs_merged_prs');
+        expect(tablesQueried).not.toContain('fcs_issue_sources');
+      });
     });
   });
 });

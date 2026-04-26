@@ -42,6 +42,28 @@ interface MyParticipation {
   submitted_at: string | null;
 }
 
+interface FcsPr {
+  pr_number: number;
+  pr_title: string;
+}
+
+interface FcsIssue {
+  issue_number: number;
+  issue_title: string;
+}
+
+interface ParticipantSummary {
+  total: number;
+  completed: number;
+}
+
+type ParticipantStatus = 'pending' | 'submitted' | 'removed' | 'did_not_participate';
+
+interface ParticipantDetail {
+  github_login: string;
+  status: ParticipantStatus;
+}
+
 interface AssessmentDetailResponse {
   id: string;
   type: 'prcc' | 'fcs';
@@ -58,8 +80,11 @@ interface AssessmentDetailResponse {
   conclusion: AssessmentRow['conclusion'];
   config: { enforcement_mode: string; score_threshold: number; question_count: number };
   questions: FilteredQuestion[];
-  participants: { total: number; completed: number };
+  participants: ParticipantSummary | ParticipantDetail[];
   my_participation: MyParticipation | null;
+  fcs_prs: FcsPr[];
+  fcs_issues: FcsIssue[];
+  caller_role: 'admin' | 'participant';
   skip_info: { reason: string; skipped_at: string } | null;
   rubric_progress: string | null;
   rubric_progress_updated_at: string | null;
@@ -87,8 +112,10 @@ type ServiceClient = ApiContext['adminSupabase'];
 type ParallelData = {
   callerRole: 'admin' | 'participant';
   questions: QuestionRow[];
-  allParticipants: { id: string; status: string }[];
+  allParticipants: { id: string; status: string; github_username: string }[];
   myParticipation: MyParticipation | null;
+  fcsPrs: FcsPr[];
+  fcsIssues: FcsIssue[];
 };
 
 interface FetchContext {
@@ -97,6 +124,7 @@ interface FetchContext {
   assessmentId: string;
   userId: string;
   orgId: string;
+  assessmentType: 'prcc' | 'fcs';
 }
 
 function assertNoDbError(error: unknown, label: string): void {
@@ -118,23 +146,34 @@ function resolveAssessment(data: unknown, error: unknown): AssessmentWithRelatio
 }
 
 async function fetchParallelData(ctx: FetchContext): Promise<ParallelData> {
-  const { supabase, adminSupabase, assessmentId, userId, orgId } = ctx;
+  const { supabase, adminSupabase, assessmentId, userId, orgId, assessmentType } = ctx;
+  const emptyTableResult = { data: [], error: null };
   const [
     { data: orgMembership, error: membershipError },
     { data: questions, error: questionsError },
     { data: allParticipants, error: participantsError },
     { data: myParticipantRow, error: myParticipationError },
+    { data: fcsPrs, error: fcsPrsError },
+    { data: fcsIssues, error: fcsIssuesError },
   ] = await Promise.all([
     supabase.from('user_organisations').select('github_role').eq('user_id', userId).eq('org_id', orgId).maybeSingle(),
-    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, hint, aggregate_score').eq('assessment_id', assessmentId).order('question_number', { ascending: true }),
-    adminSupabase.from('assessment_participants').select('id, status').eq('assessment_id', assessmentId),
+    adminSupabase.from('assessment_questions').select('id, question_number, naur_layer, question_text, weight, reference_answer, hint, aggregate_score').eq('assessment_id', assessmentId).eq('org_id', orgId).order('question_number', { ascending: true }),
+    adminSupabase.from('assessment_participants').select('id, status, github_username').eq('assessment_id', assessmentId).eq('org_id', orgId),
     supabase.from('assessment_participants').select('id, status, submitted_at').eq('assessment_id', assessmentId).eq('user_id', userId).maybeSingle(),
+    assessmentType === 'fcs'
+      ? adminSupabase.from('fcs_merged_prs').select('pr_number, pr_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
+      : Promise.resolve(emptyTableResult),
+    assessmentType === 'fcs'
+      ? adminSupabase.from('fcs_issue_sources').select('issue_number, issue_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
+      : Promise.resolve(emptyTableResult),
   ]);
 
   assertNoDbError(membershipError, 'org membership');
   assertNoDbError(questionsError, 'questions');
   assertNoDbError(participantsError, 'participants');
   assertNoDbError(myParticipationError, 'my participation');
+  assertNoDbError(fcsPrsError, 'fcs prs');
+  assertNoDbError(fcsIssuesError, 'fcs issues');
 
   const callerRole: 'admin' | 'participant' =
     (orgMembership as { github_role: string } | null)?.github_role === 'admin' ? 'admin' : 'participant';
@@ -147,14 +186,32 @@ async function fetchParallelData(ctx: FetchContext): Promise<ParallelData> {
   return {
     callerRole,
     questions: (questions ?? []) as QuestionRow[],
-    allParticipants: (allParticipants ?? []) as { id: string; status: string }[],
+    allParticipants: (allParticipants ?? []) as { id: string; status: string; github_username: string }[],
     myParticipation,
+    fcsPrs: (fcsPrs ?? []) as FcsPr[],
+    fcsIssues: (fcsIssues ?? []) as FcsIssue[],
+  };
+}
+
+function buildParticipantsField(
+  callerRole: 'admin' | 'participant',
+  allParticipants: ParallelData['allParticipants'],
+): ParticipantSummary | ParticipantDetail[] {
+  if (callerRole === 'admin') {
+    return allParticipants.map(p => ({
+      github_login: p.github_username,
+      status: p.status as ParticipantStatus,
+    }));
+  }
+  return {
+    total: allParticipants.length,
+    completed: allParticipants.filter(p => p.status === 'submitted').length,
   };
 }
 
 function buildResponse(
   assessment: AssessmentWithRelations,
-  { callerRole, questions, allParticipants, myParticipation }: ParallelData,
+  { callerRole, questions, allParticipants, myParticipation, fcsPrs, fcsIssues }: ParallelData,
 ): AssessmentDetailResponse {
   return {
     id: assessment.id,
@@ -176,11 +233,11 @@ function buildResponse(
       question_count: assessment.config_question_count,
     },
     questions: filterQuestionFields(questions, assessment.type, callerRole, assessment.status),
-    participants: {
-      total: allParticipants.length,
-      completed: allParticipants.filter(p => p.status === 'submitted').length,
-    },
+    participants: buildParticipantsField(callerRole, allParticipants),
     my_participation: myParticipation,
+    fcs_prs: fcsPrs,
+    fcs_issues: fcsIssues,
+    caller_role: callerRole,
     skip_info: assessment.skip_reason && assessment.skipped_at
       ? { reason: assessment.skip_reason, skipped_at: assessment.skipped_at }
       : null,
@@ -209,7 +266,14 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       .single();
 
     const assessment = resolveAssessment(rawAssessment, assessmentError);
-    const parallelData = await fetchParallelData({ supabase, adminSupabase, assessmentId, userId: user.id, orgId: assessment.org_id });
+    const parallelData = await fetchParallelData({
+      supabase,
+      adminSupabase,
+      assessmentId,
+      userId: user.id,
+      orgId: assessment.org_id,
+      assessmentType: assessment.type,
+    });
 
     return json(buildResponse(assessment, parallelData));
   } catch (error) {
