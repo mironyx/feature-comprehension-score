@@ -232,6 +232,8 @@ caller_role: callerRole,
 | Response builder | `buildResponse` in `route.ts` | Maps raw data to `AssessmentDetailResponse`; branches on `callerRole` |
 | Field filter | `helpers.ts filterQuestionFields` | Unchanged |
 
+> **Future review — query consolidation:** The current design uses 6 parallel queries via `Promise.all`. The primary driver is that `assessment_participants` is queried twice with different filters (all participants for the admin view; only the caller's row for `my_participation`), which prevents a single join from serving both needs cleanly. A future refactor could consolidate into fewer queries — either by fetching all participant rows and filtering in application code, or by moving to a single SQL view/RPC that returns the full payload in one round trip. Flag for review when the endpoint becomes a measurable performance bottleneck.
+
 #### BDD specs
 
 ```
