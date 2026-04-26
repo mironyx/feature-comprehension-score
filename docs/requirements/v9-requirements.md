@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft — Structure |
+| Version | 0.2 |
+| Status | Draft — Complete |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
 | Last updated | 2026-04-26 |
@@ -15,6 +15,7 @@
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | 2026-04-26 | LS / Claude | Initial draft from freeform brief |
+| 0.2 | 2026-04-26 | LS / Claude | Resolve open questions; write acceptance criteria |
 
 ---
 
@@ -72,33 +73,48 @@ Replaces the current persistent org list in the nav bar with a clear, on-demand 
 **I want to** see my organisation name clearly in the nav bar,
 **so that** I know which org I am acting on behalf of without any distracting switcher controls.
 
-**Notes:** The current implementation already renders a `<span>` with the org name. This story formalises the requirement and may refine the visual treatment (e.g. label style, truncation for long names) without adding any interactive element.
+**Acceptance Criteria:**
 
-*(Acceptance criteria in next pass)*
+- Given an authenticated user who belongs to exactly one org, when any authenticated page loads, then the nav bar shows the org name as plain text with no interactive switcher controls.
+- Given a single-org user, when the page loads, then no trigger button, chevron, or dropdown is rendered.
+
+**Notes:** The current `<span>` rendering is correct. This story may adjust visual style (label weight, truncation for long names) without adding any interactive element. INVEST: Independent — no dependency on 1.2 or 1.3.
 
 ---
 
-### Story 1.2: Multi-org picker — passive state
+### Story 1.2: Multi-org passive state — current org with trigger
 
 **As a** multi-org user,
 **I want to** see my current organisation name and a visual cue that I can switch,
-**so that** I know which org is active and that switching is available.
+**so that** I know which org is active and that switching is available without cluttering the nav bar.
 
-**Notes:** In the passive (closed) state the nav bar shows the current org name alongside a small icon (e.g. chevron-down or a swap icon) that signals interactivity. No list is shown. Clicking the trigger opens the picker (Story 1.3).
+**Acceptance Criteria:**
 
-*(Acceptance criteria in next pass)*
+- Given an authenticated user who belongs to two or more orgs, when any authenticated page loads, then the nav bar shows the current org name and a trigger button (e.g. chevron-down icon) adjacent to it.
+- Given a multi-org user, when the page loads, then no org list is visible — only the current org name and trigger are shown.
+- Given a multi-org user, when the trigger button is focused via keyboard, then it receives the design system's focus ring class (i.e. the element is focusable and the browser's `:focus-visible` state is reachable via Tab).
+
+**Notes:** The trigger button must have `aria-label="Switch organisation"`. No list is rendered until the trigger is activated (Story 1.3). INVEST: Depends on 1.1 being in place; 1.3 depends on this story's trigger.
 
 ---
 
-### Story 1.3: Multi-org picker — open state and selection
+### Story 1.3: Multi-org picker — open, select, and dismiss
 
 **As a** multi-org user,
-**I want to** open an org picker, see all my organisations with the current one clearly marked, and either select a different org or cancel,
-**so that** I can switch context or change my mind without being forced to navigate.
+**I want to** open an org picker, see all my organisations with the current one clearly marked, and either select a different org or dismiss,
+**so that** I can switch context or change my mind without being forced to navigate away.
 
-**Notes:** Clicking the trigger from Story 1.2 opens a picker (inline dropdown or popover). The picker lists all orgs; the current org is marked (e.g. checkmark or highlighted). Selecting another org navigates to `/api/org-select?orgId=...`. An explicit close action (× button, pressing Escape, or clicking outside) dismisses the picker without switching.
+**Acceptance Criteria:**
 
-*(Acceptance criteria in next pass)*
+- Given a multi-org user in passive state, when the trigger button is clicked, then an inline dropdown opens listing all orgs the user belongs to.
+- Given the picker is open, when it is rendered, then the current org item has `aria-current="true"` set on its element and is visually differentiated from the other items.
+- Given the picker is open, when the user clicks a different org, then the browser navigates to `/api/org-select?orgId=<id>` (which sets the cookie and reloads).
+- Given the picker is open, when the user clicks outside the dropdown, then the picker closes and no org switch occurs.
+- Given the picker is open, when the user presses Escape, then the picker closes, no org switch occurs, and focus returns to the trigger button.
+- Given the picker is open, when the user clicks the current org, then the picker closes and no org switch occurs.
+- Given the picker is open, when the user tabs through the org list and presses Enter on an org, then the same action fires as a click on that org.
+
+**Notes:** Implemented as an inline dropdown (no modal, no new component dependencies). The dismiss-on-click-outside and Escape patterns already exist in `MobileNavMenu` (`useDismissEffect`) and can be reused. INVEST: Depends on Story 1.2 for the trigger; independently testable once 1.2 ships.
 
 ---
 
@@ -127,10 +143,12 @@ Replaces the current persistent org list in the nav bar with a clear, on-demand 
 
 ## Open Questions
 
-| # | Question | Context | Options | Impact |
-|---|----------|---------|---------|--------|
-| 1 | Dropdown vs modal for the picker? | Dropdown is lighter; modal is easier to dismiss on mobile. Current design system has no modal component. | A) Inline dropdown/popover B) Lightweight modal | Affects implementation complexity and Story 1.3 AC wording. |
-| 2 | Should the mobile nav menu receive the same treatment in this scope? | `MobileNavMenu` currently renders the same org list inline. Keeping it in sync avoids divergence but adds lines. | A) Include mobile in this scope B) Defer mobile to a follow-up | If deferred, Story 1.3 notes the gap explicitly. |
+No open questions — both resolved during Gate 1 review.
+
+| # | Question | Resolution |
+|---|----------|------------|
+| 1 | Dropdown vs modal? | **Inline dropdown.** No modal component in design system; dropdown is sufficient and simpler. |
+| 2 | Mobile nav menu in scope? | **Deferred.** On mobile, `OrgSwitcher` renders inside `MobilePanel`, which already provides a dismiss mechanism. The flat list inline is acceptable there. Mobile restyling is a follow-up. |
 
 ---
 
