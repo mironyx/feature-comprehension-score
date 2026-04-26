@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
+| Revised | 2026-04-26 — Issue #361 |
 | Epic | [#359](https://github.com/mironyx/feature-comprehension-score/issues/359) |
 | Requirements | [docs/requirements/v8-requirements.md](../requirements/v8-requirements.md) — Epic 1 |
 | Parent design | [docs/design/v1-design.md](v1-design.md) |
@@ -150,10 +151,15 @@ interface ParticipantSummary {
   completed: number;
 }
 
+type ParticipantStatus = 'pending' | 'submitted' | 'removed' | 'did_not_participate';
+
 interface ParticipantDetail {
   github_login: string;
-  status: 'pending' | 'submitted' | 'removed' | 'did_not_participate';
+  status: ParticipantStatus;
 }
+
+> **Implementation note (issue #361):** `ParticipantStatus` was extracted as a named type alias
+> (rather than an inline union literal) so it can be reused as a type assertion in `buildParticipantsField`.
 ```
 
 #### AssessmentDetailResponse additions
@@ -186,50 +192,65 @@ type ParallelData = {
 Pass `assessmentType` to `fetchParallelData` and add two conditional queries inside the existing `Promise.all`:
 
 ```typescript
-// fetchParallelData signature change:
-async function fetchParallelData(
-  ctx: FetchContext & { assessmentType: 'prcc' | 'fcs' }
-): Promise<ParallelData>
+// fetchParallelData signature change: assessmentType added directly to FetchContext
+interface FetchContext {
+  supabase: UserClient;
+  adminSupabase: ServiceClient;
+  assessmentId: string;
+  userId: string;
+  orgId: string;
+  assessmentType: 'prcc' | 'fcs';  // added
+}
+
+async function fetchParallelData(ctx: FetchContext): Promise<ParallelData>
 
 // Inside Promise.all — add after existing 4 queries:
-ctx.assessmentType === 'fcs'
-  ? ctx.adminSupabase.from('fcs_merged_prs')
-      .select('pr_number, pr_title').eq('assessment_id', ctx.assessmentId)
+assessmentType === 'fcs'
+  ? adminSupabase.from('fcs_merged_prs')
+      .select('pr_number, pr_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
   : Promise.resolve({ data: [], error: null }),
-ctx.assessmentType === 'fcs'
-  ? ctx.adminSupabase.from('fcs_issue_sources')
-      .select('issue_number, issue_title').eq('assessment_id', ctx.assessmentId)
+assessmentType === 'fcs'
+  ? adminSupabase.from('fcs_issue_sources')
+      .select('issue_number, issue_title').eq('assessment_id', assessmentId).eq('org_id', orgId)
   : Promise.resolve({ data: [], error: null }),
 
-// Also change allParticipants select to include github_username:
+// Also change allParticipants select to include github_username + org_id filter:
 adminSupabase.from('assessment_participants')
-  .select('id, status, github_username').eq('assessment_id', assessmentId)
+  .select('id, status, github_username').eq('assessment_id', assessmentId).eq('org_id', orgId)
 ```
+
+> **Implementation note (issue #361):** The LLD sketched `assessmentType` as an intersection on
+> `FetchContext` (`FetchContext & { assessmentType }`). In practice it was added directly to
+> `FetchContext` — cleaner and consistent with how `orgId` is already carried.
+> All `adminSupabase` queries also received `.eq('org_id', orgId)` as defence-in-depth: the
+> initial RLS-scoped assessment lookup is the primary auth gate, but constraining service-role
+> queries by the verified `orgId` removes blast radius if RLS on `assessments` is ever
+> misconfigured.
 
 #### buildResponse changes
 
 ```typescript
-// Replace existing participants field:
-participants: callerRole === 'admin'
-  ? allParticipants.map(p => ({
-      github_login: p.github_username,
-      status: p.status as ParticipantDetail['status'],
-    }))
-  : { total: allParticipants.length, completed: allParticipants.filter(p => p.status === 'submitted').length },
+// participants delegated to extracted helper (see below):
+participants: buildParticipantsField(callerRole, allParticipants),
 
 // Add new fields:
-fcs_prs: fcsPrs ?? [],
-fcs_issues: fcsIssues ?? [],
+fcs_prs: fcsPrs,
+fcs_issues: fcsIssues,
 caller_role: callerRole,
 ```
+
+> **Implementation note (issue #361):** The LLD showed the participants ternary inline in
+> `buildResponse`. It was extracted into `buildParticipantsField` to keep `buildResponse`
+> focused and to allow the named `ParticipantStatus` cast. No behaviour change.
 
 #### Internal decomposition
 
 | Piece | File | Responsibility |
 |-------|------|----------------|
 | Controller | `route.ts GET` | Calls `createApiContext`, fetches assessment row, delegates to `fetchParallelData` + `buildResponse` |
-| Data helper | `fetchParallelData` in `route.ts` | Parallel DB queries; receives `assessmentType` to gate FCS queries |
-| Response builder | `buildResponse` in `route.ts` | Maps raw data to `AssessmentDetailResponse`; branches on `callerRole` |
+| Data helper | `fetchParallelData` in `route.ts` | Parallel DB queries; receives `assessmentType` to gate FCS queries; all `adminSupabase` queries filtered by `org_id` |
+| Participants mapper | `buildParticipantsField` in `route.ts` | Branches on `callerRole`: admin → `ParticipantDetail[]`, participant → `ParticipantSummary` |
+| Response builder | `buildResponse` in `route.ts` | Maps raw data to `AssessmentDetailResponse`; delegates participant shape to `buildParticipantsField` |
 | Field filter | `helpers.ts filterQuestionFields` | Unchanged |
 
 > **Future review — query consolidation:** The current design uses 6 parallel queries via `Promise.all`. The primary driver is that `assessment_participants` is queried twice with different filters (all participants for the admin view; only the caller's row for `my_participation`), which prevents a single join from serving both needs cleanly. A future refactor could consolidate into fewer queries — either by fetching all participant rows and filtering in application code, or by moving to a single SQL view/RPC that returns the full payload in one round trip. Flag for review when the endpoint becomes a measurable performance bottleneck.
