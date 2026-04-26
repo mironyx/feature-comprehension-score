@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { OrgSwitcher } from './org-switcher';
 import { NavLinks, type NavLink } from './nav-links';
+import { ThemeToggle } from './theme-toggle';
 import type { Database } from '@/lib/supabase/types';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
@@ -39,6 +40,7 @@ export function NavBar({ username, isAdmin, currentOrg, allOrgs }: NavBarProps) 
       <NavLinks links={links} />
       <div className="ml-auto flex items-center gap-4">
         <OrgSwitcher currentOrg={currentOrg} allOrgs={allOrgs} />
+        <ThemeToggle />
         <span className="text-label text-text-secondary">{username}</span>
         <form method="POST" action="/auth/sign-out">
           <button type="submit" className="text-label text-text-secondary hover:text-accent">

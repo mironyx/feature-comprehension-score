@@ -11,9 +11,16 @@ export const metadata: Metadata = {
     "Measure whether engineering teams understand what they built, using Peter Naur's Theory Building framework.",
 };
 
+// Inline script applied before React hydrates to prevent flash of wrong theme.
+// Reads localStorage and falls back to prefers-color-scheme. See LLD § T4.
+const themeInitScript = `(function(){try{var s=localStorage.getItem('fcs-theme');var t=s==='light'||s==='dark'?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${syne.variable} ${outfit.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="font-sans bg-background text-text-primary">
         {children}
       </body>

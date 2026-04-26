@@ -31,12 +31,33 @@ describe('Root layout', () => {
 
     it('then <body> has font-sans and base colour classes', async () => {
       const html = await renderLayout();
-      const body = html.props.children;
+      const children = html.props.children as React.ReactElement[];
+      const body = children.find(
+        (child) => (child as { type?: string }).type === 'body'
+      ) as React.ReactElement;
 
+      expect(body).toBeDefined();
       expect(body.type).toBe('body');
       expect(body.props.className).toContain('font-sans');
       expect(body.props.className).toContain('bg-background');
       expect(body.props.className).toContain('text-text-primary');
+    });
+
+    it('then <head> contains an inline theme initialisation script', async () => {
+      // Issue #343: prevent flash of wrong theme on page load.
+      const html = await renderLayout();
+      const children = html.props.children as React.ReactElement[];
+      const head = children.find(
+        (child) => (child as { type?: string }).type === 'head'
+      ) as React.ReactElement | undefined;
+
+      expect(head).toBeDefined();
+      const script = (head!.props.children as { type: string; props: { dangerouslySetInnerHTML: { __html: string } } });
+      expect(script.type).toBe('script');
+      const code = script.props.dangerouslySetInnerHTML.__html;
+      expect(code).toContain('fcs-theme');
+      expect(code).toContain('data-theme');
+      expect(code).toContain('prefers-color-scheme');
     });
   });
 });
