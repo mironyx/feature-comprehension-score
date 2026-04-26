@@ -2,12 +2,14 @@
 // Columns: feature/PR, repository, type, status, score, completion, date.
 // Each row links to /assessments/[id]/results. Empty state renders a short
 // prompt to create the first assessment.
-// When `onDelete` is provided, an Actions column is added with a Delete button
-// per row (used by DeleteableAssessmentTable — issue #319).
-// Design reference: docs/design/lld-nav-results.md §2, docs/design/lld-e3-assessment-deletion.md §3.2
-// Issue: #296, #319
+// When `onDelete` is provided, an Actions column is added with two icon
+// actions per row: Trash2 (delete) and MoreHorizontal (link to detail page).
+// Design reference: docs/design/lld-nav-results.md §2, docs/design/lld-e3-assessment-deletion.md §3.2,
+// docs/design/lld-v8-assessment-detail.md §T3
+// Issue: #296, #319, #362
 
 import Link from 'next/link';
+import { Trash2, MoreHorizontal } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { AssessmentListItem } from '@/app/api/assessments/helpers';
 
@@ -32,17 +34,27 @@ function formatDate(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
-function renderDeleteCell(a: AssessmentListItem, onDelete: (assessment: AssessmentListItem) => void) {
+function renderActionsCell(a: AssessmentListItem, onDelete: (assessment: AssessmentListItem) => void) {
+  const featureLabel = formatFeature(a);
   return (
     <td className="px-3 py-2">
-      <button
-        type="button"
-        onClick={() => onDelete(a)}
-        className="text-destructive hover:underline cursor-pointer text-label"
-        aria-label={`Delete ${formatFeature(a)}`}
-      >
-        Delete
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onDelete(a)}
+          className="text-destructive hover:opacity-80 cursor-pointer"
+          aria-label={`Delete ${featureLabel}`}
+        >
+          <Trash2 size={16} />
+        </button>
+        <a
+          href={`/assessments/${a.id}`}
+          className="text-text-secondary hover:text-accent"
+          aria-label={`View details for ${featureLabel}`}
+        >
+          <MoreHorizontal size={16} />
+        </a>
+      </div>
     </td>
   );
 }
@@ -61,7 +73,7 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
       <td className={TD}>{formatScore(a.aggregate_score)}</td>
       <td className={TD}>{a.completed_count}/{a.participant_count}</td>
       <td className={TD}>{formatDate(a.created_at)}</td>
-      {onDelete && renderDeleteCell(a, onDelete)}
+      {onDelete && renderActionsCell(a, onDelete)}
     </tr>
   );
 }
