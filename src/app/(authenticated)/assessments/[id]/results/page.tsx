@@ -380,7 +380,7 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
   });
 
   return (
-    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap">
+    <div className="space-y-section-gap">
       <h1 className="text-heading-xl font-display">Assessment Results</h1>
 
       <HeaderSection
@@ -402,6 +402,6 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
       {!isAdmin && isParticipant && (
         <SelfDirectedView questions={questions} myAnswers={myAnswers} />
       )}
-    </main>
+    </div>
   );
 }

@@ -169,7 +169,7 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
   const repoName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
 
   return (
-    <main className="mx-auto w-full max-w-page px-content-pad-sm md:px-content-pad py-section-gap space-y-section-gap">
+    <div className="space-y-section-gap">
       <header className="space-y-2">
         <Badge className="bg-surface-raised text-text-primary" aria-label="Assessment type">
           {assessment.type.toUpperCase()}
@@ -205,6 +205,6 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
       >
         {submitting ? 'Submitting…' : submitLabel}
       </Button>
-    </main>
+    </div>
   );
 }

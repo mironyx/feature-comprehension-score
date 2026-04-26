@@ -163,7 +163,7 @@ async function arrange(opts: SecretClientOptions, user: { id: string; user_metad
   mockCreateServer.mockResolvedValue(serverClient as never);
   const { client: secretClient, rpcSpy: secretRpcSpy } = makeSecretClient(opts);
   mockCreateSecret.mockReturnValue(secretClient as never);
-  const { default: AssessmentPage } = await import('@/app/assessments/[id]/page');
+  const { default: AssessmentPage } = await import('@/app/(authenticated)/assessments/[id]/page');
   return { AssessmentPage, serverRpcSpy, secretRpcSpy };
 }
 

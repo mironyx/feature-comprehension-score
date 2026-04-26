@@ -154,7 +154,7 @@ function makeServerClient(user: { id: string } | null) {
 async function renderPage(opts: SecretClientOptions) {
   mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
   const element = await ResultsPage({ params: Promise.resolve({ id: ASSESSMENT_ID }) });
   return renderToStaticMarkup(element);
 }

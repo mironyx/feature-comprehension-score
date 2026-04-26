@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const formSrc = readFileSync(
-  resolve(__dirname, '../../../src/app/assessments/[id]/answering-form.tsx'),
+  resolve(__dirname, '../../../src/app/(authenticated)/assessments/[id]/answering-form.tsx'),
   'utf8',
 );
 

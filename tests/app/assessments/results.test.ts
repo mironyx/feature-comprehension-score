@@ -237,7 +237,7 @@ async function arrange(
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(userOrServerOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
   return ResultsPage;
 }
 
@@ -787,7 +787,7 @@ describe('FCS results page', () => {
       mockCreateServer.mockResolvedValue(serverClientMock as never);
       mockCreateSecret.mockReturnValue(secretClientMock as never);
 
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
       await ResultsPage({ params: makeParams() });
 
       // Server client (user-scoped) must have queried participant_answers
@@ -849,7 +849,7 @@ describe('FCS results page', () => {
       mockCreateServer.mockResolvedValue(serverClientMock as never);
       mockCreateSecret.mockReturnValue(makeSecretClient(secretOpts) as never);
 
-      const { default: ResultsPage } = await import('@/app/assessments/[id]/results/page');
+      const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
       await ResultsPage({ params: makeParams() });
 
       expect(eqCalls).toContainEqual(['participant_id', PARTICIPATION_ID]);
