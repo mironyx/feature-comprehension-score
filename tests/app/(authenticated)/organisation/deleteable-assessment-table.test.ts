@@ -57,6 +57,18 @@ vi.mock('@/components/ui/status-badge', () => ({
   StatusBadge: ({ status }: { status: string }) => status,
 }));
 
+// Stub lucide-react icons so renderToStaticMarkup emits a recognisable element
+// for each icon rather than a full SVG path. Used by T3 (issue #362) tests.
+vi.mock('lucide-react', async () => {
+  const React = await import('react');
+  return {
+    Trash2: ({ size }: { size?: number }) =>
+      React.createElement('svg', { 'data-testid': 'icon-trash-2', width: size, height: size }),
+    MoreHorizontal: ({ size }: { size?: number }) =>
+      React.createElement('svg', { 'data-testid': 'icon-more-horizontal', width: size, height: size }),
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -191,6 +203,94 @@ describe('AssessmentOverviewTable — onDelete prop (Story 3.2)', () => {
       // The source must call onDelete(a) or onDelete(assessment) — passing the item, not a.id.
       // A bare `onDelete(a.id)` would violate the declared prop type.
       expect(tableOverviewSrc).toMatch(/onDelete\s*\(\s*a\s*\)|onDelete\s*\(\s*assessment\s*\)|onDelete\s*\(\s*item\s*\)/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 1b: AssessmentOverviewTable — Actions column icon buttons (T3, issue #362)
+//
+// Verifies the renderActionsCell behaviour: Trash2 icon button + MoreHorizontal
+// icon link, each with descriptive aria-labels, behind the same onDelete gate.
+// Uses renderToStaticMarkup so the lucide stubs render as <svg data-testid=...>.
+// ---------------------------------------------------------------------------
+
+describe('AssessmentOverviewTable — actions column (T3)', () => {
+
+  async function renderRealTableHtml(
+    assessments: AssessmentListItem[],
+    onDelete?: (assessment: AssessmentListItem) => void,
+  ): Promise<string> {
+    const { AssessmentOverviewTable } = await vi.importActual<
+      typeof import('@/app/(authenticated)/organisation/assessment-overview-table')
+    >('@/app/(authenticated)/organisation/assessment-overview-table');
+    return renderToStaticMarkup(
+      AssessmentOverviewTable({ assessments, onDelete }) as ReactElement,
+    );
+  }
+
+  describe('Given onDelete callback is provided', () => {
+    it('renders a Trash2 icon button per row', async () => {
+      // [lld §T3] "Trash2 icon (delete — same behaviour)"
+      const items = [
+        makeAssessmentItem({ id: 'a-1' }),
+        makeAssessmentItem({ id: 'a-2' }),
+      ];
+      const html = await renderRealTableHtml(items, vi.fn());
+      const matches = html.match(/data-testid="icon-trash-2"/g) ?? [];
+      expect(matches.length).toBe(2);
+    });
+
+    it('renders a MoreHorizontal icon link per row', async () => {
+      // [lld §T3] "MoreHorizontal icon (navigates to /assessments/[id])"
+      const items = [
+        makeAssessmentItem({ id: 'a-1' }),
+        makeAssessmentItem({ id: 'a-2' }),
+      ];
+      const html = await renderRealTableHtml(items, vi.fn());
+      const matches = html.match(/data-testid="icon-more-horizontal"/g) ?? [];
+      expect(matches.length).toBe(2);
+    });
+
+    it('points the MoreHorizontal link to /assessments/[id]', async () => {
+      // [lld §T3] "MoreHorizontal navigates to /assessments/[id]"
+      const items = [makeAssessmentItem({ id: 'assess-detail-001' })];
+      const html = await renderRealTableHtml(items, vi.fn());
+      // Anchor href must be the detail route, NOT /results.
+      expect(html).toMatch(/href="\/assessments\/assess-detail-001"/);
+    });
+
+    it('Trash2 button has aria-label containing the assessment name', async () => {
+      // [lld §T3] "Both icons have aria-label containing the assessment name"
+      const items = [makeAssessmentItem({ feature_name: 'Auth Overhaul', pr_number: null })];
+      const html = await renderRealTableHtml(items, vi.fn());
+      // Find the button element and assert its aria-label includes the feature name.
+      expect(html).toMatch(/<button[^>]*aria-label="Delete Auth Overhaul"/);
+    });
+
+    it('MoreHorizontal anchor has aria-label containing the assessment name', async () => {
+      // [lld §T3] "Both icons have aria-label containing the assessment name"
+      const items = [makeAssessmentItem({ feature_name: 'Auth Overhaul', pr_number: null })];
+      const html = await renderRealTableHtml(items, vi.fn());
+      // The details anchor's aria-label must include the feature name.
+      expect(html).toMatch(/<a[^>]*aria-label="View details for Auth Overhaul"/);
+    });
+
+    it('preserves the feature name link to /assessments/[id]/results', async () => {
+      // [lld §T3] "Feature name link to /assessments/[id]/results is unchanged"
+      const items = [makeAssessmentItem({ id: 'feat-link-001' })];
+      const html = await renderRealTableHtml(items, vi.fn());
+      expect(html).toMatch(/href="\/assessments\/feat-link-001\/results"/);
+    });
+  });
+
+  describe('Given onDelete callback is NOT provided', () => {
+    it('renders no Trash2 or MoreHorizontal icons', async () => {
+      // [lld §T3 + §3.2] Actions column only appears when onDelete is provided.
+      const items = [makeAssessmentItem({ id: 'no-actions' })];
+      const html = await renderRealTableHtml(items);
+      expect(html).not.toContain('data-testid="icon-trash-2"');
+      expect(html).not.toContain('data-testid="icon-more-horizontal"');
     });
   });
 });
