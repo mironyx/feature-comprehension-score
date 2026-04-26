@@ -112,6 +112,21 @@ describe('NavBar', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Desktop layout preservation (req §Story 3.3 / issue #346)
+  // -------------------------------------------------------------------------
+
+  describe('Given a desktop viewport (>= 768px)', () => {
+    it('then nav links, org switcher, and user controls are wrapped in hidden md:contents', () => {
+      // [req §Story 3.3 AC] "Given desktop viewports (>= 768px), the current horizontal
+      // NavBar layout is preserved."
+      // The desktop wrapper must carry `hidden md:contents` so links are visible on desktop
+      // and hidden on mobile — the structural guarantee that the desktop layout is intact.
+      const html = JSON.stringify(renderNavBar());
+      expect(html).toContain('hidden md:contents');
+    });
+  });
+
   describe('Layout shell classes', () => {
     it('then the nav element is sticky with correct height and border', () => {
       const html = JSON.stringify(renderNavBar());
