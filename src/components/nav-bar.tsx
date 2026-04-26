@@ -1,11 +1,12 @@
 // Top navigation bar — role-conditional links, org switcher, user menu.
 // Design reference: docs/design/frontend-system.md § Layout Shell
-// Issue: #62, #165, #341
+// Issue: #62, #165, #341, #346
 
 import Link from 'next/link';
 import { OrgSwitcher } from './org-switcher';
 import { NavLinks, type NavLink } from './nav-links';
 import { ThemeToggle } from './theme-toggle';
+import { MobileNavMenu } from './mobile-nav-menu';
 import type { Database } from '@/lib/supabase/types';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
@@ -37,16 +38,21 @@ export function NavBar({ username, isAdmin, currentOrg, allOrgs }: NavBarProps) 
       <Link href="/assessments" className="font-display text-heading-md text-accent">
         FCS
       </Link>
-      <NavLinks links={links} />
-      <div className="ml-auto flex items-center gap-4">
-        <OrgSwitcher currentOrg={currentOrg} allOrgs={allOrgs} />
-        <ThemeToggle />
-        <span className="text-label text-text-secondary">{username}</span>
-        <form method="POST" action="/auth/sign-out">
-          <button type="submit" className="text-label text-text-secondary hover:text-accent">
-            Sign out
-          </button>
-        </form>
+      <div className="hidden md:contents">
+        <NavLinks links={links} />
+        <div className="ml-auto flex items-center gap-4">
+          <OrgSwitcher currentOrg={currentOrg} allOrgs={allOrgs} />
+          <ThemeToggle />
+          <span className="text-label text-text-secondary">{username}</span>
+          <form method="POST" action="/auth/sign-out">
+            <button type="submit" className="text-label text-text-secondary hover:text-accent">
+              Sign out
+            </button>
+          </form>
+        </div>
+      </div>
+      <div className="ml-auto md:hidden">
+        <MobileNavMenu links={links} username={username} currentOrg={currentOrg} allOrgs={allOrgs} />
       </div>
     </nav>
   );
