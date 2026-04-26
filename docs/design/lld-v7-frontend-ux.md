@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
 | Revised | 2026-04-26 — Issues #340, #342, #347 |
+| Revised | 2026-04-26 — Issue #341 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -118,9 +119,11 @@ export function BreadcrumbsBar() { ... } // uses usePathname(); returns null for
 | `/assessments` | `[{ label: "My Assessments" }]` | Implemented (#340) |
 | `/assessments/new` | `[{ label: "My Assessments", href: "/assessments" }, { label: "New Assessment" }]` | Implemented (#340) |
 | `/organisation` | `[{ label: "Organisation" }]` | Implemented (#340) |
-| `/assessments/[id]` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }]` | _(deferred → issue #341)_ |
-| `/assessments/[id]/results` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name>, href: "/assessments/[id]" }, { label: "Results" }]` | _(deferred → issue #341)_ |
-| `/assessments/[id]/submitted` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }, { label: "Submitted" }]` | _(deferred → issue #341)_ |
+| `/assessments/[id]` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }]` | _(still deferred — see note below)_ |
+| `/assessments/[id]/results` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name>, href: "/assessments/[id]" }, { label: "Results" }]` | _(still deferred — see note below)_ |
+| `/assessments/[id]/submitted` | `[{ label: "My Assessments", href: "/assessments" }, { label: <feature_name> }, { label: "Submitted" }]` | _(still deferred — see note below)_ |
+
+> **Implementation note (issue #341):** Issue #341 brought the dynamic assessment routes under the authenticated layout (so they receive NavBar + Breadcrumbs styling), but did not wire dynamic-route breadcrumbs. Acceptance criteria did not require them. Implementing them needs server-rendered `feature_name` plumbed into `BreadcrumbsBar` (which is a pure client component using `usePathname()`) — most likely via a per-`[id]` layout that renders a server-fetched segment list. Tracked as a follow-up item.
 
 **Integration:** `BreadcrumbsBar` renders below the NavBar in the authenticated layout. It derives segments from `usePathname()` via the static route map; returns `null` for unrecognised routes.
 
@@ -146,11 +149,12 @@ describe('Breadcrumbs')
 **Files:**
 - Edit: `src/components/nav-bar.tsx`
 - New: `src/components/nav-links.tsx` (client component extracted from NavBar)
-- Move: `src/app/assessments/[id]/page.tsx` -> `src/app/(authenticated)/assessments/[id]/page.tsx`
+- Move: `src/app/assessments/[id]/page.tsx` -> `src/app/(authenticated)/assessments/[id]/page.tsx` (and strip its `<main>` wrappers in `AccessDeniedPage` / `AlreadySubmittedPage` sub-views)
 - Move: `src/app/assessments/[id]/results/page.tsx` -> `src/app/(authenticated)/assessments/[id]/results/page.tsx`
 - Move: `src/app/assessments/[id]/submitted/page.tsx` -> `src/app/(authenticated)/assessments/[id]/submitted/page.tsx`
-- Edit: `src/app/assessments/[id]/answering-form.tsx` — remove `<main>` wrapper (layout provides it)
-- Edit: `src/app/assessments/[id]/results/page.tsx` — remove `<main>` wrapper
+- Move: `src/app/assessments/[id]/answering-form.tsx` -> `src/app/(authenticated)/assessments/[id]/answering-form.tsx` — also remove its `<main>` wrapper (layout provides it)
+- Edit: `src/app/(authenticated)/assessments/[id]/results/page.tsx` — remove `<main>` wrapper
+- Edit: `src/app/(authenticated)/assessments/[id]/submitted/page.tsx` — remove `<main>` wrapper
 
 **NavLinks client component:**
 
@@ -161,18 +165,23 @@ describe('Breadcrumbs')
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-interface NavLink {
-  href: string;
-  label: string;
-  matchPrefix: string; // e.g. '/assessments' matches '/assessments/...'
+export interface NavLink {
+  readonly href: string;
+  readonly label: string;
+  readonly matchPrefix: string; // e.g. '/assessments' matches '/assessments/...'
 }
 
-export function NavLinks({ links }: { links: NavLink[] }) { ... }
+export function NavLinks({ links }: { links: readonly NavLink[] }) { ... }
 ```
 
-Active state: `text-accent border-b-2 border-accent` on the matching link.
+> **Implementation note (issue #341):** `NavLink` is exported (consumed by `nav-bar.tsx` to build the link list) and all fields are `readonly`. Match logic: `pathname === matchPrefix || pathname.startsWith(matchPrefix + '/')`.
 
-**Layout restructure:** Move `src/app/assessments/[id]/` and its subdirectories under `src/app/(authenticated)/assessments/[id]/`. This brings them under the authenticated layout, providing NavBar and breadcrumbs automatically. Remove the `<main>` wrappers from `answering-form.tsx` and `results/page.tsx` since the layout provides one.
+Active state: `text-label text-accent border-b-2 border-accent` on the matching link.
+Inactive state: `text-label text-text-secondary hover:text-text-primary`.
+
+> **Implementation note (issue #341):** The pre-existing NavBar used `hover:text-accent` for inactive links. That conflicts with the BDD spec _"highlights only one link at a time"_ — by class inspection every link would carry the substring `text-accent`. Inactive hover was changed to `hover:text-text-primary`, matching the § T8 inactive-tab pattern.
+
+**Layout restructure:** Moved `src/app/assessments/[id]/` and its subdirectories under `src/app/(authenticated)/assessments/[id]/` (route group is URL-invisible). Removed the `<main>` wrappers from `answering-form.tsx`, `[id]/page.tsx` (and its sub-views `AccessDeniedPage` / `AlreadySubmittedPage`), `results/page.tsx`, and `submitted/page.tsx`; each was replaced with `<div className="space-y-section-gap">` (or `space-y-section-gap text-center` for the centred submitted/access-denied views). The `(authenticated)/layout.tsx` `<main>` wrapper owns `max-w-page` and responsive padding (`px-content-pad-sm md:px-content-pad`).
 
 **BDD specs:**
 
