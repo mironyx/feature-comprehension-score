@@ -4,12 +4,13 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.2 |
+| Version | 1.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
 | Revised | 2026-04-26 — Issues #340, #342, #347 |
 | Revised | 2026-04-26 — Issue #341 |
+| Revised | 2026-04-26 — Issue #343 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -279,6 +280,18 @@ export function ThemeToggle() {
 ```
 
 **Flash prevention:** Inline script in `layout.tsx` `<head>` that reads `localStorage` before React hydrates and sets `data-theme` on `<html>`. This runs synchronously before first paint. The script is a static string with no user input — no XSS risk.
+
+**Internal decomposition (added in #343):**
+
+- `readSavedTheme(): Theme | null` — private. Reads `localStorage[fcs-theme]`, returns the value if it is `'light'` or `'dark'`, else `null`. Wrapped in try/catch so `SecurityError` from restricted-storage browsers (private mode, third-party cookie blocks) returns `null` rather than crashing the effect.
+- `readPreferredTheme(): Theme` — private. Returns `'dark'` when `matchMedia('(prefers-color-scheme: dark)').matches`, else `'light'`. Also try/catch-guarded; falls back to `'dark'` on error.
+- `applyTheme(theme: Theme): void` — private. Calls `document.documentElement.setAttribute('data-theme', theme)`. Single-line wrapper kept for symmetry with the inline init script and to keep the hook bodies inside the 20-line complexity budget.
+- `THEME_STORAGE_KEY` — exported `const = 'fcs-theme'`. Exported so tests can reference the same key without string duplication.
+- `Theme` — exported `type = 'light' | 'dark'`.
+
+> **Implementation note (issue #343):** The runtime component's `localStorage` and `matchMedia` calls are now also try/catch-guarded — the LLD originally specified the guard only for the inline init script, but the same restricted-storage failure modes apply to the React effect and click handler. Defensive widening, no behaviour change for the happy path.
+
+> **Implementation note (issue #343 — known limitation):** `useState<Theme>` is initialised to `'dark'` unconditionally to avoid an SSR/CSR hydration mismatch. For light-mode users this means the Sun icon appears for one frame on first paint before `useEffect` runs and swaps to Moon. The colour palette is correct because the inline init script set `data-theme` before hydration; only the icon flashes. Full fix requires either a CSS-only icon swap keyed off `data-theme` or a cookie/header-based SSR theme — deferred.
 
 **BDD specs:**
 
