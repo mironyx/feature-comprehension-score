@@ -20,7 +20,9 @@
       "Bash(git checkout*)",
       "Bash(gh pr comment*)",
       "Bash(gh issue close*)",
-      "Bash(./scripts/gh-project-status.sh*)"
+      "Bash(./scripts/gh-project-status.sh*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr view*)"
     ]
   },
   "hooks": {

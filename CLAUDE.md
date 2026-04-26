@@ -142,6 +142,8 @@ Use judgement. Session boundaries are informal.
 E2E placeholder env vars: `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key SUPABASE_SECRET_KEY=placeholder-secret-key`
 After `db reset`, Kong may lose port 54321 — fix: `docker restart supabase_kong_feature-comprehension-score`
 
+**App Router page constraint:** run `npm run build` after editing any `src/app/**/page.tsx`, `layout.tsx`, or `route.ts` — Next.js rejects arbitrary named exports from these files and `npx tsc` does not catch this.
+
 ## Key Directories
 
 - `src/lib/engine/` — pure domain logic (no framework imports, no I/O)
