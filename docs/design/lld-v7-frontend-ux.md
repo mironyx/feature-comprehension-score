@@ -4,13 +4,14 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.3 |
+| Version | 1.4 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-25 |
 | Revised | 2026-04-26 — Issues #340, #342, #347 |
 | Revised | 2026-04-26 — Issue #341 |
 | Revised | 2026-04-26 — Issue #343 |
+| Revised | 2026-04-26 — Issue #346 |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #339 |
 
@@ -408,7 +409,38 @@ export function MobileNavMenu({ links, username, orgName, allOrgs }: MobileNavMe
 }
 ```
 
-**NavBar changes:** Wrap the `<ul>` and right-side controls in `hidden md:flex`. Show hamburger button `md:hidden`.
+> **Implementation note (issue #346):** Prop shapes were simplified to reuse existing codebase types.
+> `links` uses `NavLink` (from `nav-links.tsx`) and `allOrgs`/`currentOrg` use `OrgRow`
+> (`Database['public']['Tables']['organisations']['Row']`) rather than the bespoke shapes above.
+> `orgName` was replaced by `currentOrg: OrgRow` so the existing `OrgSwitcher` component can be
+> embedded directly without mapping. No behavioural difference.
+
+**Actual prop interface (issue #346):**
+
+```tsx
+interface MobileNavMenuProps {
+  readonly links: readonly NavLink[];
+  readonly username: string;
+  readonly currentOrg: OrgRow;
+  readonly allOrgs: readonly OrgRow[];
+}
+```
+
+**Internal decomposition (added in #346):**
+
+- `useDismissEffect(menuRef, setIsOpen)` — private custom hook. Registers `keydown` (Escape → close)
+  and `mousedown` (outside-click → close) event listeners on `document`; cleans up on unmount.
+  Extracted to keep `MobileNavMenu` within the 20-line budget (CLAUDE.md complexity).
+- `MobilePanel({ links, username, currentOrg, allOrgs, onClose })` — private subcomponent rendering
+  the open panel: list of nav links (each with `onClick={onClose}`), `OrgSwitcher`, username span,
+  and POST sign-out form. Extracted from `MobileNavMenu` body for the same reason.
+
+**NavBar changes:** Wrap the `<NavLinks>` and right-side controls in `hidden md:contents` (not `hidden md:flex`). Show hamburger wrapper `md:hidden`.
+
+> **Implementation note (issue #346):** The spec said `hidden md:flex` but `hidden md:contents` was
+> used instead. `contents` makes the wrapper transparent to the flex layout, so child elements
+> participate directly in the parent `<nav>` flex context — preserving existing spacing without
+> changes to child classes.
 
 **BDD specs:**
 
