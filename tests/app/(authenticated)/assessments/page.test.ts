@@ -131,6 +131,7 @@ function makeItem(overrides: Partial<AssessmentItem> = {}): AssessmentItem {
   return {
     id: 'item-1',
     feature_name: 'Test Feature',
+    feature_description: null,
     status: 'awaiting_responses',
     aggregate_score: null,
     created_at: '2026-01-01T00:00:00Z',
@@ -566,6 +567,92 @@ describe('Assessments page', () => {
       expect(rendered).toContain('"assessmentId":"row-2"');
       const matchCount = (rendered.match(/"initialStatus":"rubric_generation"/g) ?? []).length;
       expect(matchCount).toBe(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T4 — feature_description display (issue #363)
+  // -------------------------------------------------------------------------
+
+  describe('Given an assessment with feature_description', () => {
+    // T4-1: select() requests feature_description column
+    it('selects feature_description in the column list', async () => {
+      let capturedSelect = '';
+      const client = makeClient({ captureSelect: (cols) => { capturedSelect = cols; } });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      await AssessmentsPage({ searchParams: Promise.resolve({}) });
+
+      expect(capturedSelect).toContain('feature_description');
+    });
+
+    // T4-2: pending row renders description below feature name when non-null
+    it('Given a pending assessment with non-null description, When page renders, Then description text appears', async () => {
+      const client = makeClient({
+        assessments: [makeItem({
+          id: 'pending-desc',
+          status: 'awaiting_responses',
+          feature_description: 'A short summary of the feature under assessment',
+        })],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+
+      expect(JSON.stringify(result)).toContain('A short summary of the feature under assessment');
+    });
+
+    // T4-3: completed row renders description below feature name when non-null
+    it('Given a completed assessment with non-null description, When page renders, Then description text appears', async () => {
+      const client = makeClient({
+        assessments: [makeItem({
+          id: 'done-desc',
+          status: 'completed',
+          aggregate_score: 0.8,
+          feature_description: 'Description for completed feature',
+        })],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+
+      expect(JSON.stringify(result)).toContain('Description for completed feature');
+    });
+
+    // T4-4: nothing rendered when feature_description is null
+    it('Given feature_description=null, When page renders, Then no <p> with caption styling appears for description', async () => {
+      const client = makeClient({
+        assessments: [makeItem({
+          id: 'no-desc',
+          status: 'awaiting_responses',
+          feature_description: null,
+        })],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      // No description text inserted; caption-styled <p> only exists for description, not other UI
+      expect(rendered).not.toContain('text-caption text-text-secondary mt-0.5');
+    });
+
+    // T4-5: description uses text-caption text-text-secondary styles
+    it('Given a description, When page renders, Then it is wrapped in a <p> with caption + secondary text classes', async () => {
+      const client = makeClient({
+        assessments: [makeItem({
+          id: 'styled-desc',
+          status: 'awaiting_responses',
+          feature_description: 'Styled description',
+        })],
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('text-caption text-text-secondary mt-0.5');
+      expect(rendered).toContain('Styled description');
     });
   });
 });

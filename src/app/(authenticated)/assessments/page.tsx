@@ -46,7 +46,7 @@ export default async function AssessmentsPage(
   const [{ data }, { data: membership }] = await Promise.all([
     supabase
       .from('assessments')
-      .select('id, feature_name, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
+      .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
       .eq('org_id', orgId)
       .eq('assessment_participants.user_id', user.id)
       .order('created_at', { ascending: false }),
@@ -77,9 +77,14 @@ export default async function AssessmentsPage(
             {pending.map((a) => (
               <li key={a.id}>
                 <Card className="flex items-center justify-between">
-                  <Link href={`/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
-                    {a.feature_name ?? `Assessment ${a.id}`}
-                  </Link>
+                  <div>
+                    <Link href={`/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
+                      {a.feature_name ?? `Assessment ${a.id}`}
+                    </Link>
+                    {a.feature_description ? (
+                      <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     {a.status === 'rubric_generation'
                       ? <PollingStatusBadge
@@ -119,12 +124,17 @@ export default async function AssessmentsPage(
             {completed.map((a) => (
               <li key={a.id}>
                 <Card className="flex items-center justify-between">
-                  <Link
-                    href={`/assessments/${a.id}/results`}
-                    className="text-body text-text-primary hover:text-accent"
-                  >
-                    {a.feature_name ?? `Assessment ${a.id}`}
-                  </Link>
+                  <div>
+                    <Link
+                      href={`/assessments/${a.id}/results`}
+                      className="text-body text-text-primary hover:text-accent"
+                    >
+                      {a.feature_name ?? `Assessment ${a.id}`}
+                    </Link>
+                    {a.feature_description ? (
+                      <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-body text-text-primary" aria-label="Aggregate score">
                       {toPercent(a.aggregate_score)}
