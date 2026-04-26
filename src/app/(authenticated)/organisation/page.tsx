@@ -9,6 +9,8 @@ import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import type { AuthUser } from '@/lib/api/auth';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
@@ -18,7 +20,9 @@ import { Tabs } from '@/components/ui/tabs';
 import OrgContextForm from './org-context-form';
 import RetrievalSettingsForm from './retrieval-settings-form';
 import { DeleteableAssessmentTable } from './deleteable-assessment-table';
+import { RepositoriesTab } from './repositories-tab';
 import { loadOrgAssessmentsOverview } from './load-assessments';
+import { listRepositories } from '@/app/api/organisations/[id]/repositories/service';
 
 const NEW_ASSESSMENT_CLASSES =
   'inline-flex items-center justify-center rounded-sm text-label font-medium transition-colors ' +
@@ -47,10 +51,18 @@ export default async function OrganisationPage() {
 
   if (!isOrgAdmin((membershipData ?? []) as MembershipRow[])) forbidden();
 
-  const [context, retrievalSettings, assessments] = await Promise.all([
+  const adminSupabase = createSecretSupabaseClient();
+  const authUser: AuthUser = {
+    id: user.id,
+    email: user.email ?? '',
+    githubUserId: Number(user.user_metadata?.['provider_id']),
+    githubUsername: String(user.user_metadata?.['user_name'] ?? ''),
+  };
+  const [context, retrievalSettings, assessments, repoData] = await Promise.all([
     loadOrgPromptContext(supabase, orgId),
     loadOrgRetrievalSettings(supabase, orgId),
     loadOrgAssessmentsOverview(supabase, orgId),
+    listRepositories({ supabase, adminSupabase, user: authUser }, orgId),
   ]);
 
   const tabs = [
@@ -68,6 +80,17 @@ export default async function OrganisationPage() {
       id: 'retrieval',
       label: 'Retrieval',
       content: <RetrievalSettingsForm orgId={orgId} initial={retrievalSettings} />,
+    },
+    {
+      id: 'repositories',
+      label: 'Repositories',
+      content: (
+        <RepositoriesTab
+          orgId={orgId}
+          registered={repoData.registered}
+          accessible={repoData.accessible}
+        />
+      ),
     },
   ];
 
