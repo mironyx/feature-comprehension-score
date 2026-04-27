@@ -21,7 +21,7 @@ prevent verbose test output from polluting the calling agent's context.
 You will receive a `command` string — the exact shell command to run. Examples:
 
 - `npx vitest run tests/unit/foo.test.ts`
-- `npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 "**/*.md" 2>&1 | tail -5`
+- `npx vitest run && npx tsc --noEmit && npm run lint`
 - `NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-publishable-key SUPABASE_SECRET_KEY=placeholder-secret-key npm run build && npx playwright test`
 
 ## Process
@@ -35,7 +35,7 @@ Always return this exact structure — nothing else:
 ```
 RESULT: PASS | FAIL
 
-Commands: <tools run, e.g. "vitest, tsc, lint, markdownlint">
+Commands: <tools run, e.g. "vitest, tsc, lint">
 Tests: <X passed, Y failed, Z skipped>   (omit line if no vitest/playwright)
 Duration: <Xs>
 

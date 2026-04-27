@@ -173,7 +173,7 @@ This keeps verbose output out of the main context.
 
 ```
 Launch Agent: test-runner
-Input: command="npx vitest run && npx tsc --noEmit && npm run lint && npx markdownlint-cli2 '**/*.md' 2>&1 | tail -5"
+Input: command="npx vitest run && npx tsc --noEmit && npm run lint"
 ```
 
 If E2E tests exist (`tests/e2e/` is non-empty), also run:
