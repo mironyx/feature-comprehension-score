@@ -102,6 +102,22 @@ vi.mock(
   () => ({ AssessmentOverviewTable: 'AssessmentOverviewTable' }),
 );
 
+// Stub the RepositoriesTab component so the org page tests don't depend on its render.
+vi.mock(
+  '@/app/(authenticated)/organisation/repositories-tab',
+  () => ({ RepositoriesTab: 'RepositoriesTab' }),
+);
+
+// Stub the secret Supabase client and repository list service so the page can
+// render without a real DB connection (issue #365 added these dependencies).
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(() => ({})),
+}));
+
+vi.mock('@/app/api/organisations/[id]/repositories/service', () => ({
+  listRepositories: vi.fn().mockResolvedValue({ registered: [], accessible: [] }),
+}));
+
 // ---------------------------------------------------------------------------
 // Part 1 — Tabs component (standalone)
 //

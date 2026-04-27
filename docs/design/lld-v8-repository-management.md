@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
+| Revised | 2026-04-27 — Issue #365 |
 | Epic | [#360](https://github.com/mironyx/feature-comprehension-score/issues/360) |
 | Requirements | [docs/requirements/v8-requirements.md](../requirements/v8-requirements.md) — Epic 2 |
 | Parent design | [docs/design/v1-design.md](v1-design.md) |
@@ -150,7 +151,7 @@ interface RegisteredRepo {
   id: string;
   github_repo_id: number;
   github_repo_name: string;
-  status: 'active';
+  status: 'active' | 'inactive'; // widened to match DB enum; query filters to 'active' at runtime
   created_at: string;
 }
 
@@ -192,79 +193,118 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
 #### Service: listRepositories
 
+> **Implementation note (issue #365):** The service was decomposed into private helpers (`assertOrgAdmin`, `loadRegistered`, `loadInstallationId`, `fetchInstallationRepos`, `annotateAccessible`) rather than a single monolithic function, to stay within the ≤20 line function limit from CLAUDE.md. A `ListRepositoriesDeps` 3rd parameter was added for `getInstallationToken` and `fetchImpl` injection (mirrors `ResolveUserOrgsDeps` in `org-membership.ts`). `loadInstallationId` uses `.maybeSingle()` (not `.single()`) to handle absent rows gracefully. Supabase errors are propagated via `ApiError(500, ...)` — they are not silently swallowed.
+
 ```typescript
 // src/app/api/organisations/[id]/repositories/service.ts
 
 import type { ApiContext } from '@/lib/api/context';
 import { ApiError } from '@/lib/api/errors';
-import { getInstallationToken } from '@/lib/github/app-auth';
+import { getInstallationToken as defaultGetInstallationToken } from '@/lib/github/app-auth';
 
-export async function listRepositories(ctx: ApiContext, orgId: string): Promise<RepositoryListResponse> {
-  // 1. Admin check
-  const { data: membership } = await ctx.supabase
-    .from('user_organisations').select('github_role')
-    .eq('user_id', ctx.user.id).eq('org_id', orgId).maybeSingle();
-  if (membership?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
-
-  // 2. Load registered repos (active only) + installation_id in parallel
-  const [{ data: registered }, { data: org }] = await Promise.all([
-    ctx.adminSupabase.from('repositories')
-      .select('id, github_repo_id, github_repo_name, status, created_at')
-      .eq('org_id', orgId).eq('status', 'active'),
-    ctx.adminSupabase.from('organisations')
-      .select('installation_id').eq('id', orgId).single(),
-  ]);
-
-  // 3. If no installation, return registered only
-  const installationId = org?.installation_id;
-  if (!installationId) return { registered: (registered ?? []) as RegisteredRepo[], accessible: [] };
-
-  // 4. List accessible repos from GitHub (server-side only — token never returned)
-  const token = await getInstallationToken(installationId);
-  const ghRepos = await fetchInstallationRepos(token);
-
-  // 5. Annotate accessible repos with is_registered
-  const registeredIds = new Set((registered ?? []).map(r => r.github_repo_id));
-  const accessible: AccessibleRepo[] = ghRepos.map(r => ({
-    github_repo_id: r.id,
-    github_repo_name: r.name,
-    is_registered: registeredIds.has(r.id),
-  }));
-
-  return { registered: (registered ?? []) as RegisteredRepo[], accessible };
+export interface ListRepositoriesDeps {
+  getInstallationToken?: (installationId: number) => Promise<string>;
+  fetchImpl?: typeof fetch;
 }
 
-async function fetchInstallationRepos(token: string): Promise<{ id: number; name: string }[]> {
-  // Requirements: < 100 repos expected — no pagination required for MVP
-  const resp = await fetch('https://api.github.com/installation/repositories?per_page=100', {
+export async function listRepositories(
+  ctx: ApiContext,
+  orgId: string,
+  deps: ListRepositoriesDeps = {},
+): Promise<RepositoryListResponse> {
+  await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
+
+  const [registered, installationId] = await Promise.all([
+    loadRegistered(ctx.adminSupabase, orgId),
+    loadInstallationId(ctx.adminSupabase, orgId),
+  ]);
+
+  if (installationId === null) return { registered, accessible: [] };
+
+  const getToken = deps.getInstallationToken ?? defaultGetInstallationToken;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const token = await getToken(installationId);
+  const ghRepos = await fetchInstallationRepos(token, fetchImpl);
+
+  return { registered, accessible: annotateAccessible(ghRepos, registered) };
+}
+
+// Private helpers (not exported):
+
+async function assertOrgAdmin(supabase, userId, orgId): Promise<void> {
+  const { data, error } = await supabase.from('user_organisations')
+    .select('github_role').eq('user_id', userId).eq('org_id', orgId).maybeSingle();
+  if (error) throw new ApiError(500, `assertOrgAdmin: ${error.message}`);
+  if (data?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
+}
+
+async function loadRegistered(admin, orgId): Promise<RegisteredRepo[]> {
+  const { data, error } = await admin.from('repositories')
+    .select('id, github_repo_id, github_repo_name, status, created_at')
+    .eq('org_id', orgId).eq('status', 'active');
+  if (error) throw new ApiError(500, `loadRegistered: ${error.message}`);
+  return data ?? [];
+}
+
+async function loadInstallationId(admin, orgId): Promise<number | null> {
+  const { data, error } = await admin.from('organisations')
+    .select('installation_id').eq('id', orgId).maybeSingle(); // .maybeSingle() not .single()
+  if (error) throw new ApiError(500, `loadInstallationId: ${error.message}`);
+  return data?.installation_id ?? null;
+}
+
+async function fetchInstallationRepos(
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<{ id: number; name: string }[]> {
+  const resp = await fetchImpl('https://api.github.com/installation/repositories?per_page=100', {
     headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json' },
   });
   if (!resp.ok) throw new Error(`GitHub repos list failed: ${resp.status}`);
   const body = (await resp.json()) as { repositories: { id: number; name: string }[] };
   return body.repositories;
 }
+
+function annotateAccessible(
+  ghRepos: Array<{ id: number; name: string }>,
+  registered: ReadonlyArray<RegisteredRepo>,
+): AccessibleRepo[] {
+  const registeredIds = new Set(registered.map(r => r.github_repo_id));
+  return ghRepos.map(r => ({
+    github_repo_id: r.id,
+    github_repo_name: r.name,
+    is_registered: registeredIds.has(r.id),
+  }));
+}
 ```
 
 #### repositories-tab.tsx (server component)
+
+> **Implementation note (issue #365):** The `Card` import shown below was not used — the implementation uses raw `table`/`ul`/`li` elements styled with Tailwind classes (matches sibling tabs in the org page). Helper functions `formatDate`, `renderRegisteredRow`, and `renderAccessibleRow` are module-level functions (not sub-components) so that `JSON.stringify` serialisation in tests can traverse the rendered tree. `AddRepositoryButton` is a placeholder disabled stub in T1; T2 (#366) replaces it with the functional client component.
 
 ```typescript
 // src/app/(authenticated)/organisation/repositories-tab.tsx
 // Server component — no 'use client'
 // Receives data already fetched by organisation/page.tsx
 
-import { Card } from '@/components/ui/card';
+import type { RegisteredRepo, AccessibleRepo } from '@/app/api/organisations/[id]/repositories/service';
+import { AddRepositoryButton } from './add-repository-button';
 
 interface RepositoriesTabProps {
   readonly orgId: string;
-  readonly registered: RegisteredRepo[];
-  readonly accessible: AccessibleRepo[];
+  readonly registered: ReadonlyArray<RegisteredRepo>;
+  readonly accessible: ReadonlyArray<AccessibleRepo>;
 }
 
 export function RepositoriesTab({ orgId, registered, accessible }: RepositoriesTabProps) {
-  // Section 1: Registered repos table (name, registered date)
-  // Section 2: Accessible but unregistered repos — list with AddRepositoryButton per row
-  // Empty state for each section if arrays are empty
-  // AddRepositoryButton is a client component (see T2)
+  const unregistered = accessible.filter(r => !r.is_registered);
+  return (
+    <div className="space-y-section-gap">
+      {/* Section 1: Registered repos table (name, registered date) */}
+      {/* Section 2: Accessible unregistered list with AddRepositoryButton per row */}
+      {/* Empty state for each section if arrays are empty */}
+    </div>
+  );
 }
 ```
 

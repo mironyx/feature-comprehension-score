@@ -24,6 +24,23 @@ vi.mock('@/lib/supabase/org-retrieval-settings', () => ({
   loadOrgRetrievalSettings: vi.fn(),
 }));
 
+// Stub the secret Supabase client so the page does not try to read the
+// SUPABASE_SECRET_KEY env var and connect to a real instance.
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(() => ({
+    from: vi.fn(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+    })),
+  })),
+}));
+
+// Stub the repository list service — covered by its own test file.
+vi.mock('@/app/api/organisations/[id]/repositories/service', () => ({
+  listRepositories: vi.fn().mockResolvedValue({ registered: [], accessible: [] }),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -87,6 +104,12 @@ vi.mock(
   () => ({ DeleteableAssessmentTable: 'DeleteableAssessmentTable' }),
 );
 
+// Stub the RepositoriesTab so page tests don't depend on its render output.
+vi.mock(
+  '@/app/(authenticated)/organisation/repositories-tab',
+  () => ({ RepositoriesTab: 'RepositoriesTab' }),
+);
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -98,12 +121,14 @@ import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings'
 import { redirect, forbidden } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { loadOrgAssessmentsOverview } from '@/app/(authenticated)/organisation/load-assessments';
+import { listRepositories } from '@/app/api/organisations/[id]/repositories/service';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockLoadContext = vi.mocked(loadOrgPromptContext);
 const mockLoadRetrieval = vi.mocked(loadOrgRetrievalSettings);
 const mockLoadAssessments = vi.mocked(loadOrgAssessmentsOverview);
+const mockListRepositories = vi.mocked(listRepositories);
 
 const DEFAULT_RETRIEVAL = {
   tool_use_enabled: false,
@@ -360,6 +385,45 @@ describe('Organisation page', () => {
       expect(tablePos).toBeGreaterThanOrEqual(0);
       expect(formsPos).toBeGreaterThanOrEqual(0);
       expect(tablePos).toBeLessThan(formsPos);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Repositories tab — page integration [lld §T1 AC, issue #365]
+  // -------------------------------------------------------------------------
+  // These tests confirm the page wires the fourth tab correctly: that the
+  // RepositoriesTab component appears in the output and that listRepositories
+  // is invoked with the correct orgId. The service itself is covered by its
+  // own test file; these tests guard the page-level integration only.
+
+  describe('Repositories tab (page integration)', () => {
+    it('renders RepositoriesTab in the page output when admin loads the page', async () => {
+      // [lld §T1 AC] "A Repositories tab appears as the fourth tab on the org page."
+      // [issue #365 AC] "Repositories tab appears as the fourth tab on org page"
+      mockCreateServer.mockResolvedValue(makeClient('admin') as never);
+
+      const { default: OrganisationPage } = await import(
+        '@/app/(authenticated)/organisation/page'
+      );
+
+      const result = await OrganisationPage();
+      expect(JSON.stringify(result)).toContain('RepositoriesTab');
+    });
+
+    it('calls listRepositories with the selected orgId', async () => {
+      // [lld §T1 org page changes] The page must invoke listRepositories(ctx, orgId)
+      // so the Repositories tab receives live data.
+      mockCreateServer.mockResolvedValue(makeClient('admin') as never);
+
+      const { default: OrganisationPage } = await import(
+        '@/app/(authenticated)/organisation/page'
+      );
+
+      await OrganisationPage();
+      expect(mockListRepositories).toHaveBeenCalledWith(
+        expect.anything(),
+        ORG_ID,
+      );
     });
   });
 });
