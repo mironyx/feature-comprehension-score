@@ -281,8 +281,8 @@ describe('finalise_rubric — org_id scoping', () => {
     return assessmentId;
   }
 
-  // 3-arg overload: passing a wrong org_id must not update the assessment row (#358).
-  it('3-arg: does not update assessment status when p_org_id does not match', async () => {
+  // 3-arg overload: wrong org_id raises an error and leaves no partial writes (#358).
+  it('3-arg: raises an error and inserts no questions when p_org_id does not match', async () => {
     const svc = secretClient();
     const realOrgId = await createTestOrg(svc);
     const wrongOrgId = await createTestOrg(svc);
@@ -297,13 +297,15 @@ describe('finalise_rubric — org_id scoping', () => {
       p_questions: questions,
     });
 
-    expect(error).toBeNull();
-    const { data } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
-    expect(data?.status).toBe('rubric_generation');
+    expect(error).not.toBeNull();
+    const { data: assessment } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
+    expect(assessment?.status).toBe('rubric_generation');
+    const { data: questionRows } = await svc.from('assessment_questions').select('id').eq('assessment_id', assessmentId);
+    expect(questionRows).toHaveLength(0);
   });
 
-  // 8-arg overload: passing a wrong org_id must not update the assessment row (#358).
-  it('8-arg: does not update assessment status when p_org_id does not match', async () => {
+  // 8-arg overload: wrong org_id raises an error and leaves no partial writes (#358).
+  it('8-arg: raises an error and inserts no questions when p_org_id does not match', async () => {
     const svc = secretClient();
     const realOrgId = await createTestOrg(svc);
     const wrongOrgId = await createTestOrg(svc);
@@ -323,9 +325,11 @@ describe('finalise_rubric — org_id scoping', () => {
       p_rubric_duration_ms: 1500,
     });
 
-    expect(error).toBeNull();
-    const { data } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
-    expect(data?.status).toBe('rubric_generation');
+    expect(error).not.toBeNull();
+    const { data: assessment } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
+    expect(assessment?.status).toBe('rubric_generation');
+    const { data: questionRows } = await svc.from('assessment_questions').select('id').eq('assessment_id', assessmentId);
+    expect(questionRows).toHaveLength(0);
   });
 });
 

@@ -6,6 +6,11 @@ CREATE OR REPLACE FUNCTION public.finalise_rubric(p_assessment_id uuid, p_org_id
  SET search_path TO 'public'
 AS $function$
 BEGIN
+  -- ADR-0025: verify ownership before any writes so the function is atomic.
+  IF NOT EXISTS (SELECT 1 FROM assessments WHERE id = p_assessment_id AND org_id = p_org_id) THEN
+    RAISE EXCEPTION 'assessment % does not belong to org %', p_assessment_id, p_org_id;
+  END IF;
+
   INSERT INTO assessment_questions (
     org_id, assessment_id, question_number,
     naur_layer, question_text, weight, reference_answer, hint
@@ -30,6 +35,11 @@ CREATE OR REPLACE FUNCTION public.finalise_rubric(p_assessment_id uuid, p_org_id
  SET search_path TO 'public'
 AS $function$
 BEGIN
+  -- ADR-0025: verify ownership before any writes so the function is atomic.
+  IF NOT EXISTS (SELECT 1 FROM assessments WHERE id = p_assessment_id AND org_id = p_org_id) THEN
+    RAISE EXCEPTION 'assessment % does not belong to org %', p_assessment_id, p_org_id;
+  END IF;
+
   INSERT INTO assessment_questions (
     org_id, assessment_id, question_number,
     naur_layer, question_text, weight, reference_answer, hint
