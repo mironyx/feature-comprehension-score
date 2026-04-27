@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
-| Status | Draft — Complete |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
 | Last updated | 2026-04-26 |
@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-04-26 | LS / Claude | Initial draft from freeform brief |
 | 0.2 | 2026-04-26 | LS / Claude | Resolve open questions; write acceptance criteria |
+| 1.0 | 2026-04-27 | LS / Claude | Gate 2 approved; finalise |
 
 ---
 
@@ -162,3 +163,10 @@ No open questions — both resolved during Gate 1 review.
 | All orgs shown all the time | Story 1.2 (passive state hides list by default) |
 | Need a way to select | Story 1.3 (picker open state) |
 | Need a way to cancel selection | Story 1.3 (dismiss without switching) |
+
+---
+
+## Next Steps
+
+1. Run `/architect docs/requirements/v9-requirements.md` to produce LLD and implementation tasks.
+
