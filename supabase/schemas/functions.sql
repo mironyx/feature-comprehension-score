@@ -303,7 +303,8 @@ BEGIN
 
   UPDATE assessments
   SET status = 'awaiting_responses', updated_at = now()
-  WHERE id = p_assessment_id;
+  WHERE id = p_assessment_id
+    AND org_id = p_org_id;
 END;
 $$;
 
@@ -345,7 +346,8 @@ BEGIN
       rubric_progress            = NULL,
       rubric_progress_updated_at = NULL,
       updated_at                 = now()
-  WHERE id = p_assessment_id;
+  WHERE id = p_assessment_id
+    AND org_id = p_org_id;
 END;
 $$;
 

@@ -252,6 +252,84 @@ describe('finalise_rubric', () => {
 });
 
 // ---------------------------------------------------------------------------
+// finalise_rubric — org_id scoping (#358, ADR-0025)
+// ---------------------------------------------------------------------------
+
+describe('finalise_rubric — org_id scoping', () => {
+  const orgIds: string[] = [];
+
+  afterEach(async () => {
+    const svc = secretClient();
+    for (const id of orgIds) await deleteTestOrg(svc, id);
+    orgIds.length = 0;
+  });
+
+  async function createAssessmentInOrg(svc: ReturnType<typeof secretClient>, orgId: string): Promise<string> {
+    const repoId = await createTestRepo(svc, orgId);
+    const assessmentId = crypto.randomUUID();
+    await svc.from('assessments').insert({
+      id: assessmentId,
+      org_id: orgId,
+      repository_id: repoId,
+      type: 'fcs',
+      status: 'rubric_generation',
+      config_enforcement_mode: 'soft',
+      config_score_threshold: 70,
+      config_question_count: 3,
+      config_min_pr_size: 20,
+    });
+    return assessmentId;
+  }
+
+  // 3-arg overload: passing a wrong org_id must not update the assessment row (#358).
+  it('3-arg: does not update assessment status when p_org_id does not match', async () => {
+    const svc = secretClient();
+    const realOrgId = await createTestOrg(svc);
+    const wrongOrgId = await createTestOrg(svc);
+    orgIds.push(realOrgId, wrongOrgId);
+
+    const assessmentId = await createAssessmentInOrg(svc, realOrgId);
+    const questions = [{ question_number: 1, naur_layer: 'world_to_program', question_text: 'Q', weight: 1, reference_answer: 'A' }];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: wrongOrgId,
+      p_questions: questions,
+    });
+
+    expect(error).toBeNull();
+    const { data } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
+    expect(data?.status).toBe('rubric_generation');
+  });
+
+  // 8-arg overload: passing a wrong org_id must not update the assessment row (#358).
+  it('8-arg: does not update assessment status when p_org_id does not match', async () => {
+    const svc = secretClient();
+    const realOrgId = await createTestOrg(svc);
+    const wrongOrgId = await createTestOrg(svc);
+    orgIds.push(realOrgId, wrongOrgId);
+
+    const assessmentId = await createAssessmentInOrg(svc, realOrgId);
+    const questions = [{ question_number: 1, naur_layer: 'world_to_program', question_text: 'Q', weight: 1, reference_answer: 'A' }];
+
+    const { error } = await svc.rpc('finalise_rubric', {
+      p_assessment_id: assessmentId,
+      p_org_id: wrongOrgId,
+      p_questions: questions,
+      p_rubric_input_tokens: 100,
+      p_rubric_output_tokens: 50,
+      p_rubric_tool_call_count: 2,
+      p_rubric_tool_calls: [],
+      p_rubric_duration_ms: 1500,
+    });
+
+    expect(error).toBeNull();
+    const { data } = await svc.from('assessments').select('status').eq('id', assessmentId).single();
+    expect(data?.status).toBe('rubric_generation');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // finalise_rubric — hint column (#220)
 // ---------------------------------------------------------------------------
 
