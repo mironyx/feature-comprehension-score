@@ -54,6 +54,9 @@ describe('AssessmentOverviewTable — double-null feature/PR edge', () => {
       participant_count: 2,
       completed_count: 1,
       created_at: '2026-04-01T10:00:00Z',
+      rubric_error_code: null,
+      rubric_retry_count: 0,
+      rubric_error_retryable: null,
     };
     const result = await renderTable([item]);
     const rendered = JSON.stringify(result);
@@ -80,6 +83,7 @@ vi.mock('@/app/api/assessments/helpers', () => ({
     pr_number: null, feature_name: null, aggregate_score: null,
     conclusion: null, config_comprehension_depth: null,
     participant_count: 0, completed_count: 0, created_at: '2026-01-01T00:00:00Z',
+    rubric_error_code: null, rubric_retry_count: 0, rubric_error_retryable: null,
   }),
 }));
 

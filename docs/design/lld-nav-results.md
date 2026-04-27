@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.4 |
+| Version | 1.6 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-21 |
-| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issues #297 + #295 sync; 2026-04-24 — Issue #315 sync |
+| Revised | 2026-04-21 — Issue #296 sync; 2026-04-22 — Issues #297 + #295 sync; 2026-04-24 — Issue #315 sync; 2026-04-27 — Issue #377 sync; 2026-04-27 — Issue #377 creation-flow correction |
 | Parent | [v1-design.md](v1-design.md) |
 | Epic | #294 |
 
@@ -137,9 +137,11 @@ The page queries assessments with `.in('status', ['rubric_generation', 'rubric_f
    - `completed`: status in `completed`, `scoring`
 3. **Render two sections** — "Pending" and "Completed" with separate empty states.
 4. **Completed row** — show feature name, aggregate score (formatted as percentage), and a link to `/assessments/[id]/results`.
-5. **Remove "New Assessment" button** — delete the `newAssessmentAction` block. **Keep** the `isOrgAdmin` / membership query — `RetryButton` (rendered for admin users on `rubric_failed` rows) still depends on it.
+5. **Remove "New Assessment" button** — delete the `newAssessmentAction` block. **Remove** the `isOrgAdmin` / membership query — it was only kept for `RetryButton`, which is now in the Organisation admin view.
 
-> **Implementation note (issue #295):** The membership query was retained because `RetryButton` is conditionally rendered for admins on failed rubric rows. Removing the query would have broken admin retry UX.
+> **Implementation note (issue #295):** The membership query was retained because `RetryButton` was conditionally rendered for admins on failed rubric rows. Removing the query would have broken admin retry UX at the time.
+
+> **Implementation note (issue #377):** The membership query and `RetryButton` were subsequently removed from the My Assessments page. Retry is an admin operational action and belongs in the Organisation admin view, not the participant list. `PollingStatusBadge` had its `admin` and `maxRetries` props removed at the same time. The `isAdmin` prop was also removed from `CreateAssessmentForm` (and its callers) as it was only used to pass `admin` to `PollingStatusBadge`. `RetryButton` is still rendered in the `rubric_failed` branch of `CreationProgress` (inside `create-assessment-form.tsx`) — directly from `useStatusPoll`, not via `PollingStatusBadge` — so admins can retry without navigating away during assessment creation.
 
 #### Contract types
 
@@ -233,7 +235,8 @@ export async function loadOrgAssessmentsOverview(
     .from('assessments')
     .select(
       'id, type, status, pr_number, feature_name, aggregate_score, conclusion, ' +
-      'config_comprehension_depth, created_at, repositories!inner(github_repo_name)',
+      'config_comprehension_depth, created_at, rubric_error_code, rubric_retry_count, ' +
+      'rubric_error_retryable, repositories!inner(github_repo_name)',
     )
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })
@@ -269,7 +272,7 @@ reads to own rows only, so the admin page needs the service client for accurate 
 | Feature / PR | `feature_name` or `PR #${pr_number}` |
 | Repository | `repositories.github_repo_name` |
 | Type | `type` (FCS / PRCC) |
-| Status | `status` |
+| Status | `status`; inline `RetryButton` for `rubric_failed` rows (with `rubric_error_code` label); `RetryButton` disabled when `rubric_retry_count >= 3` or `rubric_error_retryable === false` |
 | Score | `aggregate_score` (percentage or "—") |
 | Completion | `completed/total` participants |
 | Date | `created_at` (formatted) |
@@ -289,15 +292,18 @@ export async function loadOrgAssessmentsOverview(
 ): Promise<AssessmentListItem[]>;
 
 // assessment-overview-table.tsx
+const MAX_RETRIES = 3;
+
 export function AssessmentOverviewTable(
-  { assessments }: { assessments: AssessmentListItem[] },
+  { assessments, onDelete }: AssessmentOverviewTableProps,
 ): JSX.Element;
 
 // Private helpers inside assessment-overview-table.tsx:
 function formatFeature(item: AssessmentListItem): string;   // feature_name || 'PR #N' || '—'
 function formatScore(score: number | null): string;         // '82%' or '—'
 function formatDate(iso: string): string;                   // ISO date slice
-function renderRow(a: AssessmentListItem): JSX.Element;
+function renderRow(a: AssessmentListItem, onDelete?: (a: AssessmentListItem) => void): JSX.Element;
+function renderActionsCell(a: AssessmentListItem, onDelete: (a: AssessmentListItem) => void): JSX.Element;
 function renderEmptyState(): JSX.Element;
 ```
 
@@ -306,6 +312,13 @@ function renderEmptyState(): JSX.Element;
 > into each `AssessmentListItem` by `toListItem` in the loader, so the table does not
 > need a second prop. This keeps the component's props aligned with the shape returned
 > by `/api/assessments` and the My Assessments list.
+
+> **Implementation note (issue #377):** `AssessmentListItem` was extended with
+> `rubric_error_code: string | null`, `rubric_retry_count: number`, and
+> `rubric_error_retryable: boolean | null`. The loader select was updated accordingly.
+> `AssessmentOverviewTable` renders `RetryButton` inline in the Status cell for
+> `rubric_failed` rows, preceded by a `rubric_error_code` label when present.
+> `MAX_RETRIES = 3` is a module-level constant in the table file.
 
 #### BDD specs
 

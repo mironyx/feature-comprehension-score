@@ -36,6 +36,9 @@ export interface AssessmentListItem {
   participant_count: number;
   completed_count: number;
   created_at: string;
+  rubric_error_code: string | null;
+  rubric_retry_count: number;
+  rubric_error_retryable: boolean | null;
 }
 
 export const VALID_TYPES = new Set<string>(['prcc', 'fcs']);
@@ -60,7 +63,9 @@ export function toListItem(
   row: { id: string; type: AssessmentType; status: AssessmentStatus; repositories: unknown;
          pr_number: number | null; feature_name: string | null; aggregate_score: number | null;
          conclusion: Conclusion; config_comprehension_depth: ComprehensionDepth;
-         created_at: string },
+         created_at: string;
+         rubric_error_code?: string | null; rubric_retry_count?: number | null;
+         rubric_error_retryable?: boolean | null },
   counts: ParticipantCounts,
 ): AssessmentListItem {
   return {
@@ -76,6 +81,9 @@ export function toListItem(
     participant_count: counts[row.id]?.total ?? 0,
     completed_count: counts[row.id]?.submitted ?? 0,
     created_at: row.created_at,
+    rubric_error_code: row.rubric_error_code ?? null,
+    rubric_retry_count: row.rubric_retry_count ?? 0,
+    rubric_error_retryable: row.rubric_error_retryable ?? null,
   };
 }
 

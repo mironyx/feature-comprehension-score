@@ -11,7 +11,10 @@
 import Link from 'next/link';
 import { Trash2, MoreHorizontal } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { RetryButton } from '@/app/(authenticated)/assessments/retry-button';
 import type { AssessmentListItem } from '@/app/api/assessments/helpers';
+
+const MAX_RETRIES = 3;
 
 interface AssessmentOverviewTableProps {
   assessments: AssessmentListItem[];
@@ -69,7 +72,24 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
       </td>
       <td className={TD}>{a.repository_name}</td>
       <td className={`${TD} uppercase`}>{a.type}</td>
-      <td className="px-3 py-2"><StatusBadge status={a.status} /></td>
+      <td className="px-3 py-2">
+        <span className="inline-flex items-center gap-2">
+          <StatusBadge status={a.status} />
+          {a.status === 'rubric_failed' && (
+            <>
+              {a.rubric_error_code && (
+                <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
+              )}
+              <RetryButton
+                assessmentId={a.id}
+                retryCount={a.rubric_retry_count}
+                maxRetries={MAX_RETRIES}
+                errorRetryable={a.rubric_error_retryable}
+              />
+            </>
+          )}
+        </span>
+      </td>
       <td className={TD}>{formatScore(a.aggregate_score)}</td>
       <td className={TD}>{a.completed_count}/{a.participant_count}</td>
       <td className={TD}>{formatDate(a.created_at)}</td>

@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { PollingStatusBadge } from '../polling-status-badge';
+import { RetryButton } from '../retry-button';
 import { useStatusPoll } from '../use-status-poll';
 
 interface Repository {
@@ -19,7 +20,6 @@ interface Repository {
 interface CreateAssessmentFormProps {
   readonly orgId: string;
   readonly repositories: Repository[];
-  readonly isAdmin: boolean;
 }
 
 interface FormState {
@@ -121,8 +121,8 @@ interface CreationResult {
   readonly featureName: string;
 }
 
-function CreationProgress({ assessmentId, featureName, isAdmin }: CreationResult & { isAdmin: boolean }) {
-  const { status } = useStatusPoll(assessmentId, 'rubric_generation');
+function CreationProgress({ assessmentId, featureName }: CreationResult) {
+  const { status, rubricRetryCount, rubricErrorRetryable } = useStatusPoll(assessmentId, 'rubric_generation');
 
   if (status === 'awaiting_responses') {
     return (
@@ -146,6 +146,12 @@ function CreationProgress({ assessmentId, featureName, isAdmin }: CreationResult
           <p className="text-body text-destructive">
             Rubric generation failed for <strong>{featureName}</strong>.
           </p>
+          <RetryButton
+            assessmentId={assessmentId}
+            retryCount={rubricRetryCount}
+            maxRetries={3}
+            errorRetryable={rubricErrorRetryable}
+          />
           <Link href="/assessments" className="text-primary underline">
             Back to assessments
           </Link>
@@ -160,7 +166,7 @@ function CreationProgress({ assessmentId, featureName, isAdmin }: CreationResult
         <p className="text-body text-text-primary">
           Creating assessment: <strong>{featureName}</strong>
         </p>
-        <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" admin={isAdmin} maxRetries={3} />
+        <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" />
         <div>
           <Link href="/assessments" className="text-primary underline text-body">
             Go to assessments list
@@ -171,7 +177,7 @@ function CreationProgress({ assessmentId, featureName, isAdmin }: CreationResult
   );
 }
 
-export default function CreateAssessmentForm({ orgId, repositories, isAdmin }: CreateAssessmentFormProps) {
+export default function CreateAssessmentForm({ orgId, repositories }: CreateAssessmentFormProps) {
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
   // Justification: S1854 false positive — React reads `errors` on every render via useState; the initial [] is not a dead assignment.
   const [errors, setErrors] = useState<string[]>([]);
@@ -221,7 +227,7 @@ export default function CreateAssessmentForm({ orgId, repositories, isAdmin }: C
   const inputClasses = 'w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary';
 
   if (created) {
-    return <CreationProgress assessmentId={created.assessmentId} featureName={created.featureName} isAdmin={isAdmin} />;
+    return <CreationProgress assessmentId={created.assessmentId} featureName={created.featureName} />;
   }
 
   return (
