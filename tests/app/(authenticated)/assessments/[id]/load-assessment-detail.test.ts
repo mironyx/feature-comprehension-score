@@ -657,6 +657,6 @@ describe('Given the assessment row exists but a parallel DB query fails', () => 
     // Simulate a questions query DB error (not not-found, but a real DB failure)
     questionsResult = { data: null, error: { code: '08006', message: 'connection closed unexpectedly' } };
 
-    await expect(callLoader()).rejects.toThrow('loadAssessmentDetail parallel query failed');
+    await expect(callLoader()).rejects.toThrow('Internal server error');
   });
 });
