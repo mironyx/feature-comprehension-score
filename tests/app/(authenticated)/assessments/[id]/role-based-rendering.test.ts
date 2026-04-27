@@ -13,10 +13,6 @@ vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: vi.fn(),
 }));
 
-vi.mock('@/lib/supabase/secret', () => ({
-  createSecretSupabaseClient: vi.fn(),
-}));
-
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -32,11 +28,9 @@ vi.mock('next/navigation', () => ({
 // ---------------------------------------------------------------------------
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { redirect, notFound } from 'next/navigation';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
-const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
 const mockRedirect = vi.mocked(redirect);
 const mockNotFound = vi.mocked(notFound);
 
@@ -147,29 +141,6 @@ function makeServerClient(
   return { client, rpcSpy };
 }
 
-/**
- * Builds a minimal secret Supabase client.
- * After T2 rewrite the page fetches via the API; the secret client is only
- * used for `fetchQuestions`.  We provide a minimal chain here.
- */
-function makeSecretClient(questions: object[] = []) {
-  const client = {
-    from: vi.fn((table: string) => {
-      if (table === 'assessment_questions') {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: questions, error: null }),
-            }),
-          }),
-        };
-      }
-      return {};
-    }),
-  };
-  return client;
-}
-
 function makeParams(id = ASSESSMENT_ID) {
   return Promise.resolve({ id });
 }
@@ -186,20 +157,17 @@ async function arrangePage(opts: {
   detail: ReturnType<typeof makeAdminDetail> | null;
   refreshedDetail?: ReturnType<typeof makeAdminDetail> | null;
   user?: { id: string; user_metadata?: Record<string, unknown> } | null;
-  questions?: object[];
   linkRpcResult?: { data: unknown; error: unknown };
 }) {
   const {
     detail,
     refreshedDetail = detail,
     user = AUTHED_USER,
-    questions = [],
     linkRpcResult = { data: null, error: null },
   } = opts;
 
   const { client: serverClient, rpcSpy: serverRpcSpy } = makeServerClient(user, linkRpcResult);
   mockCreateServer.mockResolvedValue(serverClient as never);
-  mockCreateSecret.mockReturnValue(makeSecretClient(questions) as never);
 
   // Stub global.fetch for the API calls the page makes
   let fetchCallCount = 0;

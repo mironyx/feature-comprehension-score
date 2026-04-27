@@ -47,6 +47,8 @@ function AlreadySubmittedPage({ assessmentId }: { readonly assessmentId: string 
 // Data fetching
 // ---------------------------------------------------------------------------
 
+// Next.js App Router patches global fetch for server components: relative URLs resolve
+// to the same origin and cookies are forwarded automatically. See LLD §T2 impl note.
 async function fetchAssessmentDetail(
   assessmentId: string,
 ): Promise<AssessmentDetailResponse | null> {
