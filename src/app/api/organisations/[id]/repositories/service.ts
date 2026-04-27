@@ -117,17 +117,21 @@ export async function addRepository(
 ): Promise<AddRepoResponse> {
   await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
 
-  const { data: existing } = await ctx.adminSupabase
+  const { data: existing, error: dedupError } = await ctx.adminSupabase
     .from('repositories')
     .select('id')
     .eq('org_id', orgId)
     .eq('github_repo_id', body.github_repo_id)
     .maybeSingle();
+  if (dedupError) throw new ApiError(500, `addRepository dedup: ${dedupError.message}`);
   if (existing) throw new ApiError(409, 'already_registered');
 
   return insertRepository(ctx.adminSupabase, orgId, body);
 }
 
+// Justification: extracted from addRepository to keep that function within the 20-line
+// limit (CLAUDE.md §Complexity Budget). The LLD §T2 shows the insert logic inline in
+// addRepository; this helper is a mechanical extraction, not a design change.
 async function insertRepository(
   admin: AdminClient,
   orgId: string,
@@ -140,6 +144,7 @@ async function insertRepository(
     .single();
   if (error) throw new ApiError(500, `insertRepository: ${error.message}`);
   if (!data) throw new ApiError(500, 'insertRepository: no data returned');
+  // Supabase infers a wider DB type; .select('id, github_repo_name') guarantees these two fields.
   return data as AddRepoResponse;
 }
 
