@@ -54,7 +54,10 @@ async function fetchAssessmentDetail(
 ): Promise<AssessmentDetailResponse | null> {
   const res = await fetch(`/api/assessments/${assessmentId}`, { cache: 'no-store' });
   if (res.status === 404 || res.status === 401) return null;
-  if (!res.ok) return null;
+  if (!res.ok) {
+    logger.warn({ status: res.status, assessmentId }, 'fetchAssessmentDetail: unexpected status');
+    return null;
+  }
   return res.json() as Promise<AssessmentDetailResponse>;
 }
 

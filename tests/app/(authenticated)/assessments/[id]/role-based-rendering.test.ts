@@ -103,19 +103,6 @@ function makeParticipantDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeQuestion(n: number) {
-  return {
-    id: `question-00${n}`,
-    question_number: n,
-    naur_layer: 'world_to_program',
-    question_text: `Question ${n}?`,
-    weight: 1,
-    hint: null,
-    aggregate_score: null,
-    reference_answer: null,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Mock client builders
 // ---------------------------------------------------------------------------
@@ -244,10 +231,7 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
       const detail = makeParticipantDetail({
         my_participation: { participant_id: 'p-001', status: 'pending', submitted_at: null },
       });
-      const { AssessmentPage } = await arrangePage({
-        detail,
-        questions: [makeQuestion(1), makeQuestion(2)],
-      });
+      const { AssessmentPage } = await arrangePage({ detail });
       const result = await AssessmentPage({ params: makeParams() });
       const html = renderToStaticMarkup(result as React.ReactElement);
       // The answering form should render — not an error page
@@ -280,11 +264,7 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
       const refreshed = makeParticipantDetail({
         my_participation: { participant_id: 'p-new', status: 'pending', submitted_at: null },
       });
-      const { AssessmentPage } = await arrangePage({
-        detail: initial,
-        refreshedDetail: refreshed,
-        questions: [makeQuestion(1)],
-      });
+      const { AssessmentPage } = await arrangePage({ detail: initial, refreshedDetail: refreshed });
       const result = await AssessmentPage({ params: makeParams() });
       const html = renderToStaticMarkup(result as React.ReactElement);
       expect(html).not.toContain('Access Denied');
@@ -329,11 +309,7 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
       const refreshed = makeParticipantDetail({
         my_participation: { participant_id: 'p-new', status: 'pending', submitted_at: null },
       });
-      const { AssessmentPage, serverRpcSpy } = await arrangePage({
-        detail: initial,
-        refreshedDetail: refreshed,
-        questions: [makeQuestion(1)],
-      });
+      const { AssessmentPage, serverRpcSpy } = await arrangePage({ detail: initial, refreshedDetail: refreshed });
       await AssessmentPage({ params: makeParams() });
       expect(serverRpcSpy).toHaveBeenCalledWith('link_participant', {
         p_assessment_id: ASSESSMENT_ID,
