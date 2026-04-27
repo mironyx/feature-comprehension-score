@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
 | Revised | 2026-04-27 — Issue #365 |
+| Revised | 2026-04-27 — Issue #366 |
 | Epic | [#360](https://github.com/mironyx/feature-comprehension-score/issues/360) |
 | Requirements | [docs/requirements/v8-requirements.md](../requirements/v8-requirements.md) — Epic 2 |
 | Parent design | [docs/design/v1-design.md](v1-design.md) |
@@ -371,17 +372,7 @@ describe('RepositoriesTab')
 ```typescript
 // Additional imports (at top of existing route.ts):
 import { addRepository } from './service';
-
-// New contract types:
-interface AddRepoBody {
-  github_repo_id: number;
-  github_repo_name: string;
-}
-
-interface AddRepoResponse {
-  id: string;
-  github_repo_name: string;
-}
+import type { AddRepoBody } from './service';
 
 // POST /api/organisations/[id]/repositories
 // Body: AddRepoBody
@@ -401,7 +392,24 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
 #### addRepository service function
 
+> **Implementation note (issue #366):** Three corrections from what the spec showed:
+> 1. Admin check reuses the existing `assertOrgAdmin` helper from T1 rather than repeating the inline query.
+> 2. Dedup SELECT captures `existingError` and throws `ApiError(500, ...)` on DB failure — the spec silently dropped the error.
+> 3. Insert delegated to a private `insertRepository` helper to keep `addRepository` within the CLAUDE.md 20-line function limit. Separate `if (error)` / `if (!data)` checks include the DB error message for observability.
+> Types `AddRepoBody` and `AddRepoResponse` are exported from `service.ts` (where the function lives) and imported by `route.ts`.
+
 ```typescript
+// Exported contract types (in service.ts, imported by route.ts):
+export interface AddRepoBody {
+  github_repo_id: number;
+  github_repo_name: string;
+}
+
+export interface AddRepoResponse {
+  id: string;
+  github_repo_name: string;
+}
+
 // Add to service.ts:
 
 export async function addRepository(
@@ -409,36 +417,37 @@ export async function addRepository(
   orgId: string,
   body: AddRepoBody,
 ): Promise<AddRepoResponse> {
-  // 1. Admin check
-  const { data: membership } = await ctx.supabase
-    .from('user_organisations').select('github_role')
-    .eq('user_id', ctx.user.id).eq('org_id', orgId).maybeSingle();
-  if (membership?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
+  await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
 
-  // 2. Dedup check
-  const { data: existing } = await ctx.adminSupabase
+  const { data: existing, error: existingError } = await ctx.adminSupabase
     .from('repositories').select('id')
     .eq('org_id', orgId).eq('github_repo_id', body.github_repo_id).maybeSingle();
+  if (existingError) throw new ApiError(500, `addRepository: ${existingError.message}`);
   if (existing) throw new ApiError(409, 'already_registered');
 
-  // 3. Insert
-  const { data, error } = await ctx.adminSupabase
+  return insertRepository(ctx.adminSupabase, orgId, body);
+}
+
+// Justification: extracted to keep addRepository within the 20-line limit.
+async function insertRepository(
+  adminSupabase: AdminClient,
+  orgId: string,
+  body: AddRepoBody,
+): Promise<AddRepoResponse> {
+  const { data, error } = await adminSupabase
     .from('repositories')
-    .insert({
-      org_id: orgId,
-      github_repo_id: body.github_repo_id,
-      github_repo_name: body.github_repo_name,
-      status: 'active',
-    })
+    .insert({ org_id: orgId, github_repo_id: body.github_repo_id, github_repo_name: body.github_repo_name, status: 'active' })
     .select('id, github_repo_name')
     .single();
-  if (error || !data) throw new ApiError(500, 'Internal server error');
-
+  if (error) throw new ApiError(500, `insertRepository: ${error.message}`);
+  if (!data) throw new ApiError(500, 'insertRepository: no data returned');
   return data as AddRepoResponse;
 }
 ```
 
 #### AddRepositoryButton (client component)
+
+> **Implementation note (issue #366):** The inline `className` string was extracted to a module-level `BUTTON_CLASSES` constant to keep the `AddRepositoryButton` function readable (long class strings inline push the JSX block past the visual limit).
 
 ```typescript
 // src/app/(authenticated)/organisation/add-repository-button.tsx
