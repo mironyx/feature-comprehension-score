@@ -328,9 +328,9 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
 }
 ```
 
-> **Implementation note (issue #364):** The helper is named `fetchAssessmentDetail` (not `fetchAssessmentDetailFromApi`). `parseGithubUserId` was not extracted — the two-line inline is below the complexity threshold. The `answering(d)` helper extracts the JSX for `AnsweringForm` to avoid repeating the full prop list. Questions are read from `detail.questions` (returned by the API) — no separate `fetchQuestions` call using `adminSupabase` is needed.
+> **Implementation note (issue #364):** The helper is named `fetchAssessmentDetail` (not `fetchAssessmentDetailFromApi`). `parseGithubUserId` was not extracted — the two-line inline is below the complexity threshold. The `answering(d)` helper extracts the JSX for `AnsweringForm` to avoid repeating the full prop list. Questions are read from `detail.questions` (returned by the loader) — no separate `fetchQuestions` call using `adminSupabase` is needed.
 
-> **Implementation note (issue #364):** `fetchAssessmentDetail` uses `fetch('/api/assessments/' + id)` with `{ cache: 'no-store' }` inside a server component. Next.js patches global fetch for server components: relative URLs resolve to the same origin and cookies are forwarded automatically.
+> **Implementation note (issue #376 — corrects #364):** The page uses `loadAssessmentDetail` from `src/app/(authenticated)/assessments/[id]/load-assessment-detail.ts` — a direct Supabase loader that mirrors the query logic from `GET /api/assessments/[id]`. The earlier approach of calling `fetch('/api/assessments/' + id)` with a relative URL was incorrect: Node.js `fetch` (undici) requires an absolute URL and throws `ERR_INVALID_URL` for relative paths. Next.js does **not** patch global fetch for server components to resolve relative URLs — only route caching and de-duplication are patched. The loader calls the user-scoped Supabase client for the main assessment row and org-membership check (RLS applies), and the service-role client for questions, all-participants, and FCS source tables.
 
 #### AssessmentAdminView
 
