@@ -1,3 +1,4 @@
+// Design reference: docs/design/lld-v9-org-switcher.md
 'use client';
 
 import { useState, useRef } from 'react';
@@ -20,12 +21,9 @@ interface OrgPickerDropdownProps {
 
 export function OrgPickerDropdown({ allOrgs, currentOrg, onClose }: OrgPickerDropdownProps) {
   return (
-    <ul
-      role="listbox"
-      className="absolute right-0 top-full mt-1 min-w-[180px] rounded-md border border-border bg-surface-raised shadow-md z-50 py-1"
-    >
+    <ul className="absolute right-0 top-full mt-1 min-w-[180px] rounded-md border border-border bg-surface-raised shadow-md z-50 py-1">
       {allOrgs.map((org) => (
-        <li key={org.id} role="option" aria-selected={org.id === currentOrg.id} aria-current={org.id === currentOrg.id ? 'true' : undefined}>
+        <li key={org.id} aria-current={org.id === currentOrg.id ? 'true' : undefined}>
           {org.id === currentOrg.id ? (
             <button
               onClick={onClose}
@@ -61,6 +59,7 @@ export function OrgSwitcher({ currentOrg, allOrgs }: OrgSwitcherProps) {
       className="relative"
       onKeyDown={(e) => {
         if (e.key !== 'Escape') return;
+        e.stopPropagation();
         triggerRef.current?.focus();
         setIsOpen(false);
       }}
@@ -68,6 +67,7 @@ export function OrgSwitcher({ currentOrg, allOrgs }: OrgSwitcherProps) {
       <button
         ref={triggerRef}
         aria-label="Switch organisation"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
         className="flex items-center gap-1 text-label text-text-secondary hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent rounded-sm"
       >

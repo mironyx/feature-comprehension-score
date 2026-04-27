@@ -67,8 +67,8 @@ function makeOrg(overrides: Partial<OrgRow> = {}): OrgRow {
     github_org_id: 1001,
     installation_id: 9001,
     status: 'active',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
 }
@@ -424,8 +424,8 @@ describe('OrgSwitcher — Escape key behaviour', () => {
     );
     expect(container, 'container div must expose onKeyDown').toBeDefined();
 
-    const onKeyDown = container!.props!.onKeyDown as (e: { key: string }) => void;
-    onKeyDown({ key: 'Escape' });
+    const onKeyDown = container!.props!.onKeyDown as (e: { key: string; stopPropagation: () => void }) => void;
+    onKeyDown({ key: 'Escape', stopPropagation: vi.fn() });
 
     // focus() must be called first, then the setter.
     expect(triggerRefStub.current?.focus).toHaveBeenCalled();

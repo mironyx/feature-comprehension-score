@@ -1,3 +1,4 @@
+// Design reference: docs/design/lld-v9-org-switcher.md §src/hooks/use-dismiss-effect.ts
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 
