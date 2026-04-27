@@ -149,25 +149,7 @@ For bug fixes: always include one regression test that would fail on the pre-fix
 behaviour. The test should reference the issue number in its name or a comment so a
 future maintainer can trace the assertion to its cause.
 
-### Step 5: Confirm the tests compile and fail in the expected way
-
-Run the tests:
-
-```bash
-npx vitest run <target_test_file>
-```
-
-- **Feature mode:** all tests should FAIL with clear, actionable errors ("expected X to
-  contain Y, got Z" — not "Cannot find name 'foo'" type errors). Type or import errors
-  mean your test file has a bug, not that the contract is unmet. Fix those.
-- **Bugfix mode:** the regression test(s) should FAIL in the way the issue describes.
-  Other tests should PASS (they describe already-correct behaviour).
-
-If a test passes in feature mode or fails in an unrelated way in bugfix mode, re-read
-your test and the spec. Either your test has a bug, or you inferred a property the spec
-did not actually promise.
-
-### Step 6: Report
+### Step 5: Report
 
 Return a structured report:
 
@@ -189,10 +171,6 @@ Return a structured report:
 
 ### Test count
 <N> tests across <M> describe blocks
-
-### Run outcome
-- Feature mode: <N> failed as expected, <M> failed with infra errors (fix needed), <K> passed unexpectedly
-- Bugfix mode: <N> regression tests failed as expected, <M> existing-behaviour tests passed
 
 ### Unresolved spec gaps
 <any property you could not confidently test because the spec was ambiguous, or list "none">
