@@ -294,7 +294,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!user) redirect('/auth/sign-in');
 
   // Server-side fetch (cookies are forwarded by Next.js in server components)
-  const detail = await fetchAssessmentDetailFromApi(assessmentId);
+  const detail = await fetchAssessmentDetail(assessmentId);
   // detail is AssessmentDetailResponse | null (null → 404)
 
   if (detail === null) notFound();
@@ -305,42 +305,32 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
 
   // Participant path — run link_participant if not yet linked
   if (!detail.my_participation) {
-    const githubUserId = parseGithubUserId(user.user_metadata);
-    if (githubUserId) {
-      await supabase.rpc('link_participant', {
-        p_assessment_id: assessmentId,
-        p_github_user_id: githubUserId,
-      }).then(({ error }) => {
-        if (error) logger.error({ err: error }, 'link_participant failed');
-      });
-      // Re-fetch after linking attempt
-      const refreshed = await fetchAssessmentDetailFromApi(assessmentId);
-      if (refreshed?.my_participation === null) return <AccessDeniedPage />;
-      if (refreshed?.my_participation?.status === 'submitted') return <AlreadySubmittedPage assessmentId={assessmentId} />;
-    } else {
-      return <AccessDeniedPage />;
-    }
+    const githubUserId = user.user_metadata?.['provider_id'];
+    const parsedId = typeof githubUserId === 'string' ? parseInt(githubUserId, 10) : undefined;
+    if (!parsedId) return <AccessDeniedPage />;
+    await supabase.rpc('link_participant', {
+      p_assessment_id: assessmentId,
+      p_github_user_id: parsedId,
+    }).then(({ error }) => {
+      if (error) logger.error({ err: error }, 'link_participant failed');
+    });
+    const refreshed = await fetchAssessmentDetail(assessmentId);
+    if (!refreshed?.my_participation) return <AccessDeniedPage />;
+    if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage assessmentId={assessmentId} />;
+    return answering(refreshed);
   }
 
-  if (detail.my_participation?.status === 'submitted') {
+  if (detail.my_participation.status === 'submitted') {
     return <AlreadySubmittedPage assessmentId={assessmentId} />;
   }
 
-  const adminSupabase = createSecretSupabaseClient();
-  const questions = await fetchQuestions(adminSupabase, assessmentId);
-
-  return (
-    <AnsweringForm
-      assessment={detail}
-      questions={questions}
-      sourcePrs={detail.fcs_prs}
-      sourceIssues={detail.fcs_issues}
-    />
-  );
+  return answering(detail);
 }
 ```
 
-> **Implementation note:** `fetchAssessmentDetailFromApi` uses `fetch('/api/assessments/' + id)` with `{ cache: 'no-store' }` inside a server component. Next.js forwards cookies automatically for same-origin requests in server components.
+> **Implementation note (issue #364):** The helper is named `fetchAssessmentDetail` (not `fetchAssessmentDetailFromApi`). `parseGithubUserId` was not extracted — the two-line inline is below the complexity threshold. The `answering(d)` helper extracts the JSX for `AnsweringForm` to avoid repeating the full prop list. Questions are read from `detail.questions` (returned by the API) — no separate `fetchQuestions` call using `adminSupabase` is needed.
+
+> **Implementation note (issue #364):** `fetchAssessmentDetail` uses `fetch('/api/assessments/' + id)` with `{ cache: 'no-store' }` inside a server component. Next.js patches global fetch for server components: relative URLs resolve to the same origin and cookies are forwarded automatically.
 
 #### AssessmentAdminView
 
@@ -377,7 +367,7 @@ Status badge for participant status: reuse `StatusBadge` from `src/components/ui
 interface AssessmentSourceListProps {
   readonly prs: FcsPr[];
   readonly issues: FcsIssue[];
-  readonly repositoryFullName?: string;
+  // repositoryFullName omitted — unused at all call sites (YAGNI, issue #364)
 }
 
 export function AssessmentSourceList({ prs, issues }: AssessmentSourceListProps) {
