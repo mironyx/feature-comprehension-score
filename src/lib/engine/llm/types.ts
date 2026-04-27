@@ -45,6 +45,7 @@ export interface LLMClient {
 // so the real logger can be passed directly without an adapter.
 export interface LLMLogger {
   info(obj: Record<string, unknown>, msg: string): void;
+  warn(obj: Record<string, unknown>, msg: string): void;
   error(obj: Record<string, unknown>, msg: string): void;
 }
 

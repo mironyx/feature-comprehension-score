@@ -39,6 +39,7 @@ vi.mock('react', async (importOriginal) => {
   return {
     ...actual,
     useState: vi.fn((initial: unknown) => [initial, vi.fn()]),
+    useEffect: vi.fn(),
   };
 });
 
@@ -62,6 +63,11 @@ vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
   RetryButton: ({ assessmentId, retryCount, maxRetries }: {
     assessmentId: string; retryCount: number; maxRetries: number;
   }) => `[RetryButton:${assessmentId}:${retryCount}/${maxRetries}]`,
+}));
+
+// PollingStatusBadge is a client component with hooks — stub to a recognisable marker.
+vi.mock('@/app/(authenticated)/assessments/polling-status-badge', () => ({
+  PollingStatusBadge: ({ assessmentId }: { assessmentId: string }) => `[PollingStatusBadge:${assessmentId}]`,
 }));
 
 // Stub lucide-react icons so renderToStaticMarkup emits a recognisable element
@@ -775,5 +781,65 @@ describe('AssessmentOverviewTable — RetryButton for rubric_failed (#377)', () 
       const html = await renderTableHtml([item]);
       expect(html).toContain('[RetryButton:retry-002:2/3]');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 5: AssessmentOverviewTable — PollingStatusBadge for rubric_generation
+//
+// After retry the status transitions to rubric_generation. The org view must
+// render PollingStatusBadge (not RetryButton) for such rows.
+// Issue: fix/retry-ui-frozen
+// ---------------------------------------------------------------------------
+
+describe('AssessmentOverviewTable — PollingStatusBadge for rubric_generation', () => {
+
+  async function renderTableHtmlG5(assessments: AssessmentListItem[]): Promise<string> {
+    const { AssessmentOverviewTable } = await vi.importActual<
+      typeof import('@/app/(authenticated)/organisation/assessment-overview-table')
+    >('@/app/(authenticated)/organisation/assessment-overview-table');
+    return renderToStaticMarkup(AssessmentOverviewTable({ assessments }) as ReactElement);
+  }
+
+  describe('Given an assessment with status rubric_generation', () => {
+    it('renders PollingStatusBadge instead of StatusBadge', async () => {
+      const item = makeAssessmentItem({ id: 'gen-001', status: 'rubric_generation' });
+      const html = await renderTableHtmlG5([item]);
+      expect(html).toContain('[PollingStatusBadge:gen-001]');
+    });
+
+    it('does not render RetryButton for rubric_generation rows', async () => {
+      const item = makeAssessmentItem({ id: 'gen-002', status: 'rubric_generation' });
+      const html = await renderTableHtmlG5([item]);
+      expect(html).not.toContain('[RetryButton:');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 6: DeleteableAssessmentTable — useEffect syncs initialAssessments to state
+//
+// router.refresh() re-fetches server data and passes new initialAssessments to the
+// client component. The useEffect must update local state so the table re-renders
+// with fresh data (e.g. status rubric_generation after retry).
+// Issue: fix/retry-ui-frozen
+// ---------------------------------------------------------------------------
+
+const DELETEABLE_SRC = readFileSync(
+  resolve(__dirname, '../../../../src/app/(authenticated)/organisation/deleteable-assessment-table.tsx'),
+  'utf8',
+);
+
+describe('DeleteableAssessmentTable — initialAssessments sync via useEffect', () => {
+  it('imports useEffect from react', () => {
+    expect(DELETEABLE_SRC).toContain('useEffect');
+  });
+
+  it('calls useEffect with setAssessments and initialAssessments dependency', () => {
+    expect(DELETEABLE_SRC).toMatch(/useEffect\([\s\S]*?setAssessments[\s\S]*?initialAssessments/);
+  });
+
+  it('includes initialAssessments in the useEffect dependency array', () => {
+    expect(DELETEABLE_SRC).toMatch(/\[initialAssessments\]/);
   });
 });

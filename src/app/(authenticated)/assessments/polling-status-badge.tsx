@@ -3,6 +3,8 @@
 // Issue: #207, #274, #333
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useStatusPoll } from './use-status-poll';
 import { isTerminalStatus } from './poll-status';
@@ -13,9 +15,14 @@ interface Props {
   initialStatus: string;
 }
 
-export function PollingStatusBadge({ assessmentId, initialStatus }: Props) {
+export function PollingStatusBadge({ assessmentId, initialStatus }: Readonly<Props>) {
+  const router = useRouter();
   const { status, rubricProgress, rubricProgressUpdatedAt, timedOut } =
     useStatusPoll(assessmentId, initialStatus);
+
+  useEffect(() => {
+    if (isTerminalStatus(status)) router.refresh();
+  }, [status, router]);
 
   const progressLabel = getProgressLabel(rubricProgress);
   const showStale =

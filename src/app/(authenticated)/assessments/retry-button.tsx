@@ -12,25 +12,31 @@ export interface RetryButtonProps {
   retryCount: number;
   maxRetries: number;
   errorRetryable: boolean | null;
+  onSuccess?: () => void;
 }
 
-// Justification: getDisabledReason is not in the LLD §18.2 internal decomposition —
-// extracted from the RetryButton component body to keep it under the 20-line budget
-// (CLAUDE.md) and to make the guardrail precedence (retries-reached > not-retryable)
-// independently testable.
+// Justification: getDisabledReason and getButtonLabel are not in the LLD §18.2 internal
+// decomposition — extracted from the RetryButton component body to keep it under the
+// 20-line budget (CLAUDE.md) and to make guardrail logic independently testable.
 function getDisabledReason(retryCount: number, maxRetries: number, errorRetryable: boolean | null): string | null {
   if (retryCount >= maxRetries) return `Maximum retries reached (${maxRetries} of ${maxRetries})`;
   if (errorRetryable === false) return 'This error is not retryable';
   return null;
 }
 
-export function RetryButton({ assessmentId, retryCount, maxRetries, errorRetryable }: RetryButtonProps) {
+function getButtonLabel(loading: boolean, disabled: boolean, retryCount: number, maxRetries: number): string {
+  if (loading) return 'Retrying...';
+  if (disabled) return 'Retry';
+  return `Retry (Attempt ${retryCount + 1} of ${maxRetries})`;
+}
+
+export function RetryButton({ assessmentId, retryCount, maxRetries, errorRetryable, onSuccess }: Readonly<RetryButtonProps>) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const disabledReason = getDisabledReason(retryCount, maxRetries, errorRetryable);
-  const attemptLabel = `Retry (Attempt ${retryCount + 1} of ${maxRetries})`;
+  const buttonLabel = getButtonLabel(loading, disabledReason !== null, retryCount, maxRetries);
 
   async function handleRetry() {
     setLoading(true);
@@ -44,6 +50,7 @@ export function RetryButton({ assessmentId, retryCount, maxRetries, errorRetryab
         setError((body as { error?: string }).error ?? 'Retry failed');
         return;
       }
+      onSuccess?.();
       router.refresh();
     } catch {
       setError('Network error');
@@ -60,7 +67,7 @@ export function RetryButton({ assessmentId, retryCount, maxRetries, errorRetryab
         onClick={handleRetry}
         disabled={loading || disabledReason !== null}
       >
-        {loading ? 'Retrying...' : attemptLabel}
+        {buttonLabel}
       </Button>
       {disabledReason && <span className="text-caption text-text-secondary">{disabledReason}</span>}
       {error && <span role="alert" className="text-caption text-destructive">{error}</span>}

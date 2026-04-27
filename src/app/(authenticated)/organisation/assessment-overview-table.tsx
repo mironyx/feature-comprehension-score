@@ -11,6 +11,7 @@
 import Link from 'next/link';
 import { Trash2, MoreHorizontal } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PollingStatusBadge } from '@/app/(authenticated)/assessments/polling-status-badge';
 import { RetryButton } from '@/app/(authenticated)/assessments/retry-button';
 import type { AssessmentListItem } from '@/app/api/assessments/helpers';
 
@@ -74,7 +75,9 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
       <td className={`${TD} uppercase`}>{a.type}</td>
       <td className="px-3 py-2">
         <span className="inline-flex items-center gap-2">
-          <StatusBadge status={a.status} />
+          {a.status === 'rubric_generation'
+            ? <PollingStatusBadge assessmentId={a.id} initialStatus="rubric_generation" />
+            : <StatusBadge status={a.status} />}
           {a.status === 'rubric_failed' && (
             <>
               {a.rubric_error_code && (

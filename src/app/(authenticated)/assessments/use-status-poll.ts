@@ -19,6 +19,7 @@ export interface PollResult {
 export function useStatusPoll(
   assessmentId: string,
   initialStatus: string,
+  pollKey: number = 0,
 ): PollResult {
   const [snapshot, setSnapshot] = useState<PollSnapshot>({
     status: initialStatus,
@@ -32,12 +33,14 @@ export function useStatusPoll(
 
   useEffect(() => {
     if (initialStatus !== 'rubric_generation') return;
-
+    setSnapshot({ status: 'rubric_generation', rubricProgress: null, rubricProgressUpdatedAt: null, rubricErrorCode: null, rubricRetryCount: 0, rubricErrorRetryable: null });
+    setTimedOut(false);
     return startStatusPoll(assessmentId, {
       onStatusChange: setSnapshot,
       onTimeout: () => setTimedOut(true),
     });
-  }, [assessmentId, initialStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessmentId, initialStatus, pollKey]);
 
   return {
     status: snapshot.status,

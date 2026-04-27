@@ -122,7 +122,8 @@ interface CreationResult {
 }
 
 function CreationProgress({ assessmentId, featureName }: CreationResult) {
-  const { status, rubricRetryCount, rubricErrorRetryable } = useStatusPoll(assessmentId, 'rubric_generation');
+  const [pollKey, setPollKey] = useState(0);
+  const { status, rubricRetryCount, rubricErrorRetryable } = useStatusPoll(assessmentId, 'rubric_generation', pollKey);
 
   if (status === 'awaiting_responses') {
     return (
@@ -151,6 +152,7 @@ function CreationProgress({ assessmentId, featureName }: CreationResult) {
             retryCount={rubricRetryCount}
             maxRetries={3}
             errorRetryable={rubricErrorRetryable}
+            onSuccess={() => setPollKey(k => k + 1)}
           />
           <Link href="/assessments" className="text-primary underline">
             Back to assessments

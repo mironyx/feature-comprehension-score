@@ -172,6 +172,7 @@ export class OpenRouterClient implements LLMClient {
 
     for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
       if (attempt > 0) {
+        this.logger?.warn({ attempt, maxRetries: this.retryConfig.maxRetries, error: lastError }, 'LLM call retrying');
         await this.delay(attempt - 1);
       }
 

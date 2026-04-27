@@ -157,6 +157,36 @@ describe('CreateAssessmentForm — post-creation state (issue #304)', () => {
 // mocking React hooks in a node environment for internal sub-components.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// PART 1b — pollKey / onSuccess wiring for retry restart
+// Verifies that CreationProgress restarts polling after a manual retry by
+// wiring pollKey state and onSuccess callback.
+// Issue: fix/retry-ui-frozen
+// ---------------------------------------------------------------------------
+
+describe('CreationProgress — retry poll restart wiring', () => {
+
+  describe('Given the rubric_failed branch', () => {
+    it('passes onSuccess to RetryButton to restart polling', () => {
+      // onSuccess must be wired so that clicking retry resets the poll loop.
+      expect(creationProgressSrc).toMatch(/onSuccess.*setPollKey|setPollKey.*onSuccess/);
+    });
+
+    it('increments pollKey on success to trigger useEffect re-run', () => {
+      // The callback must increment pollKey (k => k + 1) to change the dep value.
+      expect(creationProgressSrc).toContain('setPollKey');
+    });
+  });
+
+  describe('Given the pollKey state', () => {
+    it('passes pollKey as third argument to useStatusPoll', () => {
+      // useStatusPoll(assessmentId, initialStatus, pollKey) — pollKey in dep array
+      // causes the effect to re-run when incremented.
+      expect(creationProgressSrc).toMatch(/useStatusPoll\([^)]*pollKey/);
+    });
+  });
+});
+
 describe('CreationProgress JSX contract (issue #304)', () => {
 
   // -------------------------------------------------------------------------

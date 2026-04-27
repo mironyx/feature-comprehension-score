@@ -197,7 +197,7 @@ describe('LLM client wrapper', () => {
     let mockLogger: LLMLogger;
 
     beforeEach(() => {
-      mockLogger = { info: vi.fn(), error: vi.fn() };
+      mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
       client = new OpenRouterClient({
         apiKey: 'test-key',
         openAIClient: mockOpenAI as unknown as OpenAI,
@@ -276,6 +276,31 @@ describe('LLM client wrapper', () => {
             }),
           }),
           'LLM call failed',
+        );
+      });
+    });
+
+    describe('Given a retryable 429 error on the first attempt', () => {
+      it('then logger.warn is called with attempt number and error code', async () => {
+        const retryClient = new OpenRouterClient({
+          apiKey: 'test-key',
+          openAIClient: mockOpenAI as unknown as OpenAI,
+          retryConfig: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 10 },
+          logger: mockLogger,
+        });
+        const rateLimit = Object.assign(new Error('Rate limit'), { status: 429 });
+        mockOpenAI.chat.completions.create
+          .mockRejectedValueOnce(rateLimit)
+          .mockResolvedValueOnce(makeValidResponse());
+
+        await retryClient.generateStructured(TEST_REQUEST);
+
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            attempt: 1,
+            error: expect.objectContaining({ code: 'rate_limit' }),
+          }),
+          'LLM call retrying',
         );
       });
     });

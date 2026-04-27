@@ -5,7 +5,7 @@
 // Issue: #319
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AssessmentListItem } from '@/app/api/assessments/helpers';
 import { AssessmentOverviewTable } from './assessment-overview-table';
 import { DeleteAssessmentDialog } from './delete-assessment-dialog';
@@ -18,6 +18,7 @@ export function DeleteableAssessmentTable({
   initialAssessments,
 }: DeleteableAssessmentTableProps): React.ReactElement {
   const [assessments, setAssessments] = useState<AssessmentListItem[]>(initialAssessments);
+  useEffect(() => { setAssessments(initialAssessments); }, [initialAssessments]);
   const [target, setTarget] = useState<AssessmentListItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
