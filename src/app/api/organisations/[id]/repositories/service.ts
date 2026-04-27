@@ -34,6 +34,17 @@ export interface ListRepositoriesDeps {
   fetchImpl?: typeof fetch;
 }
 
+// T2 types — POST /api/organisations/[id]/repositories
+export interface AddRepoBody {
+  github_repo_id: number;
+  github_repo_name: string;
+}
+
+export interface AddRepoResponse {
+  id: string;
+  github_repo_name: string;
+}
+
 export { ApiError };
 
 // ---------------------------------------------------------------------------
@@ -97,6 +108,39 @@ function annotateAccessible(
     github_repo_name: r.name,
     is_registered: registeredIds.has(r.id),
   }));
+}
+
+export async function addRepository(
+  ctx: ApiContext,
+  orgId: string,
+  body: AddRepoBody,
+): Promise<AddRepoResponse> {
+  await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
+
+  const { data: existing } = await ctx.adminSupabase
+    .from('repositories')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('github_repo_id', body.github_repo_id)
+    .maybeSingle();
+  if (existing) throw new ApiError(409, 'already_registered');
+
+  return insertRepository(ctx.adminSupabase, orgId, body);
+}
+
+async function insertRepository(
+  admin: AdminClient,
+  orgId: string,
+  body: AddRepoBody,
+): Promise<AddRepoResponse> {
+  const { data, error } = await admin
+    .from('repositories')
+    .insert({ org_id: orgId, github_repo_id: body.github_repo_id, github_repo_name: body.github_repo_name, status: 'active' })
+    .select('id, github_repo_name')
+    .single();
+  if (error) throw new ApiError(500, `insertRepository: ${error.message}`);
+  if (!data) throw new ApiError(500, 'insertRepository: no data returned');
+  return data as AddRepoResponse;
 }
 
 export async function listRepositories(
