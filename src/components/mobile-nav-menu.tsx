@@ -4,11 +4,11 @@
 
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import type { Dispatch, SetStateAction, RefObject } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { OrgSwitcher } from './org-switcher';
+import { useDismissEffect } from '@/hooks/use-dismiss-effect';
 import type { NavLink } from './nav-links';
 import type { Database } from '@/lib/supabase/types';
 
@@ -19,28 +19,6 @@ interface MobileNavMenuProps {
   readonly username: string;
   readonly currentOrg: OrgRow;
   readonly allOrgs: readonly OrgRow[];
-}
-
-function useDismissEffect(
-  menuRef: RefObject<HTMLDivElement | null>,
-  setIsOpen: Dispatch<SetStateAction<boolean>>,
-): void {
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
-    };
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (menuRef.current && target && menuRef.current.contains(target)) return;
-      setIsOpen(false);
-    };
-    document.addEventListener('keydown', handleKey);
-    document.addEventListener('mousedown', handleClick);
-    return () => {
-      document.removeEventListener('keydown', handleKey);
-      document.removeEventListener('mousedown', handleClick);
-    };
-  }, [menuRef, setIsOpen]);
 }
 
 interface PanelProps {

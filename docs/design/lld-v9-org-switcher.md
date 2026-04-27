@@ -8,8 +8,9 @@
 | Task | [#372](https://github.com/mironyx/feature-comprehension-score/issues/372) |
 | Requirements | [docs/requirements/v9-requirements.md](../requirements/v9-requirements.md) |
 | Design system | [docs/design/frontend-system.md](frontend-system.md) |
-| Status | Draft |
+| Status | Revised |
 | Created | 2026-04-27 |
+| Revised | 2026-04-27 | Issue #372 |
 
 ---
 
@@ -157,7 +158,7 @@ Frontend only (`FE`). No backend, DB, or API route changes.
 | `src/hooks/use-dismiss-effect.ts` | **Create** | Extracted from `mobile-nav-menu.tsx` |
 | `src/components/org-switcher.tsx` | **Rewrite** | Three-state component; `'use client'` |
 | `src/components/mobile-nav-menu.tsx` | **Update import** | Point to shared hook |
-| `tests/unit/org-switcher.test.tsx` | **Create** | BDD specs above |
+| `tests/components/org-switcher.test.ts` | **Create** | BDD specs above (`.ts` not `.tsx`; placed under `tests/components/` per project convention) |
 
 ### `src/hooks/use-dismiss-effect.ts`
 
@@ -204,17 +205,30 @@ Rendering:
       </button>
 
       {isOpen && (
-        <ul
-          role="listbox"
-          className="absolute right-0 top-full mt-1 min-w-[180px] rounded-md
-                     border border-border bg-surface-raised shadow-md z-50 py-1"
+        <OrgPickerDropdown
+          allOrgs={allOrgs}
+          currentOrg={currentOrg}
+          onClose={() => setIsOpen(false)}
+        />
+      )}
+    </div>
+  )
+```
+
+> **Implementation note (issue #372):** The dropdown is extracted into `OrgPickerDropdown` (exported named function) to keep `OrgSwitcher`'s return branch concise. The spec showed the `<ul>` inline in `OrgSwitcher`; extracting it also removes the `role="listbox"` / `role="option"` ARIA roles, which are invalid when `<li>` elements contain interactive children (`<button>` or `<a>`) — WAI-ARIA 1.2 §3.15 prohibits interactive content inside `option`. The correct pattern is a plain `<ul>` with `aria-current` on each `<li>`. See also: `aria-expanded` added to the trigger button (not in original spec).
+
+`OrgPickerDropdown` sketch (extracted sub-component):
+
+```tsx
+export function OrgPickerDropdown({ allOrgs, currentOrg, onClose }) {
+  return (
+    <ul className="absolute right-0 top-full mt-1 min-w-[180px] rounded-md
+                   border border-border bg-surface-raised shadow-md z-50 py-1">
+      {allOrgs.map(org => (
+        <li
+          key={org.id}
+          aria-current={org.id === currentOrg.id ? 'true' : undefined}
         >
-          {allOrgs.map(org => (
-            <li
-              key={org.id}
-              role="option"
-              aria-current={org.id === currentOrg.id ? 'true' : undefined}
-            >
               {org.id === currentOrg.id ? (
                 <button
                   onClick={() => setIsOpen(false)}
@@ -233,16 +247,24 @@ Rendering:
             </li>
           ))}
         </ul>
-      )}
-    </div>
-  )
+      );
+    }
 ```
 
 **Dismiss wiring:**
-- Pass `containerRef` and `setIsOpen` to `useDismissEffect`.
-- On Escape: the hook calls `setIsOpen(false)`; additionally, a `useEffect` watching `isOpen` restores focus to `triggerRef.current` when `isOpen` transitions from `true` to `false` via Escape.
+- Pass `containerRef` and `setIsOpen` to `useDismissEffect` (handles click-outside and Escape via document listener).
+- Escape focus return is handled by an `onKeyDown` on the container `<div>`:
 
-> **Implementation note on focus return:** The hook sets `isOpen(false)` for both Escape and click-outside. To return focus only on Escape (not click-outside), track a `dismissedViaEscape` ref inside the hook and call `triggerRef.current?.focus()` conditionally. Alternatively, wrap focus return in the Escape handler directly (simpler — one-liner before `setIsOpen(false)`).
+```tsx
+onKeyDown={(e) => {
+  if (e.key !== 'Escape') return;
+  e.stopPropagation(); // prevents useDismissEffect's document listener from double-firing
+  triggerRef.current?.focus();
+  setIsOpen(false);
+}}
+```
+
+> **Implementation note (issue #372):** The `dismissedViaEscape` ref / `onEscape` callback options described below were not used. Handling Escape directly in the component's `onKeyDown` and calling `e.stopPropagation()` is simpler: it keeps the hook signature unchanged (no new parameter), avoids double invocation of `setIsOpen(false)`, and co-locates focus-return logic with the trigger that needs it.
 
 ### `src/components/mobile-nav-menu.tsx`
 
