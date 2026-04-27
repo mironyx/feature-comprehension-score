@@ -133,11 +133,11 @@ export async function addRepository(
 // limit (CLAUDE.md §Complexity Budget). The LLD §T2 shows the insert logic inline in
 // addRepository; this helper is a mechanical extraction, not a design change.
 async function insertRepository(
-  admin: AdminClient,
+  adminSupabase: AdminClient,
   orgId: string,
   body: AddRepoBody,
 ): Promise<AddRepoResponse> {
-  const { data, error } = await admin
+  const { data, error } = await adminSupabase
     .from('repositories')
     .insert({ org_id: orgId, github_repo_id: body.github_repo_id, github_repo_name: body.github_repo_name, status: 'active' })
     .select('id, github_repo_name')
