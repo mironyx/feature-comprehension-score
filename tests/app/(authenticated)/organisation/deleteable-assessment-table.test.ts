@@ -57,6 +57,13 @@ vi.mock('@/components/ui/status-badge', () => ({
   StatusBadge: ({ status }: { status: string }) => status,
 }));
 
+// RetryButton is a client component with hooks — stub to a recognisable marker.
+vi.mock('@/app/(authenticated)/assessments/retry-button', () => ({
+  RetryButton: ({ assessmentId, retryCount, maxRetries }: {
+    assessmentId: string; retryCount: number; maxRetries: number;
+  }) => `[RetryButton:${assessmentId}:${retryCount}/${maxRetries}]`,
+}));
+
 // Stub lucide-react icons so renderToStaticMarkup emits a recognisable element
 // for each icon rather than a full SVG path. Used by T3 (issue #362) tests.
 vi.mock('lucide-react', async () => {
@@ -110,6 +117,9 @@ function makeAssessmentItem(overrides: Partial<AssessmentListItem> = {}): Assess
     participant_count: 4,
     completed_count: 3,
     created_at: '2026-04-01T10:00:00Z',
+    rubric_error_code: null,
+    rubric_retry_count: 0,
+    rubric_error_retryable: null,
     ...overrides,
   };
 }
@@ -709,6 +719,61 @@ describe('DeleteableAssessmentTable', () => {
         // Indirect check: the source must have a way to reset dialog state without fetch.
         expect(deleteableTableSrc).not.toMatch(/onCancel[\s\S]{0,50}fetch\s*\(/);
       }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 4: AssessmentOverviewTable — RetryButton for rubric_failed (#377)
+//
+// Verifies that the retry button is surfaced in the org view, and only for
+// assessments with status === 'rubric_failed'.
+// Design reference: docs/design/lld-nav-results.md §2 (updated by #377)
+// Issue: #377
+// ---------------------------------------------------------------------------
+
+describe('AssessmentOverviewTable — RetryButton for rubric_failed (#377)', () => {
+
+  async function renderTableHtml(
+    assessments: AssessmentListItem[],
+  ): Promise<string> {
+    const { AssessmentOverviewTable } = await vi.importActual<
+      typeof import('@/app/(authenticated)/organisation/assessment-overview-table')
+    >('@/app/(authenticated)/organisation/assessment-overview-table');
+    return renderToStaticMarkup(
+      AssessmentOverviewTable({ assessments }) as ReactElement,
+    );
+  }
+
+  // AC2: retry button visible for rubric_failed in org view [issue #377]
+  describe('Given an assessment with status rubric_failed', () => {
+    it('renders a RetryButton in the status cell', async () => {
+      const item = makeAssessmentItem({ id: 'retry-001', status: 'rubric_failed', rubric_retry_count: 1 });
+      const html = await renderTableHtml([item]);
+      expect(html).toContain('[RetryButton:retry-001:1/3]');
+    });
+  });
+
+  // AC2 complement: retry button absent for non-failed statuses [issue #377]
+  describe('Given an assessment with status completed', () => {
+    it('does not render a RetryButton', async () => {
+      const item = makeAssessmentItem({ id: 'done-001', status: 'completed' });
+      const html = await renderTableHtml([item]);
+      expect(html).not.toContain('[RetryButton:');
+    });
+  });
+
+  // AC4: RetryButton receives correct props (retryCount, maxRetries) [issue #377]
+  describe('Given a rubric_failed assessment with rubric_retry_count=2', () => {
+    it('passes retryCount=2 and maxRetries=3 to RetryButton', async () => {
+      const item = makeAssessmentItem({
+        id: 'retry-002',
+        status: 'rubric_failed',
+        rubric_retry_count: 2,
+        rubric_error_retryable: true,
+      });
+      const html = await renderTableHtml([item]);
+      expect(html).toContain('[RetryButton:retry-002:2/3]');
     });
   });
 });

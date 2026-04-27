@@ -302,19 +302,18 @@ function findByType(el: unknown, targetType: unknown): unknown[] {
 import { RetryButton } from '@/app/(authenticated)/assessments/retry-button';
 
 // ---------------------------------------------------------------------------
-// Fix B regression tests — retry button visible after polling (#333)
+// #377 regression tests — RetryButton removed from PollingStatusBadge
+// RetryButton was moved to the Organisation admin view (issue #377).
+// PollingStatusBadge must never render RetryButton, regardless of status.
 // ---------------------------------------------------------------------------
 
-describe('Retry button after polling detects rubric_failed (#333 Fix B)', () => {
+describe('PollingStatusBadge does not render RetryButton (#377 — moved to org view)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // I4 [lld §Fix B]: RetryButton rendered client-side when admin AND status === rubric_failed
-  describe('Given polling detects rubric_failed and admin is true', () => {
-    it('then RetryButton is rendered', () => {
-      // Regression for #333 Fix B: retry button was invisible after polling because the
-      // server-rendered conditional never re-ran on the client.
+  describe('Given polling detects rubric_failed', () => {
+    it('then RetryButton is never rendered (retry moved to org admin view)', () => {
       vi.mocked(useStatusPoll).mockReturnValue({
         status: 'rubric_failed',
         rubricErrorCode: 'rate_limit',
@@ -328,89 +327,10 @@ describe('Retry button after polling detects rubric_failed (#333 Fix B)', () => 
       const el = PollingStatusBadge({
         assessmentId: ASSESSMENT_ID,
         initialStatus: 'rubric_generation',
-        admin: true,
-        maxRetries: 3,
-      });
-
-      const retryButtons = findByType(el, RetryButton);
-      expect(retryButtons).toHaveLength(1);
-    });
-  });
-
-  // I4 [lld §Fix B]: RetryButton must NOT appear when admin is false
-  describe('Given polling detects rubric_failed and admin is false', () => {
-    it('then RetryButton is NOT rendered', () => {
-      vi.mocked(useStatusPoll).mockReturnValue({
-        status: 'rubric_failed',
-        rubricErrorCode: 'rate_limit',
-        rubricRetryCount: 0,
-        rubricErrorRetryable: true,
-        rubricProgress: null,
-        rubricProgressUpdatedAt: null,
-        timedOut: false,
-      });
-
-      const el = PollingStatusBadge({
-        assessmentId: ASSESSMENT_ID,
-        initialStatus: 'rubric_generation',
-        admin: false,
-        maxRetries: 3,
       });
 
       const retryButtons = findByType(el, RetryButton);
       expect(retryButtons).toHaveLength(0);
-    });
-  });
-
-  // [lld §Fix B polling-status-badge.tsx]: rubricErrorCode shown alongside retry button
-  describe('Given polling detects rubric_failed, admin is true, and rubricErrorCode is non-null', () => {
-    it('then the error code is shown alongside the retry button', () => {
-      vi.mocked(useStatusPoll).mockReturnValue({
-        status: 'rubric_failed',
-        rubricErrorCode: 'rate_limit',
-        rubricRetryCount: 0,
-        rubricErrorRetryable: true,
-        rubricProgress: null,
-        rubricProgressUpdatedAt: null,
-        timedOut: false,
-      });
-
-      const el = PollingStatusBadge({
-        assessmentId: ASSESSMENT_ID,
-        initialStatus: 'rubric_generation',
-        admin: true,
-        maxRetries: 3,
-      });
-
-      const text = renderToText(el);
-      expect(text).toContain('rate_limit');
-    });
-  });
-
-  // [lld §Fix B polling-status-badge.tsx]: RetryButton receives retryCount from poll snapshot
-  describe('Given polling detects rubric_failed, admin is true, and rubricRetryCount is 2', () => {
-    it('then RetryButton receives the correct retryCount from the poll snapshot', () => {
-      vi.mocked(useStatusPoll).mockReturnValue({
-        status: 'rubric_failed',
-        rubricRetryCount: 2,
-        rubricErrorCode: null,
-        rubricErrorRetryable: true,
-        rubricProgress: null,
-        rubricProgressUpdatedAt: null,
-        timedOut: false,
-      });
-
-      const el = PollingStatusBadge({
-        assessmentId: ASSESSMENT_ID,
-        initialStatus: 'rubric_generation',
-        admin: true,
-        maxRetries: 3,
-      });
-
-      const retryButtons = findByType(el, RetryButton);
-      expect(retryButtons).toHaveLength(1);
-      const node = retryButtons[0] as { props: Record<string, unknown> };
-      expect(node.props.retryCount).toBe(2);
     });
   });
 });

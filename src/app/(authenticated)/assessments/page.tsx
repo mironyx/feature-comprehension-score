@@ -8,16 +8,11 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
-import { isOrgAdmin } from '@/lib/supabase/membership';
-import type { MembershipRow } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { StatusBadge } from './assessment-status';
 import { PollingStatusBadge } from './polling-status-badge';
-import { RetryButton } from './retry-button';
 import { partitionAssessments, type AssessmentItem } from './partition';
-
-const MAX_RETRIES = 3;
 
 function toPercent(score: number | null): string {
   if (score === null) return '—';
@@ -43,23 +38,15 @@ export default async function AssessmentsPage(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const [{ data }, { data: membership }] = await Promise.all([
-    supabase
-      .from('assessments')
-      .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
-      .eq('org_id', orgId)
-      .eq('assessment_participants.user_id', user.id)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('user_organisations')
-      .select('github_role')
-      .eq('user_id', user.id)
-      .eq('org_id', orgId),
-  ]);
+  const { data } = await supabase
+    .from('assessments')
+    .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
+    .eq('org_id', orgId)
+    .eq('assessment_participants.user_id', user.id)
+    .order('created_at', { ascending: false });
 
   const all = (data ?? []) as AssessmentItem[];
   const { pending, completed } = partitionAssessments(all);
-  const admin = isOrgAdmin((membership ?? []) as MembershipRow[]);
 
   return (
     <div className="space-y-section-gap">
@@ -90,21 +77,11 @@ export default async function AssessmentsPage(
                       ? <PollingStatusBadge
                           assessmentId={a.id}
                           initialStatus={a.status}
-                          admin={admin}
-                          maxRetries={MAX_RETRIES}
                         />
                       : <>
                           <StatusBadge status={a.status} />
                           {a.status === 'rubric_failed' && a.rubric_error_code && (
                             <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
-                          )}
-                          {admin && a.status === 'rubric_failed' && (
-                            <RetryButton
-                              assessmentId={a.id}
-                              retryCount={a.rubric_retry_count}
-                              maxRetries={MAX_RETRIES}
-                              errorRetryable={a.rubric_error_retryable}
-                            />
                           )}
                         </>}
                   </div>

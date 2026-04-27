@@ -283,8 +283,8 @@ describe('Assessments page', () => {
       expect(rendered).not.toContain('"initialStatus"');
     });
 
-    // P8: admin sees RetryButton for rubric_failed rows (regression — existing behaviour preserved)
-    it('Given rubric_failed assessment and admin user, When page renders, Then RetryButton is rendered', async () => {
+    // P8: admin does NOT see RetryButton on My Assessments for rubric_failed rows (#377)
+    it('Given rubric_failed assessment and admin user, When page renders, Then no RetryButton is shown (#377)', async () => {
       const client = makeClient({
         assessments: [makeItem({
           id: 'a2',
@@ -295,15 +295,12 @@ describe('Assessments page', () => {
         })],
       });
       mockCreateServer.mockResolvedValue(client as never);
-      mockIsOrgAdmin.mockReturnValue(true);
 
       const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
       const rendered = JSON.stringify(result);
 
-      expect(rendered).toContain('"assessmentId":"a2"');
-      expect(rendered).toContain('"retryCount":2');
-      expect(rendered).toContain('"maxRetries":3');
-      expect(rendered).toContain('"errorRetryable":true');
+      expect(rendered).not.toContain('"retryCount"');
+      expect(rendered).not.toContain('"maxRetries"');
     });
 
     // P9: error code text appears for rubric_failed with non-null code (regression)

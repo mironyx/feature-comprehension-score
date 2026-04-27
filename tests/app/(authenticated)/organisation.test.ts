@@ -182,6 +182,9 @@ function makeAssessmentItem(overrides: Partial<{
   participant_count: number;
   completed_count: number;
   created_at: string;
+  rubric_error_code: string | null;
+  rubric_retry_count: number;
+  rubric_error_retryable: boolean | null;
 }> = {}) {
   return {
     id: 'assess-001',
@@ -196,6 +199,9 @@ function makeAssessmentItem(overrides: Partial<{
     participant_count: 4,
     completed_count: 3,
     created_at: '2026-04-01T10:00:00Z',
+    rubric_error_code: null,
+    rubric_retry_count: 0,
+    rubric_error_retryable: null,
     ...overrides,
   };
 }
