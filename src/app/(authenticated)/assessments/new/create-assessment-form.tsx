@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { PollingStatusBadge } from '../polling-status-badge';
+import { RetryButton } from '../retry-button';
 import { useStatusPoll } from '../use-status-poll';
 
 interface Repository {
@@ -121,7 +122,7 @@ interface CreationResult {
 }
 
 function CreationProgress({ assessmentId, featureName }: CreationResult) {
-  const { status } = useStatusPoll(assessmentId, 'rubric_generation');
+  const { status, rubricRetryCount, rubricErrorRetryable } = useStatusPoll(assessmentId, 'rubric_generation');
 
   if (status === 'awaiting_responses') {
     return (
@@ -145,6 +146,12 @@ function CreationProgress({ assessmentId, featureName }: CreationResult) {
           <p className="text-body text-destructive">
             Rubric generation failed for <strong>{featureName}</strong>.
           </p>
+          <RetryButton
+            assessmentId={assessmentId}
+            retryCount={rubricRetryCount}
+            maxRetries={3}
+            errorRetryable={rubricErrorRetryable}
+          />
           <Link href="/assessments" className="text-primary underline">
             Back to assessments
           </Link>
