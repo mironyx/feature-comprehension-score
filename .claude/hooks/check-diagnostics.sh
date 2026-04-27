@@ -53,6 +53,14 @@ process.stdin.on('end', () => {
     process.exit(0);
   }
 
+  // Skip in git worktrees — VS Code diagnostics-exporter only watches the main
+  // worktree, so polling here will always time out with no result.
+  const diagRoot = path.join(cwd, '.diagnostics');
+  if (!fs.existsSync(diagRoot)) {
+    log(cwd, 'Skipped: no .diagnostics dir (likely a worktree)');
+    process.exit(0);
+  }
+
   // --- Normalise paths (Windows backslashes to forward slashes) ---
   const normFile = filePath.replace(/\\\\/g, '/');
   const normCwd = cwd.replace(/\\\\/g, '/');

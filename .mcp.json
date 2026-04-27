@@ -8,8 +8,8 @@
       ]
     },
     "codescene": {
-      "command": "cs-mcp",
-      "args": []
+      "command": "npx",
+      "args": ["-y", "@codescene/codehealth-mcp"]
     }
   }
 }
