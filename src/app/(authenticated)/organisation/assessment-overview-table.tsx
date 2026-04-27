@@ -76,12 +76,17 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
         <span className="inline-flex items-center gap-2">
           <StatusBadge status={a.status} />
           {a.status === 'rubric_failed' && (
-            <RetryButton
-              assessmentId={a.id}
-              retryCount={a.rubric_retry_count}
-              maxRetries={MAX_RETRIES}
-              errorRetryable={a.rubric_error_retryable}
-            />
+            <>
+              {a.rubric_error_code && (
+                <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
+              )}
+              <RetryButton
+                assessmentId={a.id}
+                retryCount={a.rubric_retry_count}
+                maxRetries={MAX_RETRIES}
+                errorRetryable={a.rubric_error_retryable}
+              />
+            </>
           )}
         </span>
       </td>
