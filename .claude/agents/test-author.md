@@ -110,6 +110,17 @@ Before writing anything, scan existing test files under `tests/` for:
 - Describe/it structure (BDD `Given/When/Then` style if the project uses it)
 - Assertion patterns (how the project expresses "should contain", "should equal", etc.)
 
+**Standard infrastructure mocks for route tests.** If `unit_under_test` is an API route
+(`src/app/api/...`), always check whether it imports any of these modules and add the
+corresponding `vi.mock` at the top of the test file:
+
+| Module | Standard mock |
+|--------|--------------|
+| `@/lib/github/app-auth` | `vi.mock('@/lib/github/app-auth', () => ({ createAppAuthClient: vi.fn() }))` |
+| `@/lib/supabase/server` | `vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))` |
+
+Failure to mock these modules causes tests to fail on missing env vars (`GITHUB_APP_PRIVATE_KEY`, etc.) rather than on contract violations. Add the mock even if the test is not directly testing that path — the import at the module level will execute regardless.
+
 **Grep for sibling tests that already cover the `unit_under_test` or its containing
 module.** Run `grep -rln "<module-name>" tests/` for each src module in scope —
 `target_test_file` may not exist yet, but a sibling test may already have the exact

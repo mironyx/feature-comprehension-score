@@ -319,6 +319,8 @@ src/lib/module/
 #### Internal types
 [Types not in the public L4 contract but needed for implementation]
 
+> **Constraint:** For any type referencing a DB column, grep `src/types/database.types.ts` to confirm the contract type matches the Supabase-inferred enum or union. Mismatches cause `as unknown as` casts at the call site — fix the type here in the LLD, not downstream in the implementation.
+
 #### Function signatures
 [Key internal functions with their signatures and behaviour]
 
@@ -362,6 +364,8 @@ PageComponent
   │   └── ChildComponent
   └── AnotherComponent
 ` ` `
+
+> **Constraint (server components):** Use module-level render helper functions rather than JSX sub-components inside server component files. Sub-components defined in the same file are opaque to test traversal — `render()` returns a serialised tree, so `screen.getByRole` cannot cross a sub-component boundary. Module-level helpers keep assertions traversable without extra wrapper renders.
 
 #### Page routes
 | Route | Component | Data fetching | Auth |
