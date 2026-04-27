@@ -553,3 +553,316 @@ describe('listRepositories service (via deps injection)', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/organisations/[id]/repositories (T2)
+// Design reference: docs/design/lld-v8-repository-management.md §T2
+// Requirements:    docs/requirements/v8-requirements.md — Epic 2, Story 2.2
+// Issue:           #366
+//
+// The T1 mocks (mockAdminClient, mockUserClient, requireAuth) are reused in full.
+// T2 needs a second result variable: `insertResult` (INSERT outcome) and `dedupResult`
+// (SELECT for dedup check). Within the T2 describe block, mockAdminClient.from is
+// overridden in beforeEach to route:
+//   - user_organisations  → membershipResult   (admin check, via mockUserClient)
+//   - repositories SELECT → dedupResult        (dedup check, .maybeSingle())
+//   - repositories INSERT → insertResult       (INSERT, .select().single())
+// ---------------------------------------------------------------------------
+
+describe('POST /api/organisations/[id]/repositories (T2)', () => {
+
+  // -------------------------------------------------------------------------
+  // T2-local result variables — set per test in the nested beforeEach below.
+  // -------------------------------------------------------------------------
+
+  let dedupResult: { data: unknown; error: unknown };
+  let insertResult: { data: unknown; error: unknown };
+
+  // -------------------------------------------------------------------------
+  // T2-local fixtures
+  // -------------------------------------------------------------------------
+
+  const NEW_REPO_BODY = {
+    github_repo_id: 500,
+    github_repo_name: 'acme/new-service',
+  };
+
+  const INSERTED_ROW = {
+    id: 'new-repo-uuid-001',
+    github_repo_name: 'acme/new-service',
+  };
+
+  // -------------------------------------------------------------------------
+  // POST request helper
+  // -------------------------------------------------------------------------
+
+  function makePostRequest(body: Record<string, unknown> = NEW_REPO_BODY): NextRequest {
+    return new NextRequest(
+      `http://localhost/api/organisations/${ORG_ID}/repositories`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  async function getPost(): Promise<RouteHandler> {
+    const mod = await import('@/app/api/organisations/[id]/repositories/route');
+    return mod.POST as RouteHandler;
+  }
+
+  function postRepository(body: Record<string, unknown> = NEW_REPO_BODY) {
+    return getPost().then((POST) =>
+      POST(makePostRequest(body), { params: Promise.resolve({ id: ORG_ID }) }),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Extended makeChain — adds insert() support so adminClient can serve T2 needs.
+  // insert() returns a chain whose select() and single() resolve from insertResult.
+  // -------------------------------------------------------------------------
+
+  function makeChainWithInsert(
+    selectResolver: () => { data: unknown; error: unknown },
+    insertResolver: () => { data: unknown; error: unknown },
+  ) {
+    // The base chain covers SELECT paths (.select().eq().maybeSingle()).
+    const base = Object.assign(Promise.resolve(selectResolver()), {
+      select: vi.fn(),
+      eq: vi.fn(),
+      single: vi.fn(() => Promise.resolve(selectResolver())),
+      maybeSingle: vi.fn(() => Promise.resolve(selectResolver())),
+      insert: vi.fn(),
+    });
+    base.select.mockReturnValue(base);
+    base.eq.mockReturnValue(base);
+
+    // The insert chain covers INSERT paths (.insert().select().single()).
+    const insertChain = Object.assign(Promise.resolve(insertResolver()), {
+      select: vi.fn(),
+      single: vi.fn(() => Promise.resolve(insertResolver())),
+    });
+    insertChain.select.mockReturnValue(insertChain);
+
+    base.insert.mockReturnValue(insertChain);
+    return base;
+  }
+
+  // -------------------------------------------------------------------------
+  // T2 beforeEach — defaults + override mockAdminClient.from for INSERT routing.
+  // -------------------------------------------------------------------------
+
+  beforeEach(() => {
+    // Default: admin caller.
+    vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
+    membershipResult = { data: { github_role: 'admin' }, error: null };
+
+    // Default dedup: repo does NOT yet exist.
+    dedupResult = { data: null, error: null };
+
+    // Default insert: succeeds with the new row.
+    insertResult = { data: INSERTED_ROW, error: null };
+
+    // Override mockAdminClient.from so repositories table handles both SELECT (dedup)
+    // and INSERT (registration). Other tables fall back to makeChain.
+    mockAdminClient.from.mockImplementation((table: string) => {
+      if (table === 'repositories') {
+        return makeChainWithInsert(
+          () => dedupResult,
+          () => insertResult,
+        );
+      }
+      if (table === 'organisations') return makeChain(() => orgResult);
+      return makeChain(() => ({ data: null, error: null }));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property T2.1: non-admin caller receives 403.
+  // [lld §T2 AC] [req §Security] [lld §I1]
+  // -------------------------------------------------------------------------
+
+  describe('Given a non-admin caller (github_role = member)', () => {
+    it('then it returns 403', async () => {
+      // [lld §I1] [req §Security] Non-admin callers must receive 403.
+      membershipResult = { data: { github_role: 'member' }, error: null };
+
+      const response = await postRepository();
+
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe('Given a caller with no membership record for this org', () => {
+    it('then it returns 403', async () => {
+      // [lld §I1] Missing membership is treated the same as non-admin.
+      membershipResult = { data: null, error: null };
+
+      const response = await postRepository();
+
+      expect(response.status).toBe(403);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property T2.2: successful insert returns 201 with id and github_repo_name.
+  // [lld §T2 AC] POST returns 201 { id, github_repo_name } on success.
+  // -------------------------------------------------------------------------
+
+  describe('Given an admin caller and the repository is not yet registered', () => {
+    it('then it returns 201', async () => {
+      // [lld §T2 AC] Success status code must be 201 Created.
+      const response = await postRepository();
+
+      expect(response.status).toBe(201);
+    });
+
+    it('then the response body contains "id"', async () => {
+      // [lld §T2 AC] Response body must include the new row id.
+      const response = await postRepository();
+      const body = await response.json() as Record<string, unknown>;
+
+      expect(body).toHaveProperty('id');
+    });
+
+    it('then the response body contains "github_repo_name"', async () => {
+      // [lld §T2 AC] Response body must include the repository name.
+      const response = await postRepository();
+      const body = await response.json() as Record<string, unknown>;
+
+      expect(body).toHaveProperty('github_repo_name');
+    });
+
+    it('then the response body "id" matches the inserted row id', async () => {
+      // [lld §T2] The id returned must be the one from the INSERT result.
+      insertResult = { data: INSERTED_ROW, error: null };
+
+      const response = await postRepository();
+      const body = await response.json() as { id: string };
+
+      expect(body.id).toBe(INSERTED_ROW.id);
+    });
+
+    it('then the response body "github_repo_name" matches the posted name', async () => {
+      // [lld §T2] The repo name returned must match the one that was inserted.
+      insertResult = { data: INSERTED_ROW, error: null };
+
+      const response = await postRepository();
+      const body = await response.json() as { github_repo_name: string };
+
+      expect(body.github_repo_name).toBe(NEW_REPO_BODY.github_repo_name);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property T2.3: duplicate github_repo_id for the same org returns 409.
+  // [lld §T2 AC] [lld §I3]
+  // -------------------------------------------------------------------------
+
+  describe('Given github_repo_id is already registered for this org', () => {
+    it('then it returns 409', async () => {
+      // [lld §I3] [lld §T2 AC] Duplicate repo must return 409 Conflict.
+      // The dedup SELECT finds an existing row.
+      dedupResult = { data: { id: REGISTERED_ROW.id }, error: null };
+
+      const response = await postRepository({ ...NEW_REPO_BODY, github_repo_id: REGISTERED_ROW.github_repo_id });
+
+      expect(response.status).toBe(409);
+    });
+
+    it('then the response body contains error field "already_registered"', async () => {
+      // [lld §T2 AC] 409 response body must carry { error: 'already_registered' }.
+      // This is how handleApiError serialises ApiError(409, 'already_registered').
+      dedupResult = { data: { id: REGISTERED_ROW.id }, error: null };
+
+      const response = await postRepository({ ...NEW_REPO_BODY, github_repo_id: REGISTERED_ROW.github_repo_id });
+      const body = await response.json() as { error: string };
+
+      expect(body.error).toBe('already_registered');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property T2.4: addRepository service — direct unit tests via service import.
+  // Tests admin check and dedup at the service layer using deps injection pattern.
+  // -------------------------------------------------------------------------
+
+  describe('addRepository service (direct)', () => {
+
+    async function importService() {
+      return import('@/app/api/organisations/[id]/repositories/service');
+    }
+
+    function makeCtx() {
+      return {
+        supabase: mockUserClient,
+        adminSupabase: mockAdminClient,
+        user: AUTH_USER,
+      } as unknown;
+    }
+
+    describe('Given a non-admin caller', () => {
+      it('then addRepository throws an ApiError with status 403', async () => {
+        // [lld §I1] Service enforces the admin check before any write.
+        membershipResult = { data: { github_role: 'member' }, error: null };
+        const { addRepository } = await importService();
+        const { ApiError } = await import('@/lib/api/errors');
+        const ctx = makeCtx() as Parameters<typeof addRepository>[0];
+
+        await expect(
+          addRepository(ctx, ORG_ID, NEW_REPO_BODY),
+        ).rejects.toThrow(ApiError);
+        await expect(
+          addRepository(ctx, ORG_ID, NEW_REPO_BODY),
+        ).rejects.toMatchObject({ statusCode: 403 });
+      });
+    });
+
+    describe('Given github_repo_id already exists for this org', () => {
+      it('then addRepository throws an ApiError with status 409', async () => {
+        // [lld §I3] Dedup check must throw ApiError(409) when repo is already registered.
+        dedupResult = { data: { id: REGISTERED_ROW.id }, error: null };
+        const { addRepository } = await importService();
+        const { ApiError } = await import('@/lib/api/errors');
+        const ctx = makeCtx() as Parameters<typeof addRepository>[0];
+
+        await expect(
+          addRepository(ctx, ORG_ID, { github_repo_id: REGISTERED_ROW.github_repo_id, github_repo_name: 'acme/backend' }),
+        ).rejects.toThrow(ApiError);
+        await expect(
+          addRepository(ctx, ORG_ID, { github_repo_id: REGISTERED_ROW.github_repo_id, github_repo_name: 'acme/backend' }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+      });
+    });
+
+    describe('Given a valid admin request and the repo is not yet registered', () => {
+      it('then addRepository resolves with id and github_repo_name', async () => {
+        // [lld §T2 AC] Service return type: { id: string, github_repo_name: string }.
+        insertResult = { data: INSERTED_ROW, error: null };
+        const { addRepository } = await importService();
+        const ctx = makeCtx() as Parameters<typeof addRepository>[0];
+
+        const result = await addRepository(ctx, ORG_ID, NEW_REPO_BODY);
+
+        expect(result).toHaveProperty('id');
+        expect(result).toHaveProperty('github_repo_name');
+      });
+
+      it('then addRepository uses ctx.supabase for the admin check (not adminSupabase)', async () => {
+        // [lld §Security] Admin check must go through the user client (RLS-enforced),
+        // not adminSupabase, to prevent cross-org privilege escalation.
+        // Observable via: mockUserClient.from receives 'user_organisations' call.
+        insertResult = { data: INSERTED_ROW, error: null };
+        const { addRepository } = await importService();
+        const ctx = makeCtx() as Parameters<typeof addRepository>[0];
+
+        await addRepository(ctx, ORG_ID, NEW_REPO_BODY);
+
+        const userClientFromCalls = (mockUserClient.from as ReturnType<typeof vi.fn>).mock.calls;
+        const tables = userClientFromCalls.map((args: unknown[]) => args[0] as string);
+        expect(tables).toContain('user_organisations');
+      });
+    });
+  });
+});

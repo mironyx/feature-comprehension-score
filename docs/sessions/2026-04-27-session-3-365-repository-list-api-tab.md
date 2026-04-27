@@ -87,13 +87,13 @@ Updated `docs/design/lld-v8-repository-management.md` §T1 (version 0.1 → 0.2)
 
 **Post-PR work (~$6.71)** was driven by:
 
-1. **Context compaction** — the teammate session ran long enough to trigger compaction. The recovery session (this one) re-read context from scratch, adding cache-write overhead. *Action: split features into ≤200 line PRs earlier; consider breaking at the test-authoring stage rather than waiting for implementation to be done.*
+1. **Context compaction** — the teammate session ran long enough to trigger compaction. The recovery session (this one) re-read context from scratch, adding cache-write overhead. _Action: split features into ≤200 line PRs earlier; consider breaking at the test-authoring stage rather than waiting for implementation to be done._
 
-2. **JSON serialisation gotcha with server component sub-components** — caused 4 test failures and required a complete re-approach (from sub-components to module-level helpers). *Action: add a note to LLD template for server components: "use module-level render functions, not sub-components, to keep test assertions traversable."*
+2. **JSON serialisation gotcha with server component sub-components** — caused 4 test failures and required a complete re-approach (from sub-components to module-level helpers). _Action: add a note to LLD template for server components: "use module-level render functions, not sub-components, to keep test assertions traversable."_
 
-3. **Missing `@/lib/github/app-auth` mock** — test-author agent didn't mock the module; route-level tests failed on missing `GITHUB_APP_PRIVATE_KEY` env var. Added the mock manually. *Action: standard mock for `app-auth` should be part of the route test template in the test-author prompt.*
+3. **Missing `@/lib/github/app-auth` mock** — test-author agent didn't mock the module; route-level tests failed on missing `GITHUB_APP_PRIVATE_KEY` env var. Added the mock manually. _Action: standard mock for `app-auth` should be part of the route test template in the test-author prompt._
 
-4. **`as unknown as` cast flagged by reviewer** — caused an extra fix commit post-PR. *Action: before writing service types, `grep` the DB schema types to check if the Supabase inferred type has a wider enum than needed; match the contract type to the DB type upfront.*
+4. **`as unknown as` cast flagged by reviewer** — caused an extra fix commit post-PR. _Action: before writing service types, `grep` the DB schema types to check if the Supabase inferred type has a wider enum than needed; match the contract type to the DB type upfront._
 
 ---
 
