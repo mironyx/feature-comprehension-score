@@ -243,6 +243,19 @@ git merge-base --is-ancestor "origin/$BASE" HEAD \
 - **Rebased cleanly** (`REBASED_AND_PUSHED`) → proceed to Step 4. CI will re-run on the rebased commit; wait for it to pass before merging (use `gh run watch`).
 - **Rebase conflict** (non-zero exit from `git rebase`) → run `git rebase --abort`, stop, and report the conflicting files to the user. Do not attempt to resolve conflicts automatically.
 
+### Step 3.7: Switch CWD to main repo (worktree mode only)
+
+**If running inside a linked worktree** (`IS_WORKTREE = "yes"` from Step 5+6 detection), switch the shell's working directory to the main repo **now, before the merge**, in a dedicated Bash call:
+
+```bash
+MAIN_REPO=$(dirname "$(git rev-parse --git-common-dir)")
+cd "$MAIN_REPO"
+```
+
+This must be a **separate** Bash call. The Bash tool retains CWD between calls, so all subsequent calls will start from the main repo. This prevents every post-merge Bash call from failing with "path does not exist" when git auto-prunes the worktree after the remote branch is deleted on squash-merge.
+
+Skip this step if already in the main repo (`IS_WORKTREE = "no"`).
+
 ### Step 4: Merge the PR
 
 First check whether the PR is already merged (user may have merged via GitHub UI):
