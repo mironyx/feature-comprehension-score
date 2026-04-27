@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-04-26 |
 | Revised | 2026-04-26 — Issue #361 |
+| Revised | 2026-04-27 — Issue #376 |
 | Epic | [#359](https://github.com/mironyx/feature-comprehension-score/issues/359) |
 | Requirements | [docs/requirements/v8-requirements.md](../requirements/v8-requirements.md) — Epic 1 |
 | Parent design | [docs/design/v1-design.md](v1-design.md) |
@@ -247,10 +248,11 @@ caller_role: callerRole,
 
 | Piece | File | Responsibility |
 |-------|------|----------------|
-| Controller | `route.ts GET` | Calls `createApiContext`, fetches assessment row, delegates to `fetchParallelData` + `buildResponse` |
-| Data helper | `fetchParallelData` in `route.ts` | Parallel DB queries; receives `assessmentType` to gate FCS queries; all `adminSupabase` queries filtered by `org_id` |
-| Participants mapper | `buildParticipantsField` in `route.ts` | Branches on `callerRole`: admin → `ParticipantDetail[]`, participant → `ParticipantSummary` |
-| Response builder | `buildResponse` in `route.ts` | Maps raw data to `AssessmentDetailResponse`; delegates participant shape to `buildParticipantsField` |
+| Controller | `route.ts GET` | Calls `createApiContext`, fetches assessment row, delegates to `fetchParallelData` + `buildResponse`; re-exports types from `assessment-detail-queries.ts` |
+| Shared queries | `assessment-detail-queries.ts` | Houses `resolveAssessment`, `fetchParallelData`, `buildResponse`, `buildParticipantsField`, and all contract types — shared by both the API route and the page loader _(extracted by issue #376)_ |
+| Page loader | `load-assessment-detail.ts` | Thin wrapper: resolves the assessment row, calls `fetchParallelData` + `buildResponse` directly; returns `null` on 404 _(added by issue #376)_ |
+| Participants mapper | `buildParticipantsField` in `assessment-detail-queries.ts` | Branches on `callerRole`: admin → `ParticipantDetail[]`, participant → `ParticipantSummary` |
+| Response builder | `buildResponse` in `assessment-detail-queries.ts` | Maps raw data to `AssessmentDetailResponse`; delegates participant shape to `buildParticipantsField` |
 | Field filter | `helpers.ts filterQuestionFields` | Unchanged |
 
 > **Future review — query consolidation:** The current design uses 6 parallel queries via `Promise.all`. The primary driver is that `assessment_participants` is queried twice with different filters (all participants for the admin view; only the caller's row for `my_participation`), which prevents a single join from serving both needs cleanly. A future refactor could consolidate into fewer queries — either by fetching all participant rows and filtering in application code, or by moving to a single SQL view/RPC that returns the full payload in one round trip. Flag for review when the endpoint becomes a measurable performance bottleneck.
@@ -278,23 +280,27 @@ describe('GET /api/assessments/[id] — FCS enrichment (T1)')
 - Edit: `src/app/(authenticated)/assessments/[id]/page.tsx`
 - New: `src/app/(authenticated)/assessments/[id]/assessment-admin-view.tsx`
 - New: `src/app/(authenticated)/assessments/[id]/assessment-source-list.tsx`
+- New: `src/app/(authenticated)/assessments/[id]/load-assessment-detail.ts` _(added by issue #376)_
+- New: `src/app/api/assessments/[id]/assessment-detail-queries.ts` _(extracted from `route.ts` by issue #376)_
+- Edit: `src/app/api/assessments/[id]/route.ts` _(delegates to `assessment-detail-queries.ts`; re-exports types — issue #376)_
 
 #### page.tsx changes
 
-The page currently fetches from Supabase directly. It must call `GET /api/assessments/[id]` server-side (using a relative fetch with cookies forwarded via `next/headers`) so the existing `caller_role` field can drive rendering.
+The page loads assessment data by calling `loadAssessmentDetail` — a direct Supabase loader in `load-assessment-detail.ts` that delegates to the shared `assessment-detail-queries.ts` module. The `caller_role` field in the response drives rendering.
 
-The `link_participant` RPC call must still run for participants before the form is shown (existing behaviour). Strategy: call the API first, then conditionally run `link_participant` when `caller_role === 'participant'` and `my_participation` is null.
+The `link_participant` RPC call must still run for participants before the form is shown (existing behaviour). Strategy: call the loader first, then conditionally run `link_participant` when `caller_role === 'participant'` and `my_participation` is null.
 
 ```typescript
 // Simplified page structure after T2:
 export default async function AssessmentPage({ params }: AssessmentPageProps) {
   const { id: assessmentId } = await params;
   const supabase = await createServerSupabaseClient();
+  const adminSupabase = createSecretSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  // Server-side fetch (cookies are forwarded by Next.js in server components)
-  const detail = await fetchAssessmentDetail(assessmentId);
+  // Direct Supabase loader — no HTTP self-fetch (relative URLs fail in Node.js server components)
+  const detail = await loadAssessmentDetail(supabase, adminSupabase, user.id, assessmentId);
   // detail is AssessmentDetailResponse | null (null → 404)
 
   if (detail === null) notFound();
@@ -314,7 +320,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
     }).then(({ error }) => {
       if (error) logger.error({ err: error }, 'link_participant failed');
     });
-    const refreshed = await fetchAssessmentDetail(assessmentId);
+    const refreshed = await loadAssessmentDetail(supabase, adminSupabase, user.id, assessmentId);
     if (!refreshed?.my_participation) return <AccessDeniedPage />;
     if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage assessmentId={assessmentId} />;
     return answering(refreshed);
@@ -328,7 +334,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
 }
 ```
 
-> **Implementation note (issue #364):** The helper is named `fetchAssessmentDetail` (not `fetchAssessmentDetailFromApi`). `parseGithubUserId` was not extracted — the two-line inline is below the complexity threshold. The `answering(d)` helper extracts the JSX for `AnsweringForm` to avoid repeating the full prop list. Questions are read from `detail.questions` (returned by the loader) — no separate `fetchQuestions` call using `adminSupabase` is needed.
+> **Implementation note (issue #364):** The loader is named `loadAssessmentDetail` (not `fetchAssessmentDetail` as the original spec suggested). `parseGithubUserId` was not extracted — the two-line inline is below the complexity threshold. The `answering(d)` helper extracts the JSX for `AnsweringForm` to avoid repeating the full prop list. Questions are read from `detail.questions` (returned by the loader) — no separate `fetchQuestions` call using `adminSupabase` is needed.
 
 > **Implementation note (issue #376 — corrects #364):** The page uses `loadAssessmentDetail` from `src/app/(authenticated)/assessments/[id]/load-assessment-detail.ts` — a direct Supabase loader that mirrors the query logic from `GET /api/assessments/[id]`. The earlier approach of calling `fetch('/api/assessments/' + id)` with a relative URL was incorrect: Node.js `fetch` (undici) requires an absolute URL and throws `ERR_INVALID_URL` for relative paths. Next.js does **not** patch global fetch for server components to resolve relative URLs — only route caching and de-duplication are patched. The loader calls the user-scoped Supabase client for the main assessment row and org-membership check (RLS applies), and the service-role client for questions, all-participants, and FCS source tables.
 
