@@ -13,6 +13,14 @@ vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: vi.fn(),
 }));
 
+vi.mock('@/lib/supabase/secret', () => ({
+  createSecretSupabaseClient: vi.fn(() => ({})),
+}));
+
+vi.mock('@/app/(authenticated)/assessments/[id]/load-assessment-detail', () => ({
+  loadAssessmentDetail: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -29,10 +37,12 @@ vi.mock('next/navigation', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
+import { loadAssessmentDetail } from '@/app/(authenticated)/assessments/[id]/load-assessment-detail';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockRedirect = vi.mocked(redirect);
 const mockNotFound = vi.mocked(notFound);
+const mockLoadDetail = vi.mocked(loadAssessmentDetail);
 
 // ---------------------------------------------------------------------------
 // Type imports (interface only — not implementation bodies)
@@ -156,16 +166,12 @@ async function arrangePage(opts: {
   const { client: serverClient, rpcSpy: serverRpcSpy } = makeServerClient(user, linkRpcResult);
   mockCreateServer.mockResolvedValue(serverClient as never);
 
-  // Stub global.fetch for the API calls the page makes
-  let fetchCallCount = 0;
-  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
-    fetchCallCount += 1;
-    const body = fetchCallCount === 1 ? detail : refreshedDetail;
-    if (body === null) {
-      return Promise.resolve(new Response(null, { status: 404 }));
-    }
-    return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-  }));
+  // Mock the direct Supabase loader (replaces the old global.fetch stub — #376)
+  let loadCallCount = 0;
+  mockLoadDetail.mockImplementation(() => {
+    loadCallCount += 1;
+    return Promise.resolve(loadCallCount === 1 ? detail : refreshedDetail);
+  });
 
   const { default: AssessmentPage } = await import(
     '@/app/(authenticated)/assessments/[id]/page'
@@ -181,7 +187,6 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
-    vi.unstubAllGlobals();
   });
 
   // P1 — unauthenticated user redirects [lld §T2]
@@ -315,6 +320,17 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
         p_assessment_id: ASSESSMENT_ID,
         p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10),
       });
+    });
+  });
+
+  // P10 — Regression #376: page must NOT use global.fetch (relative-URL self-fetch)
+  describe('Given the page renders for an admin', () => {
+    it('then it does not make an HTTP fetch to /api/assessments/[id] (regression #376)', async () => {
+      const fetchSpy = vi.spyOn(global, 'fetch');
+      const { AssessmentPage } = await arrangePage({ detail: makeAdminDetail() });
+      await AssessmentPage({ params: makeParams() });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
     });
   });
 });

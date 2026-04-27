@@ -6,7 +6,9 @@
 import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import type { AssessmentDetailResponse } from '@/app/api/assessments/[id]/route';
+import { loadAssessmentDetail } from './load-assessment-detail';
 import AnsweringForm from './answering-form';
 import { AssessmentAdminView } from './assessment-admin-view';
 import { logger } from '@/lib/logger';
@@ -44,24 +46,6 @@ function AlreadySubmittedPage({ assessmentId }: { readonly assessmentId: string 
 }
 
 // ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-
-// Next.js App Router patches global fetch for server components: relative URLs resolve
-// to the same origin and cookies are forwarded automatically. See LLD §T2 impl note.
-async function fetchAssessmentDetail(
-  assessmentId: string,
-): Promise<AssessmentDetailResponse | null> {
-  const res = await fetch(`/api/assessments/${assessmentId}`, { cache: 'no-store' });
-  if (res.status === 404 || res.status === 401) return null;
-  if (!res.ok) {
-    logger.warn({ status: res.status, assessmentId }, 'fetchAssessmentDetail: unexpected status');
-    return null;
-  }
-  return res.json() as Promise<AssessmentDetailResponse>;
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -84,10 +68,11 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   const { id: assessmentId } = await params;
 
   const supabase = await createServerSupabaseClient();
+  const adminSupabase = createSecretSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const detail = await fetchAssessmentDetail(assessmentId);
+  const detail = await loadAssessmentDetail(supabase, adminSupabase, user.id, assessmentId);
   if (!detail) notFound();
 
   if (detail.caller_role === 'admin') {
@@ -109,7 +94,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
         if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort');
       });
 
-    const refreshed = await fetchAssessmentDetail(assessmentId);
+    const refreshed = await loadAssessmentDetail(supabase, adminSupabase, user.id, assessmentId);
     if (!refreshed?.my_participation) return <AccessDeniedPage />;
     if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage assessmentId={assessmentId} />;
     return answering(refreshed);
