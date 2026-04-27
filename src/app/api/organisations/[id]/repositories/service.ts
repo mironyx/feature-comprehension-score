@@ -117,13 +117,13 @@ export async function addRepository(
 ): Promise<AddRepoResponse> {
   await assertOrgAdmin(ctx.supabase, ctx.user.id, orgId);
 
-  const { data: existing, error: dedupError } = await ctx.adminSupabase
+  const { data: existing, error: existingError } = await ctx.adminSupabase
     .from('repositories')
     .select('id')
     .eq('org_id', orgId)
     .eq('github_repo_id', body.github_repo_id)
     .maybeSingle();
-  if (dedupError) throw new ApiError(500, `addRepository dedup: ${dedupError.message}`);
+  if (existingError) throw new ApiError(500, `addRepository: ${existingError.message}`);
   if (existing) throw new ApiError(409, 'already_registered');
 
   return insertRepository(ctx.adminSupabase, orgId, body);
