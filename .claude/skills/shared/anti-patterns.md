@@ -6,6 +6,18 @@ current and non-deprecated while specific usage patterns within it are wrong.
 Add new anti-patterns to this file as the team discovers them. This list is the
 institutional memory of "things we've learned the hard way."
 
+## General
+
+- **DRY violation — duplicate service/query logic.** A new loader, service, or helper
+  implements data-fetching or business logic that already exists in an API route, service
+  file, or sibling module. Detected by: a new file that queries the same Supabase table(s)
+  as an existing file without importing from it.
+  Fix: extract the shared logic into a dedicated module (e.g. `*-queries.ts`, `load-*.ts`)
+  and import from both contexts. Severity: **warn** — two diverging code paths for the same
+  data, maintenance burden, and risk of behavioural inconsistency.
+  Historical case: issue #132 (retry service duplicated `fcs/service.ts`); issue #376
+  (self-fetch removed in favour of shared `assessment-detail-queries.ts`).
+
 ## Supabase
 
 - `supabaseAnonKey` or `SUPABASE_ANON_KEY` used in any server-side file (API routes,
