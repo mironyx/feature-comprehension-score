@@ -107,12 +107,16 @@ Fetch it before proceeding or the call will fail with `InputValidationError`:
    teammates), the team was created but teammates were never spawned — proceed directly
    to step 2. If teammates are already present, do not recreate.
 
-2. Call `Agent` once per teammate, **all in the same message**, with `team_name` and
-   `name` set:
+2. Call `Agent` once per teammate, **all in the same message**, with `team_name`,
+   `name`, and **`model` set to the same model the lead is running on** (inherit — do
+   not let the agent definition override to a more expensive model):
    ```
-   Agent(team_name="feature-team-<issues>", name="teammate-<N>", run_in_background=true, prompt="...")
-   Agent(team_name="feature-team-<issues>", name="teammate-<M>", run_in_background=true, prompt="...")
+   Agent(team_name="feature-team-<issues>", name="teammate-<N>", model="sonnet", run_in_background=true, prompt="...")
+   Agent(team_name="feature-team-<issues>", name="teammate-<M>", model="sonnet", run_in_background=true, prompt="...")
    ```
+   Replace `"sonnet"` with whatever model the lead session is actually using (check
+   `/model` output). The `model` field overrides the agent definition's default and
+   ensures teammates run on the same model as the lead — not a more expensive one.
 
 Do **not** pass "Create a team with N teammates" as prose to the `Agent` tool — that
 syntax is not supported and will be echoed back as text rather than spawning teammates.
