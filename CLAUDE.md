@@ -12,6 +12,8 @@ Measures whether engineering teams understand what they built, using Peter Naur'
 
 **Goal-driven execution.** Transform tasks into verifiable goals. For multi-step tasks, state a brief plan with verification checks.
 
+**No re-reads.** Do not re-read a file already loaded in the current session. Reference it by path only.
+
 ## Engineering Process
 
 Pipeline: `idea → /discovery → /requirements → /kickoff → /architect → /feature → /feature-end → /retro`.
