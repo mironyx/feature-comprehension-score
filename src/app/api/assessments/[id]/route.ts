@@ -36,18 +36,18 @@ type AssessmentWithRelations = AssessmentRow & {
  *
  * Scores for FCS participants are served by GET /api/assessments/[id]/scores.
  */
-interface MyParticipation {
+export interface MyParticipation {
   participant_id: string;
   status: 'pending' | 'submitted';
   submitted_at: string | null;
 }
 
-interface FcsPr {
+export interface FcsPr {
   pr_number: number;
   pr_title: string;
 }
 
-interface FcsIssue {
+export interface FcsIssue {
   issue_number: number;
   issue_title: string;
 }
@@ -57,14 +57,14 @@ interface ParticipantSummary {
   completed: number;
 }
 
-type ParticipantStatus = 'pending' | 'submitted' | 'removed' | 'did_not_participate';
+export type ParticipantStatus = 'pending' | 'submitted' | 'removed' | 'did_not_participate';
 
-interface ParticipantDetail {
+export interface ParticipantDetail {
   github_login: string;
   status: ParticipantStatus;
 }
 
-interface AssessmentDetailResponse {
+export interface AssessmentDetailResponse {
   id: string;
   type: 'prcc' | 'fcs';
   status: AssessmentStatus;

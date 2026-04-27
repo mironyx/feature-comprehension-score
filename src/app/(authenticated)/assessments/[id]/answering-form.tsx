@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import QuestionCard from '@/components/question-card';
 import type { AnswerResult, SubmitResponse } from '@/app/api/assessments/[id]/answers/route';
+import type { FcsPr, FcsIssue } from '@/app/api/assessments/[id]/route';
 import type { NaurLayer } from '@/lib/engine/llm/schemas';
+import { AssessmentSourceList } from './assessment-source-list';
 
 interface Question {
   id: string;
@@ -25,13 +27,14 @@ interface AssessmentInfo {
   type: 'prcc' | 'fcs';
   feature_name: string | null;
   pr_number: number | null;
-  repositories: { github_repo_name: string };
-  organisations: { github_org_name: string };
+  repository_full_name: string;
 }
 
 interface AnsweringFormProps {
   readonly assessment: AssessmentInfo;
   readonly questions: Question[];
+  readonly sourcePrs?: FcsPr[];
+  readonly sourceIssues?: FcsIssue[];
 }
 
 interface QuestionListProps {
@@ -159,14 +162,14 @@ function useAnsweringForm(assessmentId: string, questions: Question[]) {
   return { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit };
 }
 
-export default function AnsweringForm({ assessment, questions }: AnsweringFormProps) {
+export default function AnsweringForm({ assessment, questions, sourcePrs = [], sourceIssues = [] }: AnsweringFormProps) {
   const { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit } =
     useAnsweringForm(assessment.id, questions);
 
   const ready = isSubmitReady(questions, answers, relevanceResults);
   const isReAnswer = relevanceResults !== null;
   const submitLabel = isReAnswer ? 'Resubmit flagged answers' : 'Submit answers';
-  const repoName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
+  const repoName = assessment.repository_full_name;
 
   return (
     <div className="space-y-section-gap">
@@ -177,6 +180,10 @@ export default function AnsweringForm({ assessment, questions }: AnsweringFormPr
         <h1 className="text-heading-xl font-display">{assessment.feature_name ?? `PR #${assessment.pr_number}`}</h1>
         <p className="text-body text-text-secondary">{repoName}</p>
       </header>
+
+      {assessment.type === 'fcs' && (sourcePrs.length > 0 || sourceIssues.length > 0) && (
+        <AssessmentSourceList prs={sourcePrs} issues={sourceIssues} />
+      )}
 
       {assessment.type === 'prcc' && (
         <div role="note" className="rounded-md border border-border bg-surface p-card-pad text-body text-text-secondary">
