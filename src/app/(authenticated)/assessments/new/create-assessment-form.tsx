@@ -154,8 +154,8 @@ function CreationProgress({ assessmentId, featureName }: CreationResult) {
             errorRetryable={rubricErrorRetryable}
             onSuccess={() => setPollKey(k => k + 1)}
           />
-          <Link href="/assessments" className="text-primary underline">
-            Back to assessments
+          <Link href="/organisation" className="text-primary underline">
+            Back to Organisation
           </Link>
         </div>
       </Card>
@@ -170,8 +170,8 @@ function CreationProgress({ assessmentId, featureName }: CreationResult) {
         </p>
         <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" />
         <div>
-          <Link href="/assessments" className="text-primary underline text-body">
-            Go to assessments list
+          <Link href="/organisation" className="text-primary underline text-body">
+            Go to Organisation overview
           </Link>
         </div>
       </div>
