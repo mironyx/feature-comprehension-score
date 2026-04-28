@@ -1,3 +1,4 @@
+// Design reference: docs/design/lld-v5-e1-token-budget.md §Story 1.2
 import type { ArtefactFile, RawArtefactSet, AssembledArtefactSet } from './artefact-types';
 import { classifyArtefactQuality } from './classify-quality';
 
@@ -22,6 +23,31 @@ const MIN_FIRST_FILE_TOKENS = 50;
 export interface TruncationOptions {
   questionCount: number;
   tokenBudget?: number;
+  /** Drives priority ordering. 'static' = no tool retrieval; 'agentic' = LLM can fetch files. */
+  strategy?: 'agentic' | 'static';
+}
+
+export function buildTruncationOptions(
+  contextLimit: number,
+  questionCount: number,
+  toolUseEnabled: boolean,
+): TruncationOptions {
+  return {
+    questionCount,
+    tokenBudget: Math.floor(contextLimit * 0.8),
+    strategy: toolUseEnabled ? 'agentic' : 'static',
+  };
+}
+
+export function estimateArtefactSetTokens(set: RawArtefactSet): number {
+  let total = estimateTokens(set.pr_diff);
+  if (set.pr_description) total += estimateTokens(set.pr_description);
+  for (const e of set.file_listing) total += estimateTokens(`${e.path} ${e.status} +${e.additions} -${e.deletions}`);
+  for (const f of set.file_contents) total += estimateTokens(f.path + f.content);
+  for (const f of set.test_files ?? []) total += estimateTokens(f.path + f.content);
+  for (const f of set.context_files ?? []) total += estimateTokens(f.path + f.content);
+  for (const i of set.linked_issues ?? []) total += estimateTokens(i.title + i.body);
+  return total;
 }
 
 export function estimateTokens(text: string): number {
@@ -63,13 +89,11 @@ export function truncateArtefacts(
   const state: TruncationState = { remaining: budget, notes: [] };
 
   deductHighPriorityItems(raw, state);
-
-  // Guard: if high-priority items consumed the entire budget, clamp to zero
   state.remaining = Math.max(state.remaining, 0);
 
+  const strategy = options.strategy ?? 'agentic';
   const contextFiles = truncateContextFiles(raw.context_files, state);
-  const prDiff = truncateDiff(raw.pr_diff, state);
-  const fileContents = truncateFileContents(raw.file_contents, state);
+  const { prDiff, fileContents } = processDiffAndFiles(raw, state, strategy);
   const testFiles = truncateTestFiles(raw.test_files, state);
 
   return {
@@ -132,10 +156,30 @@ function truncateContextFiles(
   return result;
 }
 
-function truncateDiff(diff: string, state: TruncationState): string {
+// Justification: extracted from truncateArtefacts to keep function under 20 lines and to group file-importance sort with strategy dispatch.
+function processDiffAndFiles(
+  raw: RawArtefactSet,
+  state: TruncationState,
+  strategy: 'agentic' | 'static',
+): { prDiff: string; fileContents: ArtefactFile[] } {
+  const changeCount = new Map(raw.file_listing.map(e => [e.path, e.additions + e.deletions]));
+  const sorted = [...raw.file_contents].sort((a, b) => (changeCount.get(b.path) ?? 0) - (changeCount.get(a.path) ?? 0));
+  if (strategy === 'static') {
+    const fileContents = truncateFileContents(sorted, state);
+    return { prDiff: truncateDiff(raw.pr_diff, state, 'static'), fileContents };
+  }
+  const prDiff = truncateDiff(raw.pr_diff, state);
+  return { prDiff, fileContents: truncateFileContents(sorted, state) };
+}
+
+function truncateDiff(diff: string, state: TruncationState, strategy: 'agentic' | 'static' = 'agentic'): string {
   const diffTokens = estimateTokens(diff);
 
   if (diffTokens > state.remaining * DIFF_TRUNCATION_THRESHOLD) {
+    if (strategy === 'static') {
+      state.notes.push('Code diff omitted — file contents preserved');
+      return '';
+    }
     const diffBudget = Math.max(Math.floor(state.remaining * DIFF_BUDGET_ALLOCATION), MIN_SECTION_TOKENS);
     const result = truncateText(diff, diffBudget);
     state.remaining -= estimateTokens(result);

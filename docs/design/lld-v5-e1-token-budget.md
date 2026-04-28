@@ -9,6 +9,7 @@
 | 2026-04-25 | Claude | Story 1.1: use `/models/user` endpoint; replace `fetchFn` injection with MSW for testing |
 | 2026-04-28 | LS / Claude | Story 1.2: mode-aware truncation strategy — `buildTruncationOptions` helper, `strategy` field on `TruncationOptions`, file-importance sort by change count, static-mode diff drop. |
 | 2026-04-28 | Claude | Story 1.1: lld-sync — fetchPromise deduplication pattern, clearModelLimitsCache resets both singletons, console.warn on not-found fallback. |
+| 2026-04-28 | Claude | Story 1.2: lld-sync — default strategy is 'agentic' (not 'static'); extractArtefacts returns contextLimit/tokenBudget/rawTokens; processDiffAndFiles and estimateArtefactSetTokens helpers added; logArtefactSummary logs raw/assembled token counts; test file path corrected. |
 
 ## Design Reference
 
@@ -286,7 +287,9 @@ describe('getConfiguredModelId', () => {
 |------|--------|-------|
 | `src/lib/engine/prompts/truncate.ts` | Edit (add `strategy`, `buildTruncationOptions`, file sort, diff-drop) | Engine |
 | `src/app/api/fcs/service.ts` | Edit (`extractArtefacts`, `logArtefactSummary`) | Pipeline |
-| `tests/api/fcs/service-truncation.test.ts` | Create | Test |
+| `tests/app/api/fcs-service-truncation.test.ts` | Create | Test |
+
+> **Implementation note (issue #329):** The test file path was specified as `tests/api/fcs/service-truncation.test.ts` but the project's test-file mirror structure places route-handler tests under `tests/app/api/`. The actual file is `tests/app/api/fcs-service-truncation.test.ts`.
 
 #### Internal Decomposition
 
@@ -300,10 +303,12 @@ export interface TruncationOptions {
   tokenBudget?: number;
   /** Drives priority ordering. 'static' = no tool retrieval, so file contents
    *  are more valuable than the diff. 'agentic' = LLM can fetch files on demand,
-   *  so diff is preserved and file contents dropped first. Default: 'static'. */
+   *  so diff is preserved and file contents dropped first. Default: 'agentic'. */
   strategy?: 'agentic' | 'static';
 }
 ```
+
+> **Implementation note (issue #329):** The LLD comment said `Default: 'static'` but the implementation defaults to `'agentic'` for backward compatibility — all pre-existing calls that omit `strategy` were written against the original agentic truncation behaviour. `buildTruncationOptions` always passes an explicit strategy, so the default only matters for legacy callers.
 
 **New `buildTruncationOptions` helper** (exported; called by `extractArtefacts`):
 
@@ -360,9 +365,12 @@ const [raw, issueContent, organisation_context, settings] = await Promise.all([
 const merged = mergeIssueContent(raw, issueContent);
 const contextLimit = await getModelContextLimit(getConfiguredModelId());
 const opts = buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled);
+const rawTokens = estimateArtefactSetTokens(merged);
 const assembled = truncateArtefacts(merged, opts);
-return { ...assembled, organisation_context, comprehension_depth: comprehensionDepth };
+return { assembled: { ...assembled, organisation_context, comprehension_depth }, contextLimit, tokenBudget: opts.tokenBudget!, rawTokens };
 ```
+
+> **Implementation note (issue #329):** The LLD return value showed `{ ...assembled, organisation_context, comprehension_depth }`. The actual return type is `{ assembled, contextLimit, tokenBudget, rawTokens }` because `finaliseRubric` needs `contextLimit` and `tokenBudget` for `logArtefactSummary`, and `rawTokens` for logging the before-truncation token estimate. These values are threaded through `FinaliseRubricParams` and consumed in `logArtefactSummary`.
 
 Note: `loadOrgRetrievalSettings` is added to the existing `Promise.all` so it runs in parallel with PR and issue fetches. `getModelContextLimit` is a separate `await` after (its result is needed to build `opts`; it is cheap after the first cached call).
 
@@ -379,8 +387,35 @@ import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/mod
 **Logging enhancement in `logArtefactSummary()`:**
 
 ```typescript
+// Fields added to the existing logger.info call:
+tokenBudget,         // from buildTruncationOptions — budget applied this run
+contextLimit,        // from getModelContextLimit — model's full context window
+rawTokens,           // estimated tokens before truncation
+assembledTokens: estimateArtefactSetTokens(artefacts),  // estimated tokens after truncation
 ...(artefacts.truncation_notes && { truncationNotes: artefacts.truncation_notes }),
 ```
+
+> **Implementation note (issue #329):** The LLD only mentioned `truncationNotes`. In practice, `tokenBudget`, `contextLimit`, `rawTokens`, and `assembledTokens` were also added so operators can see at a glance how much content was shed and what headroom remains. `rawTokens` is threaded from `extractArtefacts`; `assembledTokens` is computed inline in `logArtefactSummary` via `estimateArtefactSetTokens`.
+
+**New exported helper in `truncate.ts`:**
+
+```typescript
+export function estimateArtefactSetTokens(set: RawArtefactSet): number
+```
+
+Sums token estimates for all content-bearing fields (`pr_diff`, `pr_description`, `file_listing`, `file_contents`, `test_files`, `context_files`, `linked_issues`). Works on both `RawArtefactSet` and `AssembledArtefactSet` (the latter is a structural subtype). Used in `logArtefactSummary` for before/after logging.
+
+**Internal helper in `truncate.ts`:**
+
+```typescript
+function processDiffAndFiles(
+  raw: RawArtefactSet,
+  state: TruncationState,
+  strategy: 'agentic' | 'static',
+): { prDiff: string; fileContents: ArtefactFile[] }
+```
+
+Extracted from `truncateArtefacts` to keep it under the 20-line budget. Groups the file-importance sort with the strategy dispatch: static mode runs `truncateFileContents` before `truncateDiff`; agentic mode runs them in the reverse order. Not in the LLD — see `// Justification:` comment in source.
 
 #### BDD Specs
 
