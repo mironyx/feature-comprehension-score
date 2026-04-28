@@ -60,6 +60,25 @@ vi.mock('@/lib/supabase/org-prompt-context', () => ({
   loadOrgPromptContext: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@/lib/openrouter/model-limits', () => ({
+  getModelContextLimit: vi.fn().mockResolvedValue(200_000),
+  getConfiguredModelId: vi.fn().mockReturnValue('test-model/v1'),
+  DEFAULT_CONTEXT_LIMIT: 130_000,
+}));
+
+vi.mock('@/lib/supabase/org-retrieval-settings', () => ({
+  loadOrgRetrievalSettings: vi.fn().mockResolvedValue({
+    tool_use_enabled: false,
+    rubric_cost_cap_cents: 20,
+    retrieval_timeout_seconds: 120,
+  }),
+  DEFAULT_RETRIEVAL_SETTINGS: {
+    tool_use_enabled: false,
+    rubric_cost_cap_cents: 20,
+    retrieval_timeout_seconds: 120,
+  },
+}));
+
 vi.mock('@/lib/api/llm', () => ({
   buildLlmClient: vi.fn().mockReturnValue({ generateStructured: vi.fn() }),
 }));
@@ -202,7 +221,7 @@ function makeRequest(): NextRequest {
 async function waitForGenerate(): Promise<void> {
   // triggerRubricGeneration is fire-and-forget (void). Flush microtasks so the
   // async chain completes before assertions run.
-  await new Promise(resolve => setTimeout(resolve, 50));
+  await new Promise(resolve => setTimeout(resolve, 200));
 }
 
 // ---------------------------------------------------------------------------

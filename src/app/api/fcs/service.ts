@@ -17,7 +17,8 @@ import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet, LinkedIssue, RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
-import { classifyArtefactQuality } from '@/lib/engine/prompts/classify-quality';
+import { truncateArtefacts, buildTruncationOptions } from '@/lib/engine/prompts/truncate';
+import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/model-limits';
 import { makeReadFileTool } from '@/lib/github/tools/read-file';
 import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
 import type { ToolCallEvent, ToolDefinition } from '@/lib/engine/llm/tools';
@@ -279,7 +280,7 @@ async function createAssessmentWithParticipants(
 // E19.3 (#282): logs filePaths (capped to keep entries small) and issueCount for debuggability.
 const FILE_PATHS_LOG_LIMIT = 50;
 
-function logArtefactSummary(artefacts: AssembledArtefactSet): void {
+function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number): void {
   const allPaths = artefacts.file_contents.map((f) => f.path);
   const truncated = allPaths.length > FILE_PATHS_LOG_LIMIT;
   const filePaths = truncated ? allPaths.slice(0, FILE_PATHS_LOG_LIMIT) : allPaths;
@@ -290,9 +291,12 @@ function logArtefactSummary(artefacts: AssembledArtefactSet): void {
     artefactQuality: artefacts.artefact_quality,
     questionCount: artefacts.question_count,
     tokenBudgetApplied: artefacts.token_budget_applied,
+    tokenBudget: Math.floor(contextLimit * 0.8),
+    contextLimit,
     filePaths,
     ...(truncated && { filePaths_truncated: true }),
     ...(issueCount > 0 && { issueCount }),
+    ...(artefacts.truncation_notes && { truncationNotes: artefacts.truncation_notes }),
   }, 'Rubric generation: artefact summary');
 }
 
@@ -359,6 +363,7 @@ interface FinaliseRubricParams {
   artefacts: AssembledArtefactSet;
   octokit: Octokit;
   repoRef: { owner: string; repo: string };
+  contextLimit: number;
 }
 
 // Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
@@ -443,7 +448,7 @@ async function runGeneration(
 // Tool-use + observability wiring added for §17.1e (#246). Structured step logging + onToolCall
 // wiring added for E18.1 (#272). Progress tracking via updateProgress added for E18.3 (#274).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
-  logArtefactSummary(params.artefacts);
+  logArtefactSummary(params.artefacts, params.contextLimit);
   const { assessmentId, orgId } = params;
   const pendingWrites: Promise<void>[] = [];
   const result = await runGeneration(params, pendingWrites);
@@ -542,7 +547,7 @@ interface ExtractArtefactsParams {
   comprehensionDepth: 'conceptual' | 'detailed';
 }
 
-async function extractArtefacts(params: ExtractArtefactsParams): Promise<AssembledArtefactSet> {
+async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number }> {
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
@@ -551,7 +556,7 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
     : { childIssueNumbers: [], childIssuePrs: [] };
   const allIssueNumbers = Array.from(new Set([...issueNumbers, ...childIssueNumbers]));
   const mergedPrNumbers = await resolveMergedPrSet(source, coords, prNumbers, issueNumbers, childIssuePrs);
-  const [raw, issueContent, organisation_context] = await Promise.all([
+  const [raw, issueContent, organisation_context, settings] = await Promise.all([
     mergedPrNumbers.length > 0
       ? source.extractFromPRs({ ...coords, prNumbers: mergedPrNumbers })
       : emptyRawArtefactSet(),
@@ -559,9 +564,12 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<Assembl
       ? source.fetchIssueContent({ ...coords, issueNumbers: allIssueNumbers })
       : Promise.resolve([] as LinkedIssue[]),
     loadOrgPromptContext(adminSupabase, repoInfo.orgId),
+    loadOrgRetrievalSettings(adminSupabase, repoInfo.orgId),
   ]);
   const merged = mergeIssueContent(raw, issueContent);
-  return { ...merged, question_count: repoInfo.questionCount, artefact_quality: classifyArtefactQuality(merged), token_budget_applied: false, organisation_context, comprehension_depth: comprehensionDepth };
+  const contextLimit = await getModelContextLimit(getConfiguredModelId());
+  const assembled = truncateArtefacts(merged, buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled));
+  return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit };
 }
 
 // Story 19.2 (#288) + Epic 2 (#322): unions explicit PRs, PRs discovered from
@@ -622,7 +630,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     await updateProgress(params.adminSupabase, assessmentId, orgId, 'artefact_extraction');
     logger.info({ assessmentId, orgId, step: 'artefact_extraction' }, 'pipeline: extracting artefacts');
     const octokit = await createGithubClient(params.repoInfo.installationId);
-    const artefacts = await extractArtefacts({
+    const { assembled: artefacts, contextLimit } = await extractArtefacts({
       adminSupabase: params.adminSupabase,
       octokit,
       repoInfo: params.repoInfo,
@@ -632,7 +640,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     });
     await finaliseRubric({
       adminSupabase: params.adminSupabase, assessmentId, orgId,
-      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName },
+      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName }, contextLimit,
     });
   } catch (err) {
     logger.error({ err, assessmentId, orgId }, 'triggerRubricGeneration: failed');
