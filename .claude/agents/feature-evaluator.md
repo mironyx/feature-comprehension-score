@@ -233,3 +233,18 @@ Failed tests (these are findings — the implementation has gaps):
   throwing `EmptyInputError`" — not "edge case handling could be improved."
 - **Keep your test file clean.** It stays in the repo as ongoing regression protection.
 - **No implementation changes.** You read and test. You never modify `src/` files.
+
+## Return contract
+
+Your return to the calling agent must be at most 15 lines:
+
+```
+VERDICT: PASS | PASS WITH WARNINGS | FAIL
+ADVERSARIAL: <N written, N passed, N failed>
+GAPS:
+- AC-N: <one-line description> — <COVERED | UNCOVERED | FAIL>
+...
+SILENT RISKS: <"none" or one-line per risk>
+```
+
+Do not return the full table from the Output section. The evaluation file is already written to disk; the caller only needs the above summary.

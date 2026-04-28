@@ -89,10 +89,10 @@ No sub-agents. Write the fix and regression tests in one pass.
    - Include at least one test that would fail on the pre-fix behaviour (for bug fixes)
    - Match the style of neighbouring test files (grep for sibling tests first)
 3. **Run the target test file** to confirm tests pass:
+   ```bash
+   bash scripts/vitest-summary.sh <test-file>
    ```
-   Launch Agent: test-runner
-   Input: command="npx vitest run <test-file>"
-   ```
+   This emits a single compact line (`PASS N/N -- Xs` or `FAIL N/N ...`) without launching a sub-agent.
 4. Proceed directly to Step 5 (full verification).
 
 **Do not** launch the test-author or feature-evaluator agents.

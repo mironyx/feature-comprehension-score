@@ -98,3 +98,4 @@ Return a concise summary:
 - **Only fetch logs on failure** — `--log-failed` is the only log fetch allowed.
 - **Be concise.** The calling agent needs the failure reason, not the full log.
 - **Do not modify any files.** Read-only. Report findings only.
+- **Max 5 lines.** Return: `CI PASS` or `CI FAIL: <job-name> — <one-line reason>`. List at most 3 failed jobs.

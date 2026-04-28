@@ -36,10 +36,11 @@ This means: after making fixes in a CLI session, the diagnostics file may be **s
    - Read the JSON file if it exists
    - Parse the diagnostics array: `{source, severity, message, line, column, code}`
 
-4. **Report all findings, then fix them all.**
+4. **Report findings, then fix them all.**
    - Total files checked vs files with diagnostics available
-   - Issues grouped by severity (Errors first, then Warnings, then Info)
-   - For each issue: `file:line:column [source/code] — message`
+   - **Errors and Warnings:** always report, grouped by severity (Errors first, then Warnings)
+   - **Info / Hints:** suppress from output. Only include if `--verbose` was passed as an argument.
+   - For each reported issue: `file:line:column [source/code] — message`
    - Files with no diagnostics file: wait another 5 s and retry once
    - Files with empty diagnostics: clean
    - **If there are any Errors, flag this clearly at the top of the report.**

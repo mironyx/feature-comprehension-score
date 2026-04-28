@@ -200,3 +200,19 @@ Return a structured report:
 - **Prefer explicit over clever.** The feature-core agent has to read these tests and
   implement against them. Readability beats DRY here.
 - **If the spec is vague, say so.** Do not invent properties the spec did not promise.
+
+## Return contract
+
+Your return to the calling agent must be at most 15 lines:
+
+```
+FILE: <target_test_file>
+TESTS: <N> tests, <M> describe blocks
+PROPERTIES:
+1. <property> [source] — <test name>
+2. <property> [source] — <test name>
+...
+GAPS: <"none" or one-line description of each unresolved gap>
+```
+
+Do not return the full Step 5 report template to the caller. The file is already written to disk; the caller only needs the above summary.
