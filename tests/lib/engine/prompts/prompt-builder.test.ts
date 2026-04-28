@@ -3,6 +3,7 @@ import {
   buildQuestionGenerationPrompt,
   depthInstruction,
   QUESTION_GENERATION_SYSTEM_PROMPT,
+  REFLECTION_INSTRUCTION,
 } from '@/lib/engine/prompts/prompt-builder';
 import type { AssembledArtefactSet } from '@/lib/engine/prompts/artefact-types';
 
@@ -608,5 +609,77 @@ describe('DETAILED_DEPTH_INSTRUCTION — depth enforcement (Story 1.2)', () => {
     expect(instruction).toContain(
       'pass an empty tools array',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V10 E1 Story 1.1 — Embedded reflection in question generation (#385)
+// ---------------------------------------------------------------------------
+
+describe('REFLECTION_INSTRUCTION — V10 embedded reflection (Story 1.1)', () => {
+  it('contains the reflection section header', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('## Reflection: Draft, Critique, Rewrite');
+  });
+
+  it('names the rationale probe', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Rationale probe');
+  });
+
+  it('names the depth probe', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Depth probe');
+  });
+
+  it('names the theory persistence probe', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Theory persistence probe');
+  });
+
+  it('instructs the model not to drop failing candidates', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Do not drop failing candidates');
+  });
+
+  it('instructs regeneration of reference_answer and hint for rewritten questions', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Regenerate `reference_answer` and `hint`');
+  });
+
+  it('instructs output of only post-critique questions', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('post-critique questions in the JSON response');
+  });
+});
+
+describe('buildQuestionGenerationPrompt — reflection included in system prompt', () => {
+  const minimalArtefacts: AssembledArtefactSet = {
+    artefact_type: 'pull_request',
+    pr_diff: 'diff',
+    file_listing: [{ path: 'f.ts', additions: 1, deletions: 0, status: 'added' }],
+    file_contents: [{ path: 'f.ts', content: 'code' }],
+    question_count: 3,
+    artefact_quality: 'code_only',
+    token_budget_applied: false,
+  };
+
+  it('includes reflection instruction in system prompt', () => {
+    const { systemPrompt } = buildQuestionGenerationPrompt(minimalArtefacts);
+    expect(systemPrompt).toContain('## Reflection: Draft, Critique, Rewrite');
+  });
+
+  it('positions reflection after constraints and before depth instruction', () => {
+    const { systemPrompt } = buildQuestionGenerationPrompt(minimalArtefacts);
+    const constraintsPos = systemPrompt.indexOf('## Constraints');
+    const reflectionPos = systemPrompt.indexOf('## Reflection');
+    const depthPos = systemPrompt.indexOf('## Comprehension Depth');
+    expect(reflectionPos).toBeGreaterThan(constraintsPos);
+    expect(depthPos).toBeGreaterThan(reflectionPos);
+  });
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — existing constraints preserved (V10 invariant)', () => {
+  it('retains the generate-exactly constraint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Generate exactly the number of questions specified',
+    );
+  });
+
+  it('retains the system-specific knowledge constraint', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('specific to THIS system');
   });
 });

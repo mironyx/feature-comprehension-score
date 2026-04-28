@@ -76,6 +76,30 @@ Respond with a JSON object matching this exact schema:
   - GOOD: "Why does the tool-use loop pass an empty tools array instead of skipping the loop entirely when tool_use_enabled is false?" (requires knowing the specific design decision)
 - Focus questions on architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not on low-level implementation details. A useful test: if a developer could answer the question by reading the code for 30 seconds (variable names, default values, specific syntax, line-level logic), the question is too shallow. Good questions test understanding that persists after the developer has moved on to other work — the kind of knowledge that matters when deciding whether a proposed change is safe, not when recalling how a function is currently implemented. This applies across all three Naur layers: even "modification capacity" questions should test reasoning about dependencies and risks, not recall of specific code paths.`;
 
+export const REFLECTION_INSTRUCTION = `## Reflection: Draft, Critique, Rewrite
+
+Before producing the final JSON output, apply the following three-step process internally:
+
+### Step 1: Draft
+
+Generate a candidate set of questions — the full requested count. These are internal drafts only; do not include them in the output.
+
+### Step 2: Critique
+
+For each candidate question, apply the three Naur probes:
+
+**Rationale probe** — Does this question require the developer to explain *why* a decision was made, not just *what* exists? If the question can be answered with a description of what the code does rather than why it exists or why it is structured that way, it fails this probe.
+
+**Depth probe** — Could a developer answer this by reading the code for 30 seconds — scanning variable names, default values, or specific syntax? If yes, the question is too shallow and fails this probe.
+
+**Theory persistence probe** — Does this question test knowledge a developer retains after moving on to other work — the kind of understanding needed to judge whether a proposed change is safe? If the question tests knowledge a developer could reconstruct on demand by re-reading the code, it fails this probe.
+
+### Step 3: Rewrite
+
+For each candidate that fails one or more probes, rewrite the question to pass all three. Do not drop failing candidates — rewrite them. Regenerate \`reference_answer\` and \`hint\` for any rewritten question to match the new question text; do not carry over these fields from the candidate.
+
+Output only the final, post-critique questions in the JSON response.`;
+
 const CONCEPTUAL_DEPTH_INSTRUCTION = `## Comprehension Depth
 
 This assessment uses CONCEPTUAL depth. Generate questions and reference answers that test reasoning about approach, constraints, and rationale:
@@ -114,7 +138,7 @@ export function buildQuestionGenerationPrompt(
   artefacts: AssembledArtefactSet,
 ): PromptPair {
   return {
-    systemPrompt: `${QUESTION_GENERATION_SYSTEM_PROMPT}\n\n${depthInstruction(artefacts.comprehension_depth)}`,
+    systemPrompt: `${QUESTION_GENERATION_SYSTEM_PROMPT}\n\n${REFLECTION_INSTRUCTION}\n\n${depthInstruction(artefacts.comprehension_depth)}`,
     userPrompt: formatUserPrompt(artefacts),
   };
 }
