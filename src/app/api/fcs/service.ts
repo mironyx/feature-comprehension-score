@@ -339,6 +339,8 @@ interface RubricPersistParams {
   orgId: OrgId;
   questions: unknown;
   observability: RubricObservability;
+  tokenBudgetApplied: boolean;
+  truncationNotes: string[] | undefined;
 }
 
 async function persistRubricFinalisation(
@@ -354,6 +356,8 @@ async function persistRubricFinalisation(
     p_rubric_tool_call_count: params.observability.toolCalls.length,
     p_rubric_tool_calls: params.observability.toolCalls as unknown as Json,
     p_rubric_duration_ms: params.observability.durationMs,
+    p_token_budget_applied: params.tokenBudgetApplied,
+    p_truncation_notes: params.truncationNotes ? (params.truncationNotes as unknown as Json) : null,
   });
   if (error) throw new Error('Failed to finalise rubric');
 }
@@ -462,6 +466,8 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   await updateProgress(params.adminSupabase, assessmentId, orgId, 'persisting');
   await persistRubricFinalisation(params.adminSupabase, {
     assessmentId, orgId, questions: result.rubric.questions, observability: result.observability,
+    tokenBudgetApplied: params.artefacts.token_budget_applied,
+    truncationNotes: params.artefacts.truncation_notes,
   });
   logger.info({ assessmentId, orgId, step: 'rubric_persisted' }, 'pipeline: rubric persisted');
 }
