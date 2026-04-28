@@ -7,6 +7,7 @@
 | 2026-04-25 | Claude | Initial LLD — all three stories |
 | 2026-04-25 | Claude | Story 1.1: cache full model list instead of per-model; remove DEFAULT_MODEL dot-format fix; add guardrails note |
 | 2026-04-25 | Claude | Story 1.1: use `/models/user` endpoint; replace `fetchFn` injection with MSW for testing |
+| 2026-04-28 | LS / Claude | Story 1.2: mode-aware truncation strategy — `buildTruncationOptions` helper, `strategy` field on `TruncationOptions`, file-importance sort by change count, static-mode diff drop. |
 
 ## Design Reference
 
@@ -88,7 +89,9 @@ graph TD
     end
 
     subgraph "Engine: src/lib/engine/prompts/truncate.ts"
-        TA["truncateArtefacts(merged, opts)\n· opts: { tokenBudget, questionCount }\n· returns AssembledArtefactSet with:\n  token_budget_applied: boolean\n  truncation_notes: string[]"]
+        BTO["buildTruncationOptions(contextLimit, questionCount, toolUseEnabled)\n→ TruncationOptions { tokenBudget, strategy }"]
+        TA["truncateArtefacts(merged, opts)\n· sorts file_contents by change count\n· static: drop diff before file contents\n· agentic: truncate diff, drop file contents\n· returns AssembledArtefactSet with:\n  token_budget_applied: boolean\n  truncation_notes: string[]"]
+        BTO -->|"opts"| TA
     end
 
     subgraph "DB: supabase/schemas/"
@@ -102,8 +105,10 @@ graph TD
     end
 
     GCMI -->|"modelId: string"| GML
-    GML -->|"contextLimit → budget =\nfloor(contextLimit × 0.8)"| EA
-    EA -->|"RawArtefactSet +\n{ tokenBudget, questionCount }"| TA
+    GML -->|"contextLimit"| EA
+    EA -->|"contextLimit + questionCount\n+ toolUseEnabled"| BTO
+    BTO -->|"TruncationOptions\n{ tokenBudget, strategy }"| TA
+    EA -->|"RawArtefactSet"| TA
     TA -->|"AssembledArtefactSet\n(token_budget_applied,\ntruncation_notes)"| EA
     EA -->|"AssembledArtefactSet"| FR
     FR -->|"tokenBudgetApplied: boolean\ntruncationNotes: string[]"| PF
@@ -124,6 +129,8 @@ graph TD
 | I5 | `token_budget_applied` reflects actual truncation state, never hardcoded | Unit test: wiring produces correct value |
 | I6 | Truncation details section only renders when `token_budget_applied = true` | Component test |
 | I7 | `truncation_notes` is persisted as `jsonb` in DB | Schema test: `db diff` empty after migration |
+| I8 | Static mode never truncates diff mid-stream — it is kept whole or dropped entirely | Unit test: `strategy=static`, diff-over-threshold → full diff absent, note present |
+| I9 | File contents are sorted highest-change-count first before any drops | Unit test: two files, reversed order in `file_contents`, budget for one — highest-churn file kept |
 
 ### Acceptance Criteria
 
@@ -259,10 +266,64 @@ describe('getConfiguredModelId', () => {
 
 | File | Action | Layer |
 |------|--------|-------|
-| `src/app/api/fcs/service.ts` | Edit (`extractArtefacts`) | Pipeline |
+| `src/lib/engine/prompts/truncate.ts` | Edit (add `strategy`, `buildTruncationOptions`, file sort, diff-drop) | Engine |
+| `src/app/api/fcs/service.ts` | Edit (`extractArtefacts`, `logArtefactSummary`) | Pipeline |
 | `tests/api/fcs/service-truncation.test.ts` | Create | Test |
 
 #### Internal Decomposition
+
+##### Changes to `truncate.ts`
+
+**Extend `TruncationOptions`:**
+
+```typescript
+export interface TruncationOptions {
+  questionCount: number;
+  tokenBudget?: number;
+  /** Drives priority ordering. 'static' = no tool retrieval, so file contents
+   *  are more valuable than the diff. 'agentic' = LLM can fetch files on demand,
+   *  so diff is preserved and file contents dropped first. Default: 'static'. */
+  strategy?: 'agentic' | 'static';
+}
+```
+
+**New `buildTruncationOptions` helper** (exported; called by `extractArtefacts`):
+
+```typescript
+export function buildTruncationOptions(
+  contextLimit: number,
+  questionCount: number,
+  toolUseEnabled: boolean,
+): TruncationOptions {
+  return {
+    questionCount,
+    tokenBudget: Math.floor(contextLimit * 0.8),
+    strategy: toolUseEnabled ? 'agentic' : 'static',
+  };
+}
+```
+
+**Mode-aware priority ordering in `truncateArtefacts`:**
+
+- `'agentic'` (default-prior behaviour): process diff before file contents — LLM can fetch files via tools.
+- `'static'`: process file contents before diff — without retrieval, file contents carry more signal for theory-building questions. If the diff would trigger truncation (`diffTokens > remaining * DIFF_TRUNCATION_THRESHOLD`), drop it entirely (append `'Code diff omitted — file contents preserved'` to `truncation_notes`) rather than truncating mid-stream.
+
+**File importance sort in `truncateArtefacts`** (both modes):
+
+Before calling `truncateFileContents`, sort `raw.file_contents` by `(additions + deletions)` descending using `raw.file_listing` as the lookup. Files with the most changes are included first; low-churn files drop first when budget runs out.
+
+```typescript
+// Sort file_contents by total line changes (highest first).
+// Files not in file_listing (e.g. context-only files) sort last.
+const changeCount = new Map(
+  raw.file_listing.map(e => [e.path, e.additions + e.deletions])
+);
+const sorted = [...raw.file_contents].sort(
+  (a, b) => (changeCount.get(b.path) ?? 0) - (changeCount.get(a.path) ?? 0)
+);
+```
+
+##### Changes to `service.ts`
 
 **Change to `extractArtefacts()` (line 563–564):**
 
@@ -274,19 +335,22 @@ return { ...merged, question_count: repoInfo.questionCount, artefact_quality: cl
 
 After:
 ```typescript
+const [raw, issueContent, organisation_context, settings] = await Promise.all([
+  /* existing three calls */,
+  loadOrgRetrievalSettings(adminSupabase, repoInfo.orgId),
+]);
 const merged = mergeIssueContent(raw, issueContent);
 const contextLimit = await getModelContextLimit(getConfiguredModelId());
-const tokenBudget = Math.floor(contextLimit * 0.8);
-const assembled = truncateArtefacts(merged, {
-  questionCount: repoInfo.questionCount,
-  tokenBudget,
-});
+const opts = buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled);
+const assembled = truncateArtefacts(merged, opts);
 return { ...assembled, organisation_context, comprehension_depth: comprehensionDepth };
 ```
 
+Note: `loadOrgRetrievalSettings` is added to the existing `Promise.all` so it runs in parallel with PR and issue fetches. `getModelContextLimit` is a separate `await` after (its result is needed to build `opts`; it is cheap after the first cached call).
+
 **New imports in `service.ts`:**
 ```typescript
-import { truncateArtefacts } from '@/lib/engine/prompts/truncate';
+import { truncateArtefacts, buildTruncationOptions } from '@/lib/engine/prompts/truncate';
 import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/model-limits';
 ```
 
@@ -296,8 +360,6 @@ import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/mod
 
 **Logging enhancement in `logArtefactSummary()`:**
 
-Add `truncation_notes` to the log payload (line 287–296). It's already logging `tokenBudgetApplied` — add `truncationNotes` when present:
-
 ```typescript
 ...(artefacts.truncation_notes && { truncationNotes: artefacts.truncation_notes }),
 ```
@@ -305,26 +367,55 @@ Add `truncation_notes` to the log payload (line 287–296). It's already logging
 #### BDD Specs
 
 ```typescript
+describe('buildTruncationOptions', () => {
+  describe('Given toolUseEnabled is false', () => {
+    it('should set strategy to static', () => {});
+  });
+  describe('Given toolUseEnabled is true', () => {
+    it('should set strategy to agentic', () => {});
+  });
+  it('should set tokenBudget to Math.floor(contextLimit * 0.8)', () => {});
+});
+
+describe('truncateArtefacts — strategy', () => {
+  describe('Given strategy is static and diff exceeds threshold', () => {
+    it('should drop the diff entirely and preserve file contents', () => {});
+    it('should add "Code diff omitted" to truncation_notes', () => {});
+  });
+  describe('Given strategy is agentic and diff exceeds threshold', () => {
+    it('should truncate diff in-place (existing behaviour)', () => {});
+  });
+});
+
+describe('truncateArtefacts — file importance sort', () => {
+  describe('Given file_contents order differs from change-count order', () => {
+    it('should keep the highest-change-count file when budget only allows one', () => {});
+  });
+  describe('Given a file has no entry in file_listing', () => {
+    it('should sort it after files with known change counts', () => {});
+  });
+});
+
 describe('extractArtefacts truncation wiring', () => {
   describe('Given an artefact set that fits within the model context budget', () => {
     it('should return token_budget_applied: false with no truncation_notes', async () => {});
   });
-
   describe('Given an artefact set that exceeds the model context budget', () => {
     it('should return token_budget_applied: true with truncation_notes', async () => {});
   });
-
-  describe('Given the model context limit is fetched successfully', () => {
-    it('should compute tokenBudget as Math.floor(contextLimit * 0.8)', async () => {});
+  describe('Given tool_use_enabled is false', () => {
+    it('should call buildTruncationOptions with strategy static', async () => {});
   });
-
+  describe('Given tool_use_enabled is true', () => {
+    it('should call buildTruncationOptions with strategy agentic', async () => {});
+  });
   describe('Given the OpenRouter API fails', () => {
     it('should use the fallback context limit for budget computation', async () => {});
   });
 });
 ```
 
-**Note:** These are integration-level tests that exercise `extractArtefacts` with mocked GitHub and OpenRouter dependencies. The truncation logic itself is already covered by 10 existing tests in `truncate.test.ts`.
+**Note:** `buildTruncationOptions` and strategy-branch tests live in `truncate.test.ts`. Integration tests for `extractArtefacts` wiring live in `service-truncation.test.ts`.
 
 ---
 
