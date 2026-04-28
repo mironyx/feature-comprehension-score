@@ -285,3 +285,39 @@ describe('CreationProgress JSX contract (issue #304)', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// PART 3 — Back-link navigation fix (#389)
+// Regression: before fix, CreationProgress linked to /assessments (participant list).
+// After fix: both in-progress and rubric_failed branches link to /organisation.
+// ---------------------------------------------------------------------------
+
+describe('CreateAssessmentForm — post-submit navigation (issue #389)', () => {
+
+  describe('Given rubric generation is in progress', () => {
+    it('shows a link to /organisation when rubric generation is in progress', () => {
+      // [issue #389 AC1] Admin navigates from /organisation; back link must return there.
+      // The in-progress branch contains "Go to Organisation overview" link text.
+      expect(creationProgressSrc).toContain('Go to Organisation overview');
+    });
+  });
+
+  describe('Given rubric generation fails', () => {
+    it('shows a link to /organisation when rubric generation fails', () => {
+      // [issue #389 AC2] rubric_failed branch must also link to /organisation, not /assessments.
+      const failedMatch = creationProgressSrc.match(
+        /rubric_failed[\s\S]*?<\/Card>/,
+      );
+      const failedSrc = failedMatch ? failedMatch[0] : '';
+      expect(failedSrc).toContain('href="/organisation"');
+    });
+  });
+
+  describe('Regression: /assessments back link removed from CreationProgress', () => {
+    it('does not contain a bare href="/assessments" back link in CreationProgress', () => {
+      // [issue #389] The old links pointed to /assessments (participant list).
+      // After fix, no bare /assessments href should appear in CreationProgress.
+      expect(creationProgressSrc).not.toContain('href="/assessments"');
+    });
+  });
+});
