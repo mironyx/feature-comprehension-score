@@ -246,7 +246,7 @@ function validateFinalContent<T extends ZodType>(
   const validation = schema.safeParse(parsed);
   if (!validation.success) {
     return fail({
-      code: 'malformed_response',
+      code: 'validation_failed',
       message: `schema validation failed: ${validation.error.message}`,
       retryable: true,
       context: { zodErrors: validation.error.issues },

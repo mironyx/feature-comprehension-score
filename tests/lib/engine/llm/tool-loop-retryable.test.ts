@@ -9,7 +9,7 @@
 //   1. JSON parse failure → error.retryable === true
 //   2. JSON parse failure → error.code === 'malformed_response'
 //   3. Schema validation failure → error.retryable === true
-//   4. Schema validation failure → error.code === 'malformed_response'
+//   4. Schema validation failure → error.code === 'validation_failed' (#387 fix)
 //   5. Empty final content → error.retryable === true
 //   6. Empty final content → error.code === 'malformed_response'
 //   7. Missing assistant message (choices: []) → error.retryable === true
@@ -189,13 +189,13 @@ describe('runToolLoop malformed_response error paths — retryable contract (#28
       expect(result.error.retryable).toBe(true);
     });
 
-    it('Property 4: error.code is malformed_response', async () => {
+    it('Property 4 (#387 fix): error.code is validation_failed', async () => {
       const chatCall = vi.fn().mockResolvedValueOnce(makeSchemaMismatchResponse());
       const result = await runToolLoop(makeLoopParams(chatCall));
 
       expect(result.success).toBe(false);
       if (result.success) return;
-      expect(result.error.code).toBe('malformed_response');
+      expect(result.error.code).toBe('validation_failed');
     });
   });
 
