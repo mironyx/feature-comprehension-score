@@ -296,20 +296,15 @@ describe('CreateAssessmentForm — post-submit navigation (issue #389)', () => {
 
   describe('Given rubric generation is in progress', () => {
     it('shows a link to /organisation when rubric generation is in progress', () => {
-      // [issue #389 AC1] Admin navigates from /organisation; back link must return there.
-      // The in-progress branch contains "Go to Organisation overview" link text.
-      expect(creationProgressSrc).toContain('Go to Organisation overview');
+      // [issue #389 AC1] Assert href + label together so neither can regress independently.
+      expect(creationProgressSrc).toMatch(/href="\/organisation"[^>]*>\s*Go to Organisation overview/);
     });
   });
 
   describe('Given rubric generation fails', () => {
     it('shows a link to /organisation when rubric generation fails', () => {
-      // [issue #389 AC2] rubric_failed branch must also link to /organisation, not /assessments.
-      const failedMatch = creationProgressSrc.match(
-        /rubric_failed[\s\S]*?<\/Card>/,
-      );
-      const failedSrc = failedMatch ? failedMatch[0] : '';
-      expect(failedSrc).toContain('href="/organisation"');
+      // [issue #389 AC2] Assert href + label together so neither can regress independently.
+      expect(creationProgressSrc).toMatch(/href="\/organisation"[^>]*>\s*Back to Organisation/);
     });
   });
 
