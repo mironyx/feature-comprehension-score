@@ -41,6 +41,10 @@ export function getConfiguredModelId(): string {
 
 async function fetchModelList(): Promise<Map<string, number>> {
   const apiKey = process.env['OPENROUTER_API_KEY'];
+  if (!apiKey) {
+    console.warn('[model-limits] OPENROUTER_API_KEY not set — using default context limit');
+    return new Map();
+  }
   try {
     const response = await fetch(OPENROUTER_MODELS_URL, {
       headers: { Authorization: `Bearer ${apiKey}` },

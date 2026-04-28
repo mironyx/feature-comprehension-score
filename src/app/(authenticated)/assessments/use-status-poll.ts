@@ -39,7 +39,6 @@ export function useStatusPoll(
       onStatusChange: setSnapshot,
       onTimeout: () => setTimedOut(true),
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessmentId, initialStatus, pollKey]);
 
   return {
