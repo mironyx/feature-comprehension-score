@@ -1,6 +1,7 @@
-// Regression tests for issue #280 — all 5 malformed_response failure paths in
+// Regression tests for issue #280 — all retryable failure paths in
 // runToolLoop must produce retryable: true, because the retry endpoint runs a
 // full pipeline re-run and the LLM can succeed on a fresh attempt.
+// Note: schema validation failures use validation_failed (#387); all other paths use malformed_response.
 //
 // Contract source: GitHub issue #280
 // Requirements: docs/requirements/v2-requirements.md
