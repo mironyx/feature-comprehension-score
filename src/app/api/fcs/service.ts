@@ -17,7 +17,7 @@ import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet, LinkedIssue, RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
 import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
-import { truncateArtefacts, buildTruncationOptions } from '@/lib/engine/prompts/truncate';
+import { truncateArtefacts, buildTruncationOptions, estimateArtefactSetTokens } from '@/lib/engine/prompts/truncate';
 import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/model-limits';
 import { makeReadFileTool } from '@/lib/github/tools/read-file';
 import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
@@ -280,7 +280,7 @@ async function createAssessmentWithParticipants(
 // E19.3 (#282): logs filePaths (capped to keep entries small) and issueCount for debuggability.
 const FILE_PATHS_LOG_LIMIT = 50;
 
-function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number, tokenBudget: number): void {
+function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number, tokenBudget: number, rawTokens: number): void {
   const allPaths = artefacts.file_contents.map((f) => f.path);
   const truncated = allPaths.length > FILE_PATHS_LOG_LIMIT;
   const filePaths = truncated ? allPaths.slice(0, FILE_PATHS_LOG_LIMIT) : allPaths;
@@ -293,6 +293,8 @@ function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: numbe
     tokenBudgetApplied: artefacts.token_budget_applied,
     tokenBudget,
     contextLimit,
+    rawTokens,
+    assembledTokens: estimateArtefactSetTokens(artefacts),
     filePaths,
     ...(truncated && { filePaths_truncated: true }),
     ...(issueCount > 0 && { issueCount }),
@@ -365,6 +367,7 @@ interface FinaliseRubricParams {
   repoRef: { owner: string; repo: string };
   contextLimit: number;
   tokenBudget: number;
+  rawTokens: number;
 }
 
 // Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
@@ -449,7 +452,7 @@ async function runGeneration(
 // Tool-use + observability wiring added for §17.1e (#246). Structured step logging + onToolCall
 // wiring added for E18.1 (#272). Progress tracking via updateProgress added for E18.3 (#274).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
-  logArtefactSummary(params.artefacts, params.contextLimit, params.tokenBudget);
+  logArtefactSummary(params.artefacts, params.contextLimit, params.tokenBudget, params.rawTokens);
   const { assessmentId, orgId } = params;
   const pendingWrites: Promise<void>[] = [];
   const result = await runGeneration(params, pendingWrites);
@@ -548,7 +551,7 @@ interface ExtractArtefactsParams {
   comprehensionDepth: 'conceptual' | 'detailed';
 }
 
-async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number; tokenBudget: number }> {
+async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number; tokenBudget: number; rawTokens: number }> {
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
@@ -570,8 +573,9 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assem
   const merged = mergeIssueContent(raw, issueContent);
   const contextLimit = await getModelContextLimit(getConfiguredModelId());
   const opts = buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled);
+  const rawTokens = estimateArtefactSetTokens(merged);
   const assembled = truncateArtefacts(merged, opts);
-  return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit, tokenBudget: opts.tokenBudget! };
+  return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit, tokenBudget: opts.tokenBudget!, rawTokens };
 }
 
 // Story 19.2 (#288) + Epic 2 (#322): unions explicit PRs, PRs discovered from
@@ -632,7 +636,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     await updateProgress(params.adminSupabase, assessmentId, orgId, 'artefact_extraction');
     logger.info({ assessmentId, orgId, step: 'artefact_extraction' }, 'pipeline: extracting artefacts');
     const octokit = await createGithubClient(params.repoInfo.installationId);
-    const { assembled: artefacts, contextLimit, tokenBudget } = await extractArtefacts({
+    const { assembled: artefacts, contextLimit, tokenBudget, rawTokens } = await extractArtefacts({
       adminSupabase: params.adminSupabase,
       octokit,
       repoInfo: params.repoInfo,
@@ -642,7 +646,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     });
     await finaliseRubric({
       adminSupabase: params.adminSupabase, assessmentId, orgId,
-      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName }, contextLimit, tokenBudget,
+      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName }, contextLimit, tokenBudget, rawTokens,
     });
   } catch (err) {
     logger.error({ err, assessmentId, orgId }, 'triggerRubricGeneration: failed');

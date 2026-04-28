@@ -39,6 +39,17 @@ export function buildTruncationOptions(
   };
 }
 
+export function estimateArtefactSetTokens(set: RawArtefactSet): number {
+  let total = estimateTokens(set.pr_diff);
+  if (set.pr_description) total += estimateTokens(set.pr_description);
+  for (const e of set.file_listing) total += estimateTokens(`${e.path} ${e.status} +${e.additions} -${e.deletions}`);
+  for (const f of set.file_contents) total += estimateTokens(f.path + f.content);
+  for (const f of set.test_files ?? []) total += estimateTokens(f.path + f.content);
+  for (const f of set.context_files ?? []) total += estimateTokens(f.path + f.content);
+  for (const i of set.linked_issues ?? []) total += estimateTokens(i.title + i.body);
+  return total;
+}
+
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
