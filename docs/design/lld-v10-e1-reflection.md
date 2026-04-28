@@ -5,6 +5,7 @@
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-28 | LS / Claude | Initial LLD — single story |
+| 2026-04-28 | LS / Claude | Story 1.2 — depth compliance probe, hint conflict, diversity, weight criteria |
 
 ## Part A — Human-Reviewable
 
@@ -212,3 +213,81 @@ Single task. Estimated PR diff:
 | **Total** | **~76** |
 
 Well within the 200-line budget. No split needed.
+
+---
+
+## Story 1.2 — Depth compliance probe, hint conflict, diversity, weight criteria (#388)
+
+### Purpose
+
+Four structural fixes to `QUESTION_GENERATION_SYSTEM_PROMPT` and `REFLECTION_INSTRUCTION` identified during manual review of generated questions from epic #240.
+
+### Changes
+
+#### 1. Depth compliance probe in `REFLECTION_INSTRUCTION`
+
+Add a fourth probe to Step 2 (Critique) in `REFLECTION_INSTRUCTION`, immediately after the Theory persistence probe:
+
+> **Depth compliance probe** — Does this question, reference answer, and hint comply with the selected comprehension depth? For conceptual: no specific identifiers, file paths, or function signatures in `question_text`, `reference_answer`, or `hint`. For detailed: at least one concrete anchor (type, file, or function) in `question_text` or `hint`.
+
+#### 2. Hint conflict resolution in `QUESTION_GENERATION_SYSTEM_PROMPT`
+
+The base hint description previously read: "The hint names a recognisable code landmark — a function, type, file, or observable behaviour — that the participant can reason from". This conflicts with `CONCEPTUAL_DEPTH_INSTRUCTION` which forbids naming specific identifiers in hints.
+
+Fix: replace "names a recognisable code landmark — a function, type, file, or observable behaviour — that the participant can reason from" with "gives the participant a recognisable code landmark to reason from", and append "(see Comprehension Depth section for depth-specific hint rules)".
+
+#### 3. Coverage diversity constraint in `QUESTION_GENERATION_SYSTEM_PROMPT`
+
+Add to `## Constraints` (after the existing focus-questions constraint):
+
+> Spread questions across distinct files and subsystems. Do not ground more than one question primarily in the same source file or function. If the diff spans N distinct modules, draw from at least min(N, question_count) distinct modules.
+
+#### 4. Concrete weight criteria in `QUESTION_GENERATION_SYSTEM_PROMPT`
+
+Replace `weight: Integer 1-3 reflecting importance (3 = critical to understanding)` with:
+
+```
+weight: Integer 1-3 reflecting importance:
+  - 3 = Understanding this is required to safely change any other part of the system
+  - 2 = Understanding this is required to safely change this component
+  - 1 = Useful context but not a blocker for safe change
+```
+
+### Updated Invariants
+
+| # | Invariant | Verification |
+|---|-----------|-------------|
+| 7 | `REFLECTION_INSTRUCTION` contains a depth compliance probe | Test: `REFLECTION_INSTRUCTION.toContain('Depth compliance probe')` |
+| 8 | Base hint description does not name identifier types | Test: not contain "a function, type, file, or observable behaviour" |
+| 9 | `QUESTION_GENERATION_SYSTEM_PROMPT` contains the diversity constraint | Test: contains "Spread questions across distinct files" |
+| 10 | Weight criteria are concrete, not vague | Test: contains "safely change any other part of the system" |
+
+### BDD Specs (added to `tests/lib/engine/prompts/prompt-builder.test.ts`)
+
+```typescript
+describe('REFLECTION_INSTRUCTION — depth compliance probe (Story 1.2)', () => {
+  it('names the depth compliance probe');
+  it('specifies the conceptual no-identifier rule for question_text, reference_answer, and hint');
+  it('specifies the detailed at-least-one-anchor rule for question_text or hint');
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — hint conflict resolved (Story 1.2)', () => {
+  it('does not instruct the model to name a function, type, or file in the base hint description');
+  it('includes a cross-reference to the Comprehension Depth section in the hint description');
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — coverage diversity constraint (Story 1.2)', () => {
+  it('instructs the model to spread questions across distinct files and subsystems');
+  it('forbids grounding more than one question in the same source file or function');
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — concrete weight criteria (Story 1.2)', () => {
+  it('defines weight 3 as required to safely change any other part of the system');
+  it('defines weight 2 as required to safely change this component');
+  it('defines weight 1 as useful context but not a blocker');
+});
+```
+
+### Complexity Budget
+
+No new control flow. All changes are text edits to existing string constants. CodeScene score: 10.0.

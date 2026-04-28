@@ -83,6 +83,21 @@ Adds an explicit draft-critique-rewrite instruction to the system prompt so the 
 
 **Notes:** The critique criteria are not new — they are already stated in `## Constraints` as passive rules. The change is making them active: the model is instructed to apply them as an explicit self-check step rather than hoping they are honoured during generation. INVEST: Independent — no dependency on other stories. Estimable: prompt string edit only. Testable: see AC criteria above; behaviour is observable by examining generated question quality against the rubric.
 
+### Story 1.2: Prompt improvements — depth compliance probe, hint conflict, diversity, weight criteria (#388)
+
+**As a** question generator (LLM),
+**I want to** receive unambiguous, non-conflicting instructions for depth compliance, hint specificity, question diversity, and weight assignment,
+**so that** generated questions and hints are consistently scoped to the selected comprehension depth, spread across distinct code areas, and weighted with a reproducible standard.
+
+**Acceptance Criteria:**
+
+- Given conceptual depth, when the model critiques a candidate question that uses a specific identifier in `question_text`, `reference_answer`, or `hint`, then the depth compliance probe flags it and the model rewrites to remove the identifier.
+- Given detailed depth, when the model critiques a candidate question with no concrete code anchor in `question_text` or `hint`, then the depth compliance probe flags it and the model rewrites to add one.
+- Given the updated base hint description, when read alone (without the depth instruction), it no longer instructs the model to name specific identifiers.
+- Given a diff spanning 4+ distinct files, when 5 questions are generated, then no two questions are grounded primarily in the same source file.
+- Given weight 3 criteria, when a question is about a concept that affects only one component, then the model assigns weight ≤ 2.
+- All existing `REFLECTION_INSTRUCTION` tests pass unchanged.
+
 ---
 
 ## Cross-Cutting Concerns
