@@ -8,6 +8,7 @@
 | 2026-04-25 | Claude | Story 1.1: cache full model list instead of per-model; remove DEFAULT_MODEL dot-format fix; add guardrails note |
 | 2026-04-25 | Claude | Story 1.1: use `/models/user` endpoint; replace `fetchFn` injection with MSW for testing |
 | 2026-04-28 | LS / Claude | Story 1.2: mode-aware truncation strategy — `buildTruncationOptions` helper, `strategy` field on `TruncationOptions`, file-importance sort by change count, static-mode diff drop. |
+| 2026-04-28 | Claude | Story 1.1: lld-sync — fetchPromise deduplication pattern, clearModelLimitsCache resets both singletons, console.warn on not-found fallback. |
 
 ## Design Reference
 
@@ -162,20 +163,37 @@ export const DEFAULT_CONTEXT_LIMIT = 130_000;
 
 /** Cached model list: modelId → context_length. Populated on first call. */
 let modelListCache: Map<string, number> | null = null;
+/** In-flight fetch promise — prevents duplicate network calls on concurrent lookups. */
+let fetchPromise: Promise<Map<string, number>> | null = null;
 
 /** Clears the module-level cache. Test-only. */
 export function clearModelLimitsCache(): void {
   modelListCache = null;
+  fetchPromise = null;
 }
 
 export async function getModelContextLimit(
   modelId: string,
 ): Promise<number> {
   if (!modelListCache) {
-    modelListCache = await fetchModelList();
+    if (!fetchPromise) {
+      fetchPromise = fetchModelList().then(map => {
+        modelListCache = map;
+        fetchPromise = null;
+        return map;
+      });
+    }
+    await fetchPromise;
   }
-  return modelListCache.get(modelId) ?? DEFAULT_CONTEXT_LIMIT;
+  const limit = modelListCache!.get(modelId);
+  if (limit === undefined) {
+    console.warn(`[model-limits] model not in cache: ${modelId}`, { fallback: DEFAULT_CONTEXT_LIMIT });
+    return DEFAULT_CONTEXT_LIMIT;
+  }
+  return limit;
 }
+
+> **Implementation note (issue #328):** The LLD sketch used a simple `modelListCache = await fetchModelList()` assignment, which races when two `getModelContextLimit()` calls arrive concurrently before the first fetch resolves (both see `modelListCache === null` and issue duplicate requests). The implementation adds an in-flight `fetchPromise` guard to deduplicate. Exported API is unchanged. The `clearModelLimitsCache()` helper was updated to also reset `fetchPromise`. Additionally, the not-found fallback now logs a `console.warn` (the sketch silently returned the default).
 ```
 
 **`fetchModelList(): Promise<Map<string, number>>`**
