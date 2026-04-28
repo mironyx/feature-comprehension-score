@@ -48,10 +48,13 @@ Respond with a JSON object matching this exact schema:
 
 - question_number: Sequential integer starting at 1
 - question_text: Short-answer question (not multiple choice)
-- weight: Integer 1-3 reflecting importance (3 = critical to understanding)
+- weight: Integer 1-3 reflecting importance:
+  - 3 = Understanding this is required to safely change any other part of the system
+  - 2 = Understanding this is required to safely change this component
+  - 1 = Useful context but not a blocker for safe change
 - naur_layer: One of "world_to_program", "design_justification", "modification_capacity"
 - reference_answer: The answer a developer with full understanding should give, derived strictly from the provided artefacts. Define 2–3 essential points that demonstrate system-specific understanding — not an exhaustive checklist. A participant who demonstrates genuine comprehension of the key points should score highly even if they do not enumerate every detail.
-- hint: A brief guidance hint shown to participants alongside the question. Keep it concise — one or two sentences. The hint names a recognisable code landmark — a function, type, file, or observable behaviour — that the participant can reason from, WITHOUT revealing any reasoning, rationale, or trade-offs from the reference answer.
+- hint: A brief guidance hint shown to participants alongside the question. Keep it concise — one or two sentences. The hint gives the participant a recognisable code landmark to reason from, WITHOUT revealing any reasoning, rationale, or trade-offs from the reference answer. (see Comprehension Depth section for depth-specific hint rules)
   - GOOD: "Look at what \`validatePath\` rejects vs. what it passes through unchanged."
   - BAD: "Explain which real-world constraints are captured in the validation rules." (restates the question)
   - BAD: "The validation rejects paths that cross trust boundaries because of the security model." (reveals reference answer reasoning)
@@ -74,7 +77,8 @@ Respond with a JSON object matching this exact schema:
 - Questions must test knowledge specific to THIS system's decisions, behaviour, and trade-offs — not general software engineering principles that any experienced developer could answer without seeing the codebase. A useful test: if a senior engineer who has never seen this codebase could give a correct answer based on general best practices alone, the question is too generic.
   - BAD: "Why was the tool-use loop extracted into a separate pure module?" (any engineer would answer "separation of concerns")
   - GOOD: "Why does the tool-use loop pass an empty tools array instead of skipping the loop entirely when tool_use_enabled is false?" (requires knowing the specific design decision)
-- Focus questions on architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not on low-level implementation details. A useful test: if a developer could answer the question by reading the code for 30 seconds (variable names, default values, specific syntax, line-level logic), the question is too shallow. Good questions test understanding that persists after the developer has moved on to other work — the kind of knowledge that matters when deciding whether a proposed change is safe, not when recalling how a function is currently implemented. This applies across all three Naur layers: even "modification capacity" questions should test reasoning about dependencies and risks, not recall of specific code paths.`;
+- Focus questions on architectural reasoning, design intent, domain understanding, and the ability to make safe judgements about change — not on low-level implementation details. A useful test: if a developer could answer the question by reading the code for 30 seconds (variable names, default values, specific syntax, line-level logic), the question is too shallow. Good questions test understanding that persists after the developer has moved on to other work — the kind of knowledge that matters when deciding whether a proposed change is safe, not when recalling how a function is currently implemented. This applies across all three Naur layers: even "modification capacity" questions should test reasoning about dependencies and risks, not recall of specific code paths.
+- Spread questions across distinct files and subsystems. Do not ground more than one question primarily in the same source file or function. If the diff spans N distinct modules, draw from at least min(N, question_count) distinct modules.`;
 
 export const REFLECTION_INSTRUCTION = `## Reflection: Draft, Critique, Rewrite
 
@@ -93,6 +97,8 @@ For each candidate question, apply the three Naur probes:
 **Depth probe** — Could a developer answer this by reading the code for 30 seconds — scanning variable names, default values, or specific syntax? If yes, the question is too shallow and fails this probe.
 
 **Theory persistence probe** — Does this question test knowledge a developer retains after moving on to other work — the kind of understanding needed to judge whether a proposed change is safe? If the question tests knowledge a developer could reconstruct on demand by re-reading the code, it fails this probe.
+
+**Depth compliance probe** — Does this question, reference answer, and hint comply with the selected comprehension depth? For conceptual: no specific identifiers, file paths, or function signatures in \`question_text\`, \`reference_answer\`, or \`hint\`. For detailed: at least one concrete anchor (type, file, or function) in \`question_text\` or \`hint\`.
 
 ### Step 3: Rewrite
 

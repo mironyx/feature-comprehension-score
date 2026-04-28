@@ -683,3 +683,76 @@ describe('QUESTION_GENERATION_SYSTEM_PROMPT — existing constraints preserved (
     expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain('specific to THIS system');
   });
 });
+
+// ---------------------------------------------------------------------------
+// V10 Story 1.2 — Prompt improvements: depth probe, hint conflict, diversity, weight (#388)
+// ---------------------------------------------------------------------------
+
+describe('REFLECTION_INSTRUCTION — depth compliance probe (Story 1.2)', () => {
+  it('names the depth compliance probe', () => {
+    expect(REFLECTION_INSTRUCTION).toContain('Depth compliance probe');
+  });
+
+  it('specifies the conceptual no-identifier rule for question_text, reference_answer, and hint', () => {
+    expect(REFLECTION_INSTRUCTION).toContain(
+      'no specific identifiers, file paths, or function signatures in `question_text`, `reference_answer`, or `hint`',
+    );
+  });
+
+  it('specifies the detailed at-least-one-anchor rule for question_text or hint', () => {
+    expect(REFLECTION_INSTRUCTION).toContain(
+      'at least one concrete anchor (type, file, or function) in `question_text` or `hint`',
+    );
+  });
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — hint conflict resolved (Story 1.2)', () => {
+  it('does not instruct the model to name a function, type, or file in the base hint description', () => {
+    // The base hint description previously said "a function, type, file, or observable behaviour",
+    // conflicting with the conceptual depth instruction. Depth-specific guidance now lives in the
+    // Comprehension Depth section only.
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).not.toContain(
+      'a function, type, file, or observable behaviour',
+    );
+  });
+
+  it('includes a cross-reference to the Comprehension Depth section in the hint description', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'see Comprehension Depth section for depth-specific hint rules',
+    );
+  });
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — coverage diversity constraint (Story 1.2)', () => {
+  it('instructs the model to spread questions across distinct files and subsystems', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Spread questions across distinct files and subsystems',
+    );
+  });
+
+  it('forbids grounding more than one question in the same source file or function', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Do not ground more than one question primarily in the same source file or function',
+    );
+  });
+});
+
+describe('QUESTION_GENERATION_SYSTEM_PROMPT — concrete weight criteria (Story 1.2)', () => {
+  it('defines weight 3 as required to safely change any other part of the system', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Understanding this is required to safely change any other part of the system',
+    );
+  });
+
+  it('defines weight 2 as required to safely change this component', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Understanding this is required to safely change this component',
+    );
+  });
+
+  it('defines weight 1 as useful context but not a blocker', () => {
+    expect(QUESTION_GENERATION_SYSTEM_PROMPT).toContain(
+      'Useful context but not a blocker for safe change',
+    );
+  });
+});
