@@ -328,6 +328,7 @@ vi.mock('@/lib/engine/pipeline', () => ({
   generateRubric: vi.fn().mockResolvedValue({
     status: 'success',
     rubric: { questions: [{ question_text: 'Q1', reference_answer: 'A1', weight: 1 }] },
+    observability: { inputTokens: 100, outputTokens: 50, toolCalls: [], durationMs: 1 },
   }),
 }));
 

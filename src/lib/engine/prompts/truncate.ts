@@ -1,3 +1,4 @@
+// Design reference: docs/design/lld-v5-e1-token-budget.md §Story 1.2
 import type { ArtefactFile, RawArtefactSet, AssembledArtefactSet } from './artefact-types';
 import { classifyArtefactQuality } from './classify-quality';
 
@@ -144,6 +145,7 @@ function truncateContextFiles(
   return result;
 }
 
+// Justification: extracted from truncateArtefacts to keep function under 20 lines and to group file-importance sort with strategy dispatch.
 function processDiffAndFiles(
   raw: RawArtefactSet,
   state: TruncationState,

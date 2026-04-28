@@ -280,7 +280,7 @@ async function createAssessmentWithParticipants(
 // E19.3 (#282): logs filePaths (capped to keep entries small) and issueCount for debuggability.
 const FILE_PATHS_LOG_LIMIT = 50;
 
-function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number): void {
+function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number, tokenBudget: number): void {
   const allPaths = artefacts.file_contents.map((f) => f.path);
   const truncated = allPaths.length > FILE_PATHS_LOG_LIMIT;
   const filePaths = truncated ? allPaths.slice(0, FILE_PATHS_LOG_LIMIT) : allPaths;
@@ -291,7 +291,7 @@ function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: numbe
     artefactQuality: artefacts.artefact_quality,
     questionCount: artefacts.question_count,
     tokenBudgetApplied: artefacts.token_budget_applied,
-    tokenBudget: Math.floor(contextLimit * 0.8),
+    tokenBudget,
     contextLimit,
     filePaths,
     ...(truncated && { filePaths_truncated: true }),
@@ -364,6 +364,7 @@ interface FinaliseRubricParams {
   octokit: Octokit;
   repoRef: { owner: string; repo: string };
   contextLimit: number;
+  tokenBudget: number;
 }
 
 // Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
@@ -448,7 +449,7 @@ async function runGeneration(
 // Tool-use + observability wiring added for §17.1e (#246). Structured step logging + onToolCall
 // wiring added for E18.1 (#272). Progress tracking via updateProgress added for E18.3 (#274).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
-  logArtefactSummary(params.artefacts, params.contextLimit);
+  logArtefactSummary(params.artefacts, params.contextLimit, params.tokenBudget);
   const { assessmentId, orgId } = params;
   const pendingWrites: Promise<void>[] = [];
   const result = await runGeneration(params, pendingWrites);
@@ -547,7 +548,7 @@ interface ExtractArtefactsParams {
   comprehensionDepth: 'conceptual' | 'detailed';
 }
 
-async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number }> {
+async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number; tokenBudget: number }> {
   const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
@@ -568,8 +569,9 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assem
   ]);
   const merged = mergeIssueContent(raw, issueContent);
   const contextLimit = await getModelContextLimit(getConfiguredModelId());
-  const assembled = truncateArtefacts(merged, buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled));
-  return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit };
+  const opts = buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled);
+  const assembled = truncateArtefacts(merged, opts);
+  return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit, tokenBudget: opts.tokenBudget! };
 }
 
 // Story 19.2 (#288) + Epic 2 (#322): unions explicit PRs, PRs discovered from
@@ -630,7 +632,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     await updateProgress(params.adminSupabase, assessmentId, orgId, 'artefact_extraction');
     logger.info({ assessmentId, orgId, step: 'artefact_extraction' }, 'pipeline: extracting artefacts');
     const octokit = await createGithubClient(params.repoInfo.installationId);
-    const { assembled: artefacts, contextLimit } = await extractArtefacts({
+    const { assembled: artefacts, contextLimit, tokenBudget } = await extractArtefacts({
       adminSupabase: params.adminSupabase,
       octokit,
       repoInfo: params.repoInfo,
@@ -640,7 +642,7 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
     });
     await finaliseRubric({
       adminSupabase: params.adminSupabase, assessmentId, orgId,
-      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName }, contextLimit,
+      artefacts, octokit, repoRef: { owner: params.repoInfo.orgName, repo: params.repoInfo.repoName }, contextLimit, tokenBudget,
     });
   } catch (err) {
     logger.error({ err, assessmentId, orgId }, 'triggerRubricGeneration: failed');
