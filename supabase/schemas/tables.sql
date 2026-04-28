@@ -180,6 +180,11 @@ CREATE TABLE assessments (
   rubric_progress            text,
   rubric_progress_updated_at timestamptz,
 
+  -- Token budget enforcement (V5 Epic 1). Populated on rubric generation.
+  -- See docs/design/lld-v5-e1-token-budget.md §1.3.
+  token_budget_applied     boolean,
+  truncation_notes         jsonb,
+
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );

@@ -289,6 +289,8 @@ export interface Database {
           rubric_retry_count: number;
           rubric_progress: string | null;
           rubric_progress_updated_at: string | null;
+          token_budget_applied: boolean | null;
+          truncation_notes: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -336,6 +338,8 @@ export interface Database {
           rubric_retry_count?: number;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
+          token_budget_applied?: boolean | null;
+          truncation_notes?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -383,6 +387,8 @@ export interface Database {
           rubric_retry_count?: number;
           rubric_progress?: string | null;
           rubric_progress_updated_at?: string | null;
+          token_budget_applied?: boolean | null;
+          truncation_notes?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -698,6 +704,8 @@ export interface Database {
               p_rubric_tool_call_count: number;
               p_rubric_tool_calls: Json;
               p_rubric_duration_ms: number;
+              p_token_budget_applied?: boolean;
+              p_truncation_notes?: Json;
             };
             Returns: void;
           };

@@ -316,6 +316,7 @@ $$;
 -- finalise_rubric (observability overload): inserts questions, updates status,
 -- and persists rubric-generation observability fields in a single transaction.
 -- V2 Epic 17. See docs/design/lld-v2-e17-agentic-retrieval.md §17.1d.
+-- V5 Epic 1 Story 1.3: adds p_token_budget_applied and p_truncation_notes (#330).
 CREATE OR REPLACE FUNCTION finalise_rubric(
   p_assessment_id          uuid,
   p_org_id                 uuid,
@@ -324,7 +325,9 @@ CREATE OR REPLACE FUNCTION finalise_rubric(
   p_rubric_output_tokens   integer,
   p_rubric_tool_call_count integer,
   p_rubric_tool_calls      jsonb,
-  p_rubric_duration_ms     integer
+  p_rubric_duration_ms     integer,
+  p_token_budget_applied   boolean DEFAULT NULL,
+  p_truncation_notes       jsonb   DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -355,6 +358,8 @@ BEGIN
       rubric_duration_ms         = p_rubric_duration_ms,
       rubric_progress            = NULL,
       rubric_progress_updated_at = NULL,
+      token_budget_applied       = p_token_budget_applied,
+      truncation_notes           = p_truncation_notes,
       updated_at                 = now()
   WHERE id = p_assessment_id
     AND org_id = p_org_id;

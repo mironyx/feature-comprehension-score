@@ -12,6 +12,7 @@ import type { Database } from '@/lib/supabase/types';
 import type { ToolCallLogEntry } from '@/lib/engine/llm/tools';
 import { logger } from '@/lib/logger';
 import RetrievalDetailsCard from '@/components/assessment/RetrievalDetailsCard';
+import TruncationDetailsCard from '@/components/assessment/TruncationDetailsCard';
 import { FormattedText } from '@/components/ui/formatted-text';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -301,6 +302,11 @@ function AdminAggregateView({ assessment, questions, revealAnswers, myAnswers }:
         )}
       </section>
 
+      <TruncationDetailsCard
+        token_budget_applied={assessment.token_budget_applied}
+        truncation_notes={assessment.truncation_notes as readonly string[] | null}
+        rubric_tool_call_count={assessment.rubric_tool_call_count}
+      />
       <RetrievalDetailsCard
         rubric_tool_call_count={assessment.rubric_tool_call_count}
         rubric_tool_calls={assessment.rubric_tool_calls as readonly ToolCallLogEntry[] | null}

@@ -10,6 +10,7 @@
 | 2026-04-28 | LS / Claude | Story 1.2: mode-aware truncation strategy — `buildTruncationOptions` helper, `strategy` field on `TruncationOptions`, file-importance sort by change count, static-mode diff drop. |
 | 2026-04-28 | Claude | Story 1.1: lld-sync — fetchPromise deduplication pattern, clearModelLimitsCache resets both singletons, console.warn on not-found fallback. |
 | 2026-04-28 | Claude | Story 1.2: lld-sync — default strategy is 'agentic' (not 'static'); extractArtefacts returns contextLimit/tokenBudget/rawTokens; processDiffAndFiles and estimateArtefactSetTokens helpers added; logArtefactSummary logs raw/assembled token counts; test file path corrected. |
+| 2026-04-28 | Claude | Story 1.3: lld-sync — results page path corrected to `(authenticated)` route group; manual types.ts edit pattern noted; evaluator test file added. |
 
 ## Design Reference
 
@@ -482,8 +483,10 @@ describe('extractArtefacts truncation wiring', () => {
 | `supabase/schemas/functions.sql` | Edit (`finalise_rubric` overload) | DB |
 | `src/app/api/fcs/service.ts` | Edit (`persistRubricFinalisation`) | BE |
 | `src/components/assessment/TruncationDetailsCard.tsx` | Create | FE |
-| `src/app/assessments/[id]/results/page.tsx` | Edit (add card) | FE |
+| `src/app/(authenticated)/assessments/[id]/results/page.tsx` | Edit (add card) | FE |
 | `tests/components/truncation-details-card.test.ts` | Create | Test |
+
+> **Implementation note (issue #330):** Two files not listed above were also modified. (1) `src/lib/supabase/types.ts` required manual edits — `npx supabase gen types typescript` downgrades hand-crafted enum literals (e.g. `'conceptual' | 'detailed'`) to `string`, so regenerating the file causes type errors in pre-existing code. The pattern is: run `db diff`/`db reset` to apply the schema, then manually append new column types to the `Row`/`Insert`/`Update` sections of `types.ts`. (2) `tests/evaluation/surface-truncation-details.eval.test.ts` was produced by the feature-evaluator agent and covers AC-2 (RPC param persistence verification).
 
 #### Schema Changes
 
