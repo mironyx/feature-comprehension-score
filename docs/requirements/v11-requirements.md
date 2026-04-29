@@ -8,7 +8,7 @@
 | Status | Draft — Structure |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-29 (rev 2) |
+| Last updated | 2026-04-29 (rev 3) |
 
 ## Change Log
 
@@ -16,6 +16,7 @@
 |---------|------|--------|---------|
 | 0.1 | 2026-04-29 | LS / Claude | Initial structure draft |
 | 0.2 | 2026-04-29 | LS / Claude | Address review comments: drop org context fallback for FCS; fix Org Member role; rewrite navigation model (admin vs member); add OQ 3 (PRCC project scoping) and OQ 4 |
+| 0.3 | 2026-04-29 | LS / Claude | Resolve all OQs: PRCC deferred; add Config Model section (V1 repo config split); exempt file patterns apply to FCS; nullable repo→project FK as sole foundation work; fix Roles table and Cross-Cutting Concerns |
 
 ---
 
@@ -50,11 +51,32 @@ No data migration is required — the product is not yet in production.
 ## Design Principles / Constraints
 
 1. **Org is the tenant boundary.** Projects are children of organisations. All RLS policies and data isolation remain at org level. Projects do not introduce a new security boundary.
-2. **PRCC project assignment is an open question for V11.** See Open Question 3. The `project_id` FK on PRCC assessments should be kept nullable in the schema so that adding project scoping later (or in this version) requires no migration.
+2. **PRCC product features are deferred from V11.** No PRCC product behaviour changes in this version. The `project_id` FK on PRCC assessments remains nullable (already supported in schema) — the only foundation work needed to avoid future rework. Repos may carry a nullable `project_id` reference as a schema-level link to a project; this is not surfaced in the V11 UI.
 3. **Existing schema hook.** `organisation_contexts.project_id` is already nullable in the schema, anticipating this change. Use it for project-level domain notes rather than creating a new table.
 4. **No org-level fallback for FCS context.** Project context is the sole LLM configuration source for FCS assessments. If a project has no context configured, the assessment proceeds with no injected context. There is no org-level fallback. Org context exists only for PRCC. This keeps the resolution logic simple and removes a configuration source that has no clear use case for FCS.
 5. **No migration.** Product is not in production. No backward-compatibility shims or default-project creation.
 6. **Small PRs.** Each story targets < 200 lines of change.
+
+---
+
+## Config Model
+
+Settings from the V1 repo-level config (Story 1.3) are split in V11. This table is the reference for which settings live where; it governs Epic 3 story scope.
+
+| Setting | V11 location | Notes |
+|---------|-------------|-------|
+| PRCC enabled/disabled | Repo | Unchanged. PRCC deferred. |
+| Enforcement mode (Soft/Hard) | Repo | Unchanged. PRCC deferred. |
+| Score threshold (Hard mode) | Repo | Unchanged. PRCC deferred. |
+| Question count for PRCC | Repo | Unchanged. PRCC deferred. |
+| Minimum PR size for PRCC | Repo | Unchanged. PRCC deferred. |
+| Exempt file patterns | Repo | Applies to both PRCC and FCS rubric generation (files excluded from context fetching). |
+| Question count for FCS | **Project** | Moves to project settings (Story 3.3). |
+| Context file glob patterns | **Project** | New; was org-level in V1 (Story 3.1). |
+| Domain notes | **Project** | New; was org-level in V1 (Story 3.2). |
+| Repo → project link | Repo (schema only) | New nullable FK on repo. Foundation for future PRCC project scoping. Not surfaced in UI in V11. |
+
+Repo-level settings remain editable via the `/organisation` settings page. Project-level settings are on the `/projects/[id]/settings` page.
 
 ---
 
@@ -63,7 +85,7 @@ No data migration is required — the product is not yet in production.
 | Role | Type | Description |
 |------|------|-----------|
 | **Org Admin** | Persistent | GitHub org admin/owner. Can create, edit, archive projects; configure project context and config; create FCS assessments. |
-| **Org Member** | Persistent | GitHub org member. Can view projects they are listed as participants in and answer assessments they are invited to. |
+| **Org Member** | Persistent | GitHub org member. Sees FCS assessments they are invited to across all projects; can filter by project. Does not have a project management view. |
 | **Assessment Participant** | Contextual | An org member (or external collaborator) added to a specific FCS assessment. Their access is scoped to that assessment. Role is granted per-assessment, not per-project. |
 
 ---
@@ -104,7 +126,7 @@ NavBar: [FCS logo]  [My Assessments]  [Org: Acme v]  [User v]
 /projects/[id]/assessments/[aid]/submitted
 ```
 
-> **Open:** Where PRCC assessments surface for members depends on the PRCC project scoping decision — see Open Question 3. If PRCC stays org/repo-scoped, PRCC items do not appear in `/assessments` for members. If PRCC is project-scoped, they would appear alongside FCS items.
+> **PRCC deferred.** PRCC assessments do not appear in `/assessments` in V11. The member queue is FCS-only. PRCC participants continue to use invitation links directly. No member-facing PRCC list view in V11.
 
 
 ---
@@ -328,21 +350,22 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 ### Security & Authorisation
 - All project data is scoped to `org_id`; existing RLS policies on `assessments` and `organisation_contexts` extend naturally.
 - Project creation, edit, archive, and settings are restricted to Org Admin role.
-- Project list and dashboard are visible to all Org Members (and assessment participants via their existing assessment RLS access).
+- Org Members reach assessments via `/assessments` (their queue) or deep-links. They do not have a general project list view. Assessment participants can reach individual assessment pages via invitation link or from the queue; existing assessment RLS access is unchanged.
 
 ### Data Integrity
 - An FCS assessment must always have a valid `project_id` FK. The API must reject FCS creation requests without a project.
 - Archiving a project does not delete or modify its assessments — it only hides the project from active lists.
 
 ### Context Resolution
-- The context fallback chain for FCS rubric generation: project-level → org-level. This mirrors the existing `repository_config` → `org_config` resolution pattern in `get_effective_config()`.
+- FCS rubric generation uses project-level context only (glob patterns, domain notes, question count). No fallback to org-level context. If a project has no context configured, rubric generation proceeds with no injected context.
+- Exempt file patterns are read from repo-level config and applied during FCS context fetching (files matching the patterns are excluded).
 
 ---
 
 ## What We Are NOT Building
 
-- **PRCC project scoping.** The webhook-triggered flow assigns assessments to repos; mapping repos to projects for PRCC requires a separate design. Deferred.
-- **Repo membership in projects.** Repos remain org-level resources, selected per-assessment. Projects do not own repos.
+- **PRCC product features.** No PRCC product behaviour changes in V11. PRCC participants use direct invitation links; no PRCC list view for members. The nullable `project_id` FK on repos and PRCC assessments is the only V11 schema foundation. Full PRCC project scoping is deferred.
+- **Repo→project UI mapping.** Repos carry a nullable `project_id` FK in the schema only. No admin UI to assign repos to projects in V11.
 - **Copy context from another project.** Not in V11. Can be added in a future epic.
 - **Project-level RBAC.** No project-specific roles or membership lists. Access is governed by org-level roles.
 - **Multi-org projects.** A project belongs to exactly one org.
@@ -353,10 +376,10 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 | # | Question | Context | Options | Impact |
 |---|----------|---------|---------|--------|
-| 1 | Where do PRCC assessments surface for non-admin org members? | Depends on Open Question 3. If PRCC is project-scoped, PRCC items appear in `/assessments` alongside FCS items. If org/repo-scoped, they do not appear there. | See OQ 3. | Affects whether members need a separate route for PRCC or can use a single assessment queue. |
-| 2 | **Resolved.** Members land on `/assessments` (My Pending Assessments), not `/projects`. Root redirect differs by role: admin → `/projects`, member → `/assessments`. | Resolved via navigation model rewrite. | — | — |
-| 3 | Should PRCC assessments be project-scoped in V11? | Assigning a repo to a project would let PRCC use project context for question generation. The alternative is keeping PRCC org/repo-scoped and deferring project context for PRCC. The schema already supports a nullable `project_id` on PRCC assessments. | (a) In scope for V11: add repo→project mapping in org settings; PRCC webhook assigns `project_id` at trigger time. (b) Deferred: PRCC stays org/repo-scoped; `project_id` remains nullable and unused. | If (a): extends V11 scope significantly (new org settings UI, FK wiring, member queue shows PRCC items). If (b): simpler V11 delivery but PRCC participants have no list view for their items. **Decision needed before Gate 1.** |
-| 4 | If PRCC is kept org/repo-scoped (OQ 3 option b), how do PRCC participants find their assessments? | Currently via `/assessments`. If that route is member-only and scoped to FCS, PRCC participants need another path. | (a) Direct invitation link only — no list view; (b) Keep a minimal `/assessments` route that includes PRCC items regardless of project scoping. | Affects whether `/assessments` becomes the universal participant queue or is FCS-only. |
+| 1 | **Resolved.** PRCC deferred from V11. PRCC items do not appear in the member queue; participants use invitation links. `/assessments` is FCS-only. | — | — | — |
+| 2 | **Resolved.** Members land on `/assessments` (My Pending Assessments), not `/projects`. Root redirect differs by role: admin → `/projects`, member → `/assessments`. | — | — | — |
+| 3 | **Resolved.** PRCC product features deferred from V11. Foundation: nullable `project_id` FK on repos and PRCC assessments only. No UI change. | — | — | — |
+| 4 | **Resolved.** PRCC participants use direct invitation links in V11. No PRCC list view for members. | — | — | — |
 
 ---
 
