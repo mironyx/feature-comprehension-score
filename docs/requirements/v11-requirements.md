@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
+| Version | 0.5 |
 | Status | Draft — Structure |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-29 (rev 4) |
+| Last updated | 2026-04-29 (rev 5) |
 
 ## Change Log
 
@@ -18,6 +18,7 @@
 | 0.2 | 2026-04-29 | LS / Claude | Address review comments: drop org context fallback for FCS; fix Org Member role; rewrite navigation model (admin vs member); add OQ 3 (PRCC project scoping) and OQ 4 |
 | 0.3 | 2026-04-29 | LS / Claude | Resolve all OQs: PRCC deferred; add Config Model section (V1 repo config split); exempt file patterns apply to FCS; nullable repo→project FK as sole foundation work; fix Roles table and Cross-Cutting Concerns |
 | 0.4 | 2026-04-29 | LS / Claude | Address review comments: Config Model clarification (PRCC settings don't exist yet); add Repo Admin role; last-visited project persistence (Story 4.6); archive = soft delete; minimise-changes design principle; Story 2.2 rewrite; remove org fallback from Story 3.4 and Epic 3 description; clarify Story 1.4 metadata scope; Story 2.4 entry points |
+| 0.5 | 2026-04-29 | LS / Claude | Clarify Repo Admin mechanics: repo selector filtered to user's admin repos; API enforces repo-level access on assessment creation; Story 2.1 and Cross-Cutting Concerns updated |
 
 ---
 
@@ -89,10 +90,10 @@ Repo-level settings remain editable via the `/organisation` settings page. Proje
 | Role | Type | Description |
 |------|------|-----------|
 | **Org Admin** | Persistent | GitHub org admin/owner. Full access: create, edit, and archive projects; configure project context and settings; create FCS assessments. |
-| **Repo Admin** | Persistent | A GitHub org member with admin access to at least one repository. Can create FCS assessments within existing projects. Cannot create, edit, or archive projects. GitHub repo membership is checked at runtime — no separate user management. |
+| **Repo Admin** | Persistent | A GitHub org member with admin access to at least one repository in the org. Can create FCS assessments within existing projects. When creating an assessment, the repo selector shows only repos where they hold GitHub admin access — not all org repos. Cannot create, edit, or archive projects or configure project settings. GitHub repo membership is checked at runtime — no separate user management. |
 | **Org Member** | Persistent | Any authenticated GitHub org member (neither org admin nor repo admin). Can view and submit assessments they have been invited to. No project management access. When explicitly added to an FCS assessment, this role is referred to as **Assessment Participant** — same person, contextual label. |
 
-> **Role determination:** Org Admin and Repo Admin status are derived from the authenticated user's GitHub role (existing pattern). There is no in-app user management. An Org Admin automatically satisfies Repo Admin permissions as well.
+> **Role determination:** Org Admin and Repo Admin status are derived from the authenticated user's GitHub role (existing pattern). There is no in-app user management. An Org Admin automatically satisfies Repo Admin permissions and sees all org repos in the repo selector.
 
 ---
 
@@ -211,13 +212,15 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 
 ### Story 2.1: Create FCS assessment within a project
 
-**As an** Org Admin,
+**As an** Org Admin or Repo Admin,
 **I want to** create an FCS assessment from within a project's dashboard,
 **so that** the new assessment is automatically associated with that project.
 
 *(Acceptance criteria in next pass)*
 
-> **Note:** The assessment creation form and flow are unchanged from the existing FCS creation flow. The only addition is that `project_id` is pre-populated from the current project context and passed to the API on submit. No new UI elements beyond the project association.
+> **Note:** The assessment creation form and flow are unchanged from the existing FCS creation flow. The only addition is that `project_id` is pre-populated from the current project context and passed to the API on submit.
+>
+> **Repo selector scoping:** Org Admins see all org repos (unchanged). Repo Admins see only the repos in the org where they hold GitHub admin access. The repo list is fetched from the GitHub API using the authenticated user's token and filtered accordingly. No new UI — the same repo selector component, different data.
 
 ---
 
@@ -387,7 +390,7 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 ### Security & Authorisation
 - All project data is scoped to `org_id`; existing RLS policies on `assessments` and `organisation_contexts` extend naturally.
 - Project creation, edit, archive, and settings are restricted to Org Admin role.
-- FCS assessment creation is available to Org Admin and Repo Admin roles. GitHub repo membership is checked at runtime (existing pattern); no in-app role management.
+- FCS assessment creation is available to Org Admin and Repo Admin roles. GitHub repo membership is checked at runtime (existing pattern); no in-app role management. When a Repo Admin creates an assessment, the API enforces that every repo selected is one where that user holds GitHub admin access.
 - Org Members (non-admin) reach assessments via `/assessments` (their queue) or deep-links. They do not have a project management view. Assessment participants can reach individual assessment pages via invitation link or from the queue; existing assessment RLS access is unchanged.
 
 ### Data Integrity
