@@ -251,6 +251,8 @@ the rationale for the ordering.
 
 <One paragraph describing the epic's scope and why it's prioritised here.>
 
+<a id="REQ-<epic-slug>-<story-slug>"></a>
+
 ### Story 1.1: <Name>
 
 **As a** <role>,
@@ -261,6 +263,16 @@ the rationale for the ordering.
 
 ---
 ```
+
+**Slug derivation (per ADR-0026):**
+
+- `<epic-slug>`: lower-kebab-case of the epic name, e.g. `Epic 1: Project Management` →
+  `project-management`.
+- `<story-slug>`: lower-kebab-case of the story name, e.g. `Story 1.1: Create a project` →
+  `create-project`.
+- If two stories in the same epic produce the same slug, append `-2`, `-3` etc. and add an
+  HTML comment next to the anchor explaining the collision.
+- Emit one anchor per story. Do not add anchors to epic headings or sub-sections.
 
 **Mapping rules:**
 
@@ -539,6 +551,8 @@ Key conventions:
 - Epics are numbered sequentially: `## Epic 1:`, `## Epic 2:`
 - Stories use dotted numbering within their epic: `### Story 1.1:`,
   `### Story 1.2:`
+- Each story heading is preceded by a stable REQ- anchor:
+  `<a id="REQ-<epic-slug>-<story-slug>"></a>` (see ADR-0026)
 - ACs use Given/When/Then in bullet list format
 - Notes and technical mechanism sections appear after ACs where relevant
 - Cross-cutting concerns appear after all epics
