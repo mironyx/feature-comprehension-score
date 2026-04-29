@@ -142,6 +142,10 @@ contract only.
 - `/requirements` skill must emit REQ- anchors when writing story headings (Step 3).
 - `/lld` skill must emit LLD- anchors on Part B sections and initialise the coverage
   manifest (Stage 2).
+- `/lld-sync` skill must preserve existing LLD- anchors when updating sections in-place,
+  add LLD- anchors to any new Part B sections it introduces, and flip the matching
+  coverage manifest entry's `status` to `Revised` when a Correction changes a section
+  (Stage 2+).
 - `/feature-end` skill must populate `files` and flip `status` in the manifest
   (Stage 3).
 - Slug collision resolution: if two stories in the same epic produce the same slug,
