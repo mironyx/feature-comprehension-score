@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
+| Version | 0.4 |
 | Status | Draft — Structure |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-29 (rev 3) |
+| Last updated | 2026-04-29 (rev 4) |
 
 ## Change Log
 
@@ -17,6 +17,7 @@
 | 0.1 | 2026-04-29 | LS / Claude | Initial structure draft |
 | 0.2 | 2026-04-29 | LS / Claude | Address review comments: drop org context fallback for FCS; fix Org Member role; rewrite navigation model (admin vs member); add OQ 3 (PRCC project scoping) and OQ 4 |
 | 0.3 | 2026-04-29 | LS / Claude | Resolve all OQs: PRCC deferred; add Config Model section (V1 repo config split); exempt file patterns apply to FCS; nullable repo→project FK as sole foundation work; fix Roles table and Cross-Cutting Concerns |
+| 0.4 | 2026-04-29 | LS / Claude | Address review comments: Config Model clarification (PRCC settings don't exist yet); add Repo Admin role; last-visited project persistence (Story 4.6); archive = soft delete; minimise-changes design principle; Story 2.2 rewrite; remove org fallback from Story 3.4 and Epic 3 description; clarify Story 1.4 metadata scope; Story 2.4 entry points |
 
 ---
 
@@ -40,11 +41,11 @@ No data migration is required — the product is not yet in production.
 | **FCS Assessment** | A Feature Comprehension Score assessment created manually, targeting a set of merged PRs. In V11, every FCS assessment must belong to a project. |
 | **PRCC Assessment** | A PR Comprehension Check triggered automatically by a GitHub webhook. Remains org/repo-scoped in this version. |
 | **Project Context** | The per-project configuration injected into the LLM rubric prompt: context file glob patterns, domain notes, and question count. Each project defines its own context independently; there is no org-level fallback for FCS context. |
-| **Org Context** | Organisation-level context (glob patterns + domain notes). Exists in the schema and is used by PRCC assessments. FCS assessments use project context only; org context is not a fallback for FCS in V11. |
-| **Project Dashboard** | The project's main page, showing the FCS assessment list and creation entry-point for that project. Replaces the current org dashboard for FCS work; repos registration remains at org level. |
-| **My Pending Assessments** | A cross-project view showing all FCS assessments where the signed-in user has a pending submission, regardless of project. Displays the project name on each item; filterable by project. |
+| **Org Context** | Organisation-level context (glob patterns + domain notes). Exists in the schema but is not actively used in V11. PRCC context (when implemented) will either reference project context or introduce its own configuration. |
+| **Project Dashboard** | The project's main page, showing the FCS assessment list and creation entry-point for that project. Scoped to one project at a time. A combined cross-project admin view is a future enhancement; the data model supports it without schema changes. |
+| **My Pending Assessments** | A cross-project view showing all FCS assessments where the signed-in user has a pending submission. Shows project name as a label on each item. No project filter — the view is already scoped to the signed-in user's assignments. |
 | **Org Admin** | A user with admin or owner role in the GitHub organisation. Can create and manage projects, configure project context, and create FCS assessments. |
-| **Org Member** | A user with member role in the org. Sees assessments they are invited to across all projects and can filter by project. Does not have a project management view. |
+| **Org Member** | A user with member role in the org. Sees all FCS assessments they are invited to, across all projects, in a single queue. Does not have a project management view. |
 
 ---
 
@@ -56,6 +57,7 @@ No data migration is required — the product is not yet in production.
 4. **No org-level fallback for FCS context.** Project context is the sole LLM configuration source for FCS assessments. If a project has no context configured, the assessment proceeds with no injected context. There is no org-level fallback. Org context exists only for PRCC. This keeps the resolution logic simple and removes a configuration source that has no clear use case for FCS.
 5. **No migration.** Product is not in production. No backward-compatibility shims or default-project creation.
 6. **Small PRs.** Each story targets < 200 lines of change.
+7. **Minimise changes to existing code.** V11 should prefer additive changes (new tables, new routes, new components) over rewrites of existing flows. Refactor existing code only where the project model strictly requires it.
 
 ---
 
@@ -78,15 +80,19 @@ Settings from the V1 repo-level config (Story 1.3) are split in V11. This table 
 
 Repo-level settings remain editable via the `/organisation` settings page. Project-level settings are on the `/projects/[id]/settings` page.
 
+> **Note:** PRCC repo-level settings (rows 1–5 above) do not exist in the current codebase — they are listed here as a reference for future PRCC implementation. Only repo registration exists today. Exempt file patterns (row 6) are a new V11 addition, required for FCS context fetching; there is no existing UI for them.
+
 ---
 
 ## Roles
 
 | Role | Type | Description |
 |------|------|-----------|
-| **Org Admin** | Persistent | GitHub org admin/owner. Can create, edit, archive projects; configure project context and config; create FCS assessments. |
-| **Org Member** | Persistent | GitHub org member. Sees FCS assessments they are invited to across all projects; can filter by project. Does not have a project management view. |
-| **Assessment Participant** | Contextual | An org member (or external collaborator) added to a specific FCS assessment. Their access is scoped to that assessment. Role is granted per-assessment, not per-project. |
+| **Org Admin** | Persistent | GitHub org admin/owner. Full access: create, edit, and archive projects; configure project context and settings; create FCS assessments. |
+| **Repo Admin** | Persistent | A GitHub org member with admin access to at least one repository. Can create FCS assessments within existing projects. Cannot create, edit, or archive projects. GitHub repo membership is checked at runtime — no separate user management. |
+| **Org Member** | Persistent | Any authenticated GitHub org member (neither org admin nor repo admin). Can view and submit assessments they have been invited to. No project management access. When explicitly added to an FCS assessment, this role is referred to as **Assessment Participant** — same person, contextual label. |
+
+> **Role determination:** Org Admin and Repo Admin status are derived from the authenticated user's GitHub role (existing pattern). There is no in-app user management. An Org Admin automatically satisfies Repo Admin permissions as well.
 
 ---
 
@@ -112,6 +118,10 @@ NavBar: [FCS logo]  [Projects]  [Organisation]  [Org: Acme v]  [User v]
 
 /organisation                          ← Org settings: repos registration, PRCC config, members
 ```
+
+- `/projects/[id]/assessments/[aid]/results` — results page for a completed assessment.
+- `/projects/[id]/assessments/[aid]/submitted` — confirmation page shown to a participant immediately after submitting.
+- Last-visited project is persisted per user (see Story 4.6). On sign-in, admins are redirected to their last-visited project rather than the generic `/projects` list.
 
 ### Org Member
 
@@ -165,6 +175,8 @@ Projects are the new top-level container for FCS work. This epic covers all life
 
 *(Acceptance criteria in next pass)*
 
+> **Note:** This is the per-project assessment list. The cross-project view (all pending assessments filterable by project) is covered in Story 2.3.
+
 ---
 
 ### Story 1.4: Edit a project
@@ -175,6 +187,8 @@ Projects are the new top-level container for FCS work. This epic covers all life
 
 *(Acceptance criteria in next pass)*
 
+> **Note:** Name and description are the only project-level metadata fields. Context settings (glob patterns, domain notes, question count) are managed separately on the project settings page (Epic 3, Story 3.5).
+
 ---
 
 ### Story 1.5: Archive a project
@@ -184,6 +198,8 @@ Projects are the new top-level container for FCS work. This epic covers all life
 **so that** it no longer appears in the active project list but its historical assessments are preserved.
 
 *(Acceptance criteria in next pass)*
+
+> **Yes — archive = soft delete.** Sets an `archived_at` timestamp on the project row. Archived projects are excluded from the active project list and cannot have new assessments created under them, but all existing assessments and their data are retained and remain accessible via direct URL.
 
 ---
 
@@ -201,13 +217,15 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 
 *(Acceptance criteria in next pass)*
 
+> **Note:** The assessment creation form and flow are unchanged from the existing FCS creation flow. The only addition is that `project_id` is pre-populated from the current project context and passed to the API on submit. No new UI elements beyond the project association.
+
 ---
 
 ### Story 2.2: Project-scoped FCS assessment list
 
-**As an** Org Member,
-**I want to** see only the FCS assessments belonging to the current project when I view a project's dashboard,
-**so that** assessments from other projects do not appear mixed together.
+**As an** Org Admin or Repo Admin,
+**I want to** see all FCS assessments belonging to the current project when I view a project's dashboard,
+**so that** I can track assessment status and progress for that initiative without mixing in assessments from other projects.
 
 *(Acceptance criteria in next pass)*
 
@@ -227,15 +245,17 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 
 **As an** Assessment Participant,
 **I want to** access my assessment via a URL that includes the project context (`/projects/[pid]/assessments/[aid]`),
-**so that** deep-links in invitation emails resolve correctly in the project-first navigation structure.
+**so that** deep-links in invitation emails and navigation from My Pending Assessments both resolve correctly in the project-first URL structure.
 
 *(Acceptance criteria in next pass)*
+
+> **Note:** Assessment pages are reachable from two entry points: (1) an invitation email link, and (2) the My Pending Assessments page (Story 2.3). Both paths use the same `/projects/[pid]/assessments/[aid]` URL.
 
 ---
 
 ## Epic 3: Project Context & Config [Priority: High]
 
-Moves context configuration from org level to project level. Each project gets its own glob patterns, domain notes, and question count. The FCS rubric generation engine falls back to org-level context when project context is absent.
+Moves context configuration from org level to project level. Each project gets its own glob patterns, domain notes, and question count. There is no org-level fallback for FCS — if a project has no context configured, rubric generation proceeds with no injected context.
 
 **Rationale:** Core quality driver. Project-scoped context produces more targeted LLM questions. Depends on Epic 1. Can be delivered in parallel with Epic 2.
 
@@ -269,14 +289,15 @@ Moves context configuration from org level to project level. Each project gets i
 
 ---
 
-### Story 3.4: FCS rubric generation uses project context with org fallback
+### Story 3.4: FCS rubric generation uses project context
 
 **As a** FCS system,
-**I want to** use project-level context (glob patterns, domain notes, question count) when generating rubric questions, falling back to org-level context when no project context is configured,
-**so that** every FCS assessment gets the most specific context available.
+**I want to** use project-level context (glob patterns, domain notes, question count) when generating rubric questions,
+**so that** every FCS assessment uses the context configured for its project.
 
 *(Acceptance criteria in next pass)*
 
+> **No org-level fallback.** If a project has no context configured, rubric generation proceeds with no injected context. Org context is not consulted. (See Design Principle 4.)
 ---
 
 ### Story 3.5: View project settings page
@@ -325,13 +346,29 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 ---
 
-### Story 4.4: Root redirect to `/projects`
+### Story 4.4: Root redirect — role-aware and last-project-aware
 
-**As an** authenticated Org Member,
-**I want to** be redirected to `/projects` when I visit the root `/`,
-**so that** sign-in lands me at the correct entry point for the project-first structure.
+**As an** authenticated user,
+**I want to** be redirected to the most relevant destination when I visit the root `/`,
+**so that** sign-in places me in the right context immediately without extra navigation.
 
 *(Acceptance criteria in next pass)*
+
+> **Redirect rules (implicit, no UI choice required):**
+> - **Org Admin / Repo Admin with a last-visited project** → redirect to that project's dashboard (see Story 4.6).
+> - **Org Admin / Repo Admin with no last-visited project** → redirect to `/projects`.
+> - **Org Member (no admin)** → redirect to `/assessments` (My Pending Assessments).
+---
+
+### Story 4.6: Last-visited project persistence
+
+**As an** Org Admin or Repo Admin,
+**I want to** be taken directly to my last-visited project when I sign in,
+**so that** I resume where I left off without navigating from the projects list.
+
+*(Acceptance criteria in next pass)*
+
+> **Implementation note:** The last-visited `project_id` is stored in browser `localStorage` (client-side, no DB write). Cleared on sign-out. Falls back to `/projects` if the stored ID is invalid or the project has been archived.
 
 ---
 
@@ -350,7 +387,8 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 ### Security & Authorisation
 - All project data is scoped to `org_id`; existing RLS policies on `assessments` and `organisation_contexts` extend naturally.
 - Project creation, edit, archive, and settings are restricted to Org Admin role.
-- Org Members reach assessments via `/assessments` (their queue) or deep-links. They do not have a general project list view. Assessment participants can reach individual assessment pages via invitation link or from the queue; existing assessment RLS access is unchanged.
+- FCS assessment creation is available to Org Admin and Repo Admin roles. GitHub repo membership is checked at runtime (existing pattern); no in-app role management.
+- Org Members (non-admin) reach assessments via `/assessments` (their queue) or deep-links. They do not have a project management view. Assessment participants can reach individual assessment pages via invitation link or from the queue; existing assessment RLS access is unchanged.
 
 ### Data Integrity
 - An FCS assessment must always have a valid `project_id` FK. The API must reject FCS creation requests without a project.
