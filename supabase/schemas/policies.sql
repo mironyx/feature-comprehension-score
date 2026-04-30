@@ -121,6 +121,12 @@ ALTER TABLE fcs_issue_sources ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fcs_issues_select_member ON fcs_issue_sources
   FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
 
+-- projects: members can read their org's projects; writes flow via service role (ADR-0025).
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY projects_select_member ON projects
+  FOR SELECT USING (org_id IN (SELECT get_user_org_ids()));
+
 -- organisation_contexts: members can read their org's context; only admins can write.
 -- Design reference: docs/design/lld-organisation-context.md §2.2
 -- Issue: #140

@@ -100,6 +100,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      projects: {
+        Row: {
+          id: string;
+          org_id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          name: string;
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          org_id?: string;
+          name?: string;
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       organisation_contexts: {
         Row: {
           id: string;
@@ -219,6 +246,7 @@ export interface Database {
           github_user_id: number;
           github_username: string;
           github_role: string;
+          admin_repo_github_ids: number[];
           created_at: string;
           updated_at: string;
         };
@@ -229,6 +257,7 @@ export interface Database {
           github_user_id: number;
           github_username: string;
           github_role: string;
+          admin_repo_github_ids?: number[];
           created_at?: string;
           updated_at?: string;
         };
@@ -239,6 +268,7 @@ export interface Database {
           github_user_id?: number;
           github_username?: string;
           github_role?: string;
+          admin_repo_github_ids?: number[];
           created_at?: string;
           updated_at?: string;
         };

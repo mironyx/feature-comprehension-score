@@ -90,14 +90,15 @@ CREATE TABLE repository_config (
 -- user_organisations: user <-> org membership junction table (ADR-0004).
 -- Populated at login from GitHub API, refreshed on each sign-in.
 CREATE TABLE user_organisations (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  org_id          uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
-  github_user_id  bigint NOT NULL,
-  github_username text NOT NULL,
-  github_role     text NOT NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now(),
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                 uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  org_id                  uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  github_user_id          bigint NOT NULL,
+  github_username         text NOT NULL,
+  github_role             text NOT NULL,
+  admin_repo_github_ids   bigint[] NOT NULL DEFAULT '{}',  -- ADR-0029 sign-in snapshot
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
   UNIQUE (user_id, org_id)
 );
 
@@ -320,6 +321,18 @@ CREATE TABLE fcs_issue_sources (
 
 CREATE INDEX idx_fcs_issues_assessment ON fcs_issue_sources (assessment_id);
 
+-- projects: V11 organising layer within an org. ADR-0027.
+CREATE TABLE projects (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 200),
+  description text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX uq_projects_org_lower_name ON projects (org_id, lower(name));
+CREATE INDEX idx_projects_org ON projects (org_id);
+
 -- organisation_contexts: per-org (Phase 2) or per-project (V2) prompt customisation.
 -- project_id is NULL in Phase 2. V2 adds project-level rows without a data migration.
 -- Design reference: docs/design/lld-organisation-context.md §2
@@ -328,7 +341,7 @@ CREATE INDEX idx_fcs_issues_assessment ON fcs_issue_sources (assessment_id);
 CREATE TABLE organisation_contexts (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
-  project_id  uuid,  -- NULL in Phase 2; FK to projects(id) added in V2
+  project_id  uuid REFERENCES projects(id) ON DELETE CASCADE,  -- ADR-0028
   context     jsonb NOT NULL DEFAULT '{}',
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
