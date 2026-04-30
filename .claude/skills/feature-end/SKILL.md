@@ -314,6 +314,72 @@ The `|| true` inside `{ }` groups ensures:
 
 **Do not run separate Bash calls** for branch delete, board update, and issue close — they must be one call.
 
+### Step 6.4: Update coverage manifest (per ADR-0026)
+
+If the parent epic has a coverage manifest at `docs/design/coverage-<epic-slug>.yaml`, populate
+the entries that this feature implemented.
+
+1. Determine the epic slug:
+   ```bash
+   EPIC_SLUG=$(gh issue view <issue-number> --json body --jq '.body' | python3 -c "
+   import sys, re
+   m = re.search(r'lld-([a-z0-9-]+)-[a-z0-9-]+\.md', sys.stdin.read())
+   print(m.group(1) if m else '')
+   ")
+   MANIFEST="docs/design/coverage-${EPIC_SLUG}.yaml"
+   ```
+
+2. If `$MANIFEST` does not exist, skip this step silently — the feature predates Stage 2 or the
+   epic is not a pilot epic.
+
+3. If it exists, find the manifest entries whose `lld:` anchor lives in the LLD file(s) that
+   this PR implements (read the `LLD reference` from the issue body or from `lld-sync` output).
+   For each matching entry:
+   - Append every merged source file path (from `git diff --name-only origin/main...HEAD -- 'src/**'`,
+     captured **before** the rebase in Step 3.5) to `files:`.
+   - Flip `status` from `Approved` (or `Revised`) to `Implemented`.
+   - Leave `status` at `Revised` if `/lld-sync` already flipped it — `Revised` outranks
+     `Implemented` until the next feature confirms the new shape; in that case still append
+     to `files:` but keep `status: Revised`.
+
+4. Verify the manifest entries point at anchors that resolve:
+   ```bash
+   python3 -c "
+   import yaml, pathlib, re, sys
+   m = yaml.safe_load(pathlib.Path('$MANIFEST').read_text())
+   for e in m.get('entries', []):
+       lld = e.get('lld')
+       if not lld: continue
+       file, _, anchor = lld.partition('#')
+       p = pathlib.Path('docs/design') / file
+       if not p.exists() or f'id=\"{anchor}\"' not in p.read_text():
+           sys.exit(f'broken anchor: {lld}')
+   print('manifest anchors OK')
+   "
+   ```
+
+5. Stage and amend the manifest into the existing session-log commit (Step 3) if it has not been
+   pushed yet, otherwise create a follow-up commit:
+   ```bash
+   git add "$MANIFEST"
+   git commit -m "docs: coverage manifest — mark <issue-number> implemented"
+   git push
+   ```
+
+If the diff between `Approved → Implemented` would not be picked up before merge (manifest lives
+on the feature branch), commit it on the **base branch** post-merge instead:
+
+```bash
+git checkout "$BASE"
+git pull --rebase
+# edit manifest, then:
+git add "$MANIFEST"
+git commit -m "docs: coverage manifest — mark <issue-number> implemented"
+git push
+```
+
+Choose whichever path keeps the manifest atomically updated with the code it documents.
+
 ### Step 6.5: Tick the parent epic checklist
 
 If the closed issue has a parent epic, tick its checkbox in the epic body.

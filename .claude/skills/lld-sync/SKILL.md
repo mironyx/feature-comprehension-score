@@ -75,6 +75,37 @@ For each Omission:
 1. Mark deferred items with: `_(deferred → issue #N)_` or `_(descoped)_`.
 2. Do not delete them — future readers benefit from knowing what was considered.
 
+**Stable LLD anchors (per ADR-0026):**
+
+- **Preserve** every existing `<a id="LLD-<epic>-<task>-<section>"></a>` anchor when editing a
+  Part B section in-place. Anchors are stable identifiers — moving or renaming them breaks links
+  from the coverage manifest and any external reference.
+- If a Correction or Addition introduces a **new** Part B section, emit a new anchor for it
+  using the format `LLD-<epic-slug>-<task-slug>-<section-slug>` derived from the LLD file name
+  and the new section heading.
+- If a section is removed via Omission, leave the anchor in place above the deferred/descoped
+  marker so the manifest entry still resolves; do not delete the anchor.
+
+### Step 3b: Update the coverage manifest
+
+If `docs/design/coverage-<epic-slug>.yaml` exists for this epic, update the entries that match
+the LLD sections you just changed:
+
+- For any section touched by a **Correction** (the spec was wrong and got rewritten), flip the
+  matching entry's `status` from `Implemented` (or `Approved`) to `Revised`.
+- For a **new** Part B section added under an Addition, append a new manifest entry pointing
+  at the new anchor with `status: Revised` and the implementing files in `files:`.
+- Do **not** touch `files:` for entries unrelated to this issue — `/feature-end` owns the
+  initial population.
+
+Manifest ownership summary (for reference):
+
+| Skill | Writes | Flips status to |
+|-------|--------|-----------------|
+| `/lld` | Creates manifest, one row per REQ- anchor, empty `files`, `status: Approved` | `Approved` |
+| `/feature-end` | Populates `files:` after merge | `Implemented` |
+| `/lld-sync` | Updates entries for sections changed by Corrections/Additions | `Revised` |
+
 Update the LLD's Document Control table:
 - Bump `Version` (e.g., `0.1` → `0.2`).
 - Change `Status` from `Draft` to `Revised` (or `Revised` → `Revised v2`).
