@@ -243,6 +243,10 @@ describe('Project pages')
 - `supabase/schemas/tables.sql` — add `projects` table, FK on `organisation_contexts.project_id`, snapshot column on `user_organisations`.
 - `supabase/schemas/policies.sql` — RLS on `projects`.
 - `supabase/migrations/<timestamp>_v11_e11_1_projects.sql` — generated via `npx supabase db diff`.
+- `src/lib/supabase/types.ts` — **manually patched** (add `projects` Row/Insert/Update block; add `admin_repo_github_ids: number[]` to `user_organisations`).
+- `tests/helpers/v11-e11-1-projects-schema.integration.test.ts` — 6 integration specs covering all BDD acceptance criteria.
+
+> **Implementation note (issue #394):** `src/lib/supabase/types.ts` cannot be auto-regenerated via `supabase gen types typescript --local` — doing so replaces all literal union type columns (e.g. `'prcc' | 'fcs'`, `'active' | 'inactive'`) with plain `string`, breaking downstream consumers. The file is maintained manually; only the new `projects` block and `admin_repo_github_ids` field were added.
 
 **Schema additions:**
 
@@ -283,7 +287,7 @@ CREATE POLICY projects_select_member ON projects
 
 **Acceptance:**
 - `npx supabase db reset` succeeds; `npx supabase db diff` empty after running.
-- `npx tsc --noEmit` passes (no consumer of new tables yet — type regen only).
+- `npx tsc --noEmit` passes after manually patching `src/lib/supabase/types.ts` (see Files note above — do not auto-regenerate).
 
 **Tasks:**
 1. Edit `tables.sql` (additions above).
