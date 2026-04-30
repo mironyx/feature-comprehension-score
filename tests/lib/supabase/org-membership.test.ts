@@ -16,9 +16,15 @@ describe('resolveUserOrgsViaApp', () => {
     const org = makeOrg();
     const { client, upsertSpy } = buildMockClient({
       installedOrgs: [org],
-      finalUserOrgs: [makeUserOrg({ github_role: 'admin' })],
+      finalUserOrgs: [makeUserOrg({ github_role: 'admin', admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async () => membershipResponse('admin'));
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/memberships/')) return membershipResponse('admin');
+      if (url.includes('/installation/repositories')) {
+        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
     const getInstallationToken = vi.fn(async () => 'ghs_test');
 
     const result = await resolveUserOrgsViaApp(client, INPUT, {
@@ -92,10 +98,14 @@ describe('resolveUserOrgsViaApp', () => {
     const beta = makeOrg({ id: 'org-2', github_org_id: 1002, github_org_name: 'beta', installation_id: 9002 });
     const { client, upsertSpy } = buildMockClient({
       installedOrgs: [acme, beta],
-      finalUserOrgs: [makeUserOrg({ org_id: 'org-1', github_role: 'admin' })],
+      finalUserOrgs: [makeUserOrg({ org_id: 'org-1', github_role: 'admin', admin_repo_github_ids: [] })],
     });
     const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/orgs/acme/')) return membershipResponse('admin');
+      if (url.includes('/orgs/acme/memberships/')) return membershipResponse('admin');
+      if (url.includes('/orgs/beta/memberships/')) return new Response('', { status: 404 });
+      if (url.includes('/installation/repositories')) {
+        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
+      }
       return new Response('', { status: 404 });
     });
 
@@ -129,9 +139,15 @@ describe('resolveUserOrgsViaApp', () => {
     const org = makeOrg();
     const { client, upsertSpy, deleteSpy, notSpy } = buildMockClient({
       installedOrgs: [org],
-      finalUserOrgs: [makeUserOrg({ github_role: 'member' })],
+      finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async () => membershipResponse('member'));
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/memberships/')) return membershipResponse('member');
+      if (url.includes('/installation/repositories')) {
+        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
 
     await resolveUserOrgsViaApp(client, INPUT, {
       fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -150,9 +166,15 @@ describe('resolveUserOrgsViaApp', () => {
   it('leaves memberships for other users untouched', async () => {
     const { client, deleteSpy } = buildMockClient({
       installedOrgs: [makeOrg()],
-      finalUserOrgs: [makeUserOrg()],
+      finalUserOrgs: [makeUserOrg({ admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async () => membershipResponse('member'));
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/memberships/')) return membershipResponse('member');
+      if (url.includes('/installation/repositories')) {
+        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
 
     await resolveUserOrgsViaApp(client, INPUT, {
       fetchImpl: fetchImpl as unknown as typeof fetch,
