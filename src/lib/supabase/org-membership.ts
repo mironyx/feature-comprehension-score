@@ -5,7 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { getInstallationToken as defaultGetInstallationToken } from '@/lib/github/app-auth';
-import { listAdminReposForUser } from '@/lib/github/repo-admin-list';
+import { listAdminReposForUser, type RegisteredRepo } from '@/lib/github/repo-admin-list';
 
 type ServiceClient = SupabaseClient<Database>;
 type UserOrganisation = Database['public']['Tables']['user_organisations']['Row'];
@@ -33,20 +33,31 @@ interface MatchedOrg {
   adminRepoGithubIds: number[];
 }
 
-async function fetchMembershipRole(
+async function fetchRegisteredRepos(
+  serviceClient: ServiceClient,
+  orgId: string,
+): Promise<RegisteredRepo[]> {
+  const { data, error } = await serviceClient
+    .from('repositories')
+    .select('github_repo_id, github_repo_name')
+    .eq('org_id', orgId)
+    .eq('status', 'active');
+  if (error) throw new Error(`Failed to load repositories: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    githubRepoId: r.github_repo_id,
+    repoFullName: r.github_repo_name,
+  }));
+}
+
+async function checkMembershipRole(
   org: OrganisationRow,
-  input: ResolveUserOrgsInput,
+  githubLogin: string,
   getToken: (id: number) => Promise<string>,
   fetchImpl: typeof fetch,
-): Promise<MatchedOrg | null> {
-  // Personal-account install: owner is always admin; skip membership + repo checks.
-  if (org.github_org_id === input.githubUserId) {
-    return { org, role: 'admin', adminRepoGithubIds: [] };
-  }
-
+): Promise<'admin' | 'member' | null> {
   const token = await getToken(org.installation_id);
   const resp = await fetchImpl(
-    `${GITHUB_API}/orgs/${org.github_org_name}/memberships/${input.githubLogin}`,
+    `${GITHUB_API}/orgs/${org.github_org_name}/memberships/${githubLogin}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -61,10 +72,26 @@ async function fetchMembershipRole(
     );
   }
   const body = (await resp.json()) as { role: 'admin' | 'member' };
-  const role = body.role;
+  return body.role;
+}
+
+async function fetchMembershipRole(
+  org: OrganisationRow,
+  input: ResolveUserOrgsInput,
+  repos: RegisteredRepo[],
+  getToken: (id: number) => Promise<string>,
+  fetchImpl: typeof fetch,
+): Promise<MatchedOrg | null> {
+  // Personal-account install: owner is always admin; skip membership + repo checks.
+  if (org.github_org_id === input.githubUserId) {
+    return { org, role: 'admin', adminRepoGithubIds: [] };
+  }
+
+  const role = await checkMembershipRole(org, input.githubLogin, getToken, fetchImpl);
+  if (!role) return null;
 
   const adminRepoGithubIds = await listAdminReposForUser(
-    { installationId: org.installation_id, orgGithubName: org.github_org_name, githubLogin: input.githubLogin },
+    { installationId: org.installation_id, githubLogin: input.githubLogin, repos },
     { getInstallationToken: getToken, fetchImpl },
   );
 
@@ -82,9 +109,10 @@ async function matchOrgsForUser(
     .eq('status', 'active');
   if (error) throw new Error(`Failed to load organisations: ${error.message}`);
   const results = await Promise.all(
-    (data ?? []).map((org) =>
-      fetchMembershipRole(org, input, deps.getInstallationToken, deps.fetchImpl),
-    ),
+    (data ?? []).map(async (org) => {
+      const repos = await fetchRegisteredRepos(serviceClient, org.id);
+      return fetchMembershipRole(org, input, repos, deps.getInstallationToken, deps.fetchImpl);
+    }),
   );
   return results.filter((r): r is MatchedOrg => r !== null);
 }

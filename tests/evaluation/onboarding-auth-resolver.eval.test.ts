@@ -183,12 +183,7 @@ describe('resolveUserOrgsViaApp — DB error propagation', () => {
       finalUserOrgs: [],
       upsertError: { message: 'unique constraint violation' },
     });
-    const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/installation/repositories')) {
-        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ role: 'member' }), { status: 200 });
-    });
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ role: 'member' }), { status: 200 }));
 
     await expect(
       resolveUserOrgsViaApp(client, INPUT, {

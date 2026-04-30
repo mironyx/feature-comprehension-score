@@ -20,9 +20,6 @@ describe('resolveUserOrgsViaApp', () => {
     });
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/memberships/')) return membershipResponse('admin');
-      if (url.includes('/installation/repositories')) {
-        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
-      }
       return new Response('Not Found', { status: 404 });
     });
     const getInstallationToken = vi.fn(async () => 'ghs_test');
@@ -103,9 +100,6 @@ describe('resolveUserOrgsViaApp', () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/orgs/acme/memberships/')) return membershipResponse('admin');
       if (url.includes('/orgs/beta/memberships/')) return new Response('', { status: 404 });
-      if (url.includes('/installation/repositories')) {
-        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
-      }
       return new Response('', { status: 404 });
     });
 
@@ -143,9 +137,6 @@ describe('resolveUserOrgsViaApp', () => {
     });
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/memberships/')) return membershipResponse('member');
-      if (url.includes('/installation/repositories')) {
-        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
-      }
       return new Response('Not Found', { status: 404 });
     });
 
@@ -170,9 +161,6 @@ describe('resolveUserOrgsViaApp', () => {
     });
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/memberships/')) return membershipResponse('member');
-      if (url.includes('/installation/repositories')) {
-        return new Response(JSON.stringify({ repositories: [], total_count: 0 }), { status: 200 });
-      }
       return new Response('Not Found', { status: 404 });
     });
 

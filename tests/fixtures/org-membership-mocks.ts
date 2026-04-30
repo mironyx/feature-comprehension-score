@@ -45,9 +45,16 @@ export function makeUserOrg(overrides: Partial<UserOrgRow> = {}): UserOrgRow {
   };
 }
 
+export interface RegisteredRepoRow {
+  org_id: string;
+  github_repo_id: number;
+  github_repo_name: string;
+}
+
 export interface MockClientOptions {
   installedOrgs: OrgRow[];
   finalUserOrgs: UserOrgRow[];
+  registeredRepos?: RegisteredRepoRow[];
   orgQueryError?: { message: string };
   upsertError?: { message: string };
   deleteError?: { message: string };
@@ -76,9 +83,19 @@ export function buildMockClient(opts: MockClientOptions) {
     }),
   };
 
+  // Repositories query chain: .select(...).eq('org_id', orgId).eq('status', 'active')
+  // Returns rows filtered by org_id.
+  const reposEqOrgId = vi.fn().mockImplementation((_col: string, orgId: string) => {
+    const filtered = (opts.registeredRepos ?? []).filter((r) => r.org_id === orgId);
+    return { eq: vi.fn().mockResolvedValue({ data: filtered, error: null }) };
+  });
+
   const fromSpy = vi.fn((table: string) => {
     if (table === 'organisations') {
       return { select: vi.fn().mockReturnValue(orgsSelectChain) };
+    }
+    if (table === 'repositories') {
+      return { select: vi.fn().mockReturnValue({ eq: reposEqOrgId }) };
     }
     if (table === 'user_organisations') {
       return {
