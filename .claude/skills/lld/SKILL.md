@@ -58,6 +58,20 @@ Present this overview and **wait for user confirmation** before generating the L
 
 **Phase mode:** Generate a **single file per phase** containing all sections. Each implementation plan section becomes a top-level heading within the file. File naming: `docs/design/lld-phase-<N>-<short-name>.md`.
 
+**Stable LLD anchors (per ADR-0026):** every Part B section heading must be preceded by an HTML anchor:
+
+```markdown
+<a id="LLD-<epic-slug>-<task-slug>-<section-slug>"></a>
+
+#### API Routes
+```
+
+- `<epic-slug>` and `<task-slug>` match the LLD file name (`lld-<epic-slug>-<task-slug>.md`).
+- `<section-slug>` is lower-kebab-case of the Part B section heading (e.g. `api-routes`, `project-service`, `database-schema`).
+- Emit anchors only on Part B section headings — not on Part A, not on epic/task headings, not on sub-sub-headings inside a section.
+- On collision within a task, append `-2`, `-3` and add an HTML comment explaining the collision.
+- **Scope:** pilot epics only (those tagged for the structured-prompt rollout). Existing LLDs are not retrofitted unless the Stage 7 retro promotes the convention project-wide.
+
 **Layer inference rules** — determine which layers a section needs by examining its content:
 - **DB**: Mentions tables, migrations, RLS, schema, database functions, seed data
 - **BE**: Mentions API routes, middleware, server-side logic, webhooks, services, ports/adapters
@@ -147,6 +161,40 @@ graph LR
 - A task whose dependencies are all in Wave N goes into Wave N+1.
 - Tasks in the same wave must not modify the same files (otherwise they cannot run in parallel safely). If two otherwise-independent tasks share files, place the smaller one in the next wave and note the reason.
 - If all tasks are sequential (each depends on the previous), there is one task per wave — still produce the table for consistency.
+
+### Step 3c: Coverage manifest (epic mode, pilot epics only)
+
+After all task LLDs are generated, write a coverage manifest at
+`docs/design/coverage-<epic-slug>.yaml` linking requirements stories to LLD sections.
+
+Schema (per ADR-0026):
+
+```yaml
+epic: <epic-slug>
+entries:
+  - req: REQ-<epic-slug>-<story-slug>
+    lld: lld-<epic-slug>-<task-slug>.md#LLD-<epic-slug>-<task-slug>-<section-slug>
+    files: []        # populated by /feature-end after merge
+    status: Approved # Draft | Approved | Implemented | Revised
+```
+
+Rules:
+
+- One entry per REQ- anchor in the pilot epic's requirements doc. Read REQ- anchors with
+  `grep -o 'id="REQ-[^"]*"' docs/requirements/v*-requirements.md`.
+- The `lld:` value points at the Part B section that satisfies the story. If a story is
+  satisfied across multiple sections, pick the primary one and note the others in a YAML
+  comment.
+- Initial `files: []` and `status: Approved` — `/feature-end` populates them at merge time.
+- If a story has no implementing LLD section yet (deferred or carried by a future task),
+  emit the entry with `lld: null` and `status: Draft`, and flag it in the Step 1 overview.
+
+**Verify before exit:**
+
+1. Every REQ- anchor in the requirements doc has a manifest row.
+2. Every non-null `lld:` value resolves to an actual `<a id="LLD-...">` anchor in the named file
+   (`grep -F 'id="<anchor>"' <file>`).
+3. The manifest is committed alongside the LLD files in the same change.
 
 ### Step 4: Cross-references (epic mode and phase mode)
 

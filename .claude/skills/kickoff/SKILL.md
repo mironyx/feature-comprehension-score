@@ -1,296 +1,310 @@
 ---
 name: kickoff
-description: Bootstrap a new project from a requirements document. Produces the HLD (Levels 1–3), load-bearing ADRs, and the implementation plan, with human gates after each. Use at the very start of a project, before /architect. See ADR-0021.
+description: Bootstrap a project version from a versioned requirements document. Produces the HLD (Levels 1–3, full or delta), load-bearing ADRs, an epic-shaped plan, and epic issues — with human gates after each. Version slug derived from the requirements filename. Use at the start of v1 or any major version (v2, v11, …), before /architect. See ADR-0021 (pipeline) and ADR-0018 (epic model).
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill, TodoWrite
 ---
 
-# Kickoff — Project Bootstrap
+# Kickoff — Version Bootstrap
 
-Takes a requirements document and produces the design artefacts needed before
-`/architect` can generate LLDs and `/feature` can implement. Owns the
-**Levels 1–3** of the design-down process (Capabilities, Components,
-Interactions) at project-wide scope.
+Takes a versioned requirements document (`docs/requirements/<version>-requirements.md`)
+and produces the design artefacts needed before `/architect` can generate
+LLDs and `/feature` can implement. Owns Levels 1–3 of the design-down
+process at version-wide scope.
 
-See [ADR-0021](../../../docs/adr/0021-project-bootstrap-pipeline.md) for the
-rationale and [docs/process/engineering-process.md](../../../docs/process/engineering-process.md)
-for where this fits in the full lifecycle.
+The unit of delivery is the **epic** (ADR-0018). This skill produces a
+plan that sequences epics and creates one GitHub issue per epic. It does
+**not** produce per-task issues — `/architect` handles task breakdown
+within each epic.
 
-**Model:** Use Opus (the latest Claude model) for this skill and any sub-agents
-it spawns. When launching agents, pass `model: "opus"`.
+See [ADR-0021](../../../docs/adr/0021-project-bootstrap-pipeline.md) for
+the pipeline rationale and [ADR-0018](../../../docs/adr/0018-epic-task-organisation.md)
+for the epic model.
 
-**Usage:**
+**Model:** Use Opus for this skill and any sub-agents. Pass `model: "opus"`
+when launching agents.
+
+## Usage
 
 - `/kickoff` — reads the most recent file in `docs/requirements/`
-- `/kickoff docs/requirements/v1-requirements.md` — reads a specific
-  requirements file
+- `/kickoff docs/requirements/v11-requirements.md` — reads a specific file
 
-## When to use
+## Bootstrap modes
 
-Run once per project (or once per major version) when:
+The skill detects mode from existing artefacts and adapts.
 
-- A requirements document exists in `docs/requirements/`
-- No HLD exists yet, or the existing HLD is stale and being rewritten for a
-  new version
-- No implementation plan exists for this version
+| Mode | Trigger | HLD | CLAUDE.md | First epic on board |
+|---|---|---|---|---|
+| **Initial** (v1) | No `docs/design/v*-design.md` exists | Full HLD | Fill template blocks | Yes |
+| **Major-version delta** (v2, v11, …) | Prior-version HLD exists | Delta HLD referencing prior | Skip (only update if new ADRs invalidate a block) | Yes |
 
-If an HLD and plan already exist and you only need per-epic LLDs, use
-`/architect` instead.
+In both modes the plan is epic-shaped, ADRs are reviewed individually,
+and drift scans gate progression.
 
 ## Inputs and outputs
 
-**Inputs:**
+**Inputs**
 
-- `docs/requirements/*.md` — user stories, acceptance criteria, constraints
-- Existing `docs/adr/` — do not contradict accepted ADRs
-- Existing `CLAUDE.md` — project conventions to preserve
+- `docs/requirements/<version>-requirements.md` — the version's requirements
+- `docs/design/v*-design.md` — prior-version HLDs (delta mode only)
+- `docs/adr/` — existing ADRs (do not contradict)
+- `CLAUDE.md` — project conventions to preserve
 
-**Outputs (in order):**
+**Outputs (in order)**
 
-1. `docs/design/v1-design.md` — HLD covering Capabilities, Components,
-   Interactions (Levels 1–3)
-2. `docs/adr/NNNN-*.md` — one ADR per load-bearing decision the HLD forces
-3. `docs/plans/YYYY-MM-DD-v1-implementation-plan.md` — phased plan derived
-   from the HLD
-4. GitHub epic issues plus Phase 0 task issues on the project board
-5. Updated `CLAUDE.md` — fills in project-specific blocks (phase, stack,
-   verification commands, project structure)
+1. `docs/design/<version>-design.md` — HLD (full for initial, delta for major-version)
+2. `docs/adr/NNNN-*.md` — one ADR per load-bearing decision
+3. `docs/plans/YYYY-MM-DD-<version>-implementation-plan.md` — epic-shaped plan
+4. GitHub epic issues with `version:<slug>` label and HLD/ADR cross-references
+5. (Initial mode only) `CLAUDE.md` filled in with stack, verification commands, structure
+
+`<version>` is derived from the requirements filename: `v11-requirements.md` → `v11`.
+If the filename does not match `<version>-requirements.md`, stop and ask the user.
 
 ## Human gates
 
-**Four** mandatory stop points. Do not proceed past any gate without explicit
-user approval.
+Three mandatory stop points. Do not proceed past any gate without explicit user approval.
 
-1. After the HLD is drafted — user reviews the drift-scan coverage matrix
-2. After each ADR is drafted — user approves or rejects each individually
-3. After the implementation plan is drafted — user reviews the second drift
-   scan
-4. After Phase 0 epics and task issues are proposed — user confirms before
-   anything is created on the board
+1. **After orientation summary (Step 1)** — confirm detected mode, version,
+   and proposed scope before any artefact is written
+2. **After HLD + drift-scan 1 (Step 3)** — coverage matrix reviewed, HLD patched if needed
+3. **After plan + drift-scan 2 (Step 6)** — coverage matrix reviewed, plan patched if needed
+
+Plus a per-ADR gate inside Step 4 (one ADR drafted, committed, approved, then the next).
 
 ## Process
 
-Execute these steps sequentially. Use `TodoWrite` to track progress.
+Use `TodoWrite` to track progress.
 
 ### Step 1: Read inputs and orient
 
-1. If `$ARGUMENTS` contains a file path, use that. Otherwise find the most
-   recent `docs/requirements/*.md` file by modification date.
-2. Read the requirements document fully. Extract: user stories, acceptance
-   criteria, non-functional constraints, explicit technology choices, explicit
-   non-goals.
-3. List existing ADRs (`ls docs/adr/`) and read any that look load-bearing
-   (auth, stack, storage, deployment). Do not re-decide what is already
-   decided.
-4. Read the current `CLAUDE.md` to understand project conventions.
-5. Check for existing design artefacts:
-   - `docs/design/v1-design.md` — if present, confirm with the user whether
-     this run is a rewrite or an abort
-   - `docs/plans/` — same check
-6. Present a short orientation summary: what exists, what is missing, what
-   will be produced. Wait for user confirmation before proceeding.
+1. Resolve the requirements file: `$ARGUMENTS` if a path was supplied,
+   otherwise the most recent `docs/requirements/*.md` by mtime.
+2. Derive `<version>` from the filename (`<version>-requirements.md`).
+   Stop and ask if the pattern doesn't match.
+3. Read the requirements file fully. Extract user stories, acceptance
+   criteria, non-functional constraints, explicit non-goals, and any
+   technology choices already locked in.
+4. List existing artefacts:
+   - `docs/adr/` — read load-bearing ones; do not re-decide
+   - `docs/design/v*-design.md` — read all for delta-mode context
+   - `docs/plans/` — note what exists
+   - `CLAUDE.md` — note current conventions
+5. **Detect mode:**
+   - No `docs/design/v*-design.md` exists → **initial bootstrap**
+   - One or more prior `v*-design.md` exists → **major-version delta**
+   - `docs/design/<version>-design.md` already exists → ask user if this is
+     a rewrite (otherwise abort)
+6. Present a short orientation summary: detected version, mode,
+   requirement count, load-bearing-ADR candidates spotted, prior artefacts
+   to be referenced. **Wait for user confirmation.**
 
-### Step 2: Draft the HLD (Levels 1–3)
+### Step 2: Draft the HLD
 
-Produce `docs/design/v1-design.md` with three sections matching the
-design-down levels.
+Produce `docs/design/<version>-design.md`.
 
-#### Level 1 — Capabilities
+**Initial mode** — full HLD with three levels:
 
-For each user story or requirement group, name the capability it delivers at
-system level. One short paragraph per capability. No components yet, no
-technology. Example: "Assess a feature: the system shall ingest a GitHub PR
-reference and return a comprehension score with per-dimension breakdown."
+- **Level 1 — Capabilities.** One short paragraph per capability, named at
+  system level. No components, no technology. Cross-check every requirement
+  has at least one capability. Flag uncovered requirements — that is where
+  AI bias toward novel problems shows up.
+- **Level 2 — Components.** Name, purpose, responsibilities (3–6 bullets),
+  **non-responsibilities** (the single most valuable section for catching
+  boundary errors later), depends-on. Include a Mermaid component diagram.
+  Keep it abstract — "GitHub adapter", not "Octokit 22.1.0".
+- **Level 3 — Interactions.** Mermaid sequence diagrams for the top 3–5
+  flows: primary happy path, primary error path, any flow crossing a trust
+  boundary. Each diagram gets a short prose walkthrough naming contracts
+  to be pinned at Level 4 (don't specify them here).
 
-Cross-check every requirement has at least one capability covering it. Flag
-any requirement with no capability — this is where AI bias toward novel
-problems shows up.
+**Delta mode** — thin delta document referencing the prior HLD by anchor.
+Cover only what changes in `<version>`:
 
-#### Level 2 — Components
+- Capabilities added or reshaped
+- New components and the non-responsibilities that pin their boundaries
+- Sequence diagrams only for flows that change
+- Reference unchanged areas: `See [v1 HLD §<anchor>](v1-design.md#<anchor>)`
 
-Decompose the capabilities into components. For each component:
-
-- **Name** and one-line purpose
-- **Responsibilities** (bullet list, 3–6 items)
-- **Non-responsibilities** (what it explicitly does not do) — this is the
-  single most valuable section for catching boundary errors later
-- **Depends on** (other components, external services)
-
-Include a Mermaid component diagram showing the dependency graph.
-
-Keep components abstract. "GitHub adapter" is a component; "Octokit 22.1.0" is
-an implementation detail that belongs in an ADR.
-
-#### Level 3 — Interactions
-
-For the top 3–5 user flows, produce a sequence diagram (Mermaid) showing how
-components collaborate. Include at least: the happy path for the primary
-capability, the primary error path, and any flow that crosses a trust
-boundary (auth, external API).
-
-Each diagram is accompanied by a short prose walkthrough naming the
-contracts that will need to be pinned down at Level 4 (but do not specify
-them here).
-
-#### HLD commit
-
-```bash
-git add docs/design/v1-design.md
-git commit -m "docs: HLD v1 — capabilities, components, interactions"
-```
-
-### Step 3: Gate 1 — drift scan and human review
-
-Run the `requirements-design-drift` agent against the requirements and the
-freshly written HLD. The agent produces a coverage matrix: which requirement
-maps to which capability and component.
-
-Present the coverage matrix to the user. Flag:
-
-- Uncovered requirements (critical — AI bias signal)
-- Over-covered requirements (spec bloat)
-- Components with no requirement (scope creep)
-
-**Stop. Wait for explicit user approval before proceeding to Step 4.** The
-user may direct patches to the HLD — apply them and re-run the drift scan
-until the user is satisfied.
-
-### Step 4: Propose and draft load-bearing ADRs
-
-From the HLD, identify the decisions that are load-bearing — the ones that
-shape multiple components or constrain future choices. Typical categories:
-
-- Runtime / hosting
-- Primary datastore
-- Authentication and authorisation
-- External service integration pattern
-- Test strategy (unit/integration/E2E mix)
-- Observability and logging
-- Any framework choice that appears in multiple components
-
-Present the proposed ADR list to the user with a one-line rationale per
-entry. Wait for confirmation of the list before drafting any ADR.
-
-For each confirmed ADR:
-
-1. Use `/create-adr` to produce the ADR. Follow the project's ADR format and
-   numbering (check `docs/adr/` for the next number).
-2. Commit the ADR:
-   ```bash
-   git add docs/adr/NNNN-*.md
-   git commit -m "docs: ADR-NNNN <title>"
-   ```
-3. **Stop after each ADR. Wait for explicit user approval** before drafting
-   the next one. Small ADRs reviewed individually are cheaper to fix than a
-   batch.
-
-Do not draft ADRs for decisions that are not load-bearing. Those belong in
-LLDs (Level 4) and are produced later by `/architect`.
-
-### Step 5: Draft the implementation plan
-
-Produce `docs/plans/YYYY-MM-DD-v1-implementation-plan.md` derived **from the
-HLD**, not from the requirements directly. The plan's job is to sequence the
-delivery of components and contracts, not activities.
-
-Structure:
-
-- **Phases** — typically Phase 0 (scaffolding / infra), Phase 1 (first
-  end-to-end slice), Phase 2+ (additional capabilities). Each phase has a
-  stated goal and exit criteria.
-- **Per phase: epics** — each epic maps to a component or a capability slice
-  from the HLD. Reference the HLD section explicitly.
-- **Per epic: rough task list** — not enriched issues yet, just the shape of
-  the work. `/architect` will turn these into LLDs later.
-- **Dependencies** — explicit ordering between phases and between epics
-  within a phase.
-- **Cross-references** — every epic links to the HLD section and any ADRs it
-  depends on.
+Target length for delta: under 300 lines.
 
 Commit:
 
 ```bash
-git add docs/plans/YYYY-MM-DD-v1-implementation-plan.md
-git commit -m "docs: v1 implementation plan"
+git add docs/design/<version>-design.md
+git commit -m "docs: HLD <version> — capabilities, components, interactions"
 ```
 
-### Step 6: Gate 2 — second drift scan and human review
+### Step 3: Gate 1 — drift scan and review
 
-Run `requirements-design-drift` again, this time checking that the plan
-covers the HLD (and therefore, transitively, the requirements). Present the
-second coverage matrix.
+Run the `requirements-design-drift` agent against the requirements doc and
+the new HLD. The agent emits a coverage matrix mapping every requirement
+to a capability and component.
 
-**Stop. Wait for explicit user approval before proceeding to Step 7.** Apply
-any requested patches and re-run until satisfied.
+Present the matrix. Flag:
 
-### Step 7: Bootstrap Phase 0 on the board
+- **Uncovered requirements** — critical, AI-bias signal
+- **Over-covered requirements** — spec bloat
+- **Components with no requirement** — scope creep
 
-Create the GitHub artefacts — but only for Phase 0. Later phases stay
-epic-level until their turn, to avoid generating stale issues upfront.
+**Stop. Wait for user approval.** Apply patches and re-run the scan as
+many times as needed.
 
-1. Propose the list of epics and Phase 0 tasks to the user with a summary
-   table. **Wait for confirmation** before creating anything.
-2. For each epic (all phases), create an epic issue using the shared script:
+### Step 4: Propose and draft load-bearing ADRs
+
+From the HLD, identify load-bearing decisions — those that shape multiple
+components or constrain future choices. Typical categories:
+
+- Tenant model and security boundary
+- Runtime / hosting / primary datastore
+- Authentication and authorisation, role model
+- External service integration pattern
+- Test strategy
+- Observability
+- Any framework choice spanning multiple components
+
+Present the proposed ADR list with one-line rationales. **Wait for the
+user to confirm the list** before drafting any ADR.
+
+For each confirmed ADR:
+
+1. Use `/create-adr` to draft. Follow the project's ADR format and
+   numbering (next free number in `docs/adr/`).
+2. Commit:
    ```bash
-   BODY=$(cat <<'EOF'
-   ## Scope
-   ...
-
-   ## Success criteria
-   ...
-
-   ## HLD reference
-   docs/design/<design-doc>.md#<anchor>
-
-   ## Related ADRs
-   - ADR-NNNN ...
-
-   ## Tasks
-   - [ ] (to be added)
-   EOF
-   )
-   RESULT=$(./scripts/gh-create-issue.sh \
-     --title "Epic E<N>.<M>: <name>" \
-     --body "$BODY" \
-     --labels "epic,phase-<N>,area:<area>" \
-     --add-to-board)
-   # RESULT is "created:<number>" or "exists:<number>"
+   git add docs/adr/NNNN-*.md
+   git commit -m "docs: ADR-NNNN <title>"
    ```
-3. For Phase 0 epics only, create task issues using the shared script:
-   ```bash
-   BODY=$(cat <<'EOF'
-   ## Parent epic
-   #<epic-number>
+3. **Stop. Wait for user approval before drafting the next ADR.**
 
-   ## Design reference
-   docs/design/lld-<epic-slug>.md
+Do not draft ADRs for non-load-bearing decisions. Those belong in LLDs
+produced later by `/architect`.
 
-   ## Acceptance criteria
-   - [ ] ...
+### Step 5: Draft the epic-shaped plan
 
-   ## BDD specs
-   ```
-   describe('...')
-     it('...')
-   ```
-   EOF
-   )
-   RESULT=$(./scripts/gh-create-issue.sh \
-     --title "<task title>" \
-     --body "$BODY" \
-     --labels "phase-0,area:<area>,kind:task" \
-     --add-to-board)
-   ```
-4. Update epic bodies with their task checklists.
+Produce `docs/plans/YYYY-MM-DD-<version>-implementation-plan.md`. The plan
+sequences epics within the version, derived from the HLD.
 
-### Step 8: Update CLAUDE.md
+Per ADR-0018, **epics are the unit of work — not phases**. The plan
+contains 3–6 epics for the version with explicit ordering.
 
-Fill in the project-specific blocks the template version of CLAUDE.md left
-open:
+Required structure:
 
-- Current phase (set to Phase 0)
+```markdown
+# <version> Implementation Plan
+
+**Date:** YYYY-MM-DD
+**Version:** <version>
+**HLD:** docs/design/<version>-design.md
+**Related ADRs:** ADR-NNNN, ADR-MMMM
+
+## Overview
+<2–3 sentences naming what this version delivers and why now.>
+
+## Out of Scope
+<Pulled from requirements Non-Goals.>
+
+## Epics
+
+### Epic E<n>.1 — <name>
+- **HLD anchor:** <link to capability or component section>
+- **Scope:** <one-sentence what>
+- **Owns (components):** <component names from the HLD this epic creates or substantially modifies>
+- **Touches (components):** <components this epic reads or lightly extends without owning>
+- **Depends on:** <none | E<n>.0>
+- **Parallelisable with:** <epic IDs that can be worked concurrently — i.e. disjoint Owns sets and no hard dependency>
+- **Rough task shape:** <bullet list of expected tasks — /architect will turn these into LLDs and task issues>
+- **Exit criteria:** <observable signal that this epic is done>
+
+### Epic E<n>.2 — <name>
+…
+
+## Parallelisation Map
+
+Mermaid graph showing dependencies (solid arrows) and parallel-safe groups
+(dashed boxes). Two epics are parallel-safe when their `Owns` sets are
+disjoint and neither depends on the other.
+
+```mermaid
+graph TD
+  E11.1[E11.1 Foundation] --> E11.2[E11.2 Project CRUD]
+  E11.1 --> E11.3[E11.3 Context Config]
+  E11.2 -.parallel.- E11.3
+  E11.2 --> E11.4[E11.4 Navigation]
+  E11.3 --> E11.4
+```
+
+Recommendation for the human running `/feature-team`: the `parallel-safe`
+groups are candidate batches. File-level conflict analysis happens later
+in `/architect` and may further constrain ordering once tasks are known.
+```
+
+Numbering: use `E<version-number>.<sequence>` (e.g. `E11.1`, `E11.2`) so
+epic IDs are stable across versions.
+
+Commit:
+
+```bash
+git add docs/plans/YYYY-MM-DD-<version>-implementation-plan.md
+git commit -m "docs: <version> implementation plan"
+```
+
+### Step 6: Gate 2 — second drift scan and review
+
+Run `requirements-design-drift` again, this time checking that the plan's
+epics cover the HLD (and transitively the requirements). Present the
+matrix.
+
+**Stop. Wait for user approval.** Patch and re-run as needed.
+
+### Step 7: Create epic issues on the board
+
+Propose the list of epics with their titles, scopes, and dependencies as
+a summary table. **Wait for user confirmation** before creating anything.
+
+For each epic:
+
+```bash
+BODY=$(cat <<'EOF'
+## Scope
+<one paragraph>
+
+## Exit criteria
+- [ ] <observable signal 1>
+- [ ] <observable signal 2>
+
+## HLD reference
+docs/design/<version>-design.md#<anchor>
+
+## Related ADRs
+- ADR-NNNN <title>
+
+## Depends on
+- #<other-epic-issue> (or "none")
+
+## Tasks
+- [ ] (to be filled by /architect)
+EOF
+)
+RESULT=$(./scripts/gh-create-issue.sh \
+  --title "Epic E<n>.<m>: <name>" \
+  --body "$BODY" \
+  --labels "epic,version:<version>,area:<area>" \
+  --add-to-board)
+```
+
+**Do not create task issues here.** `/architect` produces tasks per epic
+along with their LLDs.
+
+### Step 8: Update CLAUDE.md (initial mode only)
+
+Skip this step entirely in delta mode unless a new ADR explicitly
+invalidates a CLAUDE.md block.
+
+For initial bootstrap, fill in the template blocks:
+
 - Tech stack (derived from ADRs)
 - Verification commands (type check, tests, lint, build)
-- Project structure (directories that exist or will exist)
+- Project structure
 
 Commit:
 
@@ -299,47 +313,55 @@ git add CLAUDE.md
 git commit -m "docs: CLAUDE.md — project-specific configuration"
 ```
 
-### Step 9: Write session log
+### Step 9: Session log
 
-Follow `.claude/skills/shared/session-log.md`. Use `<skill>=kickoff` and `<slug>=<project-slug>`. Include gate outcomes (drift scan verdicts from Steps 3 and 6) in the "What didn't go to plan" or a dedicated subsection.
+Follow `.claude/skills/shared/session-log.md`. Use `<skill>=kickoff` and
+`<slug>=<version>-bootstrap`. Record drift-scan verdicts from Steps 3 and
+6, ADRs produced, and any gate-driven course corrections.
 
 ### Step 10: Report and stop
 
 Summarise to the user:
 
-- HLD file produced
+- HLD file produced (full or delta)
 - ADRs produced (numbers and titles)
-- Implementation plan file
-- Epics created (all phases) and task issues created (Phase 0 only)
-- Board state
-- Drift scan verdicts (both runs)
-- Suggested next step: run `/architect --epics E0` to produce LLDs for Phase 0
+- Plan file
+- Epic issues created (numbers, titles, dependency order)
+- Drift-scan verdicts (both runs)
+- Suggested next step: `/architect <first-epic-issue>` to produce per-task
+  LLDs and task issues for the first epic in the dependency order
 
-**Stop here.** Do not proceed to `/architect` or `/feature` automatically.
-Project bootstrap is a deliberate, gated process — the user drives the
-transition to implementation.
+**Stop.** Do not auto-trigger `/architect` or `/feature`. Bootstrap is a
+deliberate, gated process — the user drives the transition to
+implementation.
 
 ## Guidelines
 
-- **Do not implement.** This skill produces design and planning artefacts
-  only. Zero production code.
-- **HLD before plan, always.** A plan drafted before the HLD plans activities
-  rather than component deliveries. See ADR-0021.
-- **One ADR at a time.** Batching ADR drafts makes review expensive and
-  encourages rubber-stamping. Draft, commit, wait for approval, repeat.
-- **Phase 0 only on the board.** Do not generate issues for later phases.
-  They go stale before `/architect` ever touches them.
-- **Respect existing ADRs.** If requirements contradict an accepted ADR, stop
-  and ask — do not silently re-decide.
-- **Drift scans are gates, not decoration.** Do not proceed past Step 3 or
-  Step 6 without running the agent and showing the user the matrix.
-- **British English** in all documentation.
-- **Reference, do not duplicate.** The HLD references requirements; ADRs
-  reference the HLD; the plan references both. Every artefact has exactly
-  one source of truth.
-- **Do not invent requirements.** If the requirements document is ambiguous,
-  stop and ask rather than inferring.
-- **Keep the HLD proportional.** Three levels covering the main shape of the
-  system — not an exhaustive design. Level 4 detail belongs in LLDs produced
-  by `/architect`, not here.
-- **No Co-Authored-By trailers** in commit messages.
+- **Do not implement.** Design and planning artefacts only. Zero production code.
+- **HLD before plan.** A plan drafted before the HLD plans activities
+  rather than component deliveries. ADR-0021.
+- **Epics, not phases.** Per ADR-0018, the version contains epics; do not
+  introduce a phase layer.
+- **Delta mode reuses prior HLDs.** Do not restate v1 in v11. Reference
+  unchanged areas by anchor.
+- **One ADR at a time.** Batching ADR review encourages rubber-stamping.
+- **No task issues from kickoff.** Task creation is `/architect`'s job per
+  ADR-0018.
+- **Plan for parallelism, but only at epic granularity.** Decide which
+  epics can run concurrently based on disjoint component ownership and
+  dependency order. File-level conflict analysis is `/architect`'s job —
+  it has the actual file paths. If component ownership cannot be made
+  disjoint (e.g. two epics genuinely both modify the same component),
+  serialise them rather than pretending they parallelise.
+- **Drift scans are gates.** Do not proceed past Step 3 or Step 6 without
+  running the scan and showing the matrix.
+- **Respect existing ADRs.** If requirements contradict an accepted ADR,
+  stop and ask — do not silently re-decide.
+- **Reference, do not duplicate.** HLD references requirements; ADRs
+  reference the HLD; plan references both. One source of truth per fact.
+- **Do not invent requirements.** If the requirements doc is ambiguous,
+  stop and ask.
+- **Keep the HLD proportional.** Three levels covering the main shape —
+  not an exhaustive design. Level 4 detail belongs in LLDs produced by
+  `/architect`.
+- **British English.** No Co-Authored-By trailers.

@@ -1,0 +1,88 @@
+epic: v11-e11-1
+entries:
+  # In-scope: Project Management (E11.1)
+  - req: REQ-project-management-create-project
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-create-list
+    files: []
+    status: Approved
+    # FE create form covered in #LLD-v11-e11-1-project-pages-list-create
+
+  - req: REQ-project-management-list-projects
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create
+    files: []
+    status: Approved
+    # API list endpoint at #LLD-v11-e11-1-projects-api-create-list
+
+  - req: REQ-project-management-view-project-dashboard
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-dashboard-inline-edit
+    files: []
+    status: Approved
+
+  - req: REQ-project-management-edit-project
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
+    files: []
+    status: Approved
+    # Inline edit UI at #LLD-v11-e11-1-project-dashboard-inline-edit
+
+  - req: REQ-project-management-delete-project
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
+    files: []
+    status: Approved
+
+  # Deferred: FCS scoped to projects (E11.2)
+  - req: REQ-fcs-scoped-to-projects-create-fcs-assessment
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-fcs-scoped-to-projects-my-pending-assessments
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-fcs-scoped-to-projects-filter-pending-by-project
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-urls
+    lld: null
+    files: []
+    status: Draft
+
+  # Deferred: Project context and config (E11.3) — PATCH endpoint reused without backend changes
+  - req: REQ-project-context-and-config-configure-project-context-and-settings
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-project-context-and-config-rubric-uses-project-context
+    lld: null
+    files: []
+    status: Draft
+
+  # Deferred: Navigation and routing (E11.4)
+  - req: REQ-navigation-and-routing-navbar-projects-link
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-navigation-and-routing-projects-list-page
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-navigation-and-routing-breadcrumbs
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-navigation-and-routing-root-redirect
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-navigation-and-routing-last-visited-project
+    lld: null
+    files: []
+    status: Draft
+  - req: REQ-navigation-and-routing-deep-link-compatibility
+    lld: null
+    files: []
+    status: Draft

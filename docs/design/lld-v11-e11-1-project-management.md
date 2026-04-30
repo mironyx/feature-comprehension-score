@@ -225,6 +225,8 @@ describe('Project pages')
 
 ## Part B — Agent-implementable
 
+<a id="LLD-v11-e11-1-layer-map"></a>
+
 ### B.0 Layer map
 
 | Layer | Files |
@@ -235,6 +237,8 @@ describe('Project pages')
 | **FE** | `src/app/(authenticated)/projects/page.tsx`, `new/page.tsx`, `new/create-form.tsx`, `[id]/page.tsx`, `[id]/inline-edit-header.tsx`, `[id]/delete-button.tsx` |
 | **Types** | `src/types/projects.ts` |
 | **Tests** | `tests/app/api/projects/*.test.ts`, `tests/lib/supabase/org-membership-snapshot.test.ts`, `tests/lib/api/repo-admin-gate.test.ts` |
+
+<a id="LLD-v11-e11-1-schema"></a>
 
 ### B.1 — Task T1.1: Schema
 
@@ -294,6 +298,8 @@ CREATE POLICY projects_select_member ON projects
 2. Edit `policies.sql` (RLS).
 3. `npx supabase db diff -f v11_e11_1_projects` → review.
 4. `npx supabase db reset` → verify diff empty.
+
+<a id="LLD-v11-e11-1-sign-in-snapshot-and-gate"></a>
 
 ### B.2 — Task T1.2: Sign-in admin-repo snapshot + Repo-Admin gate
 
@@ -387,6 +393,8 @@ export async function assertOrgAdmin(
 **Acceptance:**
 - `npx vitest run tests/lib/supabase tests/lib/api/repo-admin-gate.test.ts` passes.
 - `npx tsc --noEmit` passes.
+
+<a id="LLD-v11-e11-1-projects-api-create-list"></a>
 
 ### B.3 — Task T1.3: Projects API — create + list
 
@@ -488,6 +496,8 @@ export const CreateProjectSchema = z.object({
 
 **Acceptance:** all `POST /api/projects` and `GET /api/projects` BDD specs pass; `npx tsc --noEmit` clean; `/diag` clean on changed files.
 
+<a id="LLD-v11-e11-1-projects-api-read-edit-delete"></a>
+
 ### B.4 — Task T1.4: Projects API — read + edit + delete
 
 **Files:**
@@ -585,6 +595,8 @@ export const UpdateProjectSchema = z.object({
 
 **Acceptance:** all `[id]` BDD specs pass; partial-payload mutation explicitly verified.
 
+<a id="LLD-v11-e11-1-project-pages-list-create"></a>
+
 ### B.5 — Task T1.5: Project pages — list + create
 
 **Files:**
@@ -605,6 +617,8 @@ export const UpdateProjectSchema = z.object({
 2. List page (server-rendered) + redirect guard.
 3. New page server shell + `create-form.tsx` client.
 4. Component tests covering Org Member redirect and admin empty-state.
+
+<a id="LLD-v11-e11-1-project-dashboard-inline-edit"></a>
 
 ### B.6 — Task T1.6: Project dashboard + inline edit
 
@@ -633,12 +647,16 @@ export const UpdateProjectSchema = z.object({
 - Org Member redirect verified.
 - 404 path for cross-org and non-existent IDs verified.
 
+<a id="LLD-v11-e11-1-cross-cutting"></a>
+
 ### B.7 Cross-cutting
 
 - **British English** in all new docs and comments.
 - **CLAUDE.md complexity budget**: every handler ≤ 25 lines; every service function ≤ 20 lines (decompose internally if needed); nesting ≤ 3.
 - **Tests style**: BDD `Given/When/Then` in `describe`/`it`; MSW for GitHub mocks in T1.2; Supabase mocked via existing test helpers.
 - **No silent catch**: every catch logs or rethrows.
+
+<a id="LLD-v11-e11-1-out-of-scope"></a>
 
 ### B.8 Out-of-scope reminders
 

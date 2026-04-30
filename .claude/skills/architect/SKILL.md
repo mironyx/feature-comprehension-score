@@ -128,6 +128,8 @@ Execute these steps sequentially.
 
 **Read the input file fully.** Extract the list of epics with their priorities, dependencies, and design needs. **Filter to only the in-scope epics.** Report which epics are in scope and which are being skipped.
 
+**Consume kickoff's parallelisation map (if present).** If the plan was produced by `/kickoff`, it includes a `Parallelisation Map` section and per-epic `Owns (components)` / `Touches (components)` / `Parallelisable with` fields. Treat these as the upstream claim about epic-level parallelism — useful when planning waves across multiple epics in scope. File-level analysis in Step 2 may **refine or contradict** kickoff's claim once actual file paths are known. If you contradict it (e.g. two epics kickoff marked parallel-safe both write to the same migration file), call this out in the Step 2 summary and the Step 7 report so the plan can be patched.
+
 **Before creating anything**, check what already exists:
 
 1. **Issues:** Run `gh issue list --state open --limit 100` to see all open issues. Do not create issues that already exist.
@@ -320,6 +322,7 @@ After all in-scope epics are processed, summarise:
 - **Scope** — which epics were processed (and which were filtered out)
 - What was produced (table of epics and their artefacts)
 - **Execution waves** — final wave assignments showing which items can be implemented in parallel by `/feature-team`
+- **Parallelism refinements vs. kickoff's map (if any)** — list any epic pairs kickoff marked `Parallelisable with` that file-level analysis revealed as conflicting (and the converse: pairs serialised in the plan that LLDs prove are actually parallel-safe). Recommend a plan patch where appropriate.
 - Any items skipped and why
 - Any open questions or ambiguities found during design
 - Suggested next step: human reviews the artefacts, then `/feature` or `/feature-team` implements
