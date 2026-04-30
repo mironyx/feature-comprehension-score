@@ -1,4 +1,4 @@
-# V11 Implementation Plan
+do # V11 Implementation Plan
 
 **Date:** 2026-04-30
 **Version:** v11
@@ -151,4 +151,7 @@ this with file-level conflict analysis once the LLDs exist.
 
 ## Status
 
-Draft pending Gate 2 drift scan (`/kickoff` Step 6).
+Approved at Gate 2 (drift scan PASS-with-patches; patches applied 2026-04-30).
+Epic issue creation deferred to `/architect` — each epic issue is created by
+`/architect` together with its task issues and LLD, in dependency order
+starting with E11.1.
