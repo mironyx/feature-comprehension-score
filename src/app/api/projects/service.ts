@@ -9,6 +9,7 @@ import { assertOrgAdminOrRepoAdmin } from '@/lib/api/repo-admin-gate';
 
 const UNIQUE_VIOLATION = '23505';
 
+// Justification: decomposed from createProject to stay within the 20-line function budget.
 async function upsertContextFields(
   ctx: ApiContext,
   orgId: string,
@@ -26,6 +27,23 @@ async function upsertContextFields(
     .select('id')
     .single();
   if (error) throw new ApiError(500, `Failed to upsert organisation_contexts: ${error.message}`);
+}
+
+// Justification: listProjects uses 403 for missing membership (issue #396 AC: "403 for
+// non-member of queried org"). assertOrgAdminOrRepoAdmin throws 401 for missing rows,
+// which contradicts the spec. Inline check uses ctx.supabase (RLS-scoped per CLAUDE.md).
+async function assertListAccess(ctx: ApiContext, orgId: string): Promise<void> {
+  const { data: row, error } = await ctx.supabase
+    .from('user_organisations')
+    .select('github_role, admin_repo_github_ids')
+    .eq('org_id', orgId)
+    .eq('user_id', ctx.user.id)
+    .maybeSingle();
+  if (error) throw new ApiError(500, `Failed to check membership: ${error.message}`);
+  if (!row) throw new ApiError(403, 'Not a member of this organisation');
+  const r = row as { github_role: string; admin_repo_github_ids: number[] };
+  if (r.github_role !== 'admin' && r.admin_repo_github_ids.length === 0)
+    throw new ApiError(403, 'Org Admin or Repo Admin role required');
 }
 
 export async function createProject(
@@ -52,17 +70,7 @@ export async function listProjects(
   ctx: ApiContext,
   orgId: string,
 ): Promise<ProjectResponse[]> {
-  const { data: row, error: memberErr } = await ctx.supabase
-    .from('user_organisations')
-    .select('github_role, admin_repo_github_ids')
-    .eq('org_id', orgId)
-    .eq('user_id', ctx.user.id)
-    .maybeSingle();
-  if (memberErr) throw new ApiError(500, `Failed to check membership: ${memberErr.message}`);
-  if (!row) throw new ApiError(403, 'Not a member of this organisation');
-  const r = row as { github_role: string; admin_repo_github_ids: number[] };
-  if (r.github_role !== 'admin' && r.admin_repo_github_ids.length === 0)
-    throw new ApiError(403, 'Org Admin or Repo Admin role required');
+  await assertListAccess(ctx, orgId);
   const { data, error } = await ctx.supabase
     .from('projects')
     .select('id, org_id, name, description, created_at, updated_at')
