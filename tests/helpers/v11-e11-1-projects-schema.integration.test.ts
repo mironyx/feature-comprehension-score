@@ -44,10 +44,13 @@ async function insertProject(
 
 describe('schema: projects', () => {
   let orgId: string;
+  let orgId2: string;
 
   afterEach(async () => {
     const svc = secretClient();
     if (orgId) await deleteTestOrg(svc, orgId);
+    if (orgId2) await deleteTestOrg(svc, orgId2);
+    orgId2 = '';
   });
 
   // Property 1 [lld §B.1]: unique index rejects duplicate lower(name) within same org
@@ -65,15 +68,13 @@ describe('schema: projects', () => {
   // Property 2 [lld §B.1]: same name is allowed across different orgs
   it('allows two projects with same name across different orgs', async () => {
     const svc = secretClient();
-    const orgId2 = await createTestOrg(svc);
     orgId = await createTestOrg(svc);
+    orgId2 = await createTestOrg(svc);
 
     await insertProject(svc, orgId, 'Shared');
     const { error } = await svc.from('projects').insert({ org_id: orgId2, name: 'Shared' });
 
     expect(error).toBeNull();
-
-    await deleteTestOrg(svc, orgId2);
   });
 
   // Property 3 [lld §B.1, invariant I4]: deleting an org cascades to projects rows
