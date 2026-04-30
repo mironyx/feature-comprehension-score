@@ -32,7 +32,7 @@ async function upsertContextFields(
 // Justification: listProjects uses 403 for missing membership (issue #396 AC: "403 for
 // non-member of queried org"). assertOrgAdminOrRepoAdmin throws 401 for missing rows,
 // which contradicts the spec. Inline check uses ctx.supabase (RLS-scoped per CLAUDE.md).
-async function assertListAccess(ctx: ApiContext, orgId: string): Promise<void> {
+async function requireAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<void> {
   const { data: row, error } = await ctx.supabase
     .from('user_organisations')
     .select('github_role, admin_repo_github_ids')
@@ -70,7 +70,7 @@ export async function listProjects(
   ctx: ApiContext,
   orgId: string,
 ): Promise<ProjectResponse[]> {
-  await assertListAccess(ctx, orgId);
+  await requireAdminOrRepoAdmin(ctx, orgId);
   const { data, error } = await ctx.supabase
     .from('projects')
     .select('id, org_id, name, description, created_at, updated_at')
