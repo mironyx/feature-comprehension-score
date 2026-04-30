@@ -1,6 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
+**Revised:** 2026-04-30 (issue #395 — lld-sync)
+**Version:** 0.2
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -105,14 +107,16 @@ sequenceDiagram
   R->>GH: GET /orgs/{org}/memberships/{user} (per active org)
   GH-->>R: {role: admin|member}
   loop for each matched org
-    R->>GH: GET /user/repos?affiliation=organization_member&per_page=100<br/>(filtered to org installation token)
-    GH-->>R: repo list with permissions.admin = true|false
-    R->>R: collect github_repo_id where permissions.admin = true
+    R->>DB: select github_repo_id, github_repo_name from repositories<br/>where org_id=$1 and status='active'
+    DB-->>R: registered repo list
+    R->>GH: GET /repos/{owner}/{repo}/collaborators/{user}/permission<br/>(for each registered repo, bounded concurrency 8)
+    GH-->>R: {permission: admin|write|read|none}
+    R->>R: collect github_repo_id where permission === 'admin'
   end
   R->>DB: upsert user_organisations<br/>{user_id, org_id, github_role, admin_repo_github_ids: [...]}
 ```
 
-The admin-repo set is computed by listing repos visible to the installation token in the org and filtering for `permissions.admin === true` for the authenticated user. Implementation details in §B.
+The admin-repo set is computed by fetching the product-registered repos for the org from the `repositories` table, then checking per-repo collaborator permission via the GitHub API. Only repos already registered in the product are permission-checked — this avoids querying all installation repos and prevents over-granting access based on unregistered repos. Implementation details in §B.
 
 ### Structural overview
 
@@ -135,7 +139,7 @@ classDiagram
   class RepoAdminGate {
     assertOrgAdminOrRepoAdmin(ctx, orgId)
     isOrgAdminOrRepoAdmin(ctx, orgId)
-    readAdminRepoSet(ctx, orgId)
+    readSnapshot(ctx, orgId)
   }
   class OrgMembershipResolver {
     resolveUserOrgsViaApp(serviceClient, input, deps)
@@ -313,31 +317,32 @@ CREATE POLICY projects_select_member ON projects
 **Internal decomposition — `repo-admin-list.ts`:**
 
 ```ts
-// Fetch the set of repos in `org` where `githubLogin` holds admin permission.
-// Strategy: use the installation token (already org-scoped) to list repos,
-// then for each call GET /repos/{owner}/{repo}/collaborators/{username}/permission
-// — but that's N+1. Prefer GET /orgs/{org}/repos and filter by the user's repo
-// permissions returned via GET /repos/{owner}/{repo}/collaborators with affiliation.
+// Check admin permission on repos registered in the product.
+// Caller pre-filters the repo list from the repositories table — avoids querying
+// all installation repos and prevents over-granting on unregistered repos.
 //
-// Concrete approach (single round trip per repo, parallelised):
-//   1. GET /installation/repositories with installation token → list of repos
-//      visible to the installation in this org.
-//   2. For each repo, GET /repos/{owner}/{repo}/collaborators/{username}/permission
+// Concrete approach (per registered repo, parallelised, bounded concurrency 8):
+//   1. Caller fetches registered repos from repositories table (org_id + status='active').
+//   2. For each RegisteredRepo, GET /repos/{owner}/{repo}/collaborators/{username}/permission
 //      → { permission: 'admin'|'write'|'read'|'none' }.
 //   3. Collect github_repo_id where permission === 'admin'.
 //
-// Cap: at most N repos per org (N = installation visibility). Run with
-// Promise.all but bound concurrency to 8 to be polite to rate limits.
+// Uses global fetch; MSW intercepts in tests. No fetchImpl injection.
+
+export interface RegisteredRepo {
+  githubRepoId: number;
+  repoFullName: string; // "owner/repo" as stored in repositories.github_repo_name
+}
 
 export interface ListAdminReposInput {
   installationId: number;
-  orgGithubName: string;
   githubLogin: string;
+  repos: RegisteredRepo[]; // pre-filtered from DB; not queried from GitHub
 }
 
 export interface ListAdminReposDeps {
   getInstallationToken?: (id: number) => Promise<string>;
-  fetchImpl?: typeof fetch;
+  // fetchImpl removed — global fetch used directly; MSW intercepts in tests
 }
 
 export async function listAdminReposForUser(
@@ -345,6 +350,10 @@ export async function listAdminReposForUser(
   deps?: ListAdminReposDeps,
 ): Promise<number[]>; // returns github_repo_id list
 ```
+
+> **Implementation note (issue #395):** The LLD originally specified `orgGithubName: string` and `GET /installation/repositories` as step 1 to enumerate all repos visible to the installation. This was amended during implementation: the caller now passes `repos: RegisteredRepo[]` pre-fetched from the `repositories` DB table. Rationale: scopes permission checks to product-registered repos only; avoids a GitHub API round trip; prevents over-granting based on repos not yet registered. `fetchImpl` was also removed from `ListAdminReposDeps` — CLAUDE.md requires MSW for HTTP mocking, so `fetch` is used directly.
+
+> **Implementation note (issue #395):** `fetchRegisteredRepos(serviceClient, orgId)` was added to `org-membership.ts` as a private helper to query the `repositories` table per matched org. It is called inside `matchOrgsForUser`, with a short-circuit for personal-account installs (`org.github_org_id === input.githubUserId`) that skips the DB lookup entirely. `checkMembershipRole` was also extracted from `fetchMembershipRole` to stay within the 20-line function budget.
 
 **Internal decomposition — `repo-admin-gate.ts`:**
 
