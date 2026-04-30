@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-30 (rev 8) |
+| Last updated | 2026-04-30 (rev 9) |
 
 ## Change Log
 
@@ -22,6 +22,7 @@
 | 0.6 | 2026-04-30 | LS / Claude | Address review batch: Repo Admin can create/edit projects (not archive); Story 1.1 only `name` required, other settings optional with defaults; admin-only roles on Stories 1.2, 1.3, 1.4, 4.1, 4.2, 4.3 (Org Members work the queue, not the project list); add Story 2.3a project filter on My Pending Assessments; collapse Stories 3.1–3.3 + 3.5 into a single Story 3.1 (combined config + settings page edit); rename "override" → "configure" for question count; clarify org-context tables retained but inert; sign-out clearing of last-visited is intentional (no DB persistence) |
 | 0.7 | 2026-04-30 | LS / Claude | Add REQ- anchors per ADR-0026; write Given/When/Then acceptance criteria for all 18 stories; testability validation pass (no blocking issues); add OQ 5 (legacy URL redirect scope); status → Draft — Complete |
 | 1.0 | 2026-04-30 | LS / Claude | Resolve OQ 5: drop legacy URL redirect (pre-prod, no legacy URLs exist); Story 4.5 AC 4 returns 404 for legacy shape. Status → Final |
+| 1.1 | 2026-04-30 | LS / Claude | Address review batch on v1.0: Story 1.1 enforces case-insensitive name uniqueness per org; Story 1.2 list now shows creation date; Story 1.4 consolidated to a single `PATCH` endpoint with partial payloads; Story 1.5 reworked from archive (soft-delete) to hard-delete-only-when-empty (simplification); Story 2.2 list reuses the existing pre-V11 columns; ripple updates to Roles, Glossary, Cross-Cutting Concerns, Story 2.3, Story 4.4, Story 4.6, and testability table. |
 
 ---
 
@@ -48,8 +49,8 @@ No data migration is required — the product is not yet in production.
 | **Org Context** | Organisation-level context (glob patterns + domain notes). Exists in the schema but is not actively used in V11. PRCC context (when implemented) will either reference project context or introduce its own configuration. |
 | **Project Dashboard** | The project's main page, showing the FCS assessment list and creation entry-point for that project. Scoped to one project at a time. A combined cross-project admin view is a future enhancement; the data model supports it without schema changes. |
 | **My Pending Assessments** | A cross-project view showing all FCS assessments where the signed-in user has a pending submission. Shows project name as a label on each item. Filterable by project (Story 2.3a). |
-| **Org Admin** | A user with admin or owner role in the GitHub organisation. Full project lifecycle access including archive; configures project context; creates FCS assessments. |
-| **Repo Admin** | A GitHub org member with admin access to at least one repo in the org. Can create and edit projects, configure project context, and create FCS assessments (within their admin repos). Cannot archive projects. |
+| **Org Admin** | A user with admin or owner role in the GitHub organisation. Full project lifecycle access including delete; configures project context; creates FCS assessments. |
+| **Repo Admin** | A GitHub org member with admin access to at least one repo in the org. Can create and edit projects, configure project context, and create FCS assessments (within their admin repos). Cannot delete projects. |
 | **Org Member** | A user with member role in the org and no repo admin access. Sees only the FCS assessments they are invited to, in a single queue. No project list, project dashboard, or settings access. |
 
 ---
@@ -93,8 +94,8 @@ Repo-level settings remain editable via the `/organisation` settings page. Proje
 
 | Role | Type | Description |
 |------|------|-----------|
-| **Org Admin** | Persistent | GitHub org admin/owner. Full access: create, edit, and archive projects; configure project context and settings; create FCS assessments. |
-| **Repo Admin** | Persistent | A GitHub org member with admin access to at least one repository in the org. Can create and edit projects, configure project settings, and create FCS assessments within projects. When creating an assessment, the repo selector shows only repos where they hold GitHub admin access — not all org repos. Cannot archive projects. GitHub repo membership is checked at runtime — no separate user management. |
+| **Org Admin** | Persistent | GitHub org admin/owner. Full access: create, edit, and delete projects; configure project context and settings; create FCS assessments. |
+| **Repo Admin** | Persistent | A GitHub org member with admin access to at least one repository in the org. Can create and edit projects, configure project settings, and create FCS assessments within projects. When creating an assessment, the repo selector shows only repos where they hold GitHub admin access — not all org repos. Cannot delete projects. GitHub repo membership is checked at runtime — no separate user management. |
 | **Org Member** | Persistent | Any authenticated GitHub org member (neither org admin nor repo admin). Can view and submit assessments they have been invited to. No project management access. When explicitly added to an FCS assessment, this role is referred to as **Assessment Participant** — same person, contextual label. |
 
 > **Role determination:** Org Admin and Repo Admin status are derived from the authenticated user's GitHub role (existing pattern). There is no in-app user management. An Org Admin automatically satisfies Repo Admin permissions and sees all org repos in the repo selector.
@@ -166,7 +167,7 @@ Projects are the new top-level container for FCS work. This epic covers all life
 - Given a Repo Admin submits the form with name + description + glob patterns + domain notes + question count, when the API processes the request, then all submitted values are persisted on the project and its `organisation_contexts` row.
 - Given the form is submitted with no name or a name longer than 200 characters, when the API validates, then it returns a 400 with a validation error and no project row is created.
 - Given an Org Member POSTs to the project creation endpoint, when the API authorises, then it returns 403 and no project row is created.
-- Given two projects with the same name are submitted in the same org, when the second is processed, then it is accepted (project names are not unique within an org).
+- Given a project with name `"Payment Service"` already exists in the org (and is not deleted), when an admin submits a second project with the same name, when the API validates, then it returns a 409 with a uniqueness error and no project row is created. Names are unique within an org (case-insensitive).
 
 > **Note:** Only **name** is required on creation. Description and all context settings (glob patterns, domain notes, question count, comprehension level) are optional and have system defaults — e.g. comprehension level defaults to "conceptual", question count defaults to the configured baseline. All optional settings can be edited later on the project settings page (Story 3.1).
 
@@ -182,14 +183,12 @@ Projects are the new top-level container for FCS work. This epic covers all life
 
 **Acceptance Criteria:**
 
-- Given an Org Admin in org Acme with three active projects, when they navigate to `/projects`, then the page renders a list of those three projects, each showing name, description, and last-updated timestamp.
-- Given a Repo Admin signed into the same org, when they view `/projects`, then they see all active projects in the org (the list is not filtered by their repo admin scope).
-- Given a project has been archived, when an admin views `/projects`, then the archived project does not appear in the list.
+- Given an Org Admin in org Acme with three projects, when they navigate to `/projects`, then the page renders a list of those three projects, each showing name, description, creation date, and last-updated timestamp.
+- Given a Repo Admin signed into the same org, when they view `/projects`, then they see all projects in the org (the list is not filtered by their repo admin scope).
 - Given an Org Member requests `/projects`, when the route resolves, then the response is a redirect to `/assessments` (admin-only route).
-- Given the org has no active projects, when an admin views `/projects`, then the page shows an empty state with a "Create project" call to action.
+- Given the org has no projects, when an admin views `/projects`, then the page shows an empty state with a "Create project" call to action.
 
 > **Note:** Org Members do not access this list — they work the cross-project assessment queue (Story 2.3). The projects list is admin-only.
-
 ---
 
 <a id="REQ-project-management-view-project-dashboard"></a>
@@ -205,7 +204,7 @@ Projects are the new top-level container for FCS work. This epic covers all life
 - Given an admin navigates to `/projects/[id]` for an active project, when the page renders, then it shows the project name and description with an inline edit affordance, the FCS assessment list (Story 2.2), and a "New assessment" entry point.
 - Given a project has no FCS assessments, when its dashboard loads, then the assessment list shows an empty state with a "Create the first assessment" call to action.
 - Given an admin requests `/projects/[id]` where `id` does not exist or belongs to another org, when the route resolves, then the response is a 404.
-- Given a project is archived, when an admin opens its dashboard via direct URL, then the dashboard renders an archived banner and the "New assessment" entry point is hidden; existing assessments remain listed and reachable.
+- Given a project ID that has been deleted, when an admin requests its dashboard, then the response is 404 (deleted projects do not render).
 - Given an Org Member requests `/projects/[id]`, when the route resolves, then they are redirected to `/assessments`.
 
 > **Note:** This is the per-project assessment list. The cross-project view (all pending assessments filterable by project) is covered in Story 2.3.
@@ -223,32 +222,31 @@ Projects are the new top-level container for FCS work. This epic covers all life
 **Acceptance Criteria:**
 
 - Given an admin clicks the inline edit affordance on `/projects/[id]` and submits a new name and description, when the API processes the change, then the project row is updated and the dashboard re-renders with the new values.
-- Given the submitted name is empty or longer than 200 characters, when the API validates, then it returns a 400 and the project is unchanged.
+- Given the submitted name is empty, longer than 200 characters, or duplicates another project's name in the same org (case-insensitive), when the API validates, then it returns a 400 (or 409 for duplicate) and the project is unchanged.
 - Given a Repo Admin submits an edit, when the API authorises, then the change is accepted (Repo Admins can edit metadata).
 - Given an Org Member POSTs to the edit endpoint, when the API authorises, then it returns 403 and the project is unchanged.
-- Given the request body includes context settings (glob patterns, domain notes, question count), when the inline edit endpoint processes the request, then those fields are ignored — only `name` and `description` are mutated by this endpoint.
+- Given an admin submits a partial payload (e.g. only `name`, or only `domain_notes`) to the project edit endpoint, when the API processes the request, then only the fields present in the payload are mutated; other project fields are unchanged.
 
-> **Note:** Name and description are edited inline on the project dashboard (small form, header pencil icon). Context settings (glob patterns, domain notes, question count) are edited on the project settings page (Story 3.1) because they share a richer editor surface (multi-line notes, glob list editor, defaults). Same data model — different UI surfaces, kept separate to keep each PR small and the dashboard header lightweight.
-
+> **Note:** A single project edit endpoint (`PATCH /api/projects/[id]`) accepts any subset of `name`, `description`, glob patterns, domain notes, and question count. The dashboard inline edit (header pencil) submits `{name, description}`; the settings page (Story 3.1) submits the context fields. One endpoint, two UI surfaces — keeps the API surface minimal and lets either form add or drop fields without touching the backend.
 ---
 
-<a id="REQ-project-management-archive-project"></a>
+<a id="REQ-project-management-delete-project"></a>
 
-### Story 1.5: Archive a project
+### Story 1.5: Delete a project
 
 **As an** Org Admin,
-**I want to** archive a project that is no longer active,
-**so that** it no longer appears in the active project list but its historical assessments are preserved.
+**I want to** delete a project that is no longer needed,
+**so that** it is removed from the org and no longer clutters the project list.
 
 **Acceptance Criteria:**
 
-- Given an Org Admin invokes archive on an active project, when the API processes the request, then `archived_at` is set on the project row and the project is excluded from `/projects`.
-- Given an admin attempts to create an FCS assessment under an archived project, when the API processes the request, then it returns a 422 and no assessment is created.
-- Given a project has existing assessments, when it is archived, then those assessments remain accessible at their existing URLs and their data is unchanged.
-- Given a Repo Admin invokes archive, when the API authorises, then it returns 403 and the project remains active.
-- Given an already-archived project, when archive is invoked again, then the operation is a no-op (`archived_at` is not changed) and the response is 200.
+- Given an Org Admin invokes delete on a project that has no FCS assessments, when the API processes the request, then the project row is hard-deleted and the project no longer appears anywhere in the system.
+- Given a project has at least one FCS assessment, when an admin invokes delete, when the API processes the request, then it returns a 409 with a "project not empty" error and the project is unchanged. (Assessments must be handled separately; deletion is only allowed for empty projects.)
+- Given a Repo Admin invokes delete, when the API authorises, then it returns 403 and the project is unchanged.
+- Given a deleted project's ID is requested, when the route resolves, then the response is 404.
+- Given the same project ID is deleted twice (concurrent requests or double-click), when the second delete arrives, then the API returns 404 (idempotent from the caller's perspective).
 
-> **Yes — archive = soft delete.** Sets an `archived_at` timestamp on the project row. Archived projects are excluded from the active project list and cannot have new assessments created under them, but all existing assessments and their data are retained and remain accessible via direct URL.
+> **Hard delete, only for empty projects.** No `archived_at` flag, no soft-delete state, no archive UI. To delete a project that still has assessments, the admin must first delete or move those assessments (out of scope for V11 — there is no in-app assessment delete in V11; the constraint exists to prevent accidental data loss). This is the simplest model that keeps assessment data safe.
 
 ---
 
@@ -291,7 +289,7 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 
 **Acceptance Criteria:**
 
-- Given a project with five FCS assessments, when an admin opens the project dashboard, then the list shows exactly those five assessments with status, creation date, and creator.
+- Given a project with five FCS assessments, when an admin opens the project dashboard, then the list shows exactly those five assessments with the same columns as the existing pre-V11 FCS assessment list (assessment title, target PRs, status, creation date, creator, score where applicable, and any progress/participant counts currently shown). The project-scoped list reuses the existing list component — only the data filter changes.
 - Given two projects A and B each with assessments, when an admin views project A's dashboard, then no assessment from project B appears in the list.
 - Given a project with no assessments, when its dashboard loads, then the assessment list shows the empty-state component.
 - Given the assessment list query, when it executes, then it filters by `project_id` matching the current route's project (verifiable via the API request payload or query log).
@@ -311,7 +309,7 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 - Given a participant has pending submissions on three FCS assessments across two projects, when they navigate to `/assessments`, then the page lists those three assessments, each labelled with its project name.
 - Given a participant has submitted one of the three assessments, when they reload `/assessments`, then the submitted assessment no longer appears in the list.
 - Given a participant has no pending FCS assessments, when they view `/assessments`, then the page shows an empty state.
-- Given an assessment belongs to an archived project and the participant has a pending submission on it, when they view `/assessments`, then the assessment still appears in the list (archive does not remove participation obligations).
+- Given a participant has a pending submission, when they view `/assessments`, then the parent project is shown as a label (deleted projects cannot occur here because deletion requires the project to have no assessments — see Story 1.5).
 - Given the page is rendered in V11, when the list loads, then it contains only FCS assessments — no PRCC items appear.
 
 ---
@@ -474,7 +472,7 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 - Given an authenticated Org Admin or Repo Admin has a `lastVisitedProjectId` in localStorage that resolves to an active project in their org, when they visit `/`, then they are redirected to `/projects/[id]`.
 - Given an admin has no `lastVisitedProjectId` stored, when they visit `/`, then they are redirected to `/projects`.
-- Given an admin has a `lastVisitedProjectId` that does not exist or is archived, when they visit `/`, then the stored value is cleared from localStorage and they are redirected to `/projects`.
+- Given an admin has a `lastVisitedProjectId` that no longer exists (e.g. the project was deleted), when they visit `/`, then the stored value is cleared from localStorage and they are redirected to `/projects`.
 - Given an Org Member visits `/`, when the redirect resolves, then they are redirected to `/assessments` regardless of any localStorage value.
 - Given an unauthenticated visitor visits `/`, when the redirect resolves, then the existing sign-in flow runs (existing behaviour, unchanged).
 
@@ -496,10 +494,10 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 - Given an admin navigates to `/projects/[id]`, when the page mounts, then `lastVisitedProjectId = [id]` is written to `localStorage` under a stable key.
 - Given an admin signs out, when sign-out completes, then `lastVisitedProjectId` is removed from localStorage.
-- Given the stored project ID points to an archived or deleted project, when root redirect resolves, then the stored value is treated as invalid (covered by Story 4.4) and cleared.
+- Given the stored project ID points to a deleted project, when root redirect resolves, then the stored value is treated as invalid (covered by Story 4.4) and cleared.
 - Given an admin opens the app in a different browser or device, when they visit `/`, then no last-visited value is found and the fallback to `/projects` applies (localStorage is per-browser).
 
-> **Implementation note:** The last-visited `project_id` is stored in browser `localStorage` (client-side, no DB write). Cleared on sign-out — losing the value at sign-out is acceptable; persisting across sign-ins is not worth a DB write at this stage. Falls back to `/projects` if the stored ID is invalid or the project has been archived.
+> **Implementation note:** The last-visited `project_id` is stored in browser `localStorage` (client-side, no DB write). Cleared on sign-out — losing the value at sign-out is acceptable; persisting across sign-ins is not worth a DB write at this stage. Falls back to `/projects` if the stored ID is invalid or the project has been deleted.
 ---
 
 <a id="REQ-navigation-and-routing-deep-link-compatibility"></a>
@@ -523,13 +521,13 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 ### Security & Authorisation
 - All project data is scoped to `org_id`; existing RLS policies on `assessments` and `organisation_contexts` extend naturally.
-- Project creation, edit, archive, and settings are restricted to Org Admin role.
+- Project creation and edit are available to Org Admin and Repo Admin. Project delete is restricted to Org Admin.
 - FCS assessment creation is available to Org Admin and Repo Admin roles. GitHub repo membership is checked at runtime (existing pattern); no in-app role management. When a Repo Admin creates an assessment, the API enforces that every repo selected is one where that user holds GitHub admin access.
 - Org Members (non-admin) reach assessments via `/assessments` (their queue) or deep-links. They do not have a project management view. Assessment participants can reach individual assessment pages via invitation link or from the queue; existing assessment RLS access is unchanged.
 
 ### Data Integrity
 - An FCS assessment must always have a valid `project_id` FK. The API must reject FCS creation requests without a project.
-- Archiving a project does not delete or modify its assessments — it only hides the project from active lists.
+- A project can only be deleted when it has no FCS assessments. Deletion is hard (the row is removed). This prevents accidental loss of assessment data.
 
 ### Context Resolution
 - FCS rubric generation uses project-level context only (glob patterns, domain notes, question count). No fallback to org-level context. If a project has no context configured, rubric generation proceeds with no injected context.
@@ -565,9 +563,11 @@ Pass over every acceptance criterion in §Epics 1–4. Outcome: no blocking issu
 
 | Epic | Story | AC # | Issue | Resolution |
 |------|-------|------|-------|------------|
-| 1 | 1.1 | — | Project name length cap (200 chars) was implicit. | Made explicit in AC 3 (rejected if > 200). |
-| 1 | 1.5 | 2 | Error code for archive-create conflict (`409` vs `422`) is an implementation choice. | Specified `422` (validation/state error) — testable as exact status; design may swap once an LLD lands without breaking the AC's spirit. |
-| 2 | 2.3 | 4 | "Archived project" semantics for participants required a deliberate stance. | Specified: pending submissions on archived projects remain visible. Rationale: archive hides project from admin lists; obligations on existing assessments are preserved (consistent with Story 1.5 AC 3). |
+| 1 | 1.1 | — | Project name uniqueness within an org. | Specified case-insensitive uniqueness; duplicate creation/edit returns 409. |
+| 1 | 1.1 | — | Project name length cap (200 chars). | Made explicit (rejected if > 200). |
+| 1 | 1.4 | — | Whether to split name/description and context-settings edits across two endpoints. | Resolved: single `PATCH /api/projects/[id]` accepts any subset of editable fields; two UI surfaces submit different subsets. |
+| 1 | 1.5 | — | Archive vs delete semantics. | Resolved: hard delete only, allowed only when the project has no assessments. No `archived_at` flag. |
+| 2 | 2.2 | 1 | What columns appear in the project-scoped list. | Resolved: same columns as the existing pre-V11 FCS assessment list — list component is reused, only the data filter changes. |
 | 2 | 2.3a | 4 | "Hide filter when only 1 project" is a UI judgement call. | Specified deterministically (hidden when count == 1) so the AC is testable. |
 | 4 | 4.5 | 4 | Whether legacy URL support is needed at all. | Resolved: pre-prod, no legacy URLs exist; AC 4 specifies 404 for the legacy shape. |
 
