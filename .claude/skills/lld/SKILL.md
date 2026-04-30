@@ -489,3 +489,4 @@ graph LR
 - Task granularity: each task should be completable in one `/feature` cycle. If a task would produce > 200 lines of changes, split it.
 - BDD specs in tasks should be concrete enough for the `/feature` skill to write tests directly from them.
 - Use British English in all documentation.
+- **No `fetchImpl` in dependency interfaces.** Do not add `fetchImpl?: typeof fetch` to `*Deps` interfaces as a test seam — use MSW for HTTP mocking instead (project convention, CLAUDE.md). Only inject real behavioural dependencies (e.g. `getInstallationToken`).

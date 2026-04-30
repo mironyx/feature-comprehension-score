@@ -120,6 +120,8 @@ If the hook fires with inline findings, address them before moving on.
 
 ##### Step 4b: Hand off to the `test-author` sub-agent
 
+**HTTP mocking constraint:** instruct the sub-agent to use MSW for all HTTP interactions — not `fetchImpl`, fetch spies, or manual stubs. CLAUDE.md requires MSW unless there is a documented reason not to.
+
 Launch the `test-author` agent with:
 
 ```
@@ -223,6 +225,8 @@ Then:
 Launch Agent: feature-evaluator
 Input: requirements_paths=<list> lld_path=<path> issue_number=<N> changed_files=<list> test_files=<list>
 ```
+
+**HTTP mocking check:** if the test files use `fetchImpl`, fetch spies, or manual HTTP stubs instead of MSW, flag it as a blocker — the tests must be rewritten before the feature can proceed.
 
 **Triage the verdict:**
 
