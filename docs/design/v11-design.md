@@ -115,7 +115,7 @@ and a small set of FK columns.
 | **Project pages** (`src/app/projects/...`) | List, dashboard, create form, settings, project-scoped assessment routes. Owns the role-conditional NavBar item ("Projects" for admins, "My Assessments" for members) and admin-only breadcrumbs. | Does not duplicate the existing assessment list component — reuses it with a `project_id` filter. Does not own auth redirects (delegated to root layout). Does not redirect `/assessments/[aid]` — that legacy path returns 404 (Story 4.5 AC 4). |
 | **Pending queue page** (`src/app/assessments`) | Cross-project FCS pending list with project filter for org members. | FCS only — PRCC items are out of scope. Does not show projects the participant has no assessment in. |
 | **Last-visited project store** (client) | Read/write `lastVisitedProjectId` in `localStorage`; clear on sign-out. | No DB column, no server-side state. Not used for authorisation. |
-| **Repo Admin gate** (auth helper) | Resolve a user's repo-admin set from GitHub at request time; enforce per-repo on FCS create. For project CRUD, gate with the coarser "user holds admin access to at least one org repo" check. | Not a persisted role table. Not cached across requests in V11 (revisit if hot-path latency demands it). The per-repo admin check is FCS-create only; project endpoints do not re-check repo scopes. |
+| **Repo Admin gate** (auth helper) | Read the user's admin-repo set from the sign-in snapshot (extends `user_organisations` per ADR-0020 / ADR-0029). Project CRUD checks the set is non-empty for the org; FCS create additionally checks every submitted repo is in the set. Both are pure DB reads. | Not a grant table — the snapshot is a cache of GitHub state, refreshed only at sign-in. Does not call GitHub at request time in V11. The per-repo admin check is FCS-create only; project CRUD endpoints do not re-check repo scopes. |
 
 ### Schema delta (Component 3: Supabase)
 
@@ -190,13 +190,12 @@ sequenceDiagram
   participant U as Admin (browser)
   participant W as Next.js (FCS API)
   participant A as Repo Admin gate
-  participant G as GitHub API
   participant DB as Supabase
   participant E as Assessment Engine
   U->>W: POST /api/projects/[pid]/assessments<br/>{repos, prs, participants}
   W->>A: authorise(user, repos, pid)
-  A->>G: list user admin repos (installation token)
-  G-->>A: admin repo set
+  A->>DB: read snapshot.admin-repo set<br/>for (user, org)
+  DB-->>A: admin repo set
   A-->>W: ok / 403
   W->>DB: insert assessments(project_id=pid, ...)
   DB-->>W: assessment_id
@@ -215,7 +214,7 @@ sequenceDiagram
 **Deltas vs [v1 §3.2 FCS Phase 1](v1-design.md#3-2-fcs-flow):**
 1. URL is project-first.
 2. `project_id` is required and validated against the user's project access.
-3. Per-repo GitHub admin check runs server-side for Repo Admins.
+3. Per-repo admin check runs server-side against the sign-in snapshot (ADR-0029).
 4. Rubric prompt context is built from project context only.
 
 ### 3.V11.2 Project context resolution at rubric generation (Story 3.2)
