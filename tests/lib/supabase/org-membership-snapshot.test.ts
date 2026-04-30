@@ -2,7 +2,7 @@
 // Design reference: docs/design/lld-v11-e11-1-project-management.md §B.2
 // Invariant I6: admin-repo snapshot is refreshed atomically with the membership upsert.
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
 import {
@@ -10,55 +10,21 @@ import {
   buildMockClient,
   makeOrg,
   makeUserOrg,
-  membershipResponse,
 } from '../../fixtures/org-membership-mocks';
 import { server } from '../../mocks/server';
-
-// ---------------------------------------------------------------------------
-// MSW lifecycle
-// ---------------------------------------------------------------------------
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const ORG = makeOrg({ id: 'org-1', github_org_name: 'acme', installation_id: 9001 });
 const REPO_ID_ALPHA = 1111;
 const REPO_ID_BETA = 2222;
 const REPO_ID_GAMMA = 3333;
 
-/** Mock fetchImpl that handles GitHub membership and per-repo permission endpoints. */
-function makeAdminFetchImpl(opts: {
-  membershipRole: 'admin' | 'member';
-  repos: Array<{ id: number; name: string; owner: string }>;
-  adminRepoIds: number[];
-}) {
-  return vi.fn(async (url: string) => {
-    // Membership check
-    if (url.includes('/orgs/') && url.includes('/memberships/')) {
-      return membershipResponse(opts.membershipRole);
-    }
-    // Per-repo collaborator permission check
-    for (const repo of opts.repos) {
-      if (url.includes(`/repos/${repo.owner}/${repo.name}/collaborators/`)) {
-        const permission = opts.adminRepoIds.includes(repo.id) ? 'admin' : 'write';
-        return new Response(JSON.stringify({ permission }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-    return new Response('Not Found', { status: 404 });
-  });
-}
-
-// ---------------------------------------------------------------------------
-// describe: resolveUserOrgsViaApp — admin-repo snapshot
-// ---------------------------------------------------------------------------
+const ACME_MEMBERSHIP = 'https://api.github.com/orgs/acme/memberships/alice';
+const permissionUrl = (owner: string, name: string) =>
+  `https://api.github.com/repos/${owner}/${name}/collaborators/alice/permission`;
 
 describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
@@ -67,25 +33,21 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given a member user with two admin repos in the org', () => {
     it('populates admin_repo_github_ids alongside github_role for each matched org', async () => {
-      const repos = [
-        { id: REPO_ID_ALPHA, name: 'alpha', owner: 'acme' },
-        { id: REPO_ID_BETA, name: 'beta', owner: 'acme' },
-      ];
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
+        http.get(permissionUrl('acme', 'beta'), () => HttpResponse.json({ permission: 'admin' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [REPO_ID_ALPHA, REPO_ID_BETA] })],
-        registeredRepos: repos.map((r) => ({ org_id: 'org-1', github_repo_id: r.id, github_repo_name: `${r.owner}/${r.name}` })),
-      });
-      const fetchImpl = makeAdminFetchImpl({
-        membershipRole: 'member',
-        repos,
-        adminRepoIds: [REPO_ID_ALPHA, REPO_ID_BETA],
+        registeredRepos: [
+          { org_id: 'org-1', github_repo_id: REPO_ID_ALPHA, github_repo_name: 'acme/alpha' },
+          { org_id: 'org-1', github_repo_id: REPO_ID_BETA, github_repo_name: 'acme/beta' },
+        ],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -106,26 +68,19 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given a member user with admin repos in the org', () => {
     it('writes admin_repo_github_ids in the same upsert as github_role (no separate write)', async () => {
-      const repos = [{ id: REPO_ID_ALPHA, name: 'alpha', owner: 'acme' }];
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [REPO_ID_ALPHA] })],
-        registeredRepos: repos.map((r) => ({ org_id: 'org-1', github_repo_id: r.id, github_repo_name: `${r.owner}/${r.name}` })),
-      });
-      const fetchImpl = makeAdminFetchImpl({
-        membershipRole: 'member',
-        repos,
-        adminRepoIds: [REPO_ID_ALPHA],
+        registeredRepos: [{ org_id: 'org-1', github_repo_id: REPO_ID_ALPHA, github_repo_name: 'acme/alpha' }],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
-      // Exactly one upsert call — the snapshot column is NOT written in a separate round-trip.
       expect(upsertSpy).toHaveBeenCalledTimes(1);
-      // That single call carries both github_role and admin_repo_github_ids.
       const [rows] = upsertSpy.mock.calls[0] as [Array<Record<string, unknown>>];
       expect(rows[0]).toHaveProperty('github_role');
       expect(rows[0]).toHaveProperty('admin_repo_github_ids');
@@ -138,22 +93,17 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given a member user who holds no admin repos in the org', () => {
     it('records empty array when user is org member with no admin repos', async () => {
-      const repos = [{ id: REPO_ID_GAMMA, name: 'gamma', owner: 'acme' }];
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'gamma'), () => HttpResponse.json({ permission: 'write' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [] })],
-        registeredRepos: repos.map((r) => ({ org_id: 'org-1', github_repo_id: r.id, github_repo_name: `${r.owner}/${r.name}` })),
-      });
-      const fetchImpl = makeAdminFetchImpl({
-        membershipRole: 'member',
-        repos,
-        adminRepoIds: [], // no admin repos
+        registeredRepos: [{ org_id: 'org-1', github_repo_id: REPO_ID_GAMMA, github_repo_name: 'acme/gamma' }],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -174,25 +124,21 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given an org-admin user with admin repos in the org', () => {
     it('populates admin_repo_github_ids even when github_role is admin', async () => {
-      const repos = [
-        { id: REPO_ID_ALPHA, name: 'alpha', owner: 'acme' },
-        { id: REPO_ID_BETA, name: 'beta', owner: 'acme' },
-      ];
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'admin' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
+        http.get(permissionUrl('acme', 'beta'), () => HttpResponse.json({ permission: 'admin' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'admin', admin_repo_github_ids: [REPO_ID_ALPHA, REPO_ID_BETA] })],
-        registeredRepos: repos.map((r) => ({ org_id: 'org-1', github_repo_id: r.id, github_repo_name: `${r.owner}/${r.name}` })),
-      });
-      const fetchImpl = makeAdminFetchImpl({
-        membershipRole: 'admin',
-        repos,
-        adminRepoIds: [REPO_ID_ALPHA, REPO_ID_BETA],
+        registeredRepos: [
+          { org_id: 'org-1', github_repo_id: REPO_ID_ALPHA, github_repo_name: 'acme/alpha' },
+          { org_id: 'org-1', github_repo_id: REPO_ID_BETA, github_repo_name: 'acme/beta' },
+        ],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -212,22 +158,17 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given a user matched in a single org', () => {
     it('issues exactly one upsert call (no split writes between github_role and snapshot)', async () => {
-      const repos = [{ id: REPO_ID_ALPHA, name: 'alpha', owner: 'acme' }];
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [REPO_ID_ALPHA] })],
-        registeredRepos: repos.map((r) => ({ org_id: 'org-1', github_repo_id: r.id, github_repo_name: `${r.owner}/${r.name}` })),
-      });
-      const fetchImpl = makeAdminFetchImpl({
-        membershipRole: 'member',
-        repos,
-        adminRepoIds: [REPO_ID_ALPHA],
+        registeredRepos: [{ org_id: 'org-1', github_repo_id: REPO_ID_ALPHA, github_repo_name: 'acme/alpha' }],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
       expect(upsertSpy).toHaveBeenCalledTimes(1);
     });
@@ -240,6 +181,10 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   // -------------------------------------------------------------------------
   describe('Given repos registered for two different orgs in the DB', () => {
     it('only includes repo IDs belonging to the matched org in admin_repo_github_ids', async () => {
+      server.use(
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
+      );
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [REPO_ID_ALPHA] })],
@@ -249,22 +194,7 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
         ],
       });
 
-      const fetchImpl = vi.fn(async (url: string) => {
-        if (url.includes('/orgs/acme/memberships/')) return membershipResponse('member');
-        if (url.includes('/repos/acme/alpha/collaborators/')) {
-          return new Response(JSON.stringify({ permission: 'admin' }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        // other-org repo must never be permission-checked
-        return new Response('Not Found', { status: 404 });
-      });
-
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
       const [rows] = upsertSpy.mock.calls[0] as [Array<Record<string, unknown>>];
       const ids = rows[0]?.['admin_repo_github_ids'] as number[];
@@ -280,24 +210,16 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
   describe('Given MSW-mocked GitHub API (member role, one admin repo)', () => {
     it('populates admin_repo_github_ids from permission endpoint response', async () => {
       server.use(
-        http.get('https://api.github.com/orgs/acme/memberships/alice', () =>
-          HttpResponse.json({ role: 'member' }),
-        ),
-        http.get(
-          'https://api.github.com/repos/acme/alpha/collaborators/alice/permission',
-          () => HttpResponse.json({ permission: 'admin' }),
-        ),
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'alpha'), () => HttpResponse.json({ permission: 'admin' })),
       );
-
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [REPO_ID_ALPHA] })],
         registeredRepos: [{ org_id: 'org-1', github_repo_id: REPO_ID_ALPHA, github_repo_name: 'acme/alpha' }],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        getInstallationToken: async () => 'ghs_msw_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_msw_test' });
 
       expect(upsertSpy).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -313,24 +235,16 @@ describe('resolveUserOrgsViaApp — admin-repo snapshot', () => {
 
     it('stores empty array when permission endpoint returns non-admin for all repos', async () => {
       server.use(
-        http.get('https://api.github.com/orgs/acme/memberships/alice', () =>
-          HttpResponse.json({ role: 'member' }),
-        ),
-        http.get(
-          'https://api.github.com/repos/acme/gamma/collaborators/alice/permission',
-          () => HttpResponse.json({ permission: 'write' }),
-        ),
+        http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })),
+        http.get(permissionUrl('acme', 'gamma'), () => HttpResponse.json({ permission: 'write' })),
       );
-
       const { client, upsertSpy } = buildMockClient({
         installedOrgs: [ORG],
         finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [] })],
         registeredRepos: [{ org_id: 'org-1', github_repo_id: REPO_ID_GAMMA, github_repo_name: 'acme/gamma' }],
       });
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        getInstallationToken: async () => 'ghs_msw_test',
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_msw_test' });
 
       const [rows] = upsertSpy.mock.calls[0] as [Array<Record<string, unknown>>];
       expect(rows[0]?.['admin_repo_github_ids']).toEqual([]);

@@ -111,6 +111,3 @@ export function buildMockClient(opts: MockClientOptions) {
   return { client, upsertSpy, deleteSpy, notSpy };
 }
 
-export function membershipResponse(role: 'admin' | 'member'): Response {
-  return new Response(JSON.stringify({ role }), { status: 200 });
-}

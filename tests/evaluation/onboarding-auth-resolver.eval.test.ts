@@ -4,7 +4,8 @@
 // These tests probe gaps not covered by the implementation's own test suite.
 // They are NOT expected to be fixed by this file — failures are findings.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   createAppJwt,
@@ -16,6 +17,11 @@ import {
   type ResolveUserOrgsInput,
 } from '@/lib/supabase/org-membership';
 import { INPUT, buildMockClient, makeOrg } from '../fixtures/org-membership-mocks';
+import { server } from '../mocks/server';
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
 
 // ---------------------------------------------------------------------------
 // Shared test key material
@@ -135,13 +141,14 @@ describe('getInstallationToken — cache is keyed per installationId', () => {
 describe('resolveUserOrgsViaApp — 403 error message includes org name', () => {
   it('throws an error that identifies which org returned 403', async () => {
     const { client } = buildMockClient({ installedOrgs: [makeOrg()], finalUserOrgs: [] });
-    const fetchImpl = vi.fn(async () => new Response('forbidden', { status: 403 }));
+    server.use(
+      http.get('https://api.github.com/orgs/acme/memberships/alice', () =>
+        new HttpResponse('forbidden', { status: 403 }),
+      ),
+    );
 
     await expect(
-      resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      }),
+      resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' }),
     ).rejects.toThrow(/acme/);
   });
 });
@@ -156,12 +163,13 @@ describe('resolveUserOrgsViaApp — deletes stale rows even when user matches no
       installedOrgs: [makeOrg()],
       finalUserOrgs: [],
     });
-    const fetchImpl = vi.fn(async () => new Response('', { status: 404 }));
+    server.use(
+      http.get('https://api.github.com/orgs/acme/memberships/alice', () =>
+        new HttpResponse(null, { status: 404 }),
+      ),
+    );
 
-    await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      getInstallationToken: async () => 'ghs_test',
-    });
+    await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
     // delete must have been called (not just skipped because keepIds=[])
     expect(deleteSpy).toHaveBeenCalled();
@@ -183,13 +191,14 @@ describe('resolveUserOrgsViaApp — DB error propagation', () => {
       finalUserOrgs: [],
       upsertError: { message: 'unique constraint violation' },
     });
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ role: 'member' }), { status: 200 }));
+    server.use(
+      http.get('https://api.github.com/orgs/acme/memberships/alice', () =>
+        HttpResponse.json({ role: 'member' }),
+      ),
+    );
 
     await expect(
-      resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      }),
+      resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' }),
     ).rejects.toThrow(/unique constraint violation/);
   });
 
@@ -201,10 +210,7 @@ describe('resolveUserOrgsViaApp — DB error propagation', () => {
     });
 
     await expect(
-      resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: vi.fn() as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      }),
+      resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' }),
     ).rejects.toThrow(/permission denied/);
   });
 });

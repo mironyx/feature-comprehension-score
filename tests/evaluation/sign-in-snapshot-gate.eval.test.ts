@@ -46,13 +46,9 @@ describe('Gap 1 — personal-account install snapshot', () => {
         installedOrgs: [personalOrg],
         finalUserOrgs: [makeUserOrg({ org_id: 'org-personal', github_role: 'admin', admin_repo_github_ids: [] })],
       });
-      const fetchImpl = vi.fn(); // must not be called
       const getInstallationToken = vi.fn(); // must not be called
 
-      await resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken,
-      });
+      await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken });
 
       // The upsert payload must include the snapshot column explicitly.
       const [rows] = upsertSpy.mock.calls[0] as [Array<Record<string, unknown>>];

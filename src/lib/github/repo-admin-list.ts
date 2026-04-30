@@ -25,17 +25,15 @@ export interface ListAdminReposInput {
 
 export interface ListAdminReposDeps {
   getInstallationToken?: (id: number) => Promise<string>;
-  fetchImpl?: typeof fetch;
 }
 
 async function checkPermission(
   repo: RegisteredRepo,
   githubLogin: string,
   token: string,
-  fetchImpl: typeof fetch,
 ): Promise<number | null> {
   const [owner, name] = repo.repoFullName.split('/');
-  const resp = await fetchImpl(
+  const resp = await fetch(
     `${GITHUB_API}/repos/${owner}/${name}/collaborators/${githubLogin}/permission`,
     { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
   );
@@ -66,11 +64,10 @@ export async function listAdminReposForUser(
 ): Promise<number[]> {
   if (input.repos.length === 0) return [];
   const getToken = deps.getInstallationToken ?? defaultGetInstallationToken;
-  const fetchImpl = deps.fetchImpl ?? fetch;
   const token = await getToken(input.installationId);
   const adminIds = await runBounded(
     input.repos,
-    (repo) => checkPermission(repo, input.githubLogin, token, fetchImpl),
+    (repo) => checkPermission(repo, input.githubLogin, token),
     CONCURRENCY,
   );
   return adminIds.filter((id): id is number => id !== null);

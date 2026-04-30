@@ -1,15 +1,23 @@
 // Unit tests for resolveUserOrgsViaApp.
 // Design reference: docs/design/lld-onboarding-auth-resolver.md §7
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { resolveUserOrgsViaApp } from '@/lib/supabase/org-membership';
 import {
   INPUT,
   buildMockClient,
   makeOrg,
   makeUserOrg,
-  membershipResponse,
 } from '../../fixtures/org-membership-mocks';
+import { server } from '../../mocks/server';
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+const ACME_MEMBERSHIP = 'https://api.github.com/orgs/acme/memberships/alice';
+const BETA_MEMBERSHIP = 'https://api.github.com/orgs/beta/memberships/alice';
 
 describe('resolveUserOrgsViaApp', () => {
   it('returns matching orgs when the user is a member of one installed org', async () => {
@@ -18,25 +26,13 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [org],
       finalUserOrgs: [makeUserOrg({ github_role: 'admin', admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/memberships/')) return membershipResponse('admin');
-      return new Response('Not Found', { status: 404 });
-    });
     const getInstallationToken = vi.fn(async () => 'ghs_test');
+    server.use(http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'admin' })));
 
-    const result = await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      getInstallationToken,
-    });
+    const result = await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken });
 
     expect(result).toHaveLength(1);
     expect(getInstallationToken).toHaveBeenCalledWith(9001);
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'https://api.github.com/orgs/acme/memberships/alice',
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer ghs_test' }),
-      }),
-    );
     expect(upsertSpy).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ org_id: 'org-1', github_role: 'admin' }),
@@ -50,10 +46,9 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [makeOrg()],
       finalUserOrgs: [],
     });
-    const fetchImpl = vi.fn(async () => new Response('', { status: 404 }));
+    server.use(http.get(ACME_MEMBERSHIP, () => new HttpResponse(null, { status: 404 })));
 
     const result = await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
       getInstallationToken: async () => 'ghs_test',
     });
 
@@ -71,15 +66,10 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [personalOrg],
       finalUserOrgs: [makeUserOrg({ org_id: 'org-personal', github_role: 'admin' })],
     });
-    const fetchImpl = vi.fn();
     const getInstallationToken = vi.fn();
 
-    const result = await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      getInstallationToken,
-    });
+    const result = await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
     expect(getInstallationToken).not.toHaveBeenCalled();
     expect(result).toHaveLength(1);
     expect(upsertSpy).toHaveBeenCalledWith(
@@ -97,14 +87,12 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [acme, beta],
       finalUserOrgs: [makeUserOrg({ org_id: 'org-1', github_role: 'admin', admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/orgs/acme/memberships/')) return membershipResponse('admin');
-      if (url.includes('/orgs/beta/memberships/')) return new Response('', { status: 404 });
-      return new Response('', { status: 404 });
-    });
+    server.use(
+      http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'admin' })),
+      http.get(BETA_MEMBERSHIP, () => new HttpResponse(null, { status: 404 })),
+    );
 
     const result = await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
       getInstallationToken: async () => 'ghs_test',
     });
 
@@ -119,13 +107,10 @@ describe('resolveUserOrgsViaApp', () => {
     { status: 403, label: '403 (missing members:read or not re-consented)' },
   ])('throws on $label, distinct from 404 silent non-member', async ({ status }) => {
     const { client } = buildMockClient({ installedOrgs: [makeOrg()], finalUserOrgs: [] });
-    const fetchImpl = vi.fn(async () => new Response('error', { status }));
+    server.use(http.get(ACME_MEMBERSHIP, () => new HttpResponse('error', { status })));
 
     await expect(
-      resolveUserOrgsViaApp(client, INPUT, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        getInstallationToken: async () => 'ghs_test',
-      }),
+      resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' }),
     ).rejects.toThrow(new RegExp(String(status)));
   });
 
@@ -135,22 +120,14 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [org],
       finalUserOrgs: [makeUserOrg({ github_role: 'member', admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/memberships/')) return membershipResponse('member');
-      return new Response('Not Found', { status: 404 });
-    });
+    server.use(http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })));
 
-    await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      getInstallationToken: async () => 'ghs_test',
-    });
+    await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
     expect(upsertSpy).toHaveBeenCalled();
     expect(deleteSpy).toHaveBeenCalled();
-    // Delete must be scoped to this user.
     const chain = deleteSpy.mock.results[0]?.value as { eq: ReturnType<typeof vi.fn> };
     expect(chain.eq).toHaveBeenCalledWith('user_id', INPUT.userId);
-    // And must exclude the retained org via .not('org_id', 'in', ...).
     expect(notSpy).toHaveBeenCalledWith('org_id', 'in', '(org-1)');
   });
 
@@ -159,15 +136,9 @@ describe('resolveUserOrgsViaApp', () => {
       installedOrgs: [makeOrg()],
       finalUserOrgs: [makeUserOrg({ admin_repo_github_ids: [] })],
     });
-    const fetchImpl = vi.fn(async (url: string) => {
-      if (url.includes('/memberships/')) return membershipResponse('member');
-      return new Response('Not Found', { status: 404 });
-    });
+    server.use(http.get(ACME_MEMBERSHIP, () => HttpResponse.json({ role: 'member' })));
 
-    await resolveUserOrgsViaApp(client, INPUT, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      getInstallationToken: async () => 'ghs_test',
-    });
+    await resolveUserOrgsViaApp(client, INPUT, { getInstallationToken: async () => 'ghs_test' });
 
     for (const call of deleteSpy.mock.results) {
       const chain = call.value as { eq: ReturnType<typeof vi.fn> };
@@ -178,4 +149,3 @@ describe('resolveUserOrgsViaApp', () => {
     }
   });
 });
-
