@@ -94,12 +94,13 @@ export async function updateProject(
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void> {
   const project = await resolveProject(ctx, projectId);
   await assertOrgAdmin(ctx, project.org_id);
-  const { data: hit } = await ctx.supabase
+  const { data: hit, error: hitError } = await ctx.supabase
     .from('assessments')
     .select('id')
     .eq('project_id', projectId)
     .limit(1)
     .maybeSingle();
+  if (hitError) throw new ApiError(500, `Failed to check assessments: ${hitError.message}`);
   if (hit) throw new ApiError(409, 'project_not_empty');
   const { data: deleted, error } = await ctx.adminSupabase
     .from('projects')
