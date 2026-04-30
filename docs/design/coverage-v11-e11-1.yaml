@@ -16,8 +16,10 @@ entries:
   - req: REQ-project-management-create-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-create-list
     files: []
-    status: Approved
-    # FE create form covered in #LLD-v11-e11-1-project-pages-list-create
+    status: Revised
+    # LLD §B.3 corrected in issue #396 lld-sync: inline ADR-0014 types moved to src/types/projects.ts;
+    # listProjects error codes updated to 403/403; upsertContextFields + requireAdminOrRepoAdmin
+    # private helpers added; json() call signature corrected.
 
   - req: REQ-project-management-list-projects
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create

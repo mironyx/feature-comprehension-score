@@ -1,8 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
-**Revised:** 2026-04-30 (issue #395 — lld-sync)
-**Version:** 0.2
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync)
+**Version:** 0.3
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -418,31 +418,15 @@ export async function assertOrgAdmin(
 **Internal decomposition — controller (`route.ts`):**
 
 ```ts
-// Convention: ADR-0014 contract types inline.
-interface CreateProjectRequest {
-  org_id: string;
-  name: string;
-  description?: string;
-  glob_patterns?: string[];
-  domain_notes?: string;
-  question_count?: number;
-}
-interface ProjectResponse {
-  id: string;
-  org_id: string;
-  name: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
-interface ProjectsListResponse { projects: ProjectResponse[] }
+// Types live in src/types/projects.ts (see implementation note below).
+import type { ProjectsListResponse } from '@/types/projects';
 
 export async function POST(request: NextRequest) {
   try {
     const ctx = await createApiContext(request);
     const body = await validateBody(request, CreateProjectSchema);
     const project = await createProject(ctx, body);
-    return json(project, { status: 201 });
+    return json(project, 201);
   } catch (e) { return handleApiError(e); }
 }
 
@@ -452,10 +436,13 @@ export async function GET(request: NextRequest) {
     const orgId = new URL(request.url).searchParams.get('org_id');
     if (!orgId) throw new ApiError(400, 'org_id required');
     const projects = await listProjects(ctx, orgId);
-    return json({ projects });
+    const body: ProjectsListResponse = { projects };
+    return json(body);
   } catch (e) { return handleApiError(e); }
 }
 ```
+
+> **Implementation note (issue #396):** The LLD originally specified ADR-0014 inline contract types (`CreateProjectRequest`, `ProjectResponse`, `ProjectsListResponse`) in `route.ts`. During implementation, `ProjectResponse` was already in `src/types/projects.ts` from the T1.1 schema work. For consistency, all three types were consolidated into `src/types/projects.ts` rather than duplicating them inline. The ADR-0014 intent (types co-located with the route contract) is satisfied by the shared types file. The `json()` helper also takes a positional status code (`json(body, 201)`) not an options object.
 
 **Service contracts (`service.ts`):**
 
@@ -464,24 +451,43 @@ import type { ApiContext } from '@/lib/api/context';
 import { assertOrgAdminOrRepoAdmin } from '@/lib/api/repo-admin-gate';
 // service receives ApiContext; never calls createClient() directly (CLAUDE.md).
 
+// Private helper — decomposed from createProject to stay within 20-line budget.
+async function upsertContextFields(
+  ctx: ApiContext,
+  orgId: string,
+  projectId: string,
+  input: CreateProjectInput,
+): Promise<void>;
+// upsert organisation_contexts (org_id, project_id, context = {globs, notes, count})
+// onConflict: 'org_id,project_id'
+
+// Private helper — decomposed from listProjects (20-line budget + 403-consistency, see note).
+async function requireAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<void>;
+// reads user_organisations via ctx.supabase (RLS-scoped)
+// throws ApiError(403) for both missing membership AND insufficient role
+
 export async function createProject(
   ctx: ApiContext,
-  input: CreateProjectRequest,
+  input: CreateProjectInput,
 ): Promise<ProjectResponse>;
 // 1. assertOrgAdminOrRepoAdmin(ctx, input.org_id)
 // 2. insert via ctx.adminSupabase; map unique_violation -> ApiError(409, 'name_taken')
 // 3. if any of {glob_patterns, domain_notes, question_count} present:
-//    upsert organisation_contexts (org_id, project_id, context = {globs, notes, count})
+//    upsertContextFields(ctx, input.org_id, project.id, input)
 // 4. return mapped row
 
 export async function listProjects(
   ctx: ApiContext,
   orgId: string,
 ): Promise<ProjectResponse[]>;
-// 1. read membership row; 401/403 if not member of orgId
+// 1. requireAdminOrRepoAdmin(ctx, orgId) — throws 403/403 (see implementation note)
 // 2. select id, org_id, name, description, created_at, updated_at from projects
 //    where org_id = $1 order by created_at desc (RLS enforces too — defence in depth)
 ```
+
+> **Implementation note (issue #396):** The original LLD comment said "401/403 if not member of orgId". However, `assertOrgAdminOrRepoAdmin` (from §B.2) throws `ApiError(401)` for a missing membership row, which contradicts issue #396 AC: "GET returns 403 for non-member of queried org." A local private helper `requireAdminOrRepoAdmin` was added to `service.ts` that throws `ApiError(403)` consistently — both for missing membership and for insufficient role. The `assertOrgAdminOrRepoAdmin` gate is still used by `createProject` (which inherits the 401 behaviour; its AC does not specify a non-member code). The LLD comment has been updated to reflect 403/403 for `listProjects`.
+
+> **Implementation note (issue #396):** Two private helpers were extracted to satisfy CLAUDE.md's 20-line function budget: `upsertContextFields` (handles the `organisation_contexts` upsert leg) and `requireAdminOrRepoAdmin` (handles the gate check for `listProjects`). Both carry `// Justification:` comments in the source.
 
 **Validation (`validation.ts`):**
 
