@@ -40,6 +40,7 @@ Per requirements §"What We Are NOT Building":
 - **Stories:** 1.1, 1.2, 1.3, 1.4, 1.5
 - **Depends on:** none (foundation)
 - **Parallelisable with:** none (every other epic depends on this)
+- **Exit-criteria addendum:** `PATCH /api/projects/[id]` accepts any subset of `{name, description, glob_patterns, domain_notes, question_count}` and mutates only the fields present in the payload. (Mirrors Story 1.4 AC 5; required so E11.3 can extend the endpoint additively without rewriting it.)
 - **Rough task shape:**
   - Schema: `projects` table + RLS + FK from `organisation_contexts.project_id` + admin-repo snapshot column/table per ADR-0029
   - API: `POST /api/projects`, `GET /api/projects`, `GET /api/projects/[id]`, `PATCH /api/projects/[id]`, `DELETE /api/projects/[id]` (with empty-only constraint)
@@ -59,7 +60,7 @@ Per requirements §"What We Are NOT Building":
 - **Scope:** Wire `project_id` into FCS creation (required), scope the assessment list to the project, add the cross-project pending queue with project filter, and adopt project-first assessment URLs.
 - **Owns (components):** FCS Creation API (`POST /api/projects/[pid]/assessments`) + per-repo Repo-Admin re-check (fresh GitHub fetch per ADR-0029), project-scoped assessment routes (`/projects/[pid]/assessments/[aid]`, `.../results`, `.../submitted`, `.../new`), the cross-project Pending queue page (`/assessments`), the `assessments.project_id` FCS-required constraint.
 - **Touches (components):** Project pages (dashboard renders the project-scoped assessment list — reuses the existing list component with a `project_id` filter; no rewrite), repo selector component (data filter changes; UI unchanged), the existing FCS form component.
-- **Stories:** 2.1, 2.2, 2.3, 2.3a, 2.4, 4.5
+- **Stories:** 2.1, 2.2, 2.3, 2.3a, 2.4, 4.5 (4.5 is incidental — deleting the legacy `src/app/(authenticated)/assessments/[id]/...` directory as part of the URL migration satisfies its 404 AC; pre-prod, no legacy URLs in the wild per requirements §OQ 5)
 - **Depends on:** E11.1 (needs `projects` and the Repo-Admin coarse gate)
 - **Parallelisable with:** E11.3 (disjoint Owns); partially with E11.4 — see "Coupling notes" below
 - **Rough task shape:**
@@ -80,7 +81,7 @@ Per requirements §"What We Are NOT Building":
 - **Owns (components):** Project context resolver (engine), `/projects/[id]/settings` page + form, the FCS rubric path's switch from org-context to project-context resolution.
 - **Touches (components):** Assessment Engine (rubric generation reads via the new resolver — amends [ADR-0013](../adr/0013-context-file-resolution-strategy.md)), `organisation_contexts` (rows now keyed by `project_id`; org-level rows become inert for FCS per ADR-0028), the existing `PATCH /api/projects/[id]` endpoint (extended to accept context fields per HLD module description).
 - **Stories:** 3.1, 3.2
-- **Depends on:** E11.1 (needs `projects` and the unified `PATCH /api/projects/[id]`)
+- **Depends on:** E11.1 (needs `projects`, the unified `PATCH /api/projects/[id]` with partial-payload support, and the Repo Admin coarse gate)
 - **Parallelisable with:** E11.2 (disjoint Owns), E11.4
 - **Rough task shape:**
   - Resolver: `resolveContext(project_id) → ContextConfig` reading `organisation_contexts WHERE project_id = $1`; empty result → empty config
@@ -99,7 +100,7 @@ Per requirements §"What We Are NOT Building":
 - **Scope:** Application shell changes — NavBar, projects-list page entry point, breadcrumbs, role-aware root redirect, last-visited project persistence.
 - **Owns (components):** NavBar role-conditional item, breadcrumb component (admin-only), root-redirect resolver (`/`), Last-visited project store (client-side localStorage), `/projects` route guard.
 - **Touches (components):** Project pages (breadcrumbs render on project-scoped routes), the existing sign-in flow (root redirect runs after auth resumes).
-- **Stories:** 4.1, 4.2, 4.3, 4.4, 4.6
+- **Stories:** 4.1, 4.2, 4.3, 4.4, 4.6 (Story 4.5 is reassigned to E11.2 — see Coupling notes)
 - **Depends on:** E11.1 (needs `/projects` to exist as a route and an active project to redirect to)
 - **Parallelisable with:** E11.2, E11.3 — see "Coupling notes" below
 - **Rough task shape:**
@@ -114,9 +115,9 @@ Per requirements §"What We Are NOT Building":
 
 ## Coupling notes
 
-- **Story 4.5 (deep-link / legacy 404)** is filed under Epic 4 in the requirements but its implementation lives in the FCS assessment routes (Epic 2 ownership). Plan reflects this: 4.5 ships within E11.2.
-- **Story 2.4 (project-scoped assessment URLs)** and **Story 4.3 (breadcrumbs on those URLs)** touch the same route file group. Two epics editing the same `src/app/projects/[id]/assessments/...` tree need either sequencing or a shared task surface. Recommendation: E11.2 lands the routes first (it owns the route file creation); E11.4 then mounts breadcrumbs on top. If E11.2 and E11.4 run in parallel, sequence the breadcrumb task within E11.4 to start *after* E11.2's route-creation task lands.
-- **`PATCH /api/projects/[id]`** is created in E11.1 (header inline edit) and extended in E11.3 (settings page submits additional fields). The endpoint must accept partial payloads from day one so E11.3 can extend it additively without rewrites.
+- **Story 4.5 (deep-link / legacy 404)** is filed under Epic 4 in the requirements but is satisfied entirely by E11.2's URL migration. AC 1–3 are deep-links to project-first URLs working through auth — same surface as Story 2.4. AC 4 (legacy `/assessments/[aid]` returns 404) is achieved by deleting the legacy route directory; no special 404 handler is written. Pre-prod, no legacy URLs exist in the wild per requirements §OQ 5.
+- **Story 2.4 (project-scoped assessment URLs)** and **Story 4.3 (breadcrumbs on those URLs)** touch the same route file group. **Constraint (not advisory):** the breadcrumb task in E11.4 must not start until E11.2's route-creation task is merged. All other E11.4 tasks (NavBar, root redirect, last-visited store, projects-list route guard) are independent of E11.2 and run in parallel freely.
+- **`PATCH /api/projects/[id]`** is created in E11.1 (header inline edit) and extended in E11.3 (settings page submits additional fields). The endpoint must accept partial payloads from day one so E11.3 extends it additively without rewrites — explicit in E11.1 Exit criteria.
 
 These are file-level coupling hints; `/architect` will produce the authoritative file-by-file analysis once it has the LLDs.
 

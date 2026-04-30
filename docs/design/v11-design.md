@@ -319,4 +319,4 @@ None. All five OQs are resolved in the V11 requirements (v1.1, Final).
 
 ## Status
 
-Draft pending Gate 1 drift scan (`/kickoff` Step 3).
+Draft — Gate 1 PASS-with-patches (W1–W4 applied 2026-04-30); pending Gate 2.
