@@ -8,24 +8,7 @@ import { json } from '@/lib/api/response';
 import { validateBody } from '@/lib/api/validation';
 import { CreateProjectSchema } from './validation';
 import { createProject, listProjects } from './service';
-import type { ProjectResponse } from '@/types/projects';
-
-// ---------------------------------------------------------------------------
-// Contract types — ADR-0014: declared inline so reading this file is sufficient.
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- ADR-0014: contract doc
-interface CreateProjectRequest {
-  org_id: string;
-  name: string;
-  description?: string;
-  glob_patterns?: string[];
-  domain_notes?: string;
-  question_count?: number;
-}
-
-/** GET /api/projects — response body */
-interface ProjectsListResponse { projects: ProjectResponse[] }
+import type { ProjectsListResponse } from '@/types/projects';
 
 export async function POST(request: NextRequest) {
   try {
