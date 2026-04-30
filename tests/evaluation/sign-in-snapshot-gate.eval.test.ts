@@ -7,7 +7,6 @@
 // Fixtures: reuse org-membership-mocks.ts and the gate makeCtx pattern from the sibling test files.
 
 import { describe, expect, it, vi } from 'vitest';
-import type { ApiContext } from '@/lib/api/context';
 import {
   assertOrgAdmin,
   assertOrgAdminOrRepoAdmin,
@@ -21,28 +20,9 @@ import {
   makeOrg,
   makeUserOrg,
 } from '../fixtures/org-membership-mocks';
+import { makeCtx as makeGateCtx, GATE_ORG_ID } from '../fixtures/repo-admin-gate-mocks';
 
-// ---------------------------------------------------------------------------
-// Gate helper fixture (mirrors the pattern in repo-admin-gate.test.ts without
-// duplicating — the makeCtx helper is module-scoped there, so we inline a
-// minimal version here rather than re-export it).
-// ---------------------------------------------------------------------------
-
-function makeGateCtx(row: { github_role: 'admin' | 'member'; admin_repo_github_ids: number[] } | null): ApiContext {
-  const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
-  const eqUserId = vi.fn().mockReturnValue({ maybeSingle });
-  const eqOrgId = vi.fn().mockReturnValue({ eq: eqUserId });
-  const select = vi.fn().mockReturnValue({ eq: eqOrgId });
-  const from = vi.fn().mockReturnValue({ select });
-
-  return {
-    supabase: { from } as unknown as ApiContext['supabase'],
-    adminSupabase: {} as unknown as ApiContext['adminSupabase'],
-    user: { id: 'user-1', email: 'alice@example.com', githubUserId: 42, githubUsername: 'alice' },
-  };
-}
-
-const ORG_ID = 'org-uuid-001';
+const ORG_ID = GATE_ORG_ID;
 
 // ---------------------------------------------------------------------------
 // Gap 1: personal-account install — admin_repo_github_ids explicitly written

@@ -3,8 +3,7 @@
 // Invariant I5: Project CRUD requires Org Admin OR Repo Admin (non-empty adminRepoGithubIds);
 //               DELETE additionally requires Org Admin.
 
-import { describe, expect, it, vi } from 'vitest';
-import type { ApiContext } from '@/lib/api/context';
+import { describe, expect, it } from 'vitest';
 import { ApiError } from '@/lib/api/errors';
 import {
   readSnapshot,
@@ -12,50 +11,15 @@ import {
   assertOrgAdminOrRepoAdmin,
   assertOrgAdmin,
 } from '@/lib/api/repo-admin-gate';
+import { makeCtx, makeCtxWithError, GATE_ORG_ID } from '../../fixtures/repo-admin-gate-mocks';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const USER_ID = 'user-uuid-001';
-const ORG_ID = 'org-uuid-001';
+const ORG_ID = GATE_ORG_ID;
 const REPO_ID_1 = 101;
 const REPO_ID_2 = 202;
-
-interface SupabaseMockRow {
-  github_role: 'admin' | 'member';
-  admin_repo_github_ids: number[];
-}
-
-/** Build a minimal ApiContext whose supabase.from returns the given row (or null). */
-function makeCtx(row: SupabaseMockRow | null): ApiContext {
-  const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
-  const eqUserId = vi.fn().mockReturnValue({ maybeSingle });
-  const eqOrgId = vi.fn().mockReturnValue({ eq: eqUserId });
-  const select = vi.fn().mockReturnValue({ eq: eqOrgId });
-  const from = vi.fn().mockReturnValue({ select });
-
-  return {
-    supabase: { from } as unknown as ApiContext['supabase'],
-    adminSupabase: {} as unknown as ApiContext['adminSupabase'],
-    user: { id: USER_ID, email: 'alice@example.com', githubUserId: 42, githubUsername: 'alice' },
-  };
-}
-
-/** Build a ctx that returns a Supabase DB error. */
-function makeCtxWithError(message: string): ApiContext {
-  const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: { message } });
-  const eqUserId = vi.fn().mockReturnValue({ maybeSingle });
-  const eqOrgId = vi.fn().mockReturnValue({ eq: eqUserId });
-  const select = vi.fn().mockReturnValue({ eq: eqOrgId });
-  const from = vi.fn().mockReturnValue({ select });
-
-  return {
-    supabase: { from } as unknown as ApiContext['supabase'],
-    adminSupabase: {} as unknown as ApiContext['adminSupabase'],
-    user: { id: USER_ID, email: 'alice@example.com', githubUserId: 42, githubUsername: 'alice' },
-  };
-}
 
 // ---------------------------------------------------------------------------
 // describe: readSnapshot

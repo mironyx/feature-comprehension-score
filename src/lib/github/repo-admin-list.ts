@@ -42,11 +42,8 @@ async function fetchInstallationRepos(
     );
     if (!resp.ok) throw new Error(`Failed to list installation repos: ${resp.status}`);
     const body = (await resp.json()) as { repositories: InstallationRepo[]; total_count: number };
-    const inOrg = body.repositories.filter(
-      (r) => r.owner.login.toLowerCase() === orgName.toLowerCase(),
-    );
-    repos.push(...inOrg);
-    if (repos.length >= body.total_count || body.repositories.length < 100) break;
+    repos.push(...body.repositories.filter((r) => r.owner.login.toLowerCase() === orgName.toLowerCase()));
+    if (body.repositories.length < 100) break;
     page++;
   }
   return repos;
