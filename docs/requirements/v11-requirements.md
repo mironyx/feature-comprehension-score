@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.7 |
-| Status | Draft — Complete |
+| Version | 1.0 |
+| Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-30 (rev 7) |
+| Last updated | 2026-04-30 (rev 8) |
 
 ## Change Log
 
@@ -21,6 +21,7 @@
 | 0.5 | 2026-04-29 | LS / Claude | Clarify Repo Admin mechanics: repo selector filtered to user's admin repos; API enforces repo-level access on assessment creation; Story 2.1 and Cross-Cutting Concerns updated |
 | 0.6 | 2026-04-30 | LS / Claude | Address review batch: Repo Admin can create/edit projects (not archive); Story 1.1 only `name` required, other settings optional with defaults; admin-only roles on Stories 1.2, 1.3, 1.4, 4.1, 4.2, 4.3 (Org Members work the queue, not the project list); add Story 2.3a project filter on My Pending Assessments; collapse Stories 3.1–3.3 + 3.5 into a single Story 3.1 (combined config + settings page edit); rename "override" → "configure" for question count; clarify org-context tables retained but inert; sign-out clearing of last-visited is intentional (no DB persistence) |
 | 0.7 | 2026-04-30 | LS / Claude | Add REQ- anchors per ADR-0026; write Given/When/Then acceptance criteria for all 18 stories; testability validation pass (no blocking issues); add OQ 5 (legacy URL redirect scope); status → Draft — Complete |
+| 1.0 | 2026-04-30 | LS / Claude | Resolve OQ 5: drop legacy URL redirect (pre-prod, no legacy URLs exist); Story 4.5 AC 4 returns 404 for legacy shape. Status → Final |
 
 ---
 
@@ -514,7 +515,7 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 - Given a V11 invitation email contains a link to `/projects/[pid]/assessments/[aid]`, when an authenticated participant clicks it, then they reach the assessment detail page directly (no intermediate redirect).
 - Given the participant is unauthenticated when clicking the link, when the route resolves, then the existing sign-in flow runs and after authentication they land on the assessment detail page (the original URL is preserved through the auth round-trip).
 - Given the link references a `pid`/`aid` pair that does not exist or where `aid` does not belong to `pid`, when the route resolves, then the response is 404.
-- Given an old-shape URL `/assessments/[aid]` is requested (legacy bookmarks or in-flight emails sent before deployment), when the route resolves, then the request is redirected (HTTP 301) to `/projects/[pid]/assessments/[aid]` where `[pid]` is looked up from the assessment row. (See Open Question 5.)
+- Given a request to the legacy shape `/assessments/[aid]` (no `pid`), when the route resolves, then the response is 404 — no compatibility redirect is provided in V11 (product is pre-production; no legacy URLs exist in the wild).
 
 ---
 
@@ -554,7 +555,7 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 | 2 | **Resolved.** Members land on `/assessments` (My Pending Assessments), not `/projects`. Root redirect differs by role: admin → `/projects`, member → `/assessments`. | — | — | — |
 | 3 | **Resolved.** PRCC product features deferred from V11. Foundation: nullable `project_id` FK on repos and PRCC assessments only. No UI change. | — | — | — |
 | 4 | **Resolved.** PRCC participants use direct invitation links in V11. No PRCC list view for members. | — | — | — |
-| 5 | Are legacy `/assessments/[aid]` redirects required in V11? | Story 4.5 AC 4 specifies a 301 from the legacy shape to the project-first shape. The Context section states the product is not yet in production, so no in-flight invitation emails should exist. The redirect adds a small amount of routing logic but covers any stray bookmarks. | (a) Implement the 301 redirect (current default in AC 4). (b) Drop the legacy route entirely; old-shape URLs return 404. | If (b) is chosen, remove AC 4 from Story 4.5 and shrink the implementation. If (a), the redirect must look up `project_id` from the assessment row. |
+| 5 | **Resolved.** No legacy URL redirect needed — product is pre-production, no `/assessments/[aid]` URLs exist in the wild. Story 4.5 AC 4 updated to specify 404 for the legacy shape. | — | — | — |
 
 ---
 
@@ -568,7 +569,7 @@ Pass over every acceptance criterion in §Epics 1–4. Outcome: no blocking issu
 | 1 | 1.5 | 2 | Error code for archive-create conflict (`409` vs `422`) is an implementation choice. | Specified `422` (validation/state error) — testable as exact status; design may swap once an LLD lands without breaking the AC's spirit. |
 | 2 | 2.3 | 4 | "Archived project" semantics for participants required a deliberate stance. | Specified: pending submissions on archived projects remain visible. Rationale: archive hides project from admin lists; obligations on existing assessments are preserved (consistent with Story 1.5 AC 3). |
 | 2 | 2.3a | 4 | "Hide filter when only 1 project" is a UI judgement call. | Specified deterministically (hidden when count == 1) so the AC is testable. |
-| 4 | 4.5 | 4 | Whether legacy URL support is needed at all. | Captured as Open Question 5; AC 4 describes the redirect *if* it is in scope. |
+| 4 | 4.5 | 4 | Whether legacy URL support is needed at all. | Resolved: pre-prod, no legacy URLs exist; AC 4 specifies 404 for the legacy shape. |
 
 No vague qualifiers ("appropriate", "user-friendly", "fast") remain. Every AC has a precondition that can be set up in a test and an outcome that can be asserted.
 
@@ -576,7 +577,4 @@ No vague qualifiers ("appropriate", "user-friendly", "fast") remain. Every AC ha
 
 ## Next Steps
 
-After Gate 2 approval:
-
-1. Resolve Open Question 5 (legacy URL redirect scope).
-2. Run `/kickoff docs/requirements/v11-requirements.md` (or `/architect` if the HLD already covers V11) to produce the design artefacts and implementation plan.
+1. Run `/kickoff docs/requirements/v11-requirements.md` (or `/architect` if the HLD already covers V11) to produce the design artefacts and implementation plan.
