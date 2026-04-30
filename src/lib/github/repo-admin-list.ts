@@ -9,6 +9,9 @@ import { getInstallationToken as defaultGetInstallationToken } from '@/lib/githu
 const GITHUB_API = 'https://api.github.com';
 const CONCURRENCY = 8;
 
+// Justification: LLD §B.2 originally used orgGithubName + GET /installation/repositories.
+// Amended to accept pre-filtered registered repos (PR #402) to scope permission checks to
+// product-registered repos only and avoid over-granting. Reconciled via /lld-sync.
 export interface RegisteredRepo {
   githubRepoId: number;
   repoFullName: string; // "owner/repo" as stored in repositories.github_repo_name

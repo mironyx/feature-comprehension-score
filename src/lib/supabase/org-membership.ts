@@ -110,7 +110,10 @@ async function matchOrgsForUser(
   if (error) throw new Error(`Failed to load organisations: ${error.message}`);
   const results = await Promise.all(
     (data ?? []).map(async (org) => {
-      const repos = await fetchRegisteredRepos(serviceClient, org.id);
+      // Skip DB lookup for personal accounts — fetchMembershipRole short-circuits immediately.
+      const repos = org.github_org_id === input.githubUserId
+        ? []
+        : await fetchRegisteredRepos(serviceClient, org.id);
       return fetchMembershipRole(org, input, repos, deps.getInstallationToken, deps.fetchImpl);
     }),
   );
