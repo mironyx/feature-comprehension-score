@@ -48,6 +48,7 @@ see [v1 §C1](v1-design.md#c1-organisation-management).
 | Hard-delete an empty project | 1.5 |
 | Configure per-project context (glob patterns, domain notes, question count) | 3.1 |
 | Persist last-visited project per user (client-side) | 4.6 |
+| Render role-conditional NavBar item and admin-only breadcrumbs on project-scoped routes | 4.1, 4.3 |
 
 ### C3: Feature Comprehension Score (FCS) — extended
 
@@ -89,8 +90,10 @@ rows persist, but the FCS rubric path no longer reads them.
 
 ### Coverage
 
-Every V11 story maps to a capability above. Drift scan in Step 3 will
-verify this matrix against the requirements.
+All 18 V11 stories and the three cross-cutting concern sections
+(§Security & Authorisation, §Data Integrity, §Context Resolution) map
+to a capability and component above. Verified by Gate 1 drift scan
+(2026-04-30) — verdict PASS-with-patches; patches W1–W4 applied.
 
 ---
 
@@ -109,10 +112,10 @@ and a small set of FK columns.
 |--------|---------|----------------------|
 | **Projects API** (`/api/projects`, `/api/projects/[id]`) | Project CRUD: list, create, read, partial-update, delete-if-empty. | Does not manage assessments, repos, or org config. Does not enforce uniqueness across orgs (per-org only). Does not soft-delete. |
 | **Project context resolver** (engine) | Given a `project_id`, return glob patterns, domain notes, and question count for FCS rubric generation. | Does not consult org-level context. Does not fetch files (delegated to existing context fetcher). Does not cache across requests. |
-| **Project pages** (`src/app/projects/...`) | List, dashboard, create form, settings, project-scoped assessment routes, breadcrumbs. | Does not duplicate the existing assessment list component — reuses it with a `project_id` filter. Does not own auth redirects (delegated to root layout). |
+| **Project pages** (`src/app/projects/...`) | List, dashboard, create form, settings, project-scoped assessment routes. Owns the role-conditional NavBar item ("Projects" for admins, "My Assessments" for members) and admin-only breadcrumbs. | Does not duplicate the existing assessment list component — reuses it with a `project_id` filter. Does not own auth redirects (delegated to root layout). Does not redirect `/assessments/[aid]` — that legacy path returns 404 (Story 4.5 AC 4). |
 | **Pending queue page** (`src/app/assessments`) | Cross-project FCS pending list with project filter for org members. | FCS only — PRCC items are out of scope. Does not show projects the participant has no assessment in. |
 | **Last-visited project store** (client) | Read/write `lastVisitedProjectId` in `localStorage`; clear on sign-out. | No DB column, no server-side state. Not used for authorisation. |
-| **Repo Admin gate** (auth helper) | Resolve a user's repo-admin set from GitHub at request time; enforce per-repo on FCS create. | Not a persisted role table. Not cached across requests in V11 (revisit if hot-path latency demands it). |
+| **Repo Admin gate** (auth helper) | Resolve a user's repo-admin set from GitHub at request time; enforce per-repo on FCS create. For project CRUD, gate with the coarser "user holds admin access to at least one org repo" check. | Not a persisted role table. Not cached across requests in V11 (revisit if hot-path latency demands it). The per-repo admin check is FCS-create only; project endpoints do not re-check repo scopes. |
 
 ### Schema delta (Component 3: Supabase)
 
