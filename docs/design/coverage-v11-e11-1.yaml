@@ -34,14 +34,23 @@ entries:
 
   - req: REQ-project-management-edit-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
-    files: []
-    status: Approved
+    issue: 397
+    files:
+      - src/app/api/projects/[id]/route.ts
+      - src/app/api/projects/[id]/service.ts
+      - src/lib/api/context.ts
+      - supabase/schemas/functions.sql
+    status: Revised
     # Inline edit UI at #LLD-v11-e11-1-project-dashboard-inline-edit
 
   - req: REQ-project-management-delete-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
-    files: []
-    status: Approved
+    issue: 397
+    files:
+      - src/app/api/projects/[id]/route.ts
+      - src/app/api/projects/[id]/service.ts
+      - src/lib/api/context.ts
+    status: Revised
 
   # Deferred: FCS scoped to projects (E11.2)
   - req: REQ-fcs-scoped-to-projects-create-fcs-assessment
