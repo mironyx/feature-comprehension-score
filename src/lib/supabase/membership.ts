@@ -1,5 +1,5 @@
 // Shared membership types and helpers used by pages that check org admin status.
-// Issue: #121, #398, #408
+// Issue: #121, #398, #408, #417
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
@@ -10,8 +10,34 @@ export interface MembershipRow {
 
 export type OrgRole = 'admin' | 'repo_admin';
 
+export interface MembershipSnapshot {
+  githubRole: string;
+  adminRepoGithubIds: number[];
+}
+
 export function isOrgAdmin(rows: MembershipRow[]): boolean {
   return rows.length > 0 && rows[0]?.github_role === 'admin';
+}
+
+/**
+ * Shared core: queries user_organisations once and normalises the result.
+ * Throws Error on DB failure. Both API and page surfaces delegate to this.
+ */
+export async function readMembershipSnapshot(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  orgId: string,
+): Promise<MembershipSnapshot | null> {
+  const { data, error } = await supabase
+    .from('user_organisations')
+    .select('github_role, admin_repo_github_ids')
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const r = data as { github_role: string; admin_repo_github_ids: number[] };
+  return { githubRole: r.github_role, adminRepoGithubIds: r.admin_repo_github_ids ?? [] };
 }
 
 /**
@@ -24,16 +50,10 @@ export async function getOrgRole(
   userId: string,
   orgId: string,
 ): Promise<OrgRole | null> {
-  const { data } = await supabase
-    .from('user_organisations')
-    .select('github_role, admin_repo_github_ids')
-    .eq('org_id', orgId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (!data) return null;
-  const r = data as { github_role: string; admin_repo_github_ids: number[] };
-  if (r.github_role === 'admin') return 'admin';
-  if (r.admin_repo_github_ids.length > 0) return 'repo_admin';
+  const snap = await readMembershipSnapshot(supabase, userId, orgId);
+  if (!snap) return null;
+  if (snap.githubRole === 'admin') return 'admin';
+  if (snap.adminRepoGithubIds.length > 0) return 'repo_admin';
   return null;
 }
 

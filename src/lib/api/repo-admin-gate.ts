@@ -4,6 +4,7 @@
 
 import type { ApiContext } from '@/lib/api/context';
 import { ApiError } from '@/lib/api/errors';
+import { readMembershipSnapshot } from '@/lib/supabase/membership';
 
 export interface RepoAdminSnapshot {
   githubRole: 'admin' | 'member';
@@ -15,18 +16,13 @@ export async function readSnapshot(
   ctx: ApiContext,
   orgId: string,
 ): Promise<RepoAdminSnapshot | null> {
-  const { data, error } = await ctx.supabase
-    .from('user_organisations')
-    .select('github_role, admin_repo_github_ids')
-    .eq('org_id', orgId)
-    .eq('user_id', ctx.user.id)
-    .maybeSingle();
-  if (error) throw new ApiError(500, `Failed to read membership snapshot: ${error.message}`);
-  if (!data) return null;
-  return {
-    githubRole: data.github_role as 'admin' | 'member',
-    adminRepoGithubIds: (data.admin_repo_github_ids ?? []) as number[],
-  };
+  try {
+    const snap = await readMembershipSnapshot(ctx.supabase, ctx.user.id, orgId);
+    if (!snap) return null;
+    return { githubRole: snap.githubRole as 'admin' | 'member', adminRepoGithubIds: snap.adminRepoGithubIds };
+  } catch (e) {
+    throw new ApiError(500, `Failed to read membership snapshot: ${(e as Error).message}`);
+  }
 }
 
 /** Returns true iff github_role = 'admin' OR admin_repo_github_ids is non-empty. */

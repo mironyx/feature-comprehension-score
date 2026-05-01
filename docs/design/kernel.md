@@ -33,7 +33,8 @@ This is the curated list of helpers, types, and entry points that every new feat
 |---|---|---|
 | `getSelectedOrgId(cookies) → string \| null` | `@/lib/supabase/org-context` | Page-side equivalent of `ctx.orgId`. Pages call this with the `cookies()` accessor; do not re-implement the cookie read. |
 | `setSelectedOrgId(response, orgId)` | `@/lib/supabase/org-context` | Sets the cookie on a `NextResponse`. |
-| `getOrgRole(supabase, userId, orgId) → Promise<'admin' \| 'repo_admin' \| null>` | `@/lib/supabase/membership` | Page-side equivalent of `assertOrgAdminOrRepoAdmin`. Returns the discriminant role; null means no admin/repo-admin privilege. |
+| `readMembershipSnapshot(supabase, userId, orgId) → Promise<MembershipSnapshot \| null>` | `@/lib/supabase/membership` | Shared core: single `user_organisations` query, normalised to `{ githubRole, adminRepoGithubIds }`. Both API and page wrappers delegate to this — do not inline the query. |
+| `getOrgRole(supabase, userId, orgId) → Promise<'admin' \| 'repo_admin' \| null>` | `@/lib/supabase/membership` | Page-side role discriminant; delegates to `readMembershipSnapshot`. |
 | `isAdminOrRepoAdmin(supabase, userId, orgId) → Promise<boolean>` | `@/lib/supabase/membership` | Boolean variant of `getOrgRole`. |
 
 ## Validation, response, errors
@@ -85,6 +86,7 @@ This is the curated list of helpers, types, and entry points that every new feat
 These are the duplicate-implementation patterns we have already corrected once via `/lld-sync`. Do not introduce them again.
 
 - Inline `from('user_organisations').select('github_role, admin_repo_github_ids')` in API services or pages — use `assertOrgAdminOrRepoAdmin` / `readSnapshot` (API) or `getOrgRole` (page).
+- Inlining the `user_organisations` membership query in either layer — both surfaces delegate to the shared core `readMembershipSnapshot` in `@/lib/supabase/membership`.
 - Inline cookie reads of `fcs-org-id` — use `ctx.orgId` (API) or `getSelectedOrgId(cookies)` (page).
 - Deriving `org_id` from the request body or a project row to set the *selected* org — `ctx.orgId` is the source of truth. Project-row reads are for *tenant isolation checks* (`project.org_id === ctx.orgId`), not for setting `orgId`.
 - Calling `createClient()` / `createSecretSupabaseClient()` inside a service — use the injected `ApiContext`.
