@@ -63,6 +63,6 @@ export async function createFcsForProject(
   const assessmentId = await createAssessmentWithParticipants(ctx.adminSupabase, {
     body, orgId: ctx.orgId, projectId, repoInfo, validatedPRs, validatedIssues, participants,
   });
-  void triggerRubricGeneration({ adminSupabase: ctx.adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth });
+  void triggerRubricGeneration({ adminSupabase: ctx.adminSupabase, assessmentId, projectId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth });
   return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
 }

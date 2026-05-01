@@ -194,11 +194,13 @@ describe('Artefact input types', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects domain_notes longer than 500 characters', () => {
-      const result = OrganisationContextSchema.safeParse({
-        domain_notes: 'x'.repeat(501),
-      });
-      expect(result.success).toBe(false);
+    it('rejects domain_notes longer than 2000 characters (V11 cap raised from 500)', () => {
+      expect(OrganisationContextSchema.safeParse({
+        domain_notes: 'x'.repeat(2000),
+      }).success).toBe(true);
+      expect(OrganisationContextSchema.safeParse({
+        domain_notes: 'x'.repeat(2001),
+      }).success).toBe(false);
     });
 
     it('rejects a domain_vocabulary entry missing term or definition', () => {
@@ -229,18 +231,18 @@ describe('Artefact input types', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects question_count outside 3-5 range', () => {
+    it('rejects question_count outside 3-8 range (V11 upper bound raised from 5)', () => {
       expect(AssembledArtefactSetSchema.safeParse({
         ...rawBase, question_count: 2, artefact_quality: 'code_only', token_budget_applied: false,
       }).success).toBe(false);
       expect(AssembledArtefactSetSchema.safeParse({
-        ...rawBase, question_count: 6, artefact_quality: 'code_only', token_budget_applied: false,
+        ...rawBase, question_count: 9, artefact_quality: 'code_only', token_budget_applied: false,
       }).success).toBe(false);
       expect(AssembledArtefactSetSchema.safeParse({
         ...rawBase, question_count: 3, artefact_quality: 'code_only', token_budget_applied: false,
       }).success).toBe(true);
       expect(AssembledArtefactSetSchema.safeParse({
-        ...rawBase, question_count: 5, artefact_quality: 'code_only', token_budget_applied: false,
+        ...rawBase, question_count: 8, artefact_quality: 'code_only', token_budget_applied: false,
       }).success).toBe(true);
     });
 

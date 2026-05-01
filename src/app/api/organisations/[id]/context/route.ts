@@ -33,7 +33,7 @@ import type { OrgContextRow } from '@/lib/supabase/org-prompt-context';
  *   domain_vocabulary  (Array<{ term: string; definition: string }>) — domain terms
  *   focus_areas        (string[], max 5) — areas to emphasise
  *   exclusions         (string[], max 5) — areas to exclude
- *   domain_notes       (string, max 500) — free-text domain context
+ *   domain_notes       (string, max 2000) — free-text domain context
  *
  * Returns 200 OrgContextResponse | 401 unauthenticated | 403 forbidden | 422 validation
  */

@@ -68,7 +68,8 @@ This is the curated list of helpers, types, and entry points that every new feat
 
 | Symbol | Path | Purpose |
 |---|---|---|
-| `loadOrgPromptContext(supabase, orgId, projectId?)` | `@/lib/supabase/org-prompt-context` | Reads `organisation_contexts` row (org-level or project-level). Returns the full row including jsonb fields. |
+| `loadOrgPromptContext(supabase, orgId)` | `@/lib/supabase/org-prompt-context` | Reads the **org-level** row in `organisation_contexts` — predicate is `.eq('org_id', $1).is('project_id', null)`. Used by the `/organisation` org-context UI. **NOT called from the FCS rubric path in V11** (Invariant I5 in lld-v11-e11-3 §B.2). Returns parsed `OrganisationContext` or undefined. |
+| `loadProjectPromptContext(supabase, projectId)` | `@/lib/supabase/project-prompt-context` | Reads the **project-scoped** row — predicate is `.eq('project_id', $1)`. Used by the FCS rubric path (`extractArtefacts` in `@/lib/api/fcs-pipeline`). Mirrors `loadOrgPromptContext` shape (safeParse → warn-and-undefined on failure). Org-level rows are NOT consulted. New in V11 E11.3 T3.2 (issue #422). |
 | `loadOrgRetrievalSettings(...)` | `@/lib/supabase/org-retrieval-settings` | Loads retrieval settings with defaults applied. |
 | `RetrievalSettingsSchema`, `DEFAULT_RETRIEVAL_SETTINGS` | `@/lib/supabase/org-retrieval-settings` | Zod schema + defaults. |
 
@@ -96,6 +97,7 @@ These are the duplicate-implementation patterns we have already corrected once v
 - Placing rubric pipeline helpers in `@/lib/engine/` — the pipeline uses Supabase and Octokit clients, violating the engine layer's Clean Architecture constraint (no framework imports).
 - Constructing `/assessments/${id}` hrefs when rendering assessment list items — after T2.3 (issue #412) the correct shape is `/projects/${project_id}/assessments/${id}`. PRCC rows have `project_id === null` and must render as non-navigable `<span>` elements; never use `href="#"` as a placeholder.
 - Querying `assessment_participants` by `user_id` only — the RLS policy `participants_select_own` gates solely on `user_id = auth.uid()`, with no org_id constraint. A user in multiple orgs will see cross-org rows without `.eq('org_id', orgId)`. Always add the explicit org filter (issue #415).
+- Calling `loadOrgPromptContext` from the FCS rubric pipeline — V11 reads project-scoped context only. Use `loadProjectPromptContext(adminSupabase, projectId)` in `extractArtefacts`. The org-level helper is retained for the `/organisation` org-context UI (issue #422 / Invariant I5).
 
 ---
 

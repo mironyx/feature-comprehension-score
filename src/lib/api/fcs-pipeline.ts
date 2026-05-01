@@ -13,7 +13,7 @@ import { generateRubric, type RubricObservability } from '@/lib/engine/pipeline'
 import { buildLlmClient } from '@/lib/api/llm';
 import type { Database, Json } from '@/lib/supabase/types';
 import type { AssembledArtefactSet, LinkedIssue, RawArtefactSet } from '@/lib/engine/prompts/artefact-types';
-import { loadOrgPromptContext } from '@/lib/supabase/org-prompt-context';
+import { loadProjectPromptContext } from '@/lib/supabase/project-prompt-context';
 import { loadOrgRetrievalSettings } from '@/lib/supabase/org-retrieval-settings';
 import { truncateArtefacts, buildTruncationOptions, estimateArtefactSetTokens } from '@/lib/engine/prompts/truncate';
 import { getModelContextLimit, getConfiguredModelId } from '@/lib/openrouter/model-limits';
@@ -85,6 +85,7 @@ interface ResolvedParticipant {
 interface RubricTriggerParams {
   adminSupabase: ServiceClient;
   assessmentId: AssessmentId;
+  projectId: string;
   repoInfo: RepoInfo;
   prNumbers: number[];
   issueNumbers: number[];
@@ -471,6 +472,7 @@ function toFailureDetails(err: unknown): RubricFailureDetails | undefined {
 interface ExtractArtefactsParams {
   adminSupabase: ServiceClient;
   octokit: Octokit;
+  projectId: string;
   repoInfo: RepoInfo;
   prNumbers: number[];
   issueNumbers: number[];
@@ -478,7 +480,7 @@ interface ExtractArtefactsParams {
 }
 
 async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assembled: AssembledArtefactSet; contextLimit: number; tokenBudget: number; rawTokens: number }> {
-  const { adminSupabase, octokit, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
+  const { adminSupabase, octokit, projectId, repoInfo, prNumbers, issueNumbers, comprehensionDepth } = params;
   const coords: RepoCoords = { owner: repoInfo.orgName, repo: repoInfo.repoName };
   const source = new GitHubArtefactSource(octokit);
   const { childIssueNumbers, childIssuePrs } = issueNumbers.length > 0
@@ -493,12 +495,13 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assem
     allIssueNumbers.length > 0
       ? source.fetchIssueContent({ ...coords, issueNumbers: allIssueNumbers })
       : Promise.resolve([] as LinkedIssue[]),
-    loadOrgPromptContext(adminSupabase, repoInfo.orgId),
+    loadProjectPromptContext(adminSupabase, projectId),
     loadOrgRetrievalSettings(adminSupabase, repoInfo.orgId),
   ]);
   const merged = mergeIssueContent(raw, issueContent);
   const contextLimit = await getModelContextLimit(getConfiguredModelId());
-  const opts = buildTruncationOptions(contextLimit, repoInfo.questionCount, settings.tool_use_enabled);
+  const effectiveQuestionCount = organisation_context?.question_count ?? repoInfo.questionCount;
+  const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settings.tool_use_enabled);
   const rawTokens = estimateArtefactSetTokens(merged);
   const assembled = truncateArtefacts(merged, opts);
   return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit, tokenBudget: opts.tokenBudget!, rawTokens };
@@ -551,6 +554,7 @@ export async function triggerRubricGeneration(params: RubricTriggerParams): Prom
     const { assembled: artefacts, contextLimit, tokenBudget, rawTokens } = await extractArtefacts({
       adminSupabase: params.adminSupabase,
       octokit,
+      projectId: params.projectId,
       repoInfo: params.repoInfo,
       prNumbers: params.prNumbers,
       issueNumbers: params.issueNumbers,
@@ -569,6 +573,7 @@ export async function triggerRubricGeneration(params: RubricTriggerParams): Prom
 interface AssessmentRetryRow {
   id: string;
   org_id: string;
+  project_id: string;
   repository_id: string;
   status: string;
   config_question_count: number;
@@ -616,6 +621,6 @@ export async function retriggerRubricForAssessment(
   ]);
   const prNumbers = (prs ?? []).map((p: { pr_number: number }) => p.pr_number);
   const issueNumbers = (issues ?? []).map((i: { issue_number: number }) => i.issue_number);
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
+  void triggerRubricGeneration({ adminSupabase, assessmentId, projectId: assessment.project_id, repoInfo, prNumbers, issueNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 

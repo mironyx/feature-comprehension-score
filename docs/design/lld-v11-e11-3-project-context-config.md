@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
+| Revised | 2026-05-01 — issue #422 (T3.2 implemented) |
 | Epic | E11.3 |
 | Parent HLD | [v11-design.md §C4, §3.V11.2](v11-design.md#c4-assessment-engine--context-resolution-narrowed) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -49,7 +50,7 @@ sequenceDiagram
   P->>DB: load project + organisation_contexts row keyed by (org_id, project_id)
   DB-->>P: {project, context?}
   alt Org Member
-    P-->>U: 302 /projects/[id]
+    P-->>U: 302 /assessments
   end
   P-->>U: render form prefilled with stored values (or defaults)
   U->>P: submit {glob_patterns, domain_notes, question_count}
@@ -142,7 +143,7 @@ flowchart LR
 |---|-----------|-------------|
 | I1 | `PATCH /api/projects/[id]` rejects payloads where any glob pattern fails to compile | Zod `.refine()` in `UpdateProjectSchema` (T3.1) + unit test |
 | I2 | `PATCH /api/projects/[id]` rejects `question_count` outside 3..8 | `z.number().int().min(3).max(8)` (raised from 3..5 in V11 — see B.0 DB note) — covered by T3.1 BDD spec |
-| I3 | Settings page redirects Org Members back to the project page (`/projects/[id]`) — not `/assessments` — so non-admins land in a context they recognise | Server-side `getOrgRole` check (T3.1) |
+| I3 | Settings page redirects non-admins (Org Members) to `/assessments` (My Assessments) when reached via direct URL. Settings is admin-only, and Org Members have no UI affordance to reach it from the project page; landing them back on `/projects/[id]` would be a no-op redirect loop, so they are sent to the page they have access to. | Server-side `getOrgRole` check (T3.1) |
 | I4 | Settings page returns 404 for unknown / cross-org `projectId` | Server-side `select * from projects where id=$1` returns null ⇒ `notFound()` (T3.1) |
 | I5 | FCS rubric generation reads project context only — `loadOrgPromptContext` is never called from the FCS path | Grep `loadOrgPromptContext` in `src/lib/api/fcs-pipeline.ts` returns no matches (T3.2) + unit test asserting the call is `loadProjectPromptContext` |
 | I6 | A project with no project-scoped row in `organisation_contexts` (i.e. no row with `project_id = $1` — the table is shared with the org-level UI per ADR-0028, hence the legacy name) produces a rubric prompt with no `organisation_context` block | Resolver returns `undefined`; `extractArtefacts` passes `organisation_context: undefined` to the assembled set; `formatOrganisationContext` already omits the block when undefined (T3.2) |
@@ -153,7 +154,7 @@ flowchart LR
 
 Maps to v11-requirements §Epic 3 ACs:
 
-- **Story 3.1** — Save persists glob_patterns / domain_notes / question_count to `organisation_contexts` keyed by `project_id`; empty form when no row exists; out-of-range question_count returns 400; unparseable glob returns 400 identifying the pattern; Repo Admin can save; Org Member redirected to `/projects/[id]`.
+- **Story 3.1** — Save persists glob_patterns / domain_notes / question_count to `organisation_contexts` keyed by `project_id`; empty form when no row exists; out-of-range question_count returns 400; unparseable glob returns 400 identifying the pattern; Repo Admin can save; Org Member reaching `/projects/[id]/settings` via direct URL is redirected to `/assessments`.
 - **Story 3.2** — FCS prompt for an assessment in project P contains content matched by P's globs and P's domain_notes verbatim; assessment has exactly `project.question_count` questions; project with no project-scoped row in `organisation_contexts` yields a prompt with no context block and the org-level row (`project_id IS NULL`) is not queried; the resolved context shape used at generation time matches the project's config at creation time.
 
 ### BDD specs (epic-level summary)
@@ -171,7 +172,7 @@ describe('/projects/[id]/settings (T3.1)')
   it('Org Admin sees the form prefilled from the existing organisation_contexts row')
   it('Project with no context row renders empty inputs and the system-default question count')
   it('Repo Admin successfully saves changes')
-  it('Org Member is redirected to /projects/[id]')
+  it('Org Member is redirected to /assessments')
   it('Unknown projectId returns 404')
 
 describe('loadProjectPromptContext (T3.2)')
@@ -295,8 +296,10 @@ export default async function ProjectSettingsPage({ params }: { params: Promise<
   if (!user) redirect('/auth/sign-in');
 
   const role = await getOrgRole(supabase, user.id, project.org_id);
-  // Non-admins (Org Member) bounce back to the project page they came from — not /assessments.
-  if (role === null) redirect(`/projects/${projectId}`);
+  // Settings is admin-only and Org Members have no UI affordance to reach it from the
+  // project page; redirect them to /assessments (a page they have access to) rather than
+  // back to /projects/[id], which would be a no-op redirect loop from their perspective.
+  if (role === null) redirect('/assessments');
 
   const { data: ctxRow } = await supabase
     .from('organisation_contexts')
@@ -463,7 +466,22 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 3. `AssessmentRetryRow` (private interface in `fcs-pipeline.ts`, ~lines 569–578) — add `project_id: string`. Update the retry-rubric route's SELECT (the call site that constructs `AssessmentRetryRow` from the `assessments` row) to include `project_id`. Inside `retriggerRubricForAssessment`, pass `projectId: assessment.project_id` to `triggerRubricGeneration` (line ~619).
 4. Create caller — `src/app/api/projects/[id]/assessments/service.ts:66` already has `projectId` in scope; just add `projectId` to the `triggerRubricGeneration` call object.
 
-`assessments.project_id` is non-null for FCS rows by Invariant I1 from E11.2 T2.1, so no null-handling branch is needed.
+`assessments.project_id` is non-null for FCS rows by the DB CHECK (`type <> 'fcs' OR project_id IS NOT NULL`, Invariant I1 from E11.2 T2.1), so no _logic_ branch is needed.
+
+> **Implementation note (issue #422):** the generated Supabase `Database` types still type
+> `assessments.project_id` as `string | null` (the CHECK constraint is not lifted into the
+> typegen). The retry-rubric service therefore needs a one-line TS-narrowing guard at the
+> SELECT site:
+>
+> ```ts
+> // FCS rows have project_id NOT NULL by DB CHECK (V11 E11.2 T2.1); narrow for TS.
+> if (assessment.project_id === null) throw new ApiError(500, 'Assessment missing project_id');
+> ```
+>
+> The branch is unreachable in practice (DB CHECK enforces non-null on FCS rows; the retry path
+> only runs after a successful `create_fcs_assessment` RPC); it exists purely to satisfy
+> TypeScript when calling `retriggerRubricForAssessment`. A non-null assertion (`!`) was
+> rejected as silently lossy.
 
 **No persistence change.** The `assessments.config_question_count` column already records the question count used at creation time — already captured by E11.2's `create_fcs_assessment` RPC. Story 3.2 AC 5 ("resolved context used at generation time matches the project's configuration at the time of creation") is satisfied because the project context jsonb is read once, at extraction time, and the question_count is persisted to `assessments.config_question_count`. No new column needed for the snapshot of globs / domain_notes — the prompt itself is the audit trail (already logged via the existing rubric observability fields).
 
@@ -540,7 +558,7 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 1. **DB:** in `supabase/schemas/tables.sql`, change the four `BETWEEN 3 AND 5` CHECK constraints (`org_config.{fcs,prcc}_question_count` lines 31–34, `repository_config.{fcs,prcc}_question_count` lines 80–81) to `BETWEEN 3 AND 8`. Generate migration: `npx supabase db diff -f relax_question_count_to_8`. Verify `db diff` is empty after `db reset`.
 2. Extend `UpdateProjectSchema` (and `CreateProjectSchema`) in `src/app/api/projects/validation.ts`: raise `question_count` max from 5 to 8; add a `superRefine` on `glob_patterns` that calls `picomatch.makeRe(p)` and emits `code: 'custom', path: [index], message: 'glob_unparseable:<pattern>'` on failure.
 3. Add `picomatch` + `@types/picomatch` as direct deps.
-4. New server page `src/app/(authenticated)/projects/[id]/settings/page.tsx` — load project + existing context row in two queries, redirect Org Member to `/projects/[id]` (the project page), 404 on unknown project.
+4. New server page `src/app/(authenticated)/projects/[id]/settings/page.tsx` — load project + existing context row in two queries, redirect Org Member to `/assessments` (settings is admin-only; non-admins have no UI link to it and `/projects/[id]` would be a no-op redirect loop), 404 on unknown project.
 5. New client form `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` — fields: glob_patterns (TagInput-style), domain_notes (textarea, max 2000), question_count (number 3..8). Submits PATCH with the changed subset. Maps 400 issues with `path: ['glob_patterns', N]` to per-row error display.
 6. Tests: 5 page specs + 5 validation specs.
 
@@ -550,7 +568,7 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 - [ ] `UpdateProjectSchema` accepts `{ question_count: 8 }` and rejects `{ question_count: 9 }`.
 - [ ] DB CHECK constraints on `{org_config,repository_config}.{fcs,prcc}_question_count` allow values 3–8 inclusive.
 - [ ] `GET /projects/[id]/settings` as Org Admin renders the form prefilled from the existing row.
-- [ ] `GET /projects/[id]/settings` as Org Member redirects to `/projects/[id]`.
+- [ ] `GET /projects/[id]/settings` as Org Member redirects to `/assessments`.
 - [ ] `GET /projects/[id]/settings` for unknown project returns 404.
 - [ ] Saving from the form posts `PATCH /api/projects/[id]` with only the changed subset and shows a success state on 200.
 
@@ -568,7 +586,7 @@ describe('/projects/[id]/settings')
   it('Org Admin sees the form prefilled from the existing organisation_contexts row')
   it('Project with no context row renders empty inputs and the system-default question count')
   it('Repo Admin successfully saves changes')
-  it('Org Member is redirected to /projects/[id]')
+  it('Org Member is redirected to /assessments')
   it('Unknown projectId returns 404')
 ```
 
