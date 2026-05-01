@@ -755,7 +755,14 @@ export interface Database {
           p_project_fields: Json | null;
           p_context_fields: Json | null;
         };
-        Returns: Json;
+        Returns: {
+          id: string;
+          org_id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
       };
     };
   };

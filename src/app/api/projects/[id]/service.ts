@@ -10,8 +10,7 @@ import type { Json } from '@/lib/supabase/types';
 
 type MembershipRow = { org_id: string; github_role: string; admin_repo_github_ids: number[] };
 
-// Shared by updateProject and deleteProject — returns all org memberships for the
-// current user, or throws 401 if none exist.
+// Justification: shared by updateProject and deleteProject (2 callers) — extracted to keep both under cc limit.
 async function fetchMemberships(ctx: ApiContext): Promise<MembershipRow[]> {
   const { data, error } = await ctx.supabase
     .from('user_organisations')
@@ -22,10 +21,11 @@ async function fetchMemberships(ctx: ApiContext): Promise<MembershipRow[]> {
   return data as MembershipRow[];
 }
 
+// Justification: used only by getProject — provides the project row + org_id for the gate check.
 async function resolveProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse> {
   const { data, error } = await ctx.supabase
     .from('projects')
-    .select('*')
+    .select('id, org_id, name, description, created_at, updated_at')
     .eq('id', projectId)
     .maybeSingle();
   if (error) throw new ApiError(500, `Failed to resolve project: ${error.message}`);
@@ -72,7 +72,7 @@ export async function updateProject(
     throw new ApiError(500, `Failed to update project: ${error.message}`);
   }
 
-  return data as unknown as ProjectResponse;
+  return data as ProjectResponse;
 }
 
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void> {
@@ -94,7 +94,7 @@ export async function deleteProject(ctx: ApiContext, projectId: string): Promise
     .delete()
     .eq('id', projectId)
     .in('org_id', adminOrgIds)
-    .select();
+    .select('id');
   if (error) throw new ApiError(500, `Failed to delete project: ${error.message}`);
   if (!deleted?.length) throw new ApiError(404, 'project_not_found');
 }
