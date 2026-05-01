@@ -8,9 +8,9 @@ import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { PollingStatusBadge } from '../polling-status-badge';
-import { RetryButton } from '../retry-button';
-import { useStatusPoll } from '../use-status-poll';
+import { PollingStatusBadge } from '@/app/(authenticated)/assessments/polling-status-badge';
+import { RetryButton } from '@/app/(authenticated)/assessments/retry-button';
+import { useStatusPoll } from '@/app/(authenticated)/assessments/use-status-poll';
 
 interface Repository {
   id: string;

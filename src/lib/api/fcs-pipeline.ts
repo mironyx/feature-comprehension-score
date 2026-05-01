@@ -194,7 +194,7 @@ interface AssessmentBody {
 interface CreateAssessmentParams {
   body: AssessmentBody;
   orgId: string;
-  projectId: string;
+  projectId: string | null;
   repoInfo: RepoInfo;
   validatedPRs: ValidatedPR[];
   validatedIssues: ValidatedIssue[];
@@ -649,7 +649,7 @@ async function legacyAssertOrgAdmin(supabase: UserClient, userId: string, orgId:
     .select('github_role')
     .eq('user_id', userId)
     .eq('org_id', orgId);
-  if (error) throw new ApiError(500, 'Internal server error');
+  if (error) { logger.error({ err: error }, 'legacyAssertOrgAdmin: query failed'); throw new ApiError(500, 'Internal server error'); }
   const rows = (data ?? []) as { github_role: string }[];
   if (!rows.length || rows[0]?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
 }
@@ -667,10 +667,10 @@ export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<C
     issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve([]),
   ]);
   const assessmentId = await createAssessmentWithParticipants(serviceClient, {
-    body, orgId: body.org_id, projectId: null as unknown as string,
+    body, orgId: body.org_id, projectId: null,
     repoInfo, validatedPRs, validatedIssues, participants,
   });
-  await triggerRubricGeneration({
+  void triggerRubricGeneration({
     adminSupabase: serviceClient, assessmentId, repoInfo,
     prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth ?? 'conceptual',
   });

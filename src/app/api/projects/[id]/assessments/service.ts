@@ -50,8 +50,8 @@ export async function createFcsForProject(
   body: CreateFcsBody,
 ): Promise<CreateFcsResponse> {
   if (!ctx.orgId) throw new ApiError(401, 'no_org_selected');
-  await assertProjectInSelectedOrg(ctx, projectId);
   await assertOrgAdminOrRepoAdmin(ctx, ctx.orgId);
+  await assertProjectInSelectedOrg(ctx, projectId);
   await enforcePerRepoAdmin(ctx, body.repository_id);
   const repoInfo = await fetchRepoInfo(ctx.adminSupabase, body.repository_id, ctx.orgId);
   const octokit = await createGithubClient(repoInfo.installationId);
