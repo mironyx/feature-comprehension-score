@@ -1,7 +1,7 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
-**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync)
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync)
 **Version:** 0.3
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
@@ -163,7 +163,7 @@ classDiagram
 |---|-----------|-------------|
 | I1 | Every project row has an `org_id` matching an active organisation | FK + RLS policy `projects_select_member` |
 | I2 | Project names are unique within an org, case-insensitive | Unique index on `(org_id, lower(name))` |
-| I3 | A project can only be deleted when no assessments reference it | Service-level count check + 409 on non-empty (no FK CASCADE on assessments.project_id) |
+| I3 | A project can only be deleted when no assessments reference it | _(deferred → assessments.project_id not yet in schema; service-level check will be added when column lands)_ |
 | I4 | `organisation_contexts.project_id` references a real project (or is NULL for legacy org rows) | FK with `ON DELETE CASCADE` (added in T1.1) |
 | I5 | Project CRUD endpoints require Org Admin OR Repo Admin (snapshot non-empty); DELETE additionally requires Org Admin | Gate helper + service authorisation (BDD specs in §B) |
 | I6 | The admin-repo snapshot is refreshed atomically with the membership upsert during sign-in | Single transaction in `resolveUserOrgsViaApp` (no partial state visible) |
@@ -518,8 +518,11 @@ export const CreateProjectSchema = z.object({
 **Files:**
 
 - `src/app/api/projects/[id]/route.ts` (GET, PATCH, DELETE)
-- `src/app/api/projects/[id]/service.ts` (getProject, updateProject, deleteProject)
+- `src/app/api/projects/[id]/service.ts` (getProject, updateProject, deleteProject, requireOrgMembership, resolveProject)
+- `src/lib/api/context.ts` (ApiContext — added `orgId: string | null`)
+- `supabase/schemas/functions.sql` (patch_project DB function)
 - `tests/app/api/projects/get-by-id.test.ts`, `tests/app/api/projects/update.test.ts`, `tests/app/api/projects/delete.test.ts`
+- `tests/evaluation/projects-api-crud.eval.test.ts`
 
 **Internal decomposition — controller:**
 
@@ -564,32 +567,41 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
 ```ts
 export async function getProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse>;
-// 1. select * from projects where id=$1 (RLS limits to caller's orgs)
+// 1. select id, org_id, name, description, created_at, updated_at from projects where id=$1
 // 2. if not found -> ApiError(404)
-// 3. assertOrgAdminOrRepoAdmin on project.org_id
+// 3. assertOrgAdminOrRepoAdmin(ctx, project.org_id)
 
 export async function updateProject(
   ctx: ApiContext,
   projectId: string,
-  patch: UpdateProjectRequest,
+  patch: UpdateProjectInput,
 ): Promise<ProjectResponse>;
-// 1. resolve project (404 if missing)
-// 2. assertOrgAdminOrRepoAdmin(ctx, project.org_id)
-// 3. partition patch into projectFields (name, description) and contextFields
+// 1. requireOrgMembership(ctx, 'admin_or_repo_admin') — reads fcs-org-id cookie,
+//    single SELECT from user_organisations WHERE user_id=$1 AND org_id=$2, returns orgId
+// 2. partition patch into projectFields (name, description) and contextFields
 //    (glob_patterns, domain_notes, question_count)
-// 4. if projectFields non-empty: update projects (admin client); map unique_violation -> 409
-// 5. if contextFields non-empty: upsert organisation_contexts (org_id, project_id, context = merged)
-//    — read existing context first, merge only the supplied keys (preserves I7)
-// 6. return reloaded project row
+// 3. adminSupabase.rpc('patch_project', { p_project_id, p_org_id, p_project_fields, p_context_fields })
+//    — atomically updates projects row and merges context via jsonb ||
+//    — RAISE EXCEPTION 'project_not_found' if project not in org -> ApiError(404)
+//    — unique violation code 23505 -> ApiError(409, 'name_taken')
+// 4. return rpc result row (ProjectResponse shape)
 
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void>;
-// 1. resolve project (404 if missing)
-// 2. assertOrgAdmin(ctx, project.org_id)  ← Org Admin only (Story 1.5)
-// 3. select 1 from assessments where project_id = $1 limit 1
-// 4. if exists -> ApiError(409, 'project_not_empty')
-// 5. delete from projects where id = $1 (admin client)
-// 6. if 0 rows affected -> ApiError(404)  ← idempotent
+// 1. requireOrgMembership(ctx, 'admin') — fcs-org-id cookie + single membership SELECT
+// 2. adminSupabase.from('projects').delete({ count: 'exact' })
+//      .eq('id', projectId).eq('org_id', orgId)
+//    — count = 0 -> ApiError(404, 'project_not_found')  ← idempotent
 ```
+
+> **Implementation note (issue #397):** The LLD specified a 5–6 step flow for `updateProject` (resolveProject → assertOrgAdminOrRepoAdmin → partition → update projects → upsert organisation_contexts → reload) and a 4-step flow for `deleteProject` (resolveProject → assertOrgAdmin → assessment count check → delete). The implementation differs on two points:
+>
+> 1. **Org context from cookie, not project row.** Both `updateProject` and `deleteProject` read the currently selected org from the `fcs-org-id` cookie (`ApiContext.orgId`) and do a single `user_organisations` lookup scoped to that org. This replaces the `resolveProject` + `assertOrgAdmin(OrRepoAdmin)` pre-flight (saves one DB round-trip each).
+>
+> 2. **Atomic context merge via DB function.** `updateProject` calls a new Postgres function `patch_project(p_project_id, p_org_id, p_project_fields, p_context_fields)` instead of the read-then-upsert approach. The function uses `jsonb ||` for the context merge (atomic, preserves I7) and raises `project_not_found` if the project does not belong to `p_org_id`. This replaces steps 4–6 with a single RPC.
+>
+> 3. **I3 assessment check deferred.** The DELETE no longer checks for assessments before deleting (`assessments.project_id` does not exist in the current schema). Invariant I3 is deferred until that column is added.
+>
+> `ApiContext` now carries `orgId: string | null` (read from `fcs-org-id` cookie in `createApiContext`). The private `requireOrgMembership(ctx, role)` helper encapsulates the single-org gate for both `updateProject` and `deleteProject`.
 
 **Validation:**
 

@@ -1,4 +1,5 @@
-// Shared types for the Project entity. Design reference: lld-v11-e11-1-project-management.md §B.3
+// Shared types for the Project entity.
+// Design reference: docs/design/lld-v11-e11-1-project-management.md §B.3-B.4
 
 export interface ProjectResponse {
   id: string;
