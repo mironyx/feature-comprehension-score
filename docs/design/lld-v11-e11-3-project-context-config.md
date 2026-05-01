@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1 |
-| Status | Draft |
+| Version | 0.2 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
+| Revised | 2026-05-01 — issue #422 (T3.2 implemented) |
 | Epic | E11.3 |
 | Parent HLD | [v11-design.md §C4, §3.V11.2](v11-design.md#c4-assessment-engine--context-resolution-narrowed) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -465,7 +466,22 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 3. `AssessmentRetryRow` (private interface in `fcs-pipeline.ts`, ~lines 569–578) — add `project_id: string`. Update the retry-rubric route's SELECT (the call site that constructs `AssessmentRetryRow` from the `assessments` row) to include `project_id`. Inside `retriggerRubricForAssessment`, pass `projectId: assessment.project_id` to `triggerRubricGeneration` (line ~619).
 4. Create caller — `src/app/api/projects/[id]/assessments/service.ts:66` already has `projectId` in scope; just add `projectId` to the `triggerRubricGeneration` call object.
 
-`assessments.project_id` is non-null for FCS rows by Invariant I1 from E11.2 T2.1, so no null-handling branch is needed.
+`assessments.project_id` is non-null for FCS rows by the DB CHECK (`type <> 'fcs' OR project_id IS NOT NULL`, Invariant I1 from E11.2 T2.1), so no _logic_ branch is needed.
+
+> **Implementation note (issue #422):** the generated Supabase `Database` types still type
+> `assessments.project_id` as `string | null` (the CHECK constraint is not lifted into the
+> typegen). The retry-rubric service therefore needs a one-line TS-narrowing guard at the
+> SELECT site:
+>
+> ```ts
+> // FCS rows have project_id NOT NULL by DB CHECK (V11 E11.2 T2.1); narrow for TS.
+> if (assessment.project_id === null) throw new ApiError(500, 'Assessment missing project_id');
+> ```
+>
+> The branch is unreachable in practice (DB CHECK enforces non-null on FCS rows; the retry path
+> only runs after a successful `create_fcs_assessment` RPC); it exists purely to satisfy
+> TypeScript when calling `retriggerRubricForAssessment`. A non-null assertion (`!`) was
+> rejected as silently lossy.
 
 **No persistence change.** The `assessments.config_question_count` column already records the question count used at creation time — already captured by E11.2's `create_fcs_assessment` RPC. Story 3.2 AC 5 ("resolved context used at generation time matches the project's configuration at the time of creation") is satisfied because the project context jsonb is read once, at extraction time, and the question_count is persisted to `assessments.config_question_count`. No new column needed for the snapshot of globs / domain_notes — the prompt itself is the audit trail (already logged via the existing rubric observability fields).
 
