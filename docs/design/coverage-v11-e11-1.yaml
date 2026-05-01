@@ -38,8 +38,14 @@ entries:
 
   - req: REQ-project-management-view-project-dashboard
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-dashboard-inline-edit
-    files: []
-    status: Approved
+    issue: 399
+    files:
+      - src/app/(authenticated)/projects/[id]/page.tsx
+      - src/app/(authenticated)/projects/[id]/inline-edit-header.tsx
+      - src/app/(authenticated)/projects/[id]/delete-button.tsx
+    status: Revised
+    # getProject service call → inline queries (consistent with B.5);
+    # toast → inline error state with 5 s auto-dismiss; delete-button.test.ts separate file
 
   - req: REQ-project-management-edit-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
