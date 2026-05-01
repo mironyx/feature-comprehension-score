@@ -321,6 +321,7 @@ export interface Database {
           rubric_progress_updated_at: string | null;
           token_budget_applied: boolean | null;
           truncation_notes: Json | null;
+          project_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -370,6 +371,7 @@ export interface Database {
           rubric_progress_updated_at?: string | null;
           token_budget_applied?: boolean | null;
           truncation_notes?: Json | null;
+          project_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -419,6 +421,7 @@ export interface Database {
           rubric_progress_updated_at?: string | null;
           token_budget_applied?: boolean | null;
           truncation_notes?: Json | null;
+          project_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };

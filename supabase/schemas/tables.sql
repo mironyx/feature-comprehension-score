@@ -333,6 +333,15 @@ CREATE TABLE projects (
 CREATE UNIQUE INDEX uq_projects_org_lower_name ON projects (org_id, lower(name));
 CREATE INDEX idx_projects_org ON projects (org_id);
 
+-- V11 E11.2 T2.1: wire assessments.project_id → projects
+-- Must appear after projects is defined; assessments table is earlier in this file.
+ALTER TABLE assessments
+  ADD COLUMN project_id uuid REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE assessments
+  ADD CONSTRAINT assessments_fcs_requires_project
+  CHECK (type <> 'fcs' OR project_id IS NOT NULL);
+CREATE INDEX idx_assessments_project ON assessments (project_id);
+
 -- organisation_contexts: per-org (Phase 2) or per-project (V2) prompt customisation.
 -- project_id is NULL in Phase 2. V2 adds project-level rows without a data migration.
 -- Design reference: docs/design/lld-organisation-context.md §2
