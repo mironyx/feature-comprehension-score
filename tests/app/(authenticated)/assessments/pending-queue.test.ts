@@ -296,6 +296,14 @@ describe('/assessments — My Pending Assessments', () => {
       expect(match).toBeDefined();
     });
 
+    // Regression #415: org_id filter scopes to current org — prevents cross-org data leak
+    it('applies eq("org_id", orgId) to scope results to the selected org [issue #415]', async () => {
+      const eqCalls: Array<[string, unknown]> = [];
+      await renderPage([], { captureEqCalls: eqCalls });
+      const match = eqCalls.find(([col, val]) => col === 'org_id' && val === ORG_ID);
+      expect(match).toBeDefined();
+    });
+
     // Regression #415: only pending participant rows — excludes already-submitted [req §2.3]
     it('applies eq("status", "pending") to exclude submitted participant rows [issue #415]', async () => {
       const eqCalls: Array<[string, unknown]> = [];

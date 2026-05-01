@@ -34,6 +34,7 @@ export default async function AssessmentsPage(
       )
     `)
     .eq('user_id', user.id)
+    .eq('org_id', orgId)
     .eq('status', 'pending')
     .eq('assessments.type', 'fcs')
     .order('created_at', { foreignTable: 'assessments', ascending: false });
