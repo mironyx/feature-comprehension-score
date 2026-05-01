@@ -1,28 +1,28 @@
-// Assessment submitted confirmation page — shown after a participant submits answers.
-// Design reference: docs/design/lld-phase-2-web-auth-db.md §2.5
-// Issue: #61
+// Assessment submitted confirmation page — project-scoped URL shape.
+// Guard: returns 404 when assessment.project_id !== projectId (Invariant I4).
+// Design reference: docs/design/lld-v11-e11-2-fcs-scoped-to-projects.md §B.3
+// Issues: #61, #412
 
 import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 
-// ---------------------------------------------------------------------------
-// Contract types
-// ---------------------------------------------------------------------------
-
 interface SubmittedPageProps {
-  readonly params: Promise<{ id: string }>;
+  readonly params: Promise<{ id: string; aid: string }>;
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export default async function SubmittedPage({ params }: SubmittedPageProps) {
-  const { id: assessmentId } = await params;
+  const { id: projectId, aid } = await params;
 
   const supabase = await createServerSupabaseClient();
+  const { data: row } = await supabase
+    .from('assessments')
+    .select('id, project_id')
+    .eq('id', aid)
+    .maybeSingle();
+  if (!row || row.project_id !== projectId) notFound();
+
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
@@ -32,12 +32,12 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
     adminSupabase
       .from('assessments')
       .select('feature_name')
-      .eq('id', assessmentId)
+      .eq('id', aid)
       .single(),
     adminSupabase
       .from('assessment_participants')
       .select('id, status, user_id')
-      .eq('assessment_id', assessmentId),
+      .eq('assessment_id', aid),
   ]);
 
   if (assessmentResult.error || !assessmentResult.data) notFound();

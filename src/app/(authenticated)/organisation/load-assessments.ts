@@ -23,7 +23,7 @@ export async function loadOrgAssessmentsOverview(
   const { data, error } = await supabase
     .from('assessments')
     .select(
-      'id, type, status, pr_number, feature_name, aggregate_score, conclusion, config_comprehension_depth, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, repositories!inner(github_repo_name)',
+      'id, type, status, pr_number, feature_name, aggregate_score, conclusion, config_comprehension_depth, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id, repositories!inner(github_repo_name)',
     )
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })

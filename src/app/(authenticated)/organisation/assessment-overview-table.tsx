@@ -1,6 +1,7 @@
 // Presentational table of assessments for the Organisation page.
 // Columns: feature/PR, repository, type, status, score, completion, date.
-// Each row links to /assessments/[id]/results. Empty state renders a short
+// Each row links to /projects/[id]/assessments/[aid]/results (FCS). PRCC rows have
+// no project_id and render the feature name as plain text. Empty state renders a short
 // prompt to create the first assessment.
 // When `onDelete` is provided, an Actions column is added with two icon
 // actions per row: Trash2 (delete) and MoreHorizontal (link to detail page).
@@ -51,13 +52,19 @@ function renderActionsCell(a: AssessmentListItem, onDelete: (assessment: Assessm
         >
           <Trash2 size={16} />
         </button>
-        <a
-          href={`/assessments/${a.id}`}
-          className="text-text-secondary hover:text-accent"
-          aria-label={`View details for ${featureLabel}`}
-        >
-          <MoreHorizontal size={16} />
-        </a>
+        {a.project_id ? (
+          <a
+            href={`/projects/${a.project_id}/assessments/${a.id}`}
+            className="text-text-secondary hover:text-accent"
+            aria-label={`View details for ${featureLabel}`}
+          >
+            <MoreHorizontal size={16} />
+          </a>
+        ) : (
+          <span className="text-text-secondary opacity-40" aria-label={`View details for ${featureLabel}`}>
+            <MoreHorizontal size={16} />
+          </span>
+        )}
       </div>
     </td>
   );
@@ -67,9 +74,13 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
   return (
     <tr key={a.id} className="border-t border-border hover:bg-surface-hover">
       <td className="px-3 py-2">
-        <Link href={`/assessments/${a.id}/results`} className="text-text-primary hover:text-accent">
-          {formatFeature(a)}
-        </Link>
+        {a.project_id ? (
+          <Link href={`/projects/${a.project_id}/assessments/${a.id}/results`} className="text-text-primary hover:text-accent">
+            {formatFeature(a)}
+          </Link>
+        ) : (
+          <span className="text-text-primary">{formatFeature(a)}</span>
+        )}
       </td>
       <td className={TD}>{a.repository_name}</td>
       <td className={`${TD} uppercase`}>{a.type}</td>

@@ -9,10 +9,10 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const ROOT = resolve(__dirname, '../../../../..');
+const ROOT = resolve(__dirname, '../../../../../../..');
 
-const AUTHED_BASE = 'src/app/(authenticated)/assessments/[id]';
-const LEGACY_BASE = 'src/app/assessments/[id]';
+const AUTHED_BASE = 'src/app/(authenticated)/projects/[id]/assessments/[aid]';
+const LEGACY_BASE = 'src/app/(authenticated)/assessments/[id]';
 
 const ANSWERING_PAGE = `${AUTHED_BASE}/page.tsx`;
 const ANSWERING_FORM = `${AUTHED_BASE}/answering-form.tsx`;

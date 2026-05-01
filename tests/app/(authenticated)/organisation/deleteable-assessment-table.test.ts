@@ -126,6 +126,7 @@ function makeAssessmentItem(overrides: Partial<AssessmentListItem> = {}): Assess
     rubric_error_code: null,
     rubric_retry_count: 0,
     rubric_error_retryable: null,
+    project_id: 'proj-1',
     ...overrides,
   };
 }
@@ -273,7 +274,7 @@ describe('AssessmentOverviewTable — actions column (T3)', () => {
       const items = [makeAssessmentItem({ id: 'assess-detail-001' })];
       const html = await renderRealTableHtml(items, vi.fn());
       // Anchor href must be the detail route, NOT /results.
-      expect(html).toMatch(/href="\/assessments\/assess-detail-001"/);
+      expect(html).toMatch(/href="\/projects\/proj-1\/assessments\/assess-detail-001"/);
     });
 
     it('Trash2 button has aria-label containing the assessment name', async () => {
@@ -296,7 +297,7 @@ describe('AssessmentOverviewTable — actions column (T3)', () => {
       // [lld §T3] "Feature name link to /assessments/[id]/results is unchanged"
       const items = [makeAssessmentItem({ id: 'feat-link-001' })];
       const html = await renderRealTableHtml(items, vi.fn());
-      expect(html).toMatch(/href="\/assessments\/feat-link-001\/results"/);
+      expect(html).toMatch(/href="\/projects\/proj-1\/assessments\/feat-link-001\/results"/);
     });
   });
 

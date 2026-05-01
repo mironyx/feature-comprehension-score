@@ -4,7 +4,7 @@
 // AC-3: Matches design tokens / component library in use.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -17,14 +17,21 @@ function src(relPath: string): string {
   return readFileSync(resolve(root, relPath), 'utf8');
 }
 
+// Returns empty string when the file doesn't exist yet (cross-PR gap).
+function srcOrEmpty(relPath: string): string {
+  const abs = resolve(root, relPath);
+  return existsSync(abs) ? readFileSync(abs, 'utf8') : '';
+}
+
 const signInPage     = src('app/auth/sign-in/page.tsx');
 const signInButton   = src('app/auth/sign-in/SignInButton.tsx');
-const createForm     = src('app/(authenticated)/assessments/new/create-assessment-form.tsx');
-const _newPage       = src('app/(authenticated)/assessments/new/page.tsx');
+// T2.4: create-assessment-form moves to projects/[id]/assessments/new/ — deleted here, recreated in #413
+const createForm     = srcOrEmpty('app/(authenticated)/projects/[id]/assessments/new/create-assessment-form.tsx');
+const _newPage       = srcOrEmpty('app/(authenticated)/projects/[id]/assessments/new/page.tsx');
 const assessments    = src('app/(authenticated)/assessments/page.tsx');
 const retryButton    = src('app/(authenticated)/assessments/retry-button.tsx');
-const answeringForm  = src('app/(authenticated)/assessments/[id]/answering-form.tsx');
-const submittedPage  = src('app/(authenticated)/assessments/[id]/submitted/page.tsx');
+const answeringForm  = src('app/(authenticated)/projects/[id]/assessments/[aid]/answering-form.tsx');
+const submittedPage  = src('app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page.tsx');
 // After #341, the (authenticated) layout owns the responsive <main> wrapper
 // (max-w-page + px-content-pad-sm + md:px-content-pad) for assessment pages.
 const authedLayout   = src('app/(authenticated)/layout.tsx');

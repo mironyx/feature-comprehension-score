@@ -52,6 +52,7 @@ const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
 const USER_ID = 'user-001';
 const ORG_ID = 'org-001';
 const ASSESSMENT_ID = 'assessment-001';
+const PROJECT_ID = 'project-001';
 const AUTHED_USER = { id: USER_ID };
 
 function makeAssessment(overrides: Record<string, unknown> = {}) {
@@ -196,6 +197,18 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
       }),
     },
     from: vi.fn((table: string) => {
+      if (table === 'assessments') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
       if (table === 'participant_answers') {
         return {
           select: vi.fn().mockReturnValue({
@@ -214,8 +227,8 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
   };
 }
 
-function makeParams(id = ASSESSMENT_ID) {
-  return Promise.resolve({ id });
+function makeParams(projectId = PROJECT_ID, aid = ASSESSMENT_ID) {
+  return Promise.resolve({ id: projectId, aid });
 }
 
 async function renderPage(
@@ -224,7 +237,7 @@ async function renderPage(
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(serverOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/results/page');
   const element = await ResultsPage({ params: makeParams() });
   return renderToStaticMarkup(element);
 }

@@ -93,6 +93,7 @@ These are the duplicate-implementation patterns we have already corrected once v
 - Hand-rolled `try/catch` returning `Response.json` — use `handleApiError` and `json` / `ApiError`.
 - Defining a local `RepoAdminSnapshot` interface — import the canonical type.
 - Re-implementing rubric pipeline functions outside `@/lib/engine/fcs-pipeline`.
+- Constructing `/assessments/${id}` hrefs when rendering assessment list items — after T2.3 (issue #412) the correct shape is `/projects/${project_id}/assessments/${id}`. PRCC rows have `project_id === null` and must render as non-navigable `<span>` elements; never use `href="#"` as a placeholder.
 
 ---
 

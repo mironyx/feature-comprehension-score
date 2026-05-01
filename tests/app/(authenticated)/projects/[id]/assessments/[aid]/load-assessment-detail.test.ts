@@ -22,7 +22,7 @@ vi.mock('@/lib/logger', () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { loadAssessmentDetail } from '@/app/(authenticated)/assessments/[id]/load-assessment-detail';
+import { loadAssessmentDetail } from '@/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-detail';
 
 // ---------------------------------------------------------------------------
 // Constants

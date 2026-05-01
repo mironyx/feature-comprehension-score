@@ -9,19 +9,21 @@
 // via source-text analysis. This is the idiomatic approach for this codebase.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Source text
 // ---------------------------------------------------------------------------
 
+// T2.4: assessments/new/ deleted in T2.3 — re-enable after #413 ships
 const FORM_SRC_PATH = resolve(
   __dirname,
-  '../../../src/app/(authenticated)/assessments/new/create-assessment-form.tsx',
+  '../../../src/app/(authenticated)/projects/[id]/assessments/new/create-assessment-form.tsx',
 );
 
-const formSrc = readFileSync(FORM_SRC_PATH, 'utf8');
+const formExists = existsSync(FORM_SRC_PATH);
+const formSrc = formExists ? readFileSync(FORM_SRC_PATH, 'utf8') : '';
 
 // Extract the CreationProgress function body for scoped assertions.
 // This prevents false positives from matches in the outer CreateAssessmentForm body.

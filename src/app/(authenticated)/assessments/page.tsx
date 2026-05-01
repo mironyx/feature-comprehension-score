@@ -40,7 +40,7 @@ export default async function AssessmentsPage(
 
   const { data } = await supabase
     .from('assessments')
-    .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, assessment_participants!inner(user_id)')
+    .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id, assessment_participants!inner(user_id)')
     .eq('org_id', orgId)
     .eq('assessment_participants.user_id', user.id)
     .order('created_at', { ascending: false });
@@ -65,9 +65,13 @@ export default async function AssessmentsPage(
               <li key={a.id}>
                 <Card className="flex items-center justify-between">
                   <div>
-                    <Link href={`/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
-                      {a.feature_name ?? `Assessment ${a.id}`}
-                    </Link>
+                    {a.project_id ? (
+                      <Link href={`/projects/${a.project_id}/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
+                        {a.feature_name ?? `Assessment ${a.id}`}
+                      </Link>
+                    ) : (
+                      <span className="text-body text-text-primary">{a.feature_name ?? `Assessment ${a.id}`}</span>
+                    )}
                     {a.feature_description ? (
                       <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
                     ) : null}
@@ -102,12 +106,16 @@ export default async function AssessmentsPage(
               <li key={a.id}>
                 <Card className="flex items-center justify-between">
                   <div>
-                    <Link
-                      href={`/assessments/${a.id}/results`}
-                      className="text-body text-text-primary hover:text-accent"
-                    >
-                      {a.feature_name ?? `Assessment ${a.id}`}
-                    </Link>
+                    {a.project_id ? (
+                      <Link
+                        href={`/projects/${a.project_id}/assessments/${a.id}/results`}
+                        className="text-body text-text-primary hover:text-accent"
+                      >
+                        {a.feature_name ?? `Assessment ${a.id}`}
+                      </Link>
+                    ) : (
+                      <span className="text-body text-text-primary">{a.feature_name ?? `Assessment ${a.id}`}</span>
+                    )}
                     {a.feature_description ? (
                       <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
                     ) : null}

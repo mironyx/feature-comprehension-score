@@ -27,7 +27,7 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn(),
 }));
 
-vi.mock('@/app/(authenticated)/assessments/new/create-assessment-form', () => ({
+vi.mock('@/app/(authenticated)/projects/[id]/assessments/new/create-assessment-form', () => ({
   default: () => null,
 }));
 
@@ -114,7 +114,7 @@ describe('New assessment page', () => {
       mockCreateServer.mockResolvedValue(makeClient() as never);
 
       const { default: NewAssessmentPage } = await import(
-        '@/app/(authenticated)/assessments/new/page'
+        '@/app/(authenticated)/projects/[id]/assessments/new/page'
       );
 
       await expect(NewAssessmentPage()).rejects.toThrow('NEXT_REDIRECT:/org-select');
@@ -127,7 +127,7 @@ describe('New assessment page', () => {
       mockCreateServer.mockResolvedValue(makeClient({ userId: null }) as never);
 
       const { default: NewAssessmentPage } = await import(
-        '@/app/(authenticated)/assessments/new/page'
+        '@/app/(authenticated)/projects/[id]/assessments/new/page'
       );
 
       await expect(NewAssessmentPage()).rejects.toThrow('NEXT_REDIRECT:/auth/sign-in');
@@ -140,7 +140,7 @@ describe('New assessment page', () => {
       mockCreateServer.mockResolvedValue(makeClient({ githubRole: 'member' }) as never);
 
       const { default: NewAssessmentPage } = await import(
-        '@/app/(authenticated)/assessments/new/page'
+        '@/app/(authenticated)/projects/[id]/assessments/new/page'
       );
 
       await expect(NewAssessmentPage()).rejects.toThrow('NEXT_REDIRECT:/assessments');
@@ -153,7 +153,7 @@ describe('New assessment page', () => {
       mockCreateServer.mockResolvedValue(makeClient() as never);
 
       const { default: NewAssessmentPage } = await import(
-        '@/app/(authenticated)/assessments/new/page'
+        '@/app/(authenticated)/projects/[id]/assessments/new/page'
       );
 
       const result = await NewAssessmentPage();
@@ -166,7 +166,7 @@ describe('New assessment page', () => {
       mockCreateServer.mockResolvedValue(makeClient() as never);
 
       const { default: NewAssessmentPage } = await import(
-        '@/app/(authenticated)/assessments/new/page'
+        '@/app/(authenticated)/projects/[id]/assessments/new/page'
       );
 
       const result = await NewAssessmentPage();

@@ -29,16 +29,27 @@ entries:
 
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-urls
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
-    issue: null
-    files: []
-    status: Approved
+    issue: 412
+    files:
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/page.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/results/page.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/answering-form.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/assessment-admin-view.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/assessment-source-list.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-detail.ts
+      - src/app/(authenticated)/organisation/assessment-overview-table.tsx
+      - src/app/(authenticated)/organisation/load-assessments.ts
+      - src/app/api/assessments/helpers.ts
+    status: Implemented
 
   # Cross-epic story carried by E11.2 route migration:
   # legacy `/assessments/[aid]` returns 404 (Story 4.5 deep-link compatibility).
   - req: REQ-navigation-and-routing-deep-link-compatibility
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
-    issue: null
-    files: []
-    status: Approved
+    issue: 412
+    files:
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/page.tsx
+    status: Implemented
     # Primary epic for navigation is E11.4; this entry duplicates the row in
     # coverage-v11-e11-1.yaml's Deferred block once E11.4 has its own manifest.

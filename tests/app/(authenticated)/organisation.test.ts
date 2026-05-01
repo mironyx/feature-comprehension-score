@@ -185,6 +185,7 @@ function makeAssessmentItem(overrides: Partial<{
   rubric_error_code: string | null;
   rubric_retry_count: number;
   rubric_error_retryable: boolean | null;
+  project_id: string | null;
 }> = {}) {
   return {
     id: 'assess-001',
@@ -202,6 +203,7 @@ function makeAssessmentItem(overrides: Partial<{
     rubric_error_code: null,
     rubric_retry_count: 0,
     rubric_error_retryable: null,
+    project_id: 'proj-1',
     ...overrides,
   };
 }
@@ -534,7 +536,7 @@ describe('AssessmentOverviewTable', () => {
       // AC4 [lld §2 "Each row links to /assessments/[id]/results", issue #296 AC4]
       const item = makeAssessmentItem({ id: 'assess-xyz' });
       const result = await renderTable([item]);
-      expect(JSON.stringify(result)).toContain('/assessments/assess-xyz/results');
+      expect(JSON.stringify(result)).toContain('/projects/proj-1/assessments/assess-xyz/results');
     });
   });
 
@@ -547,8 +549,8 @@ describe('AssessmentOverviewTable', () => {
       ];
       const result = await renderTable(items);
       const rendered = JSON.stringify(result);
-      expect(rendered).toContain('/assessments/assess-aaa/results');
-      expect(rendered).toContain('/assessments/assess-bbb/results');
+      expect(rendered).toContain('/projects/proj-1/assessments/assess-aaa/results');
+      expect(rendered).toContain('/projects/proj-1/assessments/assess-bbb/results');
     });
   });
 

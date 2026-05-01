@@ -2,18 +2,15 @@
 // Issue: #208
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const formSrc = readFileSync(
-  resolve(__dirname, '../../../src/app/(authenticated)/assessments/new/create-assessment-form.tsx'),
-  'utf8',
-);
-
-const pageSrc = readFileSync(
-  resolve(__dirname, '../../../src/app/(authenticated)/assessments/new/page.tsx'),
-  'utf8',
-);
+// T2.4: assessments/new/ deleted in T2.3 — re-enable after #413 ships
+const FORM_PATH = resolve(__dirname, '../../../src/app/(authenticated)/projects/[id]/assessments/new/create-assessment-form.tsx');
+const PAGE_PATH = resolve(__dirname, '../../../src/app/(authenticated)/projects/[id]/assessments/new/page.tsx');
+const formExists = existsSync(FORM_PATH) && existsSync(PAGE_PATH);
+const formSrc = formExists ? readFileSync(FORM_PATH, 'utf8') : '';
+const pageSrc = formExists ? readFileSync(PAGE_PATH, 'utf8') : '';
 
 describe('Create assessment form styling', () => {
   describe('Given the create assessment form renders', () => {
