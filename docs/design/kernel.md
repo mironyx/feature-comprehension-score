@@ -85,8 +85,7 @@ This is the curated list of helpers, types, and entry points that every new feat
 
 These are the duplicate-implementation patterns we have already corrected once via `/lld-sync`. Do not introduce them again.
 
-- Inline `from('user_organisations').select('github_role, admin_repo_github_ids')` in API services or pages — use `assertOrgAdminOrRepoAdmin` / `readSnapshot` (API) or `getOrgRole` (page).
-- Inlining the `user_organisations` membership query in either layer — both surfaces delegate to the shared core `readMembershipSnapshot` in `@/lib/supabase/membership`.
+- Inlining the `user_organisations` membership query in any layer — both surfaces delegate to the shared core `readMembershipSnapshot` in `@/lib/supabase/membership`. API callers use `assertOrgAdminOrRepoAdmin` / `readSnapshot`; page callers use `getOrgRole`.
 - Inline cookie reads of `fcs-org-id` — use `ctx.orgId` (API) or `getSelectedOrgId(cookies)` (page).
 - Deriving `org_id` from the request body or a project row to set the *selected* org — `ctx.orgId` is the source of truth. Project-row reads are for *tenant isolation checks* (`project.org_id === ctx.orgId`), not for setting `orgId`.
 - Calling `createClient()` / `createSecretSupabaseClient()` inside a service — use the injected `ApiContext`.
