@@ -368,7 +368,8 @@ vi.mock('@/lib/supabase/org-retrieval-settings', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
@@ -377,6 +378,7 @@ import type { ApiContext } from '@/lib/api/context';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 const USER_ID = 'a0000000-0000-0000-0000-000000000001';
 
 // ---------------------------------------------------------------------------
@@ -456,9 +458,11 @@ const mockOctokit = {
 
 function makeMockUserClient() {
   return {
-    from: vi.fn(() =>
-      makeChain(() => ({ data: [{ github_role: 'admin' }], error: null })),
-    ),
+    from: vi.fn((table: string) => {
+      if (table === 'user_organisations') return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
+      if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
+      return makeChain(() => ({ data: null, error: null }));
+    }),
   };
 }
 
@@ -499,13 +503,14 @@ function makeMockAdminClient() {
 // Helper: invoke createFcs end-to-end and wait for the async pipeline tick
 // ---------------------------------------------------------------------------
 
-async function runCreateFcs(bodyOverrides: Partial<FcsCreateBody> = {}) {
+async function runCreateFcs(bodyOverrides: Partial<CreateFcsBody> = {}) {
   const ctx: ApiContext = {
     supabase: makeMockUserClient() as never,
     adminSupabase: makeMockAdminClient() as never,
     user: { id: USER_ID, email: 'admin@example.com' },
+    orgId: ORG_ID,
   };
-  const body: FcsCreateBody = {
+  const body: CreateFcsBody = {
     org_id: ORG_ID,
     repository_id: REPO_ID,
     feature_name: 'Test Feature',
@@ -513,7 +518,7 @@ async function runCreateFcs(bodyOverrides: Partial<FcsCreateBody> = {}) {
     participants: [{ github_username: 'alice' }],
     ...bodyOverrides,
   };
-  await createFcs(ctx, body);
+  await createFcsForProject(ctx, PROJECT_ID, body);
   // triggerRubricGeneration runs async — give it a tick to complete
   await new Promise((resolve) => setTimeout(resolve, 200));
 }

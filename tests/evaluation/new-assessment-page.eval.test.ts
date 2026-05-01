@@ -139,7 +139,7 @@ describe('Dashboard CTA — AC-6 (issue #413)', () => {
       });
 
       const rendered = JSON.stringify(result);
-      expect(rendered).toContain(`/projects/${PROJECT_ID}/assessments/new`);
+      expect(rendered).toContain(`"projectId":"${PROJECT_ID}"`);
     });
   });
 });

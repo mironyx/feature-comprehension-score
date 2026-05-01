@@ -55,7 +55,8 @@ vi.mock('@/lib/api/llm', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ import type { ApiContext } from '@/lib/api/context';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 const USER_ID = 'a0000000-0000-0000-0000-000000000001';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +77,8 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     select: vi.fn(),
     eq: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
+    maybeSingle: vi.fn(() => Promise.resolve(resolver())),
+    insert: vi.fn(() => Promise.resolve(resolver())),
     update: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
@@ -102,9 +106,11 @@ let updateStatusCalls: { status: string; assessmentId: string }[];
 
 function makeMockUserClient() {
   return {
-    from: vi.fn(() =>
-      makeChain(() => ({ data: [{ github_role: 'admin' }], error: null })),
-    ),
+    from: vi.fn((table: string) => {
+      if (table === 'user_organisations') return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
+      if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
+      return makeChain(() => ({ data: null, error: null }));
+    }),
   };
 }
 
@@ -167,8 +173,9 @@ describe('rubric generation failure handling', () => {
       supabase: makeMockUserClient() as never,
       adminSupabase: adminClient as never,
       user: { id: USER_ID, email: 'admin@example.com' },
+      orgId: ORG_ID,
     };
-    const body: FcsCreateBody = {
+    const body: CreateFcsBody = {
       org_id: ORG_ID,
       repository_id: REPO_ID,
       feature_name: 'Test Feature',
@@ -176,7 +183,7 @@ describe('rubric generation failure handling', () => {
       participants: [{ github_username: 'alice' }],
     };
 
-    await createFcs(ctx, body);
+    await createFcsForProject(ctx, PROJECT_ID, body);
 
     // triggerRubricGeneration runs async — give it time to complete
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -194,8 +201,9 @@ describe('rubric generation failure handling', () => {
       supabase: makeMockUserClient() as never,
       adminSupabase: adminClient as never,
       user: { id: USER_ID, email: 'admin@example.com' },
+      orgId: ORG_ID,
     };
-    const body: FcsCreateBody = {
+    const body: CreateFcsBody = {
       org_id: ORG_ID,
       repository_id: REPO_ID,
       feature_name: 'Test Feature',
@@ -203,7 +211,7 @@ describe('rubric generation failure handling', () => {
       participants: [{ github_username: 'alice' }],
     };
 
-    await createFcs(ctx, body);
+    await createFcsForProject(ctx, PROJECT_ID, body);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     // The RPC to create_fcs_assessment should have been called (PRs stored)

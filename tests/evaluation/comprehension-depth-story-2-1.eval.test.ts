@@ -24,7 +24,8 @@ vi.mock('@/lib/engine/pipeline', () => ({
 }));
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
@@ -33,13 +34,14 @@ import type { ApiContext } from '@/lib/api/context';
 
 const ORG_ID = 'b0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'b0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'b0000000-0000-4000-8000-000000000003';
 
 const AUTH_USER = {
   id: 'b0000000-0000-0000-0000-000000000001',
   email: 'admin@example.com',
 };
 
-const BASE_BODY: FcsCreateBody = {
+const BASE_BODY: CreateFcsBody = {
   org_id: ORG_ID,
   repository_id: REPO_ID,
   feature_name: 'Depth wiring check',
@@ -75,9 +77,11 @@ const mockOctokit = {
 };
 
 const mockUserClient = {
-  from: vi.fn(() =>
-    makeChain(() => ({ data: [{ github_role: 'admin' }], error: null })),
-  ),
+  from: vi.fn((table: string) => {
+    if (table === 'user_organisations') return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
+    if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
+    return makeChain(() => ({ data: null, error: null }));
+  }),
 };
 
 const mockAdminClient = {
@@ -123,6 +127,7 @@ function makeCtx(): ApiContext {
     supabase: mockUserClient as never,
     adminSupabase: mockAdminClient as never,
     user: AUTH_USER,
+    orgId: ORG_ID,
   };
 }
 
@@ -142,8 +147,8 @@ describe('createFcs — comprehension_depth RPC wiring', () => {
 
   describe('given a request with comprehension_depth "detailed"', () => {
     it('passes p_config_comprehension_depth "detailed" to the create_fcs_assessment RPC', async () => {
-      const body: FcsCreateBody = { ...BASE_BODY, comprehension_depth: 'detailed' };
-      await createFcs(makeCtx(), body);
+      const body: CreateFcsBody = { ...BASE_BODY, comprehension_depth: 'detailed' };
+      await createFcsForProject(makeCtx(), PROJECT_ID, body);
 
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -154,7 +159,7 @@ describe('createFcs — comprehension_depth RPC wiring', () => {
 
   describe('given a request with comprehension_depth omitted', () => {
     it('passes p_config_comprehension_depth "conceptual" to the create_fcs_assessment RPC', async () => {
-      await createFcs(makeCtx(), BASE_BODY);
+      await createFcsForProject(makeCtx(), PROJECT_ID, BASE_BODY);
 
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',

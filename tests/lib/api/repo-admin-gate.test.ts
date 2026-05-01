@@ -132,14 +132,20 @@ describe('assertOrgAdminOrRepoAdmin', () => {
   describe('Given github_role = admin', () => {
     it('resolves without throwing for github_role=admin', async () => {
       const ctx = makeCtx({ github_role: 'admin', admin_repo_github_ids: [] });
-      await expect(assertOrgAdminOrRepoAdmin(ctx, ORG_ID)).resolves.toBeUndefined();
+      await expect(assertOrgAdminOrRepoAdmin(ctx, ORG_ID)).resolves.toEqual({
+        githubRole: 'admin',
+        adminRepoGithubIds: [],
+      });
     });
   });
 
   describe('Given github_role = member with non-empty admin_repo_github_ids', () => {
     it('resolves without throwing for member with non-empty adminRepoGithubIds', async () => {
       const ctx = makeCtx({ github_role: 'member', admin_repo_github_ids: [REPO_ID_1] });
-      await expect(assertOrgAdminOrRepoAdmin(ctx, ORG_ID)).resolves.toBeUndefined();
+      await expect(assertOrgAdminOrRepoAdmin(ctx, ORG_ID)).resolves.toEqual({
+        githubRole: 'member',
+        adminRepoGithubIds: [REPO_ID_1],
+      });
     });
   });
 

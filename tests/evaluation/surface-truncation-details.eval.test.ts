@@ -106,7 +106,8 @@ vi.mock('@/lib/supabase/org-retrieval-settings', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,7 @@ import type { ApiContext } from '@/lib/api/context';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 const USER_ID = 'a0000000-0000-0000-0000-000000000001';
 
 /** Artefact set that exceeds a tiny token budget (1_250 * 0.8 = 1_000 tokens). */
@@ -158,7 +160,13 @@ const mockOctokit = {
 };
 
 function makeMockUserClient() {
-  return { from: vi.fn(() => makeChain(() => ({ data: [{ github_role: 'admin' }], error: null }))) };
+  return {
+    from: vi.fn((table: string) => {
+      if (table === 'user_organisations') return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
+      if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
+      return makeChain(() => ({ data: null, error: null }));
+    }),
+  };
 }
 
 /**
@@ -197,14 +205,15 @@ function makeMockAdminClientWithRpcSpy() {
   return { adminClient, rpcSpy };
 }
 
-async function runCreateFcsWithSpy(bodyOverrides: Partial<FcsCreateBody> = {}) {
+async function runCreateFcsWithSpy(bodyOverrides: Partial<CreateFcsBody> = {}) {
   const { adminClient, rpcSpy } = makeMockAdminClientWithRpcSpy();
   const ctx: ApiContext = {
     supabase: makeMockUserClient() as never,
     adminSupabase: adminClient as never,
     user: { id: USER_ID, email: 'admin@example.com' },
+    orgId: ORG_ID,
   };
-  const body: FcsCreateBody = {
+  const body: CreateFcsBody = {
     org_id: ORG_ID,
     repository_id: REPO_ID,
     feature_name: 'Test Feature',
@@ -212,7 +221,7 @@ async function runCreateFcsWithSpy(bodyOverrides: Partial<FcsCreateBody> = {}) {
     participants: [{ github_username: 'alice' }],
     ...bodyOverrides,
   };
-  await createFcs(ctx, body);
+  await createFcsForProject(ctx, PROJECT_ID, body);
   await new Promise((resolve) => setTimeout(resolve, 200));
   return { rpcSpy };
 }

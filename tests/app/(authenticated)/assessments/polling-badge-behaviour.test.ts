@@ -8,6 +8,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock useStatusPoll so the badge is rendered with controlled snapshot data
 // ---------------------------------------------------------------------------
 
+vi.mock('react', async () => {
+  const actual = await vi.importActual<typeof import('react')>('react');
+  return { ...actual, useEffect: vi.fn() };
+});
+
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() })),
+}));
+
 vi.mock('@/app/(authenticated)/assessments/use-status-poll', () => ({
   useStatusPoll: vi.fn(),
 }));

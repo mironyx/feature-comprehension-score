@@ -17,12 +17,12 @@ describe('Assessments list page styling', () => {
       expect(src).toContain('PageHeader');
     });
 
-    it('then list items use Card styling', () => {
-      expect(src).toContain('Card');
+    it('then list rendering is delegated to ProjectFilter', () => {
+      expect(src).toContain('ProjectFilter');
     });
 
-    it('then the success message uses accent colour', () => {
-      expect(src).toContain('text-accent');
+    it('then empty state uses secondary text colour', () => {
+      expect(src).toContain('text-text-secondary');
     });
   });
 });

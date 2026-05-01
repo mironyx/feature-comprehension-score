@@ -150,7 +150,7 @@ const mockOctokit = {
 const mockUserClient = {
   from: vi.fn((table: string) => {
     if (table === 'user_organisations') {
-      return makeChain(() => ({ data: [{ github_role: 'admin' }], error: null }));
+      return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
     }
     if (table === 'assessments') return makeChain(() => assessmentResult);
     return makeChain(() => ({ data: null, error: null }));

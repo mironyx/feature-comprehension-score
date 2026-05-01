@@ -556,7 +556,7 @@ describe('OpenRouter generateWithTools', () => {
 
       expect(result.success).toBe(false);
       if (result.success) throw new Error('expected failure');
-      expect(result.error.code).toBe('malformed_response');
+      expect(result.error.code).toBe('validation_failed');
     });
 
     it('then the result is an error (not a thrown exception) — caller receives typed error', async () => {

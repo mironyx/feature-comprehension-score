@@ -85,7 +85,8 @@ vi.mock('@/lib/github/tools/list-directory', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 import { generateRubric } from '@/lib/engine/pipeline';
 
@@ -95,6 +96,7 @@ import { generateRubric } from '@/lib/engine/pipeline';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 const USER_ID = 'a0000000-0000-0000-0000-000000000001';
 
 const SUCCESS_NO_TOOLS = {
@@ -181,13 +183,15 @@ function makeMockAdminClient() {
 
 function makeMockUserClient() {
   return {
-    from: vi.fn(() =>
-      makeChain(() => ({ data: [{ github_role: 'admin' }], error: null })),
-    ),
+    from: vi.fn((table: string) => {
+      if (table === 'user_organisations') return makeChain(() => ({ data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null }));
+      if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
+      return makeChain(() => ({ data: null, error: null }));
+    }),
   };
 }
 
-const VALID_BODY: FcsCreateBody = {
+const VALID_BODY: CreateFcsBody = {
   org_id: ORG_ID,
   repository_id: REPO_ID,
   feature_name: 'Test Feature',
@@ -220,9 +224,10 @@ describe('Pipeline integration — observability persistence when tool-use disab
         supabase: makeMockUserClient() as never,
         adminSupabase: adminClient as never,
         user: { id: USER_ID, email: 'admin@example.com' },
+        orgId: ORG_ID,
       };
 
-      await createFcs(ctx, VALID_BODY);
+      await createFcsForProject(ctx, PROJECT_ID, VALID_BODY);
       await flushAsync();
 
       expect(adminClient.rpc).toHaveBeenCalledWith(
@@ -238,9 +243,10 @@ describe('Pipeline integration — observability persistence when tool-use disab
         supabase: makeMockUserClient() as never,
         adminSupabase: adminClient as never,
         user: { id: USER_ID, email: 'admin@example.com' },
+        orgId: ORG_ID,
       };
 
-      await createFcs(ctx, VALID_BODY);
+      await createFcsForProject(ctx, PROJECT_ID, VALID_BODY);
       await flushAsync();
 
       expect(adminClient.rpc).toHaveBeenCalledWith(
@@ -256,9 +262,10 @@ describe('Pipeline integration — observability persistence when tool-use disab
         supabase: makeMockUserClient() as never,
         adminSupabase: adminClient as never,
         user: { id: USER_ID, email: 'admin@example.com' },
+        orgId: ORG_ID,
       };
 
-      await createFcs(ctx, VALID_BODY);
+      await createFcsForProject(ctx, PROJECT_ID, VALID_BODY);
       await flushAsync();
 
       const callArgs = adminClient.rpc.mock.calls.find(
