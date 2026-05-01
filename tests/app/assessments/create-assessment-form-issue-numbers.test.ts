@@ -20,7 +20,7 @@ const FORM_PATH = resolve(
 const formExists = existsSync(FORM_PATH);
 const formSrc = formExists ? readFileSync(FORM_PATH, 'utf8') : '';
 
-describe.skipIf(!formExists)('CreateAssessmentForm — issue numbers (Story 19.1, issue #287)', () => {
+describe('CreateAssessmentForm — issue numbers (Story 19.1, issue #287)', () => {
 
   describe('renders issue numbers input field', () => {
     it('has an input element with id "issueNumbers"', () => {

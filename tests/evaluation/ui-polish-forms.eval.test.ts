@@ -43,8 +43,7 @@ const relevanceWarn  = src('components/relevance-warning.tsx');
 // AC-1a: Labels are associated with inputs via matching htmlFor / id pairs
 // ---------------------------------------------------------------------------
 
-// T2.4: create-assessment-form not yet at new path — re-enable after #413 ships
-describe.skip('AC-1a — label/input association in create-assessment-form', () => {
+describe('AC-1a — label/input association in create-assessment-form', () => {
   it('featureName label htmlFor matches the input id', () => {
     expect(createForm).toContain('htmlFor="featureName"');
     expect(createForm).toContain('id="featureName"');
@@ -82,8 +81,7 @@ describe('AC-1a — question card answer textarea has an associated label', () =
 // AC-1b: Required fields carry a visual indicator on their labels
 // ---------------------------------------------------------------------------
 
-// T2.4: create-assessment-form not yet at new path — re-enable after #413 ships
-describe.skip('AC-1b — required fields have a visual indicator on their labels', () => {
+describe('AC-1b — required fields have a visual indicator on their labels', () => {
   it('feature name label carries a required indicator (*)', () => {
     expect(createForm).toMatch(/Feature name[^"]*\*/);
   });
@@ -108,8 +106,7 @@ describe.skip('AC-1b — required fields have a visual indicator on their labels
 // ---------------------------------------------------------------------------
 
 describe('AC-1c — spacing tokens used, not arbitrary pixel values', () => {
-  // T2.4: re-enable after #413 ships
-  it.skip('create-assessment-form uses section-gap spacing token', () => {
+  it('create-assessment-form uses section-gap spacing token', () => {
     expect(createForm).toContain('space-y-section-gap');
   });
 

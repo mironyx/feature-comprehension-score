@@ -149,7 +149,7 @@ const FORM_PATH = resolve(__dirname, '../../../src/app/(authenticated)/projects/
 const formExists = existsSync(FORM_PATH);
 const formSrc = formExists ? readFileSync(FORM_PATH, 'utf8') : '';
 
-describe.skipIf(!formExists)('CreateAssessmentForm', () => {
+describe('CreateAssessmentForm', () => {
   // Property 9 [lld §Story 2.1 BDD, AC1]: form renders a labelled "Comprehension Depth" selector.
   it('renders comprehension depth selector with Conceptual selected by default', () => {
     // Label text must be present.

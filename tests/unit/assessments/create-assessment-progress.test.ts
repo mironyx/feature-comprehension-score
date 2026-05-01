@@ -38,7 +38,7 @@ const creationProgressSrc = creationProgressMatch ? creationProgressMatch[0] : '
 // PART 1 — Structural contract assertions on the overall component
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!formExists)('CreateAssessmentForm — post-creation state (issue #304)', () => {
+describe('CreateAssessmentForm — post-creation state (issue #304)', () => {
 
   // -------------------------------------------------------------------------
   // Property 1: no router.push on success — regression test for the bug
@@ -166,7 +166,7 @@ describe.skipIf(!formExists)('CreateAssessmentForm — post-creation state (issu
 // Issue: fix/retry-ui-frozen
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!formExists)('CreationProgress — retry poll restart wiring', () => {
+describe('CreationProgress — retry poll restart wiring', () => {
 
   describe('Given the rubric_failed branch', () => {
     it('passes onSuccess to RetryButton to restart polling', () => {
@@ -189,7 +189,7 @@ describe.skipIf(!formExists)('CreationProgress — retry poll restart wiring', (
   });
 });
 
-describe.skipIf(!formExists)('CreationProgress JSX contract (issue #304)', () => {
+describe('CreationProgress JSX contract (issue #304)', () => {
 
   // -------------------------------------------------------------------------
   // Property 8: feature name passed to CreationProgress and rendered
@@ -294,7 +294,7 @@ describe.skipIf(!formExists)('CreationProgress JSX contract (issue #304)', () =>
 // After fix: both in-progress and rubric_failed branches link to /organisation.
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!formExists)('CreateAssessmentForm — post-submit navigation (issue #389)', () => {
+describe('CreateAssessmentForm — post-submit navigation (issue #389)', () => {
 
   describe('Given rubric generation is in progress', () => {
     it('shows a link to /organisation when rubric generation is in progress', () => {

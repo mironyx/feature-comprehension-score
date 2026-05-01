@@ -12,7 +12,7 @@ const formExists = existsSync(FORM_PATH) && existsSync(PAGE_PATH);
 const formSrc = formExists ? readFileSync(FORM_PATH, 'utf8') : '';
 const pageSrc = formExists ? readFileSync(PAGE_PATH, 'utf8') : '';
 
-describe.skipIf(!formExists)('Create assessment form styling', () => {
+describe('Create assessment form styling', () => {
   describe('Given the create assessment form renders', () => {
     it('then inputs use the standard input classes', () => {
       expect(formSrc).toContain('border-border');
