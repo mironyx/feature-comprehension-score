@@ -55,7 +55,7 @@ sequenceDiagram
   U->>P: submit {glob_patterns, domain_notes, question_count}
   P->>API: PATCH /api/projects/[id] {context fields only}
   API->>V: parse body
-  alt question_count outside 3..5
+  alt question_count outside 3..8
     V-->>API: 400 (range error)
   else glob pattern unparseable
     V-->>API: 400 {field: 'glob_patterns', index, message}
@@ -141,7 +141,7 @@ flowchart LR
 | # | Invariant | Verified by |
 |---|-----------|-------------|
 | I1 | `PATCH /api/projects/[id]` rejects payloads where any glob pattern fails to compile | Zod `.refine()` in `UpdateProjectSchema` (T3.1) + unit test |
-| I2 | `PATCH /api/projects/[id]` rejects `question_count` outside 3..5 | Existing `z.number().int().min(3).max(5)` (E11.1) — covered by T3.1 BDD spec |
+| I2 | `PATCH /api/projects/[id]` rejects `question_count` outside 3..8 | `z.number().int().min(3).max(8)` (raised from 3..5 in V11 — see B.0 DB note) — covered by T3.1 BDD spec |
 | I3 | Settings page redirects Org Members to `/assessments` | Server-side `getOrgRole` check (T3.1) |
 | I4 | Settings page returns 404 for unknown / cross-org `projectId` | Server-side `select * from projects where id=$1` returns null ⇒ `notFound()` (T3.1) |
 | I5 | FCS rubric generation reads project context only — `loadOrgPromptContext` is never called from the FCS path | Grep `loadOrgPromptContext` in `src/lib/api/fcs-pipeline.ts` returns no matches (T3.2) + unit test asserting the call is `loadProjectPromptContext` |
@@ -163,7 +163,8 @@ Maps to v11-requirements §Epic 3 ACs:
 describe('PATCH /api/projects/[id] — context-fields validation (T3.1)')
   it('accepts a payload with valid glob patterns, domain_notes and question_count')
   it('rejects question_count = 2 with 400 and a range error')
-  it('rejects question_count = 6 with 400 and a range error')
+  it('accepts question_count = 8 (new V11 upper bound)')
+  it('rejects question_count = 9 with 400 and a range error')
   it('rejects an unparseable glob pattern with 400 identifying the offending index')
   it('accepts a payload that omits all context fields (existing project-fields-only path unchanged)')
 
@@ -199,7 +200,7 @@ describe('FCS rubric — project-context wiring (T3.2)')
 
 | Layer | Files |
 |-------|-------|
-| **DB** | none — schema already in place (`organisation_contexts.project_id` exists per [tables.sql:353](../../supabase/schemas/tables.sql), `patch_project` RPC exists per [functions.sql:408](../../supabase/schemas/functions.sql)) |
+| **DB** | one declarative-schema change: relax `CHECK (… BETWEEN 3 AND 5)` to `BETWEEN 3 AND 8` on `org_config.fcs_question_count`, `org_config.prcc_question_count`, `repository_config.fcs_question_count`, `repository_config.prcc_question_count` ([tables.sql:31–34, 80–81](../../supabase/schemas/tables.sql)). `assessments.config_question_count` has no CHECK constraint (line 148) — no change needed. `organisation_contexts.project_id` and `patch_project` RPC already exist ([tables.sql:353](../../supabase/schemas/tables.sql), [functions.sql:408](../../supabase/schemas/functions.sql)). |
 | **BE — engine/API** | `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema`), `src/lib/supabase/project-prompt-context.ts` (new), `src/lib/api/fcs-pipeline.ts` (modify `extractArtefacts` and the public trigger/retry types; the file lives in `src/lib/api/`, not `src/lib/engine/`, because it depends on Supabase + GitHub adapters — see file header comment) |
 | **BE — API** | `src/app/api/projects/validation.ts` (extend `UpdateProjectSchema` with glob `.refine()`) |
 | **FE — pages** | `src/app/(authenticated)/projects/[id]/settings/page.tsx` (server, new), `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (client, new) |
@@ -266,7 +267,7 @@ export const UpdateProjectSchema = z
         });
       }),
     domain_notes: z.string().max(2000).optional(),
-    question_count: z.number().int().min(3).max(5).optional(),
+    question_count: z.number().int().min(3).max(8).optional(),  // V11: max raised from 5 → 8
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'at_least_one_field' });
 ```
@@ -337,7 +338,7 @@ interface SettingsFormProps {
 // Internal decomposition (each ≤ 20 lines):
 //   GlobPatternList — TagInput-style add/remove, validates parseability client-side as a UX hint
 //   DomainNotesField — textarea, max 2000 chars
-//   QuestionCountField — number input, range 3..5
+//   QuestionCountField — number input, range 3..8
 //   submit() — fetch PATCH /api/projects/${projectId} with the changed subset; on 400 surface
 //              the field-level error (look at issues[].path to highlight glob index)
 ```
@@ -345,11 +346,12 @@ interface SettingsFormProps {
 **Field-level error mapping.** When the API returns 400 with Zod issues, the form maps `issues[].path = ['glob_patterns', N]` to highlighting the Nth glob entry.
 
 **Tasks:**
-1. Extend `UpdateProjectSchema` with the glob `superRefine`; unit-test the new branches.
-2. Add `picomatch` as a direct dependency (`npm install picomatch @types/picomatch`).
-3. Implement the server page with the two-query load (project + context), Org-Member redirect, and 404 on unknown project.
-4. Implement the client form with field-level error mapping.
-5. Tests: 5 page specs + 4 validation specs (see issue body).
+1. **DB:** edit `supabase/schemas/tables.sql` to relax the four `BETWEEN 3 AND 5` CHECK constraints to `BETWEEN 3 AND 8` (lines 31–34, 80–81). Generate a migration via `npx supabase db diff -f relax_question_count_to_8`. Verify `db diff` is empty after `db reset`.
+2. Extend `UpdateProjectSchema` with the glob `superRefine` **and raise `question_count` max from 5 to 8** (also raise the matching bound on `CreateProjectSchema` for consistency); unit-test the new branches.
+3. Add `picomatch` as a direct dependency (`npm install picomatch @types/picomatch`).
+4. Implement the server page with the two-query load (project + context), Org-Member redirect, and 404 on unknown project.
+5. Implement the client form with field-level error mapping.
+6. Tests: 5 page specs + 5 validation specs (see issue body).
 
 **Acceptance:** see issue.
 
@@ -366,7 +368,7 @@ interface SettingsFormProps {
 
 **Schema decision (pick one and apply consistently):**
 
-Option A — extend `OrganisationContextSchema` in place. All existing fields stay optional; add `glob_patterns: z.array(z.string()).optional()` and `question_count: z.number().int().min(3).max(5).optional()`. Pro: one schema, one type, fewer downstream changes. Con: org-level rows now visibly carry fields they don't use (UI-side noise — but org context UI is FCS-inert in V11).
+Option A — extend `OrganisationContextSchema` in place. All existing fields stay optional; add `glob_patterns: z.array(z.string()).optional()` and `question_count: z.number().int().min(3).max(8).optional()`. Pro: one schema, one type, fewer downstream changes. Con: org-level rows now visibly carry fields they don't use (UI-side noise — but org context UI is FCS-inert in V11).
 
 Option B — new `ProjectPromptContextSchema` as a strict superset. `formatOrganisationContext` widens its argument to accept the union; the assembled set's `organisation_context` field accepts the union. Pro: org-level shape unchanged. Con: two schemas to keep in sync.
 
@@ -380,7 +382,7 @@ export const OrganisationContextSchema = z.object({
   exclusions:        z.array(z.string().min(1)).max(5).optional(),
   domain_notes:      z.string().max(2000).optional(), // V11: cap raised from 500 → 2000 to match UpdateProjectSchema
   glob_patterns:     z.array(z.string().min(1)).max(50).optional(),  // V11 NEW
-  question_count:    z.number().int().min(3).max(5).optional(),       // V11 NEW
+  question_count:    z.number().int().min(3).max(8).optional(),       // V11 NEW (range 3..8 — see B.0 DB note)
 });
 ```
 
@@ -453,7 +455,7 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 // ...assembled.question_count is set by truncateArtefacts using opts; verify it propagates.
 ```
 
-> The branded type `AssembledArtefactSet` already has `question_count: z.number().int().min(3).max(5)`. The propagation point is whatever currently passes `repoInfo.questionCount` to the assembled set — replace with `effectiveQuestionCount`.
+> `AssembledArtefactSet.question_count` ([artefact-types.ts:53](../../src/lib/engine/prompts/artefact-types.ts#L53)) currently uses `min(3).max(5)`. **Raise to `min(3).max(8)` as part of T3.2** so the assembled set accepts the new upper bound. The propagation point is whatever currently passes `repoInfo.questionCount` to the assembled set — replace with `effectiveQuestionCount`.
 
 **Caller-plumbing changes (explicit edit list).** `projectId` must reach `extractArtefacts`. The minimal threading is:
 
@@ -467,7 +469,7 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 **No persistence change.** The `assessments.config_question_count` column already records the question count used at creation time — already captured by E11.2's `create_fcs_assessment` RPC. Story 3.2 AC 5 ("resolved context used at generation time matches the project's configuration at the time of creation") is satisfied because the project context jsonb is read once, at extraction time, and the question_count is persisted to `assessments.config_question_count`. No new column needed for the snapshot of globs / domain_notes — the prompt itself is the audit trail (already logged via the existing rubric observability fields).
 
 **Tasks:**
-1. Extend `OrganisationContextSchema` (Option A) and re-export; raise `domain_notes` cap to 2000.
+1. Extend `OrganisationContextSchema` (Option A) and re-export; raise `domain_notes` cap to 2000; add `glob_patterns` and `question_count` (`min(3).max(8)`); raise `AssembledArtefactSetSchema.question_count` upper bound from 5 → 8.
 2. Implement `loadProjectPromptContext`; mirror `loadOrgPromptContext` shape.
 3. Modify `extractArtefacts` in `fcs-pipeline.ts`: swap the resolver call; route `question_count` through.
 4. Delete the FCS-side import of `loadOrgPromptContext` (the helper itself stays — `org-context-form.tsx` still uses it for the org-level UI; do not delete `loadOrgPromptContext`).
@@ -536,15 +538,18 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 **LLD section:** [§B.1](#LLD-v11-e11-3-settings-page)
 
 **What:**
-1. Extend `UpdateProjectSchema` in `src/app/api/projects/validation.ts` with a `superRefine` on `glob_patterns` that calls `picomatch.makeRe(p)` and emits `code: 'custom', path: [index], message: 'glob_unparseable:<pattern>'` on failure.
-2. Add `picomatch` + `@types/picomatch` as direct deps.
-3. New server page `src/app/(authenticated)/projects/[id]/settings/page.tsx` — load project + existing context row in two queries, redirect Org Member to `/assessments`, 404 on unknown project.
-4. New client form `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` — fields: glob_patterns (TagInput-style), domain_notes (textarea, max 2000), question_count (number 3..5). Submits PATCH with the changed subset. Maps 400 issues with `path: ['glob_patterns', N]` to per-row error display.
-5. Tests: 5 page specs + 4 validation specs.
+1. **DB:** in `supabase/schemas/tables.sql`, change the four `BETWEEN 3 AND 5` CHECK constraints (`org_config.{fcs,prcc}_question_count` lines 31–34, `repository_config.{fcs,prcc}_question_count` lines 80–81) to `BETWEEN 3 AND 8`. Generate migration: `npx supabase db diff -f relax_question_count_to_8`. Verify `db diff` is empty after `db reset`.
+2. Extend `UpdateProjectSchema` (and `CreateProjectSchema`) in `src/app/api/projects/validation.ts`: raise `question_count` max from 5 to 8; add a `superRefine` on `glob_patterns` that calls `picomatch.makeRe(p)` and emits `code: 'custom', path: [index], message: 'glob_unparseable:<pattern>'` on failure.
+3. Add `picomatch` + `@types/picomatch` as direct deps.
+4. New server page `src/app/(authenticated)/projects/[id]/settings/page.tsx` — load project + existing context row in two queries, redirect Org Member to `/assessments`, 404 on unknown project.
+5. New client form `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` — fields: glob_patterns (TagInput-style), domain_notes (textarea, max 2000), question_count (number 3..8). Submits PATCH with the changed subset. Maps 400 issues with `path: ['glob_patterns', N]` to per-row error display.
+6. Tests: 5 page specs + 5 validation specs.
 
 **Acceptance:**
 - [ ] `UpdateProjectSchema` rejects `{ glob_patterns: ['['] }` with a 400 carrying `issues[0].path = ['glob_patterns', 0]`.
 - [ ] `UpdateProjectSchema` accepts `{ glob_patterns: ['docs/adr/*.md', '**/*.ts'] }`.
+- [ ] `UpdateProjectSchema` accepts `{ question_count: 8 }` and rejects `{ question_count: 9 }`.
+- [ ] DB CHECK constraints on `{org_config,repository_config}.{fcs,prcc}_question_count` allow values 3–8 inclusive.
 - [ ] `GET /projects/[id]/settings` as Org Admin renders the form prefilled from the existing row.
 - [ ] `GET /projects/[id]/settings` as Org Member redirects to `/assessments`.
 - [ ] `GET /projects/[id]/settings` for unknown project returns 404.
@@ -555,6 +560,8 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 describe('PATCH /api/projects/[id] — context-fields validation')
   it('accepts a payload with valid glob patterns, domain_notes and question_count')
   it('rejects question_count = 2 with 400 and a range error')
+  it('accepts question_count = 8 (V11 upper bound)')
+  it('rejects question_count = 9 with 400 and a range error')
   it('rejects an unparseable glob pattern with 400 identifying the offending index')
   it('accepts a payload that omits all context fields')
 
@@ -567,6 +574,8 @@ describe('/projects/[id]/settings')
 ```
 
 **Files:**
+- `supabase/schemas/tables.sql` (relax 4 CHECK constraints to `BETWEEN 3 AND 8`)
+- `supabase/migrations/<timestamp>_relax_question_count_to_8.sql` (generated)
 - `src/app/api/projects/validation.ts` (extend)
 - `src/app/(authenticated)/projects/[id]/settings/page.tsx` (new)
 - `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (new)
@@ -587,7 +596,7 @@ describe('/projects/[id]/settings')
 **LLD section:** [§B.2](#LLD-v11-e11-3-resolver-and-pipeline)
 
 **What:**
-1. Extend `OrganisationContextSchema` in `src/lib/engine/prompts/artefact-types.ts` with optional `glob_patterns` and `question_count`; raise `domain_notes` cap from 500 to 2000.
+1. Extend `OrganisationContextSchema` in `src/lib/engine/prompts/artefact-types.ts` with optional `glob_patterns` and `question_count` (`min(3).max(8)`); raise `domain_notes` cap from 500 to 2000. **Also raise the `question_count` bound on `AssembledArtefactSetSchema` (line 53) from `max(5)` to `max(8)`** so the assembled set schema accepts the new V11 upper bound.
 2. New `src/lib/supabase/project-prompt-context.ts` exporting `loadProjectPromptContext(supabase, projectId): Promise<OrganisationContext | undefined>` — predicate `.eq('project_id', $1)`, `safeParse` → warn-and-undefined on failure (mirrors `loadOrgPromptContext`).
 3. Modify `extractArtefacts` in `src/lib/api/fcs-pipeline.ts`:
    - add `projectId: string` to `ExtractArtefactsParams`
@@ -609,6 +618,7 @@ describe('/projects/[id]/settings')
 - [ ] Grep `loadOrgPromptContext` against `src/lib/api/fcs-pipeline.ts` returns zero matches.
 - [ ] Grep `loadOrgPromptContext` against `src/app/(authenticated)/organisation/` still returns matches (helper retained for org UI).
 - [ ] An FCS assessment created in a project with `question_count = 5` produces exactly 5 generated questions.
+- [ ] An FCS assessment created in a project with `question_count = 8` produces exactly 8 generated questions (validates new V11 upper bound end-to-end).
 - [ ] An FCS assessment created in a project with no context row produces a prompt where the `organisation_context` block is omitted.
 
 **BDD specs:**
