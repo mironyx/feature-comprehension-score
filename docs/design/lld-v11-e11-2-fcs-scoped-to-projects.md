@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.5 |
+| Version | 0.6 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
+| Revised | 2026-05-01 | Issue #414 |
 | Revised | 2026-05-01 | Issue #413 |
 | Revised | 2026-05-01 | Issue #412 |
 | Revised | 2026-05-01 | Issue #411 |
@@ -557,13 +558,18 @@ export default async function NewAssessmentPage({ params }: { params: Promise<{ 
 **List query:**
 
 ```ts
-const { data: rows } = await supabase
+const { data } = await supabase
   .from('assessments')
-  .select('id, type, status, feature_name, feature_description, aggregate_score, created_at, rubric_error_code, rubric_retry_count')
+  .select('id, status, feature_name, feature_description, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id')
   .eq('project_id', projectId)
   .eq('type', 'fcs')
   .order('created_at', { ascending: false });
 ```
+
+> **Implementation note (issue #414):** `type` was removed from the SELECT — it is used only as a
+> filter predicate (`.eq('type', 'fcs')`) and is absent from the `AssessmentItem` type, so
+> including it caused a TypeScript type mismatch. `rubric_error_retryable` and `project_id` were
+> added because `AssessmentItem` (from `@/app/(authenticated)/assessments/partition`) requires them.
 
 **Item linkage:**
 - Pending or in-progress rows link to `/projects/[id]/assessments/[aid]`.
@@ -575,6 +581,12 @@ const { data: rows } = await supabase
 1. Lift the placeholder slot in dashboard page; render `AssessmentList` with rows.
 2. Reuse the existing list visual shape from `(authenticated)/assessments/page.tsx` (extract a shared `AssessmentRow` if it does not already exist; otherwise inline matching markup — minimise duplication).
 3. Tests: 5 specs from issue #414.
+
+> **Implementation note (issue #414):** `AssessmentRow` was extracted as a private helper inside
+> `assessment-list.tsx` (not shared across files) to avoid duplicating markup in the two `.map()`
+> calls for pending and completed rows. 18 tests were written (vs. 5 BDD specs in the issue),
+> covering all observable properties including cross-project exclusion, PRCC exclusion, link
+> routing, and polling badge selection.
 
 **Acceptance:** see issue #414.
 
