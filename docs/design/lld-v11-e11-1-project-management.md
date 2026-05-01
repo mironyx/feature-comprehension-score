@@ -1,8 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
-**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync)
-**Version:** 0.3
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync), 2026-05-01 (issue #398 — lld-sync)
+**Version:** 0.4
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -631,19 +631,27 @@ export const UpdateProjectSchema = z.object({
 - `src/app/(authenticated)/projects/page.tsx` (server component — list)
 - `src/app/(authenticated)/projects/new/page.tsx` (server component shell)
 - `src/app/(authenticated)/projects/new/create-form.tsx` (client component — form)
-- `tests/app/(authenticated)/projects/list-page.test.tsx`, `new-page.test.tsx`
+- `tests/app/(authenticated)/projects/list-page.test.ts`, `new-page.test.ts`
 
 **Behaviour:**
 
-- Both pages: call `assertAdminOrRepoAdminForCurrentOrg()` server-side; on false `redirect('/assessments')`.
-- List page: server-fetch `GET /api/projects?org_id=$current` via direct service call (avoid HTTP self-fetch — see issue #376 pattern); render table; show empty-state "Create project" CTA when no rows.
+- Both pages: call `isAdminOrRepoAdmin(supabase, user.id, orgId)` from `src/lib/supabase/membership.ts`; if false `redirect('/assessments')`.
+- List page: inline Supabase query (see implementation note below); render list; show empty-state "Create project" CTA when no rows.
 - New page: render `<CreateProjectForm />` client component which POSTs to `/api/projects` and calls `router.push(/projects/${id})` on success. Surface 409 inline with "Name already in use".
 
 **Tasks:**
-1. Helper `getCurrentOrgId(supabase, userId)` — reuse existing pattern (look up `user_organisations` first row or current org from session).
+1. Org ID from existing `getSelectedOrgId(cookieStore)` helper (already in `src/lib/supabase/org-context.ts`) — no new helper needed.
 2. List page (server-rendered) + redirect guard.
 3. New page server shell + `create-form.tsx` client.
 4. Component tests covering Org Member redirect and admin empty-state.
+
+> **Implementation note (issue #398):** The LLD specified `assertAdminOrRepoAdminForCurrentOrg()` as the guard function, but no such function exists. The implementation uses `isAdminOrRepoAdmin(supabase, user.id, orgId)` exported from the existing `src/lib/supabase/membership.ts` module. This function was extended in T1.5 (previously it only held `isOrgAdmin`). The shared helper eliminates duplication between both project pages.
+
+> **Implementation note (issue #398):** The LLD said to call `listProjects(ctx, orgId)` directly to avoid HTTP self-fetch. In practice, `listProjects` expects `ApiContext` assembled from route-handler clients, which does not compose cleanly with server-component `createServerSupabaseClient()`. Rather than type-casting, an inline query was used — the same pattern that `src/app/(authenticated)/assessments/page.tsx` already establishes. The deviation is documented with a `// Design deviation:` comment in the source file.
+
+> **Implementation note (issue #398):** `getCurrentOrgId(supabase, userId)` was not created. The existing `getSelectedOrgId(cookieStore)` from `src/lib/supabase/org-context.ts` already handles org selection from the cookie — no new helper was needed.
+
+> **Implementation note (issue #398):** Test file extensions are `.ts`, not `.tsx` — the test files do not contain JSX and use source-text assertions (`readFileSync`) for the client component contracts rather than `@testing-library/react`.
 
 <a id="LLD-v11-e11-1-project-dashboard-inline-edit"></a>
 
