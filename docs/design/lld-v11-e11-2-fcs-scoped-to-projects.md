@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
-| Status | Draft |
+| Version | 0.3 |
+| Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
+| Revised | 2026-05-01 | Issue #412 |
 | Epic | E11.2 (#409) |
 | Parent HLD | [v11-design.md §C3, §3.V11.1](v11-design.md#c3-feature-comprehension-score-fcs--extended) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -420,6 +421,8 @@ The new `service.ts` imports from `@/lib/engine/fcs-pipeline`. The existing `ass
 - `src/app/(authenticated)/assessments/[id]/` (entire subtree)
 - `src/app/(authenticated)/assessments/new/` (entire subtree — replaced by T2.4)
 
+> **Implementation note (issue #412):** `assessments/new/` was *copied* to `projects/[id]/assessments/new/` rather than deleted. The spec said "delete; T2.4 recreates from scratch". The implementation preserved the working files verbatim so T2.4 can adapt them (smaller diff, lower regression risk) rather than re-implementing from nothing. T2.4 still owns the full adaptation: wiring `projectId` from params, switching POST target to `/api/projects/[id]/assessments`, and updating the success-redirect URL.
+
 **Page-level guard pattern (applies to all three migrated pages):**
 
 ```ts
@@ -439,6 +442,13 @@ export default async function Page({ params }: { params: Promise<{ id: string; a
 ```
 
 > The body of the existing detail/results/submitted pages is unchanged structurally — they re-fetch via the API or via direct service calls as before. The only addition is the guard above. Internal `Link href` / `router.push` callers (e.g. links from results back to detail) are updated to the new shape.
+
+**Organisation overview table (addition).** The migration required two adjacent updates not explicitly called out in the spec:
+
+1. `project_id: string | null` added to `AssessmentListItem` (in `src/app/api/assessments/helpers.ts`) and the SELECT query in `load-assessments.ts`. PRCC rows carry `null`; FCS rows carry the UUID.
+2. `assessment-overview-table.tsx` conditionally renders a `<Link>` (FCS, has `project_id`) or a `<span>` (PRCC, `project_id === null`) rather than a bare `href="#"`. This avoids an anti-pattern (dead `#` anchors trigger scroll-to-top) while keeping PRCC rows non-navigable.
+
+> **Implementation note (issue #412):** the LLD did not explicitly schedule these two helpers for T2.3. They were bundled here because the route migration made the old `/assessments/[id]` hrefs in the org table immediately dead. Keeping them as two separate commits (routes + table fix) would have left a broken state mid-PR.
 
 **API consideration.** `GET /api/assessments/[id]` is **not** changed in this task. The pid/aid mismatch check happens at the page layer (server-rendered) before the API is called. Rationale: minimises API surface change; the API already enforces RLS on org. If a future caller hits the API directly, it still returns the row — but they would need to know `aid` already, and there is no information leak (the org RLS still gates access).
 
