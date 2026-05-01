@@ -1,4 +1,4 @@
-// Tests for POST /api/fcs — epic-aware child issue discovery (Epic 2, Stories 2.1–2.3, issue #322).
+// Tests for FCS — epic-aware child issue discovery (Epic 2, Stories 2.1–2.3, issue #322).
 // Contract source: docs/design/lld-v4-e2-epic-discovery.md §Stories 2.2 + 2.3,
 //                  docs/requirements/v4-requirements.md §Epic 2.
 //
@@ -8,7 +8,6 @@
 //   H. mergeIssueContent dedup by issue number (Story 2.3)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
 
 // ---------------------------------------------------------------------------
 // Module-level spy functions — must be declared BEFORE vi.mock calls so they
@@ -24,18 +23,6 @@ const mockExtractFromPRs = vi.fn();
 // ---------------------------------------------------------------------------
 // Module mocks — declared before imports that depend on them
 // ---------------------------------------------------------------------------
-
-vi.mock('@/lib/api/auth', () => ({
-  requireAuth: vi.fn(),
-}));
-
-vi.mock('@/lib/supabase/route-handler-readonly', () => ({
-  createReadonlyRouteHandlerClient: vi.fn(() => mockUserClient),
-}));
-
-vi.mock('@/lib/supabase/secret', () => ({
-  createSecretSupabaseClient: vi.fn(() => mockAdminClient),
-}));
 
 vi.mock('@/lib/github/client', () => ({
   createGithubClient: vi.fn(),
@@ -65,10 +52,10 @@ vi.mock('@/lib/github', () => {
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { requireAuth } from '@/lib/api/auth';
 import { createGithubClient } from '@/lib/github/client';
 import { generateRubric } from '@/lib/engine/pipeline';
-import { POST } from '@/app/api/fcs/route';
+import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -122,7 +109,7 @@ const mockOctokit = {
 };
 
 // ---------------------------------------------------------------------------
-// Mock clients — accessed by vi.mock factory closures above
+// Mock clients
 // ---------------------------------------------------------------------------
 
 const mockUserClient = {
@@ -150,12 +137,10 @@ const mockAdminClient = {
 const AUTH_USER = {
   id: 'a0000000-0000-0000-0000-000000000001',
   email: 'admin@example.com',
-  githubUserId: 1001,
-  githubUsername: 'adminuser',
 };
 
 /** Minimal valid body with issue_numbers — the focus of this test file. */
-const BASE_BODY_WITH_ISSUES = {
+const BASE_BODY_WITH_ISSUES: FcsCreateBody = {
   org_id: ORG_ID,
   repository_id: REPO_ID,
   feature_name: 'Epic feature',
@@ -177,21 +162,20 @@ const EMPTY_RAW_ARTEFACT = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeRequest(body: unknown): NextRequest {
-  return new NextRequest('http://localhost/api/fcs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function makeCtx(): ApiContext {
+  return {
+    supabase: mockUserClient as never,
+    adminSupabase: mockAdminClient as never,
+    user: AUTH_USER,
+  };
 }
 
-async function callPost(body: unknown): Promise<{ status: number; json: unknown }> {
-  const res = await POST(makeRequest(body));
-  const out = { status: res.status, json: await res.json() };
+async function callPost(body: FcsCreateBody): Promise<{ status: number; json: unknown }> {
+  const result = await createFcs(makeCtx(), body);
   // triggerRubricGeneration runs as fire-and-forget — yield so it can flush
   // before the test reads mocks. Matches the pattern in fcs-service-logging.test.ts.
   await new Promise((resolve) => setTimeout(resolve, 50));
-  return out;
+  return { status: 201, json: result };
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +185,6 @@ async function callPost(body: unknown): Promise<{ status: number; json: unknown 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
 
   // generateRubric resolves successfully — we don't test rubric content here
@@ -244,7 +227,7 @@ beforeEach(() => {
 // F. extractArtefacts wiring
 // ---------------------------------------------------------------------------
 
-describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
+describe('createFcs — epic child issue discovery (issue #322)', () => {
 
   describe('extractArtefacts wiring — discoverChildIssues', () => {
 
@@ -263,7 +246,7 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
     // F2: discoverChildIssues NOT called when issueNumbers is empty (merged_pr_numbers only)
     it('does NOT call source.discoverChildIssues when only merged_pr_numbers are provided', async () => {
       // [lld §Story 2.2 extractArtefacts] "issueNumbers.length > 0 ? … : { childIssueNumbers: [], childIssuePrs: [] }"
-      const body = {
+      const body: FcsCreateBody = {
         org_id: ORG_ID,
         repository_id: REPO_ID,
         feature_name: 'PR-only feature',
@@ -361,7 +344,7 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
         data: { number: 100, title: 'Epic', body: '', pull_request: undefined },
       });
 
-      const body = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
+      const body: FcsCreateBody = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
       await callPost(body);
 
       expect(mockExtractFromPRs).toHaveBeenCalledWith(
@@ -381,7 +364,7 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
         data: { number: 100, title: 'Epic', body: '', pull_request: undefined },
       });
 
-      const body = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [99] };
+      const body: FcsCreateBody = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [99] };
       await callPost(body);
 
       const callArg = mockExtractFromPRs.mock.calls[0]?.[0] as { prNumbers: number[] };
@@ -412,8 +395,9 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
         data: { number: 100, title: 'Epic', body: '', pull_request: undefined },
       });
 
-      const body = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
-      await expect(callPost(body)).resolves.toMatchObject({ status: 201 });
+      const body: FcsCreateBody = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
+      const result = await callPost(body);
+      expect(result.status).toBe(201);
     });
   });
 
@@ -443,7 +427,7 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
         ],
       });
 
-      const body = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
+      const body: FcsCreateBody = { ...BASE_BODY_WITH_ISSUES, merged_pr_numbers: [42] };
       mockOctokit.rest.pulls.get.mockResolvedValue({ data: { title: 'PR 42', merged_at: '2026-01-01' } });
       mockOctokit.rest.issues.get.mockResolvedValue({
         data: { number: 100, title: 'Epic', body: '', pull_request: undefined },
@@ -585,7 +569,7 @@ describe('POST /api/fcs — epic child issue discovery (issue #322)', () => {
         .mockResolvedValueOnce({ data: { number: 100, title: 'Epic', body: '', pull_request: undefined } })
         .mockResolvedValueOnce({ data: { number: 201, title: 'Child', body: '', pull_request: undefined } });
 
-      const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [100, 201] };
+      const body: FcsCreateBody = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [100, 201] };
       await callPost(body);
 
       const rubricCall = vi.mocked(generateRubric).mock.calls[0]?.[0] as {

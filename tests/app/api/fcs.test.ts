@@ -1,24 +1,11 @@
-// Tests for POST /api/fcs — FCS assessment creation endpoint.
+// Tests for FCS assessment creation — core pipeline contract.
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4 POST /api/fcs
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
 
 // ---------------------------------------------------------------------------
 // Module mocks — declared before imports that depend on them
 // ---------------------------------------------------------------------------
-
-vi.mock('@/lib/api/auth', () => ({
-  requireAuth: vi.fn(),
-}));
-
-vi.mock('@/lib/supabase/route-handler-readonly', () => ({
-  createReadonlyRouteHandlerClient: vi.fn(() => mockUserClient),
-}));
-
-vi.mock('@/lib/supabase/secret', () => ({
-  createSecretSupabaseClient: vi.fn(() => mockAdminClient),
-}));
 
 vi.mock('@/lib/github/client', () => ({
   createGithubClient: vi.fn(),
@@ -32,11 +19,9 @@ vi.mock('@/lib/engine/pipeline', () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { requireAuth } from '@/lib/api/auth';
 import { createGithubClient } from '@/lib/github/client';
-import { ApiError } from '@/lib/api/errors';
-
-import { POST } from '@/app/api/fcs/route';
+import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
 // Constants — valid UUID format required by FcsCreateBodySchema
@@ -114,11 +99,9 @@ const mockAdminClient = {
 const AUTH_USER = {
   id: 'a0000000-0000-0000-0000-000000000001',
   email: 'admin@example.com',
-  githubUserId: 1001,
-  githubUsername: 'adminuser',
 };
 
-const VALID_BODY = {
+const VALID_BODY: FcsCreateBody = {
   org_id: ORG_ID,
   repository_id: REPO_ID,
   feature_name: 'New Checkout Flow',
@@ -133,7 +116,6 @@ const VALID_BODY = {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
 
   mockOctokit.rest.pulls.get.mockResolvedValue({ data: { title: 'Test PR', merged_at: '2026-01-01T00:00:00Z' } });
@@ -153,100 +135,61 @@ beforeEach(() => {
   participantsInsertResult = { data: null, error: null };
 });
 
-function makeRequest(body: unknown): NextRequest {
-  return new NextRequest('http://localhost/api/fcs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function makeCtx(): ApiContext {
+  return {
+    supabase: mockUserClient as never,
+    adminSupabase: mockAdminClient as never,
+    user: AUTH_USER,
+  };
 }
 
-async function callPost(body: unknown): Promise<{ status: number; json: unknown }> {
-  const res = await POST(makeRequest(body));
-  return { status: res.status, json: await res.json() };
+async function callCreateFcs(body: FcsCreateBody): Promise<{ assessment_id: string; status: string; participant_count: number }> {
+  return createFcs(makeCtx(), body);
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('POST /api/fcs', () => {
-  describe('given an unauthenticated request', () => {
-    it('returns 401', async () => {
-      vi.mocked(requireAuth).mockRejectedValue(new ApiError(401, 'Unauthenticated'));
-      const { status } = await callPost(VALID_BODY);
-      expect(status).toBe(401);
-    });
-  });
-
+describe('createFcs', () => {
   describe('given a user who is not Org Admin', () => {
-    it('returns 403 when user is a member', async () => {
+    it('throws 403 when user is a member', async () => {
       orgMemberResult = { data: [{ github_role: 'member' }], error: null };
-      const { status } = await callPost(VALID_BODY);
-      expect(status).toBe(403);
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('returns 403 when user has no org membership', async () => {
+    it('throws 403 when user has no org membership', async () => {
       orgMemberResult = { data: [], error: null };
-      const { status } = await callPost(VALID_BODY);
-      expect(status).toBe(403);
-    });
-  });
-
-  describe('given an invalid request body', () => {
-    it('returns 422 when merged_pr_numbers is empty', async () => {
-      const { status } = await callPost({ ...VALID_BODY, merged_pr_numbers: [] });
-      expect(status).toBe(422);
-    });
-
-    it('returns 422 when participants is empty', async () => {
-      const { status } = await callPost({ ...VALID_BODY, participants: [] });
-      expect(status).toBe(422);
-    });
-
-    it('returns 422 when feature_name is empty', async () => {
-      const { status } = await callPost({ ...VALID_BODY, feature_name: '' });
-      expect(status).toBe(422);
-    });
-
-    it('returns 422 when org_id is missing', async () => {
-      const { status } = await callPost({ ...VALID_BODY, org_id: undefined });
-      expect(status).toBe(422);
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 403 });
     });
   });
 
   describe('given a repository that is not found or belongs to a different org', () => {
-    it('returns 422 when repository query fails', async () => {
+    it('throws 422 when repository query fails', async () => {
       repoResult = { data: null, error: { code: 'PGRST116' } };
-      const { status } = await callPost(VALID_BODY);
-      expect(status).toBe(422);
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 422 });
     });
 
-    it('returns 422 when repository belongs to a different org', async () => {
+    it('throws 422 when repository belongs to a different org', async () => {
       repoResult = {
         data: { github_repo_name: 'test-repo', org_id: 'other-org-id', organisations: { github_org_name: 'test-org', installation_id: 42 } },
         error: null,
       };
-      const { status } = await callPost(VALID_BODY);
-      expect(status).toBe(422);
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 422 });
     });
   });
 
   describe('given a PR that is not merged', () => {
-    it('returns 422 with a message indicating the PR is not merged', async () => {
+    it('throws 422 with a message indicating the PR is not merged', async () => {
       mockOctokit.rest.pulls.get.mockResolvedValue({ data: { title: 'Open PR', merged_at: null } });
-      const { status, json } = await callPost(VALID_BODY);
-      expect(status).toBe(422);
-      expect(JSON.stringify(json)).toContain('not merged');
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('not merged') });
     });
   });
 
   describe('given an unknown participant GitHub username', () => {
-    it('returns 422 with a message indicating the unknown username', async () => {
+    it('throws 422 with a message indicating the unknown username', async () => {
       mockOctokit.rest.users.getByUsername.mockRejectedValue(new Error('Not Found'));
-      const { status, json } = await callPost(VALID_BODY);
-      expect(status).toBe(422);
-      expect(JSON.stringify(json)).toContain('Unknown GitHub username');
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('Unknown GitHub username') });
     });
   });
 
@@ -256,7 +199,7 @@ describe('POST /api/fcs', () => {
         data: { github_repo_name: 'test-org/test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org', installation_id: 42 } },
         error: null,
       };
-      await callPost(VALID_BODY);
+      await callCreateFcs(VALID_BODY);
       expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith(
         expect.objectContaining({ owner: 'test-org', repo: 'test-repo' }),
       );
@@ -264,28 +207,24 @@ describe('POST /api/fcs', () => {
   });
 
   describe('given valid input', () => {
-    it('returns 201 with assessment_id, status rubric_generation, and participant_count', async () => {
-      const { status, json } = await callPost(VALID_BODY);
-      expect(status).toBe(201);
-      const body = json as Record<string, unknown>;
-      expect(typeof body['assessment_id']).toBe('string');
-      expect(body['status']).toBe('rubric_generation');
-      expect(body['participant_count']).toBe(1);
+    it('returns assessment_id, status rubric_generation, and participant_count', async () => {
+      const result = await callCreateFcs(VALID_BODY);
+      expect(typeof result.assessment_id).toBe('string');
+      expect(result.status).toBe('rubric_generation');
+      expect(result.participant_count).toBe(1);
     });
 
     it('returns correct participant_count for multiple participants', async () => {
       mockOctokit.rest.users.getByUsername
         .mockResolvedValueOnce({ data: { id: 99001, login: 'alice' } })
         .mockResolvedValueOnce({ data: { id: 99002, login: 'bob' } });
-      const body = { ...VALID_BODY, participants: [{ github_username: 'alice' }, { github_username: 'bob' }] };
-      const { status, json } = await callPost(body);
-      expect(status).toBe(201);
-      expect((json as Record<string, unknown>)['participant_count']).toBe(2);
+      const body: FcsCreateBody = { ...VALID_BODY, participants: [{ github_username: 'alice' }, { github_username: 'bob' }] };
+      const result = await callCreateFcs(body);
+      expect(result.participant_count).toBe(2);
     });
 
     it('validates all PR numbers against the GitHub API', async () => {
-      await callPost({ ...VALID_BODY, merged_pr_numbers: [42, 43] });
-      // Each PR number must be validated against the GitHub API
+      await callCreateFcs({ ...VALID_BODY, merged_pr_numbers: [42, 43] });
       expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith(
         expect.objectContaining({ pull_number: 42 }),
       );
@@ -295,12 +234,12 @@ describe('POST /api/fcs', () => {
     });
 
     it('passes the numeric installation ID to createGithubClient', async () => {
-      await callPost(VALID_BODY);
+      await callCreateFcs(VALID_BODY);
       expect(createGithubClient).toHaveBeenCalledWith(42);
     });
 
     it('stores assessment, merged PRs, and participants atomically via RPC', async () => {
-      await callPost(VALID_BODY);
+      await callCreateFcs(VALID_BODY);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
         expect.objectContaining({

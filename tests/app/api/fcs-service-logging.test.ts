@@ -71,7 +71,7 @@ import { createGithubClient } from '@/lib/github/client';
 
 // We need to call the internal triggerRubricGeneration, which is private.
 // Instead, we'll import the service and call createFcs which triggers it.
-import { createFcs, type FcsCreateBody } from '@/app/api/fcs/service';
+import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------

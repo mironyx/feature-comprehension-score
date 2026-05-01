@@ -91,6 +91,7 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     select: vi.fn(),
     eq: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
+    maybeSingle: vi.fn(() => Promise.resolve(resolver())),
     update: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
@@ -205,7 +206,7 @@ beforeEach(() => {
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
 
-  userOrgResult = { data: [{ github_role: 'admin' }], error: null };
+  userOrgResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
   userAssessmentResult = null;
 
   // rubric_retry_count and rubric_error_retryable are required by the guardrail
@@ -295,7 +296,7 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
   });
 
   it('returns 403 for non-admin user', async () => {
-    userOrgResult = { data: [{ github_role: 'member' }], error: null };
+    userOrgResult = { data: { github_role: 'member', admin_repo_github_ids: [] }, error: null };
     const { status } = await callPost();
     expect(status).toBe(403);
   });
@@ -502,7 +503,7 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
       // When: POST is called
       // Then: 404, not 403
       assessmentResult = { data: null, error: null };
-      userOrgResult = { data: [{ github_role: 'member' }], error: null };
+      userOrgResult = { data: { github_role: 'member', admin_repo_github_ids: [] }, error: null };
       const { status } = await callPost();
       expect(status).toBe(404);
     });
@@ -523,7 +524,7 @@ describe('POST /api/assessments/[id]/retry-rubric', () => {
         },
         error: null,
       };
-      userOrgResult = { data: [{ github_role: 'member' }], error: null };
+      userOrgResult = { data: { github_role: 'member', admin_repo_github_ids: [] }, error: null };
       const { status } = await callPost();
       expect(status).toBe(403);
     });
