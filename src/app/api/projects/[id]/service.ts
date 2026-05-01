@@ -89,12 +89,11 @@ export async function deleteProject(ctx: ApiContext, projectId: string): Promise
   if (hitError) throw new ApiError(500, `Failed to check assessments: ${hitError.message}`);
   if (hit) throw new ApiError(409, 'project_not_empty');
 
-  const { data: deleted, error } = await ctx.adminSupabase
+  const { count, error } = await ctx.adminSupabase
     .from('projects')
-    .delete()
+    .delete({ count: 'exact' })
     .eq('id', projectId)
-    .in('org_id', adminOrgIds)
-    .select('id');
+    .in('org_id', adminOrgIds);
   if (error) throw new ApiError(500, `Failed to delete project: ${error.message}`);
-  if (!deleted?.length) throw new ApiError(404, 'project_not_found');
+  if (!count) throw new ApiError(404, 'project_not_found');
 }

@@ -39,9 +39,12 @@ let DELETE: RouteHandler;
 
 let membershipsResult: { data: unknown; error: unknown };
 let assessmentCountResult: { data: unknown; error: unknown };
-let deleteResult: { data: unknown; error: unknown };
+let deleteResult: { count: number | null; error: unknown };
 
-function makeChain(resolver: () => { data: unknown; error: unknown }) {
+type UserChainResult = { data: unknown; error: unknown };
+type AdminDeleteResult = { count: number | null; error: unknown };
+
+function makeUserChain(resolver: () => UserChainResult) {
   const chain = Object.assign(Promise.resolve(resolver()), {
     select: vi.fn(),
     eq: vi.fn(),
@@ -49,34 +52,40 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     in: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
-    upsert: vi.fn(() => Promise.resolve(resolver())),
-    update: vi.fn(),
-    delete: vi.fn(),
     limit: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.is.mockReturnValue(chain);
   chain.in.mockReturnValue(chain);
-  chain.upsert.mockReturnValue(chain);
-  chain.update.mockReturnValue(chain);
-  chain.delete.mockReturnValue(chain);
   chain.limit.mockReturnValue(chain);
+  return chain;
+}
+
+function makeAdminDeleteChain(resolver: () => AdminDeleteResult) {
+  const chain = Object.assign(Promise.resolve(resolver()), {
+    delete: vi.fn(),
+    eq: vi.fn(),
+    in: vi.fn(),
+  });
+  chain.delete.mockReturnValue(chain);
+  chain.eq.mockReturnValue(chain);
+  chain.in.mockReturnValue(chain);
   return chain;
 }
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'user_organisations') return makeChain(() => membershipsResult);
-    if (table === 'assessments') return makeChain(() => assessmentCountResult);
-    return makeChain(() => ({ data: null, error: null }));
+    if (table === 'user_organisations') return makeUserChain(() => membershipsResult);
+    if (table === 'assessments') return makeUserChain(() => assessmentCountResult);
+    return makeUserChain(() => ({ data: null, error: null }));
   }),
 };
 
 const mockAdminClient = {
   from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => deleteResult);
-    return makeChain(() => ({ data: null, error: null }));
+    if (table === 'projects') return makeAdminDeleteChain(() => deleteResult);
+    return makeAdminDeleteChain(() => ({ count: null, error: null }));
   }),
 };
 
@@ -127,8 +136,8 @@ beforeEach(async () => {
   membershipsResult = { data: [{ org_id: ORG_ID, github_role: 'admin' }], error: null };
   // No assessments by default — safe to delete
   assessmentCountResult = { data: null, error: null };
-  // Delete returns one affected row
-  deleteResult = { data: [PROJECT_ROW], error: null };
+  // Delete returns count=1 (one affected row)
+  deleteResult = { count: 1, error: null };
   ({ DELETE } = await import('@/app/api/projects/[id]/route'));
 });
 
@@ -184,7 +193,7 @@ describe('DELETE /api/projects/[id]', () => {
   describe('Given the project id does not exist (or belongs to a different org)', () => {
     it('then it returns 404 [req §Story 1.5]', async () => {
       // delete with .in('org_id', adminOrgIds) affects 0 rows when project absent
-      deleteResult = { data: [], error: null };
+      deleteResult = { count: 0, error: null };
 
       const response = await deleteProject('nonexistent-proj-id');
 
@@ -229,7 +238,7 @@ describe('DELETE /api/projects/[id]', () => {
   describe('Given a second DELETE on an already-deleted project id (idempotent)', () => {
     it('then it returns 404 [req §Story 1.5]', async () => {
       // Delete affects 0 rows — project no longer in DB
-      deleteResult = { data: [], error: null };
+      deleteResult = { count: 0, error: null };
 
       const response = await deleteProject();
 
@@ -239,7 +248,7 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given the DB delete affects 0 rows (race condition after successful lookup)', () => {
     it('then it returns 404 [lld §B.4 step 6]', async () => {
-      deleteResult = { data: [], error: null };
+      deleteResult = { count: 0, error: null };
 
       const response = await deleteProject();
 
