@@ -77,14 +77,25 @@ For each Omission:
 
 **Stable LLD anchors (per ADR-0026):**
 
-- **Preserve** every existing `<a id="LLD-<epic>-<task>-<section>"></a>` anchor when editing a
+- **Preserve** every existing `<a id="LLD-<epic-id>-<section-slug>"></a>` anchor when editing a
   Part B section in-place. Anchors are stable identifiers — moving or renaming them breaks links
   from the coverage manifest and any external reference.
 - If a Correction or Addition introduces a **new** Part B section, emit a new anchor for it
-  using the format `LLD-<epic-slug>-<task-slug>-<section-slug>` derived from the LLD file name
+  using the format `LLD-<epic-id>-<section-slug>` derived from the LLD file name (`lld-<epic-id>-<short-name>.md`)
   and the new section heading.
 - If a section is removed via Omission, leave the anchor in place above the deferred/descoped
   marker so the manifest entry still resolves; do not delete the anchor.
+
+### Step 3a: Update the kernel (`docs/design/kernel.md`)
+
+The kernel is a living document — `/lld-sync` is the only skill that grows or trims it. Run these checks:
+
+1. **New reusable helper introduced.** If the implementation added a new exported symbol in `src/lib/api/`, `src/lib/supabase/`, `src/lib/engine/`, or any `service.ts` that future features should reuse, add a one-line entry to the appropriate kernel section. Bar for inclusion: would future LLDs cause drift if they re-implemented it? If yes, add it. If not (purely local utility), skip.
+2. **Re-implementation pattern uncovered.** If a Correction in Step 2 was caused by the LLD inlining a query or behaviour that an existing kernel symbol already covered, append the inlined-pattern → kernel-symbol mapping to the kernel's "Anti-patterns" section. This prevents the same drift on the next epic.
+3. **Symbol renamed or retired.** If the implementation renamed an exported symbol, update the kernel entry. If a symbol was deleted, remove the entry — keep the kernel a true reflection of the codebase.
+4. **No changes needed.** If the diff did not touch any reusable surface, skip — do not edit the kernel for cosmetic reasons.
+
+When the kernel changes, mention it in the sync report (Step 4).
 
 ### Step 3b: Update the coverage manifest
 
