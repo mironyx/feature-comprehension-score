@@ -154,6 +154,7 @@ describe('schema: assessments.project_id', () => {
       .select('id')
       .single();
     expect(insErr).toBeNull();
+    expect(prcc).not.toBeNull();
     const assessmentId = prcc!.id;
 
     const { error: delErr } = await svc.from('projects').delete().eq('id', projectId);
