@@ -30,6 +30,8 @@ export default async function NewAssessmentPage({ params }: NewAssessmentPagePro
     .from('projects').select('id, org_id, name').eq('id', projectId).eq('org_id', orgId).maybeSingle();
   if (!project) notFound();
 
+  // Justification: readMembershipSnapshot used directly (vs getOrgRole) because the snapshot
+  // is needed for the Repo Admin repo filter — getOrgRole doesn't return adminRepoGithubIds.
   const snapshot = await readMembershipSnapshot(supabase, user.id, project.org_id);
   const role = snapshot ? snapshotToOrgRole(snapshot) : null;
   if (!role) redirect('/assessments');
@@ -39,7 +41,7 @@ export default async function NewAssessmentPage({ params }: NewAssessmentPagePro
     .select('id, github_repo_name, github_repo_id')
     .eq('org_id', project.org_id)
     .order('github_repo_name');
-  if (role === 'repo_admin') q = q.in('github_repo_id', snapshot!.adminRepoGithubIds);
+  if (role === 'repo_admin' && snapshot) q = q.in('github_repo_id', snapshot.adminRepoGithubIds);
   const { data: repos } = await q;
 
   return (
