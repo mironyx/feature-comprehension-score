@@ -29,9 +29,9 @@ CREATE TABLE org_config (
   score_threshold          integer NOT NULL DEFAULT 70
                               CHECK (score_threshold BETWEEN 0 AND 100),
   prcc_question_count      integer NOT NULL DEFAULT 3
-                              CHECK (prcc_question_count BETWEEN 3 AND 5),
+                              CHECK (prcc_question_count BETWEEN 3 AND 8),
   fcs_question_count       integer NOT NULL DEFAULT 5
-                              CHECK (fcs_question_count BETWEEN 3 AND 5),
+                              CHECK (fcs_question_count BETWEEN 3 AND 8),
   min_pr_size              integer NOT NULL DEFAULT 20
                               CHECK (min_pr_size > 0),
   trivial_commit_threshold integer NOT NULL DEFAULT 5
@@ -77,8 +77,8 @@ CREATE TABLE repository_config (
   fcs_enabled              boolean,
   enforcement_mode         text CHECK (enforcement_mode IN ('soft', 'hard')),
   score_threshold          integer CHECK (score_threshold BETWEEN 0 AND 100),
-  prcc_question_count      integer CHECK (prcc_question_count BETWEEN 3 AND 5),
-  fcs_question_count       integer CHECK (fcs_question_count BETWEEN 3 AND 5),
+  prcc_question_count      integer CHECK (prcc_question_count BETWEEN 3 AND 8),
+  fcs_question_count       integer CHECK (fcs_question_count BETWEEN 3 AND 8),
   min_pr_size              integer CHECK (min_pr_size > 0),
   trivial_commit_threshold integer CHECK (trivial_commit_threshold > 0),
   exempt_file_patterns     text[],

@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.2 |
+| Version | 0.3 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
 | Revised | 2026-05-01 — issue #422 (T3.2 implemented) |
+| Revised | 2026-05-01 — issue #421 (T3.1 implementation feedback) |
 | Epic | E11.3 |
 | Parent HLD | [v11-design.md §C4, §3.V11.2](v11-design.md#c4-assessment-engine--context-resolution-narrowed) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -203,7 +204,7 @@ describe('FCS rubric — project-context wiring (T3.2)')
 | **BE — engine/API** | `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema`), `src/lib/supabase/project-prompt-context.ts` (new), `src/lib/api/fcs-pipeline.ts` (modify `extractArtefacts` and the public trigger/retry types; the file lives in `src/lib/api/`, not `src/lib/engine/`, because it depends on Supabase + GitHub adapters — see file header comment) |
 | **BE — API** | `src/app/api/projects/validation.ts` (extend `UpdateProjectSchema` with glob `.refine()`) |
 | **FE — pages** | `src/app/(authenticated)/projects/[id]/settings/page.tsx` (server, new), `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (client, new) |
-| **Tests** | `tests/app/api/projects/[id]/validation.test.ts` (extend), `tests/app/(authenticated)/projects/[id]/settings/page.test.tsx` (new), `tests/lib/supabase/project-prompt-context.test.ts` (new), `tests/lib/engine/fcs-pipeline-project-context.test.ts` (new — integration-style with stubbed Supabase) |
+| **Tests** | `tests/app/api/projects/validation.test.ts` (new — schema unit), `tests/app/api/projects/update.test.ts` (existing — q_count bounds bumped 5 → 8), `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (new), `tests/evaluation/v11-e11-3-t3-1.eval.test.ts` (new — API ↔ form error-body shape regression pin), `tests/lib/supabase/project-prompt-context.test.ts` (new), `tests/lib/engine/fcs-pipeline-project-context.test.ts` (new — integration-style with stubbed Supabase) |
 
 #### Reused helpers — DO NOT re-implement
 
@@ -235,8 +236,12 @@ These helpers already exist (E11.1 / E11.2). Inlining their logic is forbidden �
 - `src/app/(authenticated)/projects/[id]/settings/page.tsx` (new — server component)
 - `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (new — client component)
 - `src/app/api/projects/validation.ts` (extend `UpdateProjectSchema` with glob `.refine()`)
-- `tests/app/api/projects/[id]/validation.test.ts` (extend)
-- `tests/app/(authenticated)/projects/[id]/settings/page.test.tsx` (new)
+- `tests/app/api/projects/validation.test.ts` (new — focused schema unit tests)
+- `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (new)
+- `tests/app/api/projects/update.test.ts` (existing — bumped question_count boundary tests 5 → 8)
+- `tests/evaluation/v11-e11-3-t3-1.eval.test.ts` (new — regression pin for the API ↔ form error-body shape contract)
+
+> **Implementation note (issue #421):** The original list named `tests/app/api/projects/[id]/validation.test.ts (extend)` but no such file existed. A focused unit test was created beside the schema at `tests/app/api/projects/validation.test.ts`; route-level integration coverage already lives in `update.test.ts`. The two existing question_count boundary tests in `update.test.ts` (`> 5` and `at boundary 5`) were updated to use 9 and 8 respectively to reflect the new V11 cap.
 
 **Validation extension:**
 
@@ -244,27 +249,34 @@ These helpers already exist (E11.1 / E11.2). Inlining their logic is forbidden �
 // src/app/api/projects/validation.ts
 import picomatch from 'picomatch';
 
+// picomatch v4 is permissive by default — `makeRe('[')` returns a literal regex
+// rather than throwing. `strictBrackets: true` makes it throw on unclosed
+// brackets, which is the malformed-syntax class users most commonly hit.
 function isParseableGlob(p: string): boolean {
-  try { picomatch.makeRe(p); return true; } catch { return false; }
+  try { picomatch.makeRe(p, { strictBrackets: true }); return true; } catch { return false; }
 }
+
+const GlobPatternsSchema = z
+  .array(z.string().min(1))
+  .max(50)
+  .superRefine((arr, ctx) => {
+    if (!arr) return;
+    arr.forEach((p, index) => {
+      if (!isParseableGlob(p)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index],
+          message: `glob_unparseable:${p}`,
+        });
+      }
+    });
+  });
 
 export const UpdateProjectSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).optional(),
-    glob_patterns: z.array(z.string().min(1)).max(50).optional()
-      .superRefine((arr, ctx) => {
-        if (!arr) return;
-        arr.forEach((p, index) => {
-          if (!isParseableGlob(p)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: [index],
-              message: `glob_unparseable:${p}`,
-            });
-          }
-        });
-      }),
+    glob_patterns: GlobPatternsSchema.optional(),
     domain_notes: z.string().max(2000).optional(),
     question_count: z.number().int().min(3).max(8).optional(),  // V11: max raised from 5 → 8
   })
@@ -272,6 +284,8 @@ export const UpdateProjectSchema = z
 ```
 
 > **Why `superRefine` not `.refine`?** Need to report which pattern failed (`path: [index]`) so the form can highlight the offending field. A flat `.refine` produces a single error message without index.
+
+> **Implementation note (issue #421):** The original sketch used bare `picomatch.makeRe(p)` plus a try/catch on the assumption that picomatch throws on bad input. picomatch v4 is permissive by default (e.g. `makeRe('[')` returns `/^(?:\[\/?)$/` rather than throwing). `{ strictBrackets: true }` is required for `'['` to fail. Open question 1 was resolved by verifying `makeRe` exists at the top level — not that it raises on malformed input. The shared `GlobPatternsSchema` is reused by `CreateProjectSchema` for consistency.
 
 **Settings page (server) sketch:**
 
@@ -338,14 +352,21 @@ interface SettingsFormProps {
 }
 
 // Internal decomposition (each ≤ 20 lines):
-//   GlobPatternList — TagInput-style add/remove, validates parseability client-side as a UX hint
-//   DomainNotesField — textarea, max 2000 chars
-//   QuestionCountField — number input, range 3..8
-//   submit() — fetch PATCH /api/projects/${projectId} with the changed subset; on 400 surface
-//              the field-level error (look at issues[].path to highlight glob index)
+//   GlobPatternList — TagInput-style add/remove, per-row error display
+//   DomainNotesField — inlined into the form (no separate component)
+//   QuestionCountField — inlined into the form (no separate component)
+//   buildChangedSubset(current, initial) — pure: returns only the fields the user changed
+//   mapIssuesToGlobErrors(issues) — pure: turns ZodIssue[] into { [globIndex]: message }
+//   patchProject(projectId, payload) — fetch PATCH /api/projects/${projectId}; reads
+//     body.details?.issues on non-2xx
+//   handleSubmit() — orchestrates the above
 ```
 
-**Field-level error mapping.** When the API returns 400 with Zod issues, the form maps `issues[].path = ['glob_patterns', N]` to highlighting the Nth glob entry.
+> **Implementation note (issue #421):** `DomainNotesField` and `QuestionCountField` were inlined into the form rather than extracted as separate components — both are 5–10 lines, single-use, and extracting them would have hidden the validation cap (3–8 / max 2000) at the call site without reducing duplication. `GlobPatternList` was kept as a separate component because it manages its own draft-input state and per-row error rendering. Two pure helpers (`buildChangedSubset`, `mapIssuesToGlobErrors`) were added to keep `handleSubmit` short. After a 422, the form clears `globErrors` on row add/remove so stale errors do not attach to the wrong row indices.
+
+**Field-level error mapping.** When the API returns 422 with Zod issues, the form maps `body.details.issues[].path = ['glob_patterns', N]` to highlighting the Nth glob entry. Issues are nested under `details` because `validateBody` (in `@/lib/api/validation`) wraps Zod errors in `ApiError(422, 'Validation failed', { issues: [...] })`, and `handleApiError` serialises `ApiError.details` as `body.details`. Status is 422 (not 400) — `validateBody`'s convention.
+
+> **Implementation note (issue #421):** The earlier wording "API returns 400 with Zod issues" was inaccurate on two counts: the codebase returns 422 (not 400), and the issues live at `body.details.issues` (not `body.issues`). The first form implementation read `body.issues` and silently dropped per-glob error display until adversarial testing surfaced it. The fix path is: form reads `body.details?.issues` and accepts both 400 and 422 defensively. Pinned by the regression test in `tests/evaluation/v11-e11-3-t3-1.eval.test.ts`.
 
 **Tasks:**
 1. **DB:** edit `supabase/schemas/tables.sql` to relax the four `BETWEEN 3 AND 5` CHECK constraints to `BETWEEN 3 AND 8` (lines 31–34, 80–81). Generate a migration via `npx supabase db diff -f relax_question_count_to_8`. Verify `db diff` is empty after `db reset`.
@@ -592,13 +613,15 @@ describe('/projects/[id]/settings')
 
 **Files:**
 - `supabase/schemas/tables.sql` (relax 4 CHECK constraints to `BETWEEN 3 AND 8`)
-- `supabase/migrations/<timestamp>_relax_question_count_to_8.sql` (generated)
+- `supabase/migrations/20260501202822_relax_question_count_to_8.sql` (generated)
 - `src/app/api/projects/validation.ts` (extend)
 - `src/app/(authenticated)/projects/[id]/settings/page.tsx` (new)
 - `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (new)
-- `package.json` (+ `picomatch`, `@types/picomatch`)
-- `tests/app/api/projects/[id]/validation.test.ts` (extend)
-- `tests/app/(authenticated)/projects/[id]/settings/page.test.tsx` (new)
+- `package.json` (+ `picomatch` runtime, `@types/picomatch` dev)
+- `tests/app/api/projects/validation.test.ts` (new — schema unit tests)
+- `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (new)
+- `tests/app/api/projects/update.test.ts` (existing — q_count boundary tests bumped 5 → 8)
+- `tests/evaluation/v11-e11-3-t3-1.eval.test.ts` (new — error-body shape regression pin)
 
 ---
 

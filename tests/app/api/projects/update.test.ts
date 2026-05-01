@@ -293,9 +293,9 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
-  describe('Given an invalid question_count above maximum (> 5)', () => {
-    it('then it returns 422 [req §Story 1.4, UpdateProjectSchema]', async () => {
-      const response = await patchProject({ question_count: 6 });
+  describe('Given an invalid question_count above maximum (> 8)', () => {
+    it('then it returns 422 [req §Story 1.4, UpdateProjectSchema, #421 V11 cap=8]', async () => {
+      const response = await patchProject({ question_count: 9 });
 
       expect(response.status).toBe(422);
     });
@@ -309,9 +309,9 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
-  describe('Given question_count at boundary maximum (5)', () => {
-    it('then it returns 200 [req §Story 1.4, UpdateProjectSchema]', async () => {
-      const response = await patchProject({ question_count: 5 });
+  describe('Given question_count at boundary maximum (8)', () => {
+    it('then it returns 200 [req §Story 1.4, UpdateProjectSchema, #421 V11 cap=8]', async () => {
+      const response = await patchProject({ question_count: 8 });
 
       expect(response.status).toBe(200);
     });
