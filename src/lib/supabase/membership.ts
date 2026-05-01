@@ -40,6 +40,13 @@ export async function readMembershipSnapshot(
   return { githubRole: r.github_role, adminRepoGithubIds: r.admin_repo_github_ids ?? [] };
 }
 
+/** Pure role derivation — the single place that encodes the admin-or-repo-admin rule. */
+export function snapshotToOrgRole(snap: MembershipSnapshot): OrgRole | null {
+  if (snap.githubRole === 'admin') return 'admin';
+  if (snap.adminRepoGithubIds.length > 0) return 'repo_admin';
+  return null;
+}
+
 /**
  * Returns the effective role for the user in the org, or null if not a member
  * or lacks admin/repo-admin privileges. Used by server-component page guards.
@@ -51,10 +58,7 @@ export async function getOrgRole(
   orgId: string,
 ): Promise<OrgRole | null> {
   const snap = await readMembershipSnapshot(supabase, userId, orgId);
-  if (!snap) return null;
-  if (snap.githubRole === 'admin') return 'admin';
-  if (snap.adminRepoGithubIds.length > 0) return 'repo_admin';
-  return null;
+  return snap ? snapshotToOrgRole(snap) : null;
 }
 
 export async function isAdminOrRepoAdmin(

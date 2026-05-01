@@ -4,7 +4,7 @@
 
 import type { ApiContext } from '@/lib/api/context';
 import { ApiError } from '@/lib/api/errors';
-import { readMembershipSnapshot } from '@/lib/supabase/membership';
+import { isAdminOrRepoAdmin, readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 
 export interface RepoAdminSnapshot {
   githubRole: 'admin' | 'member';
@@ -28,18 +28,19 @@ export async function readSnapshot(
 
 /** Returns true iff github_role = 'admin' OR admin_repo_github_ids is non-empty. */
 export async function isOrgAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<boolean> {
-  const snapshot = await readSnapshot(ctx, orgId);
-  if (!snapshot) return false;
-  return snapshot.githubRole === 'admin' || snapshot.adminRepoGithubIds.length > 0;
+  try {
+    return await isAdminOrRepoAdmin(ctx.supabase, ctx.user.id, orgId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new ApiError(500, `Failed to read membership: ${msg}`);
+  }
 }
 
 /** Throws ApiError(401) if no membership, ApiError(403) if insufficient permissions. */
 export async function assertOrgAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<void> {
   const snapshot = await readSnapshot(ctx, orgId);
   if (!snapshot) throw new ApiError(401, 'No membership for this organisation');
-  if (snapshot.githubRole !== 'admin' && snapshot.adminRepoGithubIds.length === 0) {
-    throw new ApiError(403, 'Org Admin or Repo Admin role required');
-  }
+  if (!snapshotToOrgRole(snapshot)) throw new ApiError(403, 'Org Admin or Repo Admin role required');
 }
 
 /** Throws ApiError(401) if no membership, ApiError(403) unless github_role = 'admin'. */

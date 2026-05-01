@@ -2,7 +2,7 @@
 // Issue: #121, #408, #417
 
 import { describe, it, expect, vi } from 'vitest';
-import { isOrgAdmin, getOrgRole, readMembershipSnapshot } from '@/lib/supabase/membership';
+import { isOrgAdmin, getOrgRole, readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 
@@ -111,5 +111,24 @@ describe('readMembershipSnapshot', () => {
       const supabase = makeSupabaseWithError('connection timeout');
       await expect(readMembershipSnapshot(supabase, 'u1', 'o1')).rejects.toThrow('connection timeout');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// snapshotToOrgRole — pure rule derivation (#417)
+// ---------------------------------------------------------------------------
+
+describe('snapshotToOrgRole', () => {
+  it('returns "admin" for githubRole=admin regardless of adminRepoGithubIds', () => {
+    expect(snapshotToOrgRole({ githubRole: 'admin', adminRepoGithubIds: [] })).toBe('admin');
+    expect(snapshotToOrgRole({ githubRole: 'admin', adminRepoGithubIds: [1] })).toBe('admin');
+  });
+
+  it('returns "repo_admin" for non-admin role with non-empty adminRepoGithubIds', () => {
+    expect(snapshotToOrgRole({ githubRole: 'member', adminRepoGithubIds: [42] })).toBe('repo_admin');
+  });
+
+  it('returns null for non-admin role with empty adminRepoGithubIds', () => {
+    expect(snapshotToOrgRole({ githubRole: 'member', adminRepoGithubIds: [] })).toBeNull();
   });
 });
