@@ -1,7 +1,7 @@
 // Tests for /projects/[id] dashboard page — server component access control and rendering.
 // Design reference: docs/design/lld-v11-e11-1-project-management.md §B.6
 // Requirements: docs/requirements/v11-requirements.md Stories 1.3, 1.5
-// Issue: #399
+// Issue: #399, #408
 //
 // DeleteButton client component tests are in delete-button.test.ts (separate file
 // required because vi.mock applies file-wide and this file mocks the module).
@@ -21,7 +21,7 @@ vi.mock('@/lib/supabase/org-context', () => ({
 }));
 
 vi.mock('@/lib/supabase/membership', () => ({
-  isAdminOrRepoAdmin: vi.fn(),
+  getOrgRole: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -59,14 +59,14 @@ vi.mock('@/components/ui/page-header', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
-import { isAdminOrRepoAdmin } from '@/lib/supabase/membership';
+import { getOrgRole } from '@/lib/supabase/membership';
 import { cookies } from 'next/headers';
 import ProjectDashboardPage from '@/app/(authenticated)/projects/[id]/page';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockCookies = vi.mocked(cookies);
-const mockIsAdminOrRepoAdmin = vi.mocked(isAdminOrRepoAdmin);
+const mockGetOrgRole = vi.mocked(getOrgRole);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -92,15 +92,12 @@ const MOCK_PROJECT = {
  * Builds a mock Supabase client for page.tsx queries:
  *   auth.getUser() → user
  *   .from('projects').select().eq().eq().maybeSingle() → project
- *   .from('user_organisations').select('github_role').eq().eq().maybeSingle() → { github_role }
  *
- * isAdminOrRepoAdmin is mocked separately via vi.mock('@/lib/supabase/membership').
+ * getOrgRole is mocked separately via vi.mock('@/lib/supabase/membership').
  */
 function makeClient({
-  githubRole = 'admin' as string,
   project = MOCK_PROJECT as typeof MOCK_PROJECT | null,
 }: {
-  githubRole?: string;
   project?: typeof MOCK_PROJECT | null;
 } = {}) {
   const makeMaybeSingle = (data: unknown) =>
@@ -117,7 +114,6 @@ function makeClient({
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
     },
     from: vi.fn().mockImplementation((table: string) => {
-      if (table === 'user_organisations') return makeSelectChain({ github_role: githubRole });
       if (table === 'projects') return makeSelectChain(project);
       return makeSelectChain(null);
     }),
@@ -133,7 +129,7 @@ describe('/projects/[id] dashboard', () => {
     vi.clearAllMocks();
     mockCookies.mockResolvedValue({} as never);
     mockGetOrgId.mockReturnValue(ORG_ID);
-    mockIsAdminOrRepoAdmin.mockResolvedValue(true);
+    mockGetOrgRole.mockResolvedValue('admin');
   });
 
   // -------------------------------------------------------------------------
@@ -143,7 +139,7 @@ describe('/projects/[id] dashboard', () => {
 
   describe('Given an Org Member (not admin or repo-admin)', () => {
     it('is redirected to /assessments', async () => {
-      mockIsAdminOrRepoAdmin.mockResolvedValue(false);
+      mockGetOrgRole.mockResolvedValue(null);
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
@@ -154,13 +150,13 @@ describe('/projects/[id] dashboard', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property: No membership row → redirect (isAdminOrRepoAdmin returns false)
+  // Property: No membership row → redirect (getOrgRole returns null)
   // [req §Story 1.3 AC3] [lld §B.6 invariant I5]
   // -------------------------------------------------------------------------
 
   describe('Given the user has no membership row in the org', () => {
     it('redirects to /assessments', async () => {
-      mockIsAdminOrRepoAdmin.mockResolvedValue(false);
+      mockGetOrgRole.mockResolvedValue(null);
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
@@ -203,13 +199,14 @@ describe('/projects/[id] dashboard', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property: Org Admin → DeleteButton included (action prop non-null)
+  // Property: Org Admin (role='admin') → DeleteButton included (action prop non-null)
   // [req §Story 1.5] "Org Admin invokes delete"; [lld §B.6 "visible iff github_role === 'admin'"]
   // -------------------------------------------------------------------------
 
-  describe('Given an Org Admin (github_role=admin)', () => {
+  describe('Given an Org Admin (getOrgRole returns "admin")', () => {
     it('passes a non-null DeleteButton element as action to PageHeader', async () => {
-      const client = makeClient({ githubRole: 'admin' });
+      mockGetOrgRole.mockResolvedValue('admin');
+      const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
@@ -220,13 +217,14 @@ describe('/projects/[id] dashboard', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property: Repo Admin (member + non-empty admin_repo_github_ids) → no DeleteButton
+  // Property: Repo Admin (role='repo_admin') → no DeleteButton
   // [req §Story 1.5 AC3] "Repo Admin → 403"; [lld §B.6 "visible iff github_role === 'admin'"]
   // -------------------------------------------------------------------------
 
-  describe('Given a Repo Admin (github_role=member, passes isAdminOrRepoAdmin)', () => {
+  describe('Given a Repo Admin (getOrgRole returns "repo_admin")', () => {
     it('passes null action to PageHeader — DeleteButton not rendered', async () => {
-      const client = makeClient({ githubRole: 'member' });
+      mockGetOrgRole.mockResolvedValue('repo_admin');
+      const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
