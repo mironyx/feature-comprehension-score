@@ -214,8 +214,14 @@ export function SettingsForm({ projectId, projectName, initial }: SettingsFormPr
         <GlobPatternList
           items={globs}
           errors={globErrors}
-          onAdd={(v) => setGlobs((prev) => [...prev, v])}
-          onRemove={(i) => setGlobs((prev) => prev.filter((_, idx) => idx !== i))}
+          onAdd={(v) => {
+            setGlobs((prev) => [...prev, v]);
+            setGlobErrors({});
+          }}
+          onRemove={(i) => {
+            setGlobs((prev) => prev.filter((_, idx) => idx !== i));
+            setGlobErrors({});
+          }}
         />
 
         <div className="space-y-2">
