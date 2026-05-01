@@ -223,21 +223,23 @@ describe('/projects/[id]/settings page [#421, lld §B.1, req §Story 3.1]', () =
   });
 
   // -------------------------------------------------------------------------
-  // Property 4: Org Member is redirected to /projects/[id] — NOT /assessments
+  // Property 4: Org Member is redirected to /assessments
   // [req §Story 3.1 AC6, lld §B.1 Invariant I3, #421]
-  // I3: "redirects Org Members back to the project page (/projects/[id]) — not /assessments"
+  // I3: settings is admin-only; non-admins reaching /projects/[id]/settings via
+  //     direct URL get sent to /assessments (a page they have access to) rather
+  //     than back to /projects/[id], which would be a no-op redirect loop.
   // -------------------------------------------------------------------------
 
   describe('Given an Org Member (getOrgRole returns null)', () => {
-    it('When the page renders, Then it redirects to /projects/[id] [I3, req §Story 3.1 AC6, #421]', async () => {
+    it('When the page renders, Then it redirects to /assessments [I3, req §Story 3.1 AC6, #421]', async () => {
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
       mockGetOrgRole.mockResolvedValue(null);
 
-      await expect(callPage()).rejects.toThrow(`NEXT_REDIRECT:/projects/${PROJECT_ID}`);
+      await expect(callPage()).rejects.toThrow('NEXT_REDIRECT:/assessments');
     });
 
-    it('When the page renders, Then it does NOT redirect to /assessments [I3, #421]', async () => {
+    it('When the page renders, Then it does NOT redirect back to /projects/[id] (no-op loop) [I3, #421]', async () => {
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
       mockGetOrgRole.mockResolvedValue(null);
@@ -249,7 +251,7 @@ describe('/projects/[id]/settings page [#421, lld §B.1, req §Story 3.1]', () =
         thrownMessage = (e as Error).message;
       }
 
-      expect(thrownMessage).not.toContain('NEXT_REDIRECT:/assessments');
+      expect(thrownMessage).not.toContain(`NEXT_REDIRECT:/projects/${PROJECT_ID}`);
     });
   });
 

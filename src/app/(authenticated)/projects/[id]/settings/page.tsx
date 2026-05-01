@@ -1,7 +1,9 @@
 // Project settings page — server component.
 // Loads project + organisation_contexts row keyed by (org_id, project_id);
-// renders SettingsForm. Org Member redirects to /projects/[id]; unknown
-// project returns 404.
+// renders SettingsForm. Org Member reaching this URL directly redirects to
+// /assessments — settings is admin-only and the project page has no UI link
+// to it, so /projects/[id] would be a no-op redirect loop. Unknown project
+// returns 404.
 // Design reference: docs/design/lld-v11-e11-3-project-context-config.md §B.1
 // Issue: #421
 
@@ -53,7 +55,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
   if (!user) redirect('/auth/sign-in');
 
   const role = await getOrgRole(supabase, user.id, project.org_id);
-  if (role === null) redirect(`/projects/${projectId}`);
+  if (role === null) redirect('/assessments');
 
   const { data: ctxRow } = await supabase
     .from('organisation_contexts')

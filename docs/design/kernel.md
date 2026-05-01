@@ -41,7 +41,7 @@ This is the curated list of helpers, types, and entry points that every new feat
 
 | Symbol | Path | Purpose |
 |---|---|---|
-| `validateBody(request, schema) → Promise<T>` | `@/lib/api/validation` | Parses JSON body, runs Zod, throws `ApiError(400)` on failure. Replaces hand-rolled `await request.json()` + `schema.safeParse`. |
+| `validateBody(request, schema) → Promise<T>` | `@/lib/api/validation` | Parses JSON body, runs Zod, throws `ApiError(422, 'Validation failed', { issues })` on failure. Replaces hand-rolled `await request.json()` + `schema.safeParse`. The serialised response shape is `{ error, details: { issues: [{ path, message }] } }` — clients consuming validation errors must read `body.details.issues`, not `body.issues`. |
 | `json(payload, status?)` | `@/lib/api/response` | The only response constructor for success paths. Defaults to 200. |
 | `paginated(rows, total, page, pageSize)` | `@/lib/api/response` | Wraps a list response in the standard pagination envelope. |
 | `ApiError(status, code, details?)` | `@/lib/api/errors` | The only error class. Carries HTTP status + machine-readable code. |
@@ -97,6 +97,8 @@ These are the duplicate-implementation patterns we have already corrected once v
 - Placing rubric pipeline helpers in `@/lib/engine/` — the pipeline uses Supabase and Octokit clients, violating the engine layer's Clean Architecture constraint (no framework imports).
 - Constructing `/assessments/${id}` hrefs when rendering assessment list items — after T2.3 (issue #412) the correct shape is `/projects/${project_id}/assessments/${id}`. PRCC rows have `project_id === null` and must render as non-navigable `<span>` elements; never use `href="#"` as a placeholder.
 - Querying `assessment_participants` by `user_id` only — the RLS policy `participants_select_own` gates solely on `user_id = auth.uid()`, with no org_id constraint. A user in multiple orgs will see cross-org rows without `.eq('org_id', orgId)`. Always add the explicit org filter (issue #415).
+- Reading validation errors from `body.issues` in form code — `validateBody` + `handleApiError` nest issues under `body.details.issues` (status 422). Use `body.details?.issues` and accept both 400 and 422 defensively; otherwise per-field error display silently breaks (issue #421).
+- Validating glob patterns with bare `picomatch.makeRe(p)` plus a try/catch — picomatch v4 is permissive by default and returns a literal regex for malformed input rather than throwing. Use `picomatch.makeRe(p, { strictBrackets: true })` so malformed brackets actually surface (issue #421).
 - Calling `loadOrgPromptContext` from the FCS rubric pipeline — V11 reads project-scoped context only. Use `loadProjectPromptContext(adminSupabase, projectId)` in `extractArtefacts`. The org-level helper is retained for the `/organisation` org-context UI (issue #422 / Invariant I5).
 
 ---
