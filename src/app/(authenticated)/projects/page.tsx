@@ -35,6 +35,9 @@ export default async function ProjectsPage() {
   const isRepoAdmin = ((row?.admin_repo_github_ids ?? []) as number[]).length > 0;
   if (!isAdmin && !isRepoAdmin) redirect('/assessments');
 
+  // Design deviation: LLD §B.5 says to call listProjects(ctx, orgId) directly, but
+  // listProjects expects ApiContext (route-handler clients) which doesn't compose cleanly
+  // with server-component clients. Inline query follows the assessments/page.tsx pattern.
   const { data } = await supabase
     .from('projects')
     .select('id, org_id, name, description, created_at, updated_at')

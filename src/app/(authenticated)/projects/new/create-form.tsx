@@ -41,6 +41,8 @@ export default function CreateProjectForm({ orgId }: CreateProjectFormProps) {
       } else {
         setError('Something went wrong. Please try again.');
       }
+    } catch {
+      setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
