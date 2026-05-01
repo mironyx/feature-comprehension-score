@@ -1,16 +1,13 @@
 'use client';
 
 // CreateAssessmentForm — client component for admin to create an FCS assessment.
-// Submits to POST /api/fcs and shows inline progress on success.
-// Issue: #121, #208
+// Submits to POST /api/projects/[pid]/assessments and redirects to the assessment detail on success.
+// Issue: #121, #208, #413
 
 import { useState, useCallback } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { PollingStatusBadge } from '@/app/(authenticated)/assessments/polling-status-badge';
-import { RetryButton } from '@/app/(authenticated)/assessments/retry-button';
-import { useStatusPoll } from '@/app/(authenticated)/assessments/use-status-poll';
 
 interface Repository {
   id: string;
@@ -18,7 +15,7 @@ interface Repository {
 }
 
 interface CreateAssessmentFormProps {
-  readonly orgId: string;
+  readonly projectId: string;
   readonly repositories: Repository[];
 }
 
@@ -33,7 +30,6 @@ interface FormState {
 }
 
 interface AssessmentPayload {
-  org_id: string;
   repository_id: string;
   feature_name: string;
   feature_description?: string;
@@ -102,8 +98,8 @@ interface PostResult {
   assessmentId?: string;
 }
 
-async function postAssessment(payload: AssessmentPayload): Promise<PostResult> {
-  const res = await fetch('/api/fcs', {
+async function postAssessment(url: string, payload: AssessmentPayload): Promise<PostResult> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -116,75 +112,12 @@ async function postAssessment(payload: AssessmentPayload): Promise<PostResult> {
   return { assessmentId: body.assessment_id };
 }
 
-interface CreationResult {
-  readonly assessmentId: string;
-  readonly featureName: string;
-}
-
-function CreationProgress({ assessmentId, featureName }: CreationResult) {
-  const [pollKey, setPollKey] = useState(0);
-  const { status, rubricRetryCount, rubricErrorRetryable } = useStatusPoll(assessmentId, 'rubric_generation', pollKey);
-
-  if (status === 'awaiting_responses') {
-    return (
-      <Card>
-        <div className="space-y-4">
-          <p className="text-body text-text-primary">
-            Rubric generated successfully for <strong>{featureName}</strong>.
-          </p>
-          <Link href={`/assessments/${assessmentId}`} className="text-primary underline">
-            View assessment
-          </Link>
-        </div>
-      </Card>
-    );
-  }
-
-  if (status === 'rubric_failed') {
-    return (
-      <Card>
-        <div className="space-y-4">
-          <p className="text-body text-destructive">
-            Rubric generation failed for <strong>{featureName}</strong>.
-          </p>
-          <RetryButton
-            assessmentId={assessmentId}
-            retryCount={rubricRetryCount}
-            maxRetries={3}
-            errorRetryable={rubricErrorRetryable}
-            onSuccess={() => setPollKey(k => k + 1)}
-          />
-          <Link href="/organisation" className="text-primary underline">
-            Back to Organisation
-          </Link>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <div className="space-y-4">
-        <p className="text-body text-text-primary">
-          Creating assessment: <strong>{featureName}</strong>
-        </p>
-        <PollingStatusBadge assessmentId={assessmentId} initialStatus="rubric_generation" />
-        <div>
-          <Link href="/organisation" className="text-primary underline text-body">
-            Go to Organisation overview
-          </Link>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-export default function CreateAssessmentForm({ orgId, repositories }: CreateAssessmentFormProps) {
+export default function CreateAssessmentForm({ projectId, repositories }: CreateAssessmentFormProps) {
+  const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
   // Justification: S1854 false positive — React reads `errors` on every render via useState; the initial [] is not a dead assignment.
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [created, setCreated] = useState<CreationResult | null>(null);
 
   const handleChange = useCallback(
     (field: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -204,7 +137,6 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         const prs = parsePositiveIntegers(form.prNumbers);
         const issues = parsePositiveIntegers(form.issueNumbers);
         const payload: AssessmentPayload = {
-          org_id: orgId,
           repository_id: form.repositoryId,
           feature_name: form.featureName.trim(),
           feature_description: form.featureDescription.trim() || undefined,
@@ -213,9 +145,9 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         };
         if (prs.length > 0) payload.merged_pr_numbers = prs;
         if (issues.length > 0) payload.issue_numbers = issues;
-        const result = await postAssessment(payload);
+        const result = await postAssessment(`/api/projects/${projectId}/assessments`, payload);
         if (result.error || !result.assessmentId) { setErrors([result.error ?? 'Missing assessment ID in response.']); return; }
-        setCreated({ assessmentId: result.assessmentId, featureName: form.featureName.trim() });
+        router.push(`/projects/${projectId}/assessments/${result.assessmentId}`);
       } catch (err) {
         console.error('CreateAssessmentForm: submit failed:', err);
         setErrors(['Network error. Please try again.']);
@@ -223,14 +155,10 @@ export default function CreateAssessmentForm({ orgId, repositories }: CreateAsse
         setSubmitting(false);
       }
     },
-    [form, orgId],
+    [form, projectId, router],
   );
 
   const inputClasses = 'w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary';
-
-  if (created) {
-    return <CreationProgress assessmentId={created.assessmentId} featureName={created.featureName} />;
-  }
 
   return (
     <Card>
