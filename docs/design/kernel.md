@@ -95,6 +95,7 @@ These are the duplicate-implementation patterns we have already corrected once v
 - Re-implementing rubric pipeline functions outside `@/lib/api/fcs-pipeline`.
 - Placing rubric pipeline helpers in `@/lib/engine/` — the pipeline uses Supabase and Octokit clients, violating the engine layer's Clean Architecture constraint (no framework imports).
 - Constructing `/assessments/${id}` hrefs when rendering assessment list items — after T2.3 (issue #412) the correct shape is `/projects/${project_id}/assessments/${id}`. PRCC rows have `project_id === null` and must render as non-navigable `<span>` elements; never use `href="#"` as a placeholder.
+- Querying `assessment_participants` by `user_id` only — the RLS policy `participants_select_own` gates solely on `user_id = auth.uid()`, with no org_id constraint. A user in multiple orgs will see cross-org rows without `.eq('org_id', orgId)`. Always add the explicit org filter (issue #415).
 
 ---
 

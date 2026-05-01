@@ -25,15 +25,15 @@ entries:
 
   - req: REQ-fcs-scoped-to-projects-my-pending-assessments
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
-    issue: null
+    issue: 415
     files: []
-    status: Approved
+    status: Revised
 
   - req: REQ-fcs-scoped-to-projects-filter-pending-by-project
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
-    issue: null
+    issue: 415
     files: []
-    status: Approved
+    status: Revised
 
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-urls
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration

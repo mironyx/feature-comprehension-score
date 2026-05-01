@@ -11,6 +11,7 @@
 | Revised | 2026-05-01 | Issue #413 |
 | Revised | 2026-05-01 | Issue #412 |
 | Revised | 2026-05-01 | Issue #411 |
+| Revised | 2026-05-01 | Issue #415 |
 | Epic | E11.2 (#409) |
 | Parent HLD | [v11-design.md §C3, §3.V11.1](v11-design.md#c3-feature-comprehension-score-fcs--extended) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -591,7 +592,6 @@ const { data: rows } = await supabase
 const { data } = await supabase
   .from('assessment_participants')
   .select(`
-    status,
     assessments!inner(
       id, type, status, feature_name, feature_description, created_at,
       rubric_error_code, rubric_retry_count, rubric_error_retryable,
@@ -600,14 +600,23 @@ const { data } = await supabase
     )
   `)
   .eq('user_id', user.id)
+  .eq('org_id', orgId)
   .eq('status', 'pending')
   .eq('assessments.type', 'fcs')
   .order('created_at', { foreignTable: 'assessments', ascending: false });
 ```
 
+> **Implementation note (issue #415):** `.eq('org_id', orgId)` is required. The RLS policy
+> `participants_select_own` uses only `USING (user_id = auth.uid())` — no org_id gate — so a
+> user in multiple organisations would see cross-org pending items without the explicit filter.
+> The top-level `status` field was also removed from the select; it is used as a filter predicate
+> only and is not needed in the returned shape. Supabase's TypeScript inference for deeply nested
+> `!inner` joins produces a `SelectQueryError` type; the cast `as unknown as
+> ProjectAssessmentItem[]` is the idiomatic workaround.
+
 **Distinct projects for filter:** derive client-side from the same query result — `Array.from(new Map(rows.map(r => [r.assessments.project_id, r.assessments.projects.name])).entries())`. If `distinct.length <= 1`, do not render the filter.
 
-**Filter component (`project-filter.tsx`):** single-select with "All projects" as the default; `onChange` filters the current list (client-side) by `project_id`. No server round-trip — the dataset is already loaded.
+**Filter component (`project-filter.tsx`):** single-select with "All projects" as the default; filters the current list (client-side) by `project_id`. No server round-trip — the dataset is already loaded.
 
 **Item link:** `/projects/${row.assessments.project_id}/assessments/${row.assessments.id}` — uses the new URL shape from T2.3.
 
@@ -844,15 +853,18 @@ describe('/projects/[id]/assessments/new')
 **What:** Rewrite `/assessments` to show only the current user's pending FCS assessments across projects. Derive distinct projects client-side; render a single-select filter only when distinct count > 1. Item links use the new `/projects/[id]/assessments/[aid]` shape. Remove the Completed tab and the org-wide query.
 
 **Internal decomposition:**
-- `function distinctProjects(rows: PendingRow[]): Array<{ id: string; name: string }>` — pure helper, ≤ 10 lines, exported for unit test.
-- `ProjectFilter` client component:
+- `distinctProjects` extraction **not implemented** — inlined as a single `Array.from(new Map(...).entries())` expression in `page.tsx`. _(descoped — single use; extracting a named helper would violate YAGNI)_
+- `ProjectFilter` client component — **uncontrolled** (manages its own `selectedProject` via `useState`):
   ```ts
   function ProjectFilter(props: {
+    items: ProjectAssessmentItem[];
     projects: Array<{ id: string; name: string }>;
-    value: string | 'all';
-    onChange: (next: string | 'all') => void;
   }): JSX.Element
   ```
+  > **Implementation note (issue #415):** The LLD specified a controlled component with `value` /
+  > `onChange` props. The implementation uses internal `useState` instead — simpler, since no
+  > parent needs to own the filter state (there is only one consumer). The `href` is pre-computed
+  > in `page.tsx` and injected onto each item before passing to the component.
 
 **Acceptance:** see issue.
 
