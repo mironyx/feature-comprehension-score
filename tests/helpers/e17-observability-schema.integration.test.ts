@@ -27,7 +27,7 @@ async function createRubricAssessment(
     id: assessmentId,
     org_id: orgId,
     repository_id: repoId,
-    type: 'fcs',
+    type: 'prcc',
     status: 'rubric_generation',
     config_enforcement_mode: 'soft',
     config_score_threshold: 70,

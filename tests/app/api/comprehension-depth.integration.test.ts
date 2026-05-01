@@ -37,6 +37,7 @@ describe('create_fcs_assessment RPC', () => {
       const svc = secretClient();
       orgId = await createTestOrg(svc);
       const repoId = await createTestRepo(svc, orgId);
+      const { data: proj } = await svc.from('projects').insert({ org_id: orgId, name: 'Depth test project' }).select('id').single();
       const assessmentId = crypto.randomUUID();
 
       const { error } = await svc.rpc('create_fcs_assessment', {
@@ -52,6 +53,7 @@ describe('create_fcs_assessment RPC', () => {
         p_config_comprehension_depth: 'detailed',
         p_merged_prs: [{ pr_number: 1, pr_title: 'PR one' }],
         p_participants: [{ github_user_id: 2001, github_username: 'carol' }],
+        p_project_id: proj!.id,
       });
 
       expect(error).toBeNull();
@@ -75,6 +77,7 @@ describe('create_fcs_assessment RPC', () => {
       const svc = secretClient();
       orgId = await createTestOrg(svc);
       const repoId2 = await createTestRepo(svc, orgId);
+      const { data: proj2 } = await svc.from('projects').insert({ org_id: orgId, name: 'Depth default project' }).select('id').single();
       const assessmentId = crypto.randomUUID();
 
       const { error } = await svc.rpc('create_fcs_assessment', {
@@ -90,6 +93,7 @@ describe('create_fcs_assessment RPC', () => {
         // p_config_comprehension_depth intentionally omitted — RPC default applies
         p_merged_prs: [{ pr_number: 2, pr_title: 'PR two' }],
         p_participants: [{ github_user_id: 2002, github_username: 'dan' }],
+        p_project_id: proj2!.id,
       });
 
       expect(error).toBeNull();
