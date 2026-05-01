@@ -40,6 +40,11 @@ vi.mock('next/headers', () => ({
 // Stub child components so JSON.stringify of the React element tree exposes
 // prop values for assertion. The page mounts these as JSX elements whose props
 // appear in the serialised output even though the function bodies never run.
+vi.mock('next/link', () => ({
+  default: ({ href, children }: { href: string; children?: unknown }) =>
+    ({ type: 'a', props: { href, children } }),
+}));
+
 vi.mock('@/app/(authenticated)/projects/[id]/inline-edit-header', () => ({
   InlineEditHeader: () => null,
 }));

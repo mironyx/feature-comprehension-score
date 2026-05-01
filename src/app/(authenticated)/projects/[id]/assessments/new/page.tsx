@@ -3,7 +3,9 @@
 // Issue: #413
 
 import { notFound, redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import CreateAssessmentForm from './create-assessment-form';
@@ -17,12 +19,16 @@ export default async function NewAssessmentPage({ params }: NewAssessmentPagePro
   const { id: projectId } = await params;
   const supabase = await createServerSupabaseClient();
 
-  const { data: project } = await supabase
-    .from('projects').select('id, org_id, name').eq('id', projectId).maybeSingle();
-  if (!project) notFound();
-
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
+
+  const cookieStore = await cookies();
+  const orgId = getSelectedOrgId(cookieStore);
+  if (!orgId) redirect('/org-select');
+
+  const { data: project } = await supabase
+    .from('projects').select('id, org_id, name').eq('id', projectId).eq('org_id', orgId).maybeSingle();
+  if (!project) notFound();
 
   const snapshot = await readMembershipSnapshot(supabase, user.id, project.org_id);
   const role = snapshot ? snapshotToOrgRole(snapshot) : null;

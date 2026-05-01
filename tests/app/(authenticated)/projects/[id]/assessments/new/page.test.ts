@@ -18,6 +18,10 @@ vi.mock('@/lib/supabase/membership', () => ({
   snapshotToOrgRole: vi.fn(),
 }));
 
+vi.mock('@/lib/supabase/org-context', () => ({
+  getSelectedOrgId: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -51,11 +55,13 @@ vi.mock('@/components/ui/page-header', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
+import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { cookies } from 'next/headers';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockReadSnapshot = vi.mocked(readMembershipSnapshot);
 const mockSnapshotToOrgRole = vi.mocked(snapshotToOrgRole);
+const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockCookies = vi.mocked(cookies);
 
 // ---------------------------------------------------------------------------
@@ -91,11 +97,12 @@ const REPO_ADMIN_SNAPSHOT = {
 // Chain builder helpers
 // ---------------------------------------------------------------------------
 
-/** Builds a terminal select chain ending with .maybeSingle() */
+/** Builds a terminal select chain ending with .maybeSingle() — supports up to two .eq() calls */
 function makeMaybeSingleChain(data: unknown) {
   const maybeSingle = vi.fn().mockResolvedValue({ data, error: null });
-  const eq = vi.fn().mockReturnValue({ maybeSingle });
-  const select = vi.fn().mockReturnValue({ eq });
+  const eq2 = vi.fn().mockReturnValue({ maybeSingle });
+  const eq1 = vi.fn().mockReturnValue({ eq: eq2, maybeSingle });
+  const select = vi.fn().mockReturnValue({ eq: eq1 });
   return { select };
 }
 
@@ -179,6 +186,7 @@ describe('/projects/[id]/assessments/new page', () => {
     vi.clearAllMocks();
     vi.resetModules();
     mockCookies.mockResolvedValue({} as never);
+    mockGetOrgId.mockReturnValue(ORG_ID);
     // Default to an Org Admin snapshot — overridden per test
     mockReadSnapshot.mockResolvedValue(ADMIN_SNAPSHOT);
     mockSnapshotToOrgRole.mockReturnValue('admin');
