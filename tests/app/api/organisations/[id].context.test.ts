@@ -158,9 +158,9 @@ describe('PATCH /api/organisations/[id]/context', () => {
       expect(response.status).toBe(422);
     });
 
-    it('then it returns 422 when domain_notes exceeds 500 chars', async () => {
+    it('then it returns 422 when domain_notes exceeds 2000 chars (V11 cap raised from 500)', async () => {
       const response = await patchContext({
-        domain_notes: 'x'.repeat(501),
+        domain_notes: 'x'.repeat(2001),
       });
 
       expect(response.status).toBe(422);

@@ -44,13 +44,17 @@ export const OrganisationContextSchema = z.object({
   focus_areas: z.array(z.string().min(1)).max(5).optional(),
   /** Modules or areas to exclude from questions (max 5). */
   exclusions: z.array(z.string().min(1)).max(5).optional(),
-  /** Free-text domain context. Capped to prevent prompt injection. */
-  domain_notes: z.string().max(500).optional(),
+  /** Free-text domain context. Capped to prevent prompt injection. V11: raised 500 → 2000 to match UpdateProjectSchema. */
+  domain_notes: z.string().max(2000).optional(),
+  /** V11: project-scoped glob patterns selecting context files. */
+  glob_patterns: z.array(z.string().min(1)).max(50).optional(),
+  /** V11: project-scoped question count override for FCS rubric generation. */
+  question_count: z.number().int().min(3).max(8).optional(),
 });
 export type OrganisationContext = z.infer<typeof OrganisationContextSchema>;
 
 export const AssembledArtefactSetSchema = RawArtefactSetSchema.extend({
-  question_count: z.number().int().min(3).max(5),
+  question_count: z.number().int().min(3).max(8),
   artefact_quality: ArtefactQualitySchema,
   token_budget_applied: z.boolean(),
   truncation_notes: z.array(z.string()).optional(),
