@@ -87,11 +87,11 @@ sequenceDiagram
     API-->>U: 409 {error: "project_not_empty"}
   else count == 0
     API->>DB: delete from projects where id=$1
-    alt 0 rows affected
-      API-->>U: 404
-    else 1 row affected
-      API-->>U: 204
-    end
+  end
+  alt row deleted
+    API-->>U: 204
+  else not found (already deleted)
+    API-->>U: 404
   end
 ```
 
