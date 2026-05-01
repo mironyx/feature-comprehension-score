@@ -18,7 +18,7 @@
 
 These are flagged here rather than silently decided in the body — confirm direction before `/feature` runs.
 
-1. **Glob validator library.** `picomatch` is the most lightweight option (already transitively available via `micromatch`). `minimatch` is also transitively available. Draft uses `picomatch.makeRe(pattern)` inside a Zod `.refine()` — flip to `minimatch` if `picomatch` is not exposed at the top level after a direct `npm install picomatch`.
+1. ~~**Glob validator library.**~~ **Resolved 2026-05-01.** `picomatch.makeRe` resolves at the top level (verified via `require('picomatch').makeRe`). Use `picomatch` directly; install as a direct dependency.
 2. **Question count default when no project context row exists.** Story 3.1 says "system default question count". Draft: read from `org_config.fcs_question_count` (existing repo/org config column) at resolver time and fall back to `4` if absent — keeps the project-context resolver self-contained while honouring the existing org-config baseline. Alternative: hard-code `4` in the resolver. Decision affects whether the resolver depends on `org_config`.
 
 ---
@@ -118,41 +118,22 @@ sequenceDiagram
 ### Structural overview
 
 ```mermaid
-classDiagram
-  class SettingsPage {
-    /projects/[id]/settings
-    server: load project + context, redirect Org Member
-  }
-  class SettingsForm {
-    client component
-    posts to PATCH /api/projects/[id]
-  }
-  class UpdateProjectSchema {
-    Zod schema
-    refines glob parseability
-  }
-  class PatchProjectsApi {
-    PATCH /api/projects/[id]
-    existing — extended only via UpdateProjectSchema refine
-  }
-  class ProjectPromptContext {
-    type: { glob_patterns?, domain_notes?, question_count?, domain_vocabulary?, focus_areas?, exclusions? }
-  }
-  class loadProjectPromptContext {
-    (supabase, projectId) -> ProjectPromptContext | undefined
-  }
-  class FcsPipeline {
-    extractArtefacts (modified)
-  }
-  class PromptBuilder {
-    formatOrganisationContext (unchanged contract)
-  }
+flowchart LR
+  SettingsPage["SettingsPage<br/>(server)<br/>/projects/[id]/settings"]
+  SettingsForm["SettingsForm<br/>(client component)"]
+  PatchApi["PATCH /api/projects/[id]<br/>(existing — extended)"]
+  Schema["UpdateProjectSchema<br/>(Zod + glob superRefine)"]
+  Resolver["loadProjectPromptContext<br/>(supabase, projectId)"]
+  Context["OrganisationContext<br/>(extended: glob_patterns, question_count)"]
+  Pipeline["fcs-pipeline.extractArtefacts<br/>(modified)"]
+  Formatter["formatOrganisationContext<br/>(unchanged)"]
+
   SettingsPage --> SettingsForm
-  SettingsForm --> PatchProjectsApi
-  PatchProjectsApi --> UpdateProjectSchema
-  FcsPipeline --> loadProjectPromptContext
-  loadProjectPromptContext --> ProjectPromptContext
-  FcsPipeline --> PromptBuilder
+  SettingsForm --> PatchApi
+  PatchApi --> Schema
+  Pipeline --> Resolver
+  Resolver --> Context
+  Pipeline --> Formatter
 ```
 
 ### Invariants
@@ -163,7 +144,7 @@ classDiagram
 | I2 | `PATCH /api/projects/[id]` rejects `question_count` outside 3..5 | Existing `z.number().int().min(3).max(5)` (E11.1) — covered by T3.1 BDD spec |
 | I3 | Settings page redirects Org Members to `/assessments` | Server-side `getOrgRole` check (T3.1) |
 | I4 | Settings page returns 404 for unknown / cross-org `projectId` | Server-side `select * from projects where id=$1` returns null ⇒ `notFound()` (T3.1) |
-| I5 | FCS rubric generation reads project context only — `loadOrgPromptContext` is never called from the FCS path | Grep `loadOrgPromptContext` in `src/lib/engine/fcs-pipeline.ts` returns no matches (T3.2) + unit test asserting the call is `loadProjectPromptContext` |
+| I5 | FCS rubric generation reads project context only — `loadOrgPromptContext` is never called from the FCS path | Grep `loadOrgPromptContext` in `src/lib/api/fcs-pipeline.ts` returns no matches (T3.2) + unit test asserting the call is `loadProjectPromptContext` |
 | I6 | A project with no `organisation_contexts` row produces a rubric prompt with no `organisation_context` block | Resolver returns `undefined`; `extractArtefacts` passes `organisation_context: undefined` to the assembled set; `formatOrganisationContext` already omits the block when undefined (T3.2) |
 | I7 | The question count used by rubric generation equals the project's configured value when set | Integration test asserting `assessment.config_question_count === projectCtx.question_count` after creation (T3.2) |
 | I8 | The project resolver does not consult the org-level row (`project_id IS NULL`) | SQL predicate is `.eq('project_id', $1)` — not `.or()`; covered by unit test that creates an org-level row + a project row and asserts the resolver returns only the project row |
@@ -218,8 +199,8 @@ describe('FCS rubric — project-context wiring (T3.2)')
 
 | Layer | Files |
 |-------|-------|
-| **DB** | none — schema already in place (`organisation_contexts.project_id` exists per [tables.sql:344](../../supabase/schemas/tables.sql), `patch_project` RPC exists per [functions.sql:405](../../supabase/schemas/functions.sql)) |
-| **BE — engine** | `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema` OR add `ProjectPromptContextSchema`), `src/lib/supabase/project-prompt-context.ts` (new), `src/lib/engine/fcs-pipeline.ts` (modify `extractArtefacts`; located here post-E11.2 T2.2) |
+| **DB** | none — schema already in place (`organisation_contexts.project_id` exists per [tables.sql:353](../../supabase/schemas/tables.sql), `patch_project` RPC exists per [functions.sql:408](../../supabase/schemas/functions.sql)) |
+| **BE — engine/API** | `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema`), `src/lib/supabase/project-prompt-context.ts` (new), `src/lib/api/fcs-pipeline.ts` (modify `extractArtefacts` and the public trigger/retry types; the file lives in `src/lib/api/`, not `src/lib/engine/`, because it depends on Supabase + GitHub adapters — see file header comment) |
 | **BE — API** | `src/app/api/projects/validation.ts` (extend `UpdateProjectSchema` with glob `.refine()`) |
 | **FE — pages** | `src/app/(authenticated)/projects/[id]/settings/page.tsx` (server, new), `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (client, new) |
 | **Tests** | `tests/app/api/projects/[id]/validation.test.ts` (extend), `tests/app/(authenticated)/projects/[id]/settings/page.test.tsx` (new), `tests/lib/supabase/project-prompt-context.test.ts` (new), `tests/lib/engine/fcs-pipeline-project-context.test.ts` (new — integration-style with stubbed Supabase) |
@@ -379,7 +360,7 @@ interface SettingsFormProps {
 **Files:**
 - `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema` with `glob_patterns` + `question_count` fields, OR add a new `ProjectPromptContextSchema` that is a strict superset)
 - `src/lib/supabase/project-prompt-context.ts` (new — mirror of `org-prompt-context.ts` shape)
-- `src/lib/engine/fcs-pipeline.ts` (modify `extractArtefacts` — replace `loadOrgPromptContext` call with `loadProjectPromptContext`; route `question_count` from project context)
+- `src/lib/api/fcs-pipeline.ts` (modify `extractArtefacts`, `RubricTriggerParams`, `AssessmentRetryRow` + retry SELECT — replace `loadOrgPromptContext` call with `loadProjectPromptContext`; route `question_count` from project context; thread `projectId` through both call sites)
 - `tests/lib/supabase/project-prompt-context.test.ts` (new)
 - `tests/lib/engine/fcs-pipeline-project-context.test.ts` (new)
 
@@ -445,7 +426,7 @@ export async function loadProjectPromptContext(
 }
 ```
 
-**Pipeline modification.** In `src/lib/engine/fcs-pipeline.ts` (post-E11.2 T2.2), change the relevant `Promise.all` block in `extractArtefacts`:
+**Pipeline modification.** In `src/lib/api/fcs-pipeline.ts` (the file lives in `src/lib/api/`, not `src/lib/engine/`, because it depends on Supabase + GitHub adapters — see header comment in the file), change the relevant `Promise.all` block in `extractArtefacts`:
 
 ```ts
 // BEFORE (current shape, in api/fcs/service.ts pre-T2.2 OR fcs-pipeline.ts post-T2.2)
@@ -474,7 +455,14 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 
 > The branded type `AssembledArtefactSet` already has `question_count: z.number().int().min(3).max(5)`. The propagation point is whatever currently passes `repoInfo.questionCount` to the assembled set — replace with `effectiveQuestionCount`.
 
-**Caller signature change.** `extractArtefacts` already receives the assessment row; add `projectId` to the params (it is non-null by Invariant I1 from E11.2 T2.1). The caller (`triggerRubricGeneration` / `retriggerRubricForAssessment`) already has the assessment row, so reading `assessment.project_id` is a one-line addition.
+**Caller-plumbing changes (explicit edit list).** `projectId` must reach `extractArtefacts`. The minimal threading is:
+
+1. `ExtractArtefactsParams` (private interface in `fcs-pipeline.ts`) — add `projectId: string`.
+2. `RubricTriggerParams` (public interface in `fcs-pipeline.ts`, ~lines 85–92) — add `projectId: string`. Forward it inside `triggerRubricGeneration` when calling `extractArtefacts`.
+3. `AssessmentRetryRow` (private interface in `fcs-pipeline.ts`, ~lines 569–578) — add `project_id: string`. Update the retry-rubric route's SELECT (the call site that constructs `AssessmentRetryRow` from the `assessments` row) to include `project_id`. Inside `retriggerRubricForAssessment`, pass `projectId: assessment.project_id` to `triggerRubricGeneration` (line ~619).
+4. Create caller — `src/app/api/projects/[id]/assessments/service.ts:66` already has `projectId` in scope; just add `projectId` to the `triggerRubricGeneration` call object.
+
+`assessments.project_id` is non-null for FCS rows by Invariant I1 from E11.2 T2.1, so no null-handling branch is needed.
 
 **No persistence change.** The `assessments.config_question_count` column already records the question count used at creation time — already captured by E11.2's `create_fcs_assessment` RPC. Story 3.2 AC 5 ("resolved context used at generation time matches the project's configuration at the time of creation") is satisfied because the project context jsonb is read once, at extraction time, and the question_count is persisted to `assessments.config_question_count`. No new column needed for the snapshot of globs / domain_notes — the prompt itself is the audit trail (already logged via the existing rubric observability fields).
 
@@ -596,11 +584,15 @@ describe('/projects/[id]/settings')
 **What:**
 1. Extend `OrganisationContextSchema` in `src/lib/engine/prompts/artefact-types.ts` with optional `glob_patterns` and `question_count`; raise `domain_notes` cap from 500 to 2000.
 2. New `src/lib/supabase/project-prompt-context.ts` exporting `loadProjectPromptContext(supabase, projectId): Promise<OrganisationContext | undefined>` — predicate `.eq('project_id', $1)`, `safeParse` → warn-and-undefined on failure (mirrors `loadOrgPromptContext`).
-3. Modify `extractArtefacts` in `src/lib/engine/fcs-pipeline.ts`:
-   - add `projectId: string` to its params (caller already has it from `assessments.project_id`)
+3. Modify `extractArtefacts` in `src/lib/api/fcs-pipeline.ts`:
+   - add `projectId: string` to `ExtractArtefactsParams`
    - replace the `loadOrgPromptContext(adminSupabase, repoInfo.orgId)` call with `loadProjectPromptContext(adminSupabase, projectId)`
    - compute `effectiveQuestionCount = organisation_context?.question_count ?? repoInfo.questionCount` and pass that to `buildTruncationOptions` and the assembled set
-4. Update both call sites (`triggerRubricGeneration`, `retriggerRubricForAssessment`) to pass `projectId` (non-null by Invariant I1 from T2.1).
+4. Thread `projectId` through both call sites (see B.2 "Caller-plumbing changes"):
+   - add `projectId: string` to `RubricTriggerParams` (public)
+   - add `project_id: string` to `AssessmentRetryRow` and include `project_id` in the retry-route SELECT
+   - update `retriggerRubricForAssessment` to forward `projectId: assessment.project_id`
+   - update `src/app/api/projects/[id]/assessments/service.ts:66` to forward `projectId` (already in scope)
 5. **Do not** delete `loadOrgPromptContext` — it is still consumed by `src/app/(authenticated)/organisation/page.tsx` for the org-level UI.
 6. Tests: 4 resolver specs + 6 pipeline specs.
 
@@ -609,7 +601,7 @@ describe('/projects/[id]/settings')
 - [ ] `loadProjectPromptContext` returns `undefined` when no row exists.
 - [ ] `loadProjectPromptContext` returns `undefined` and logs warn when the row exists but parse fails.
 - [ ] `loadProjectPromptContext` does NOT return the org-level row (`project_id IS NULL`) when both org and project rows exist.
-- [ ] Grep `loadOrgPromptContext` against `src/lib/engine/fcs-pipeline.ts` returns zero matches.
+- [ ] Grep `loadOrgPromptContext` against `src/lib/api/fcs-pipeline.ts` returns zero matches.
 - [ ] Grep `loadOrgPromptContext` against `src/app/(authenticated)/organisation/` still returns matches (helper retained for org UI).
 - [ ] An FCS assessment created in a project with `question_count = 5` produces exactly 5 generated questions.
 - [ ] An FCS assessment created in a project with no context row produces a prompt where the `organisation_context` block is omitted.
@@ -635,7 +627,8 @@ describe('FCS rubric — project-context wiring')
 - `src/lib/engine/prompts/artefact-types.ts` (extend `OrganisationContextSchema`)
 - `src/lib/engine/prompts/index.ts` (re-export delta if needed)
 - `src/lib/supabase/project-prompt-context.ts` (new)
-- `src/lib/engine/fcs-pipeline.ts` (modify `extractArtefacts` + caller signatures)
+- `src/lib/api/fcs-pipeline.ts` (modify `extractArtefacts`, `RubricTriggerParams`, `AssessmentRetryRow` + retry-route SELECT)
+- `src/app/api/projects/[id]/assessments/service.ts` (forward `projectId` to `triggerRubricGeneration`)
 - `tests/lib/supabase/project-prompt-context.test.ts` (new)
 - `tests/lib/engine/fcs-pipeline-project-context.test.ts` (new)
 
