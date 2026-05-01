@@ -40,11 +40,13 @@ Execute sequentially. Do not skip steps. Do not ask for confirmation — only pa
 
 Before writing any code, list 2–3 approaches in 1–2 sentences each. Pick the one that fixes the root cause with the least code. State why. Prefer fixing data at the source over adding complexity downstream (CLAUDE.md: "Simplicity first").
 
-**LLD deviation permitted.** If the LLD prescribes an approach that is over-engineered or
-unnecessarily complex for the actual problem, you may implement a simpler alternative. You must:
+**Critically evaluate the LLD — do not follow it blindly.** LLD sections are written before
+implementation; reality may reveal a simpler path, an incorrect assumption, an outdated pattern,
+or a better structural fit. Before coding, explicitly ask: is the LLD approach still the best one?
+Deviation is expected and welcome whenever you have a good reason. You must:
 
 1. State what the LLD recommended.
-2. State what you are doing instead and why it is simpler or better.
+2. State what you are doing instead and why it is better (simpler, more correct, better fit).
 3. Note the deviation in the PR body under a `## Design deviations` section so `/lld-sync` can
    reconcile the LLD later.
 
