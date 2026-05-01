@@ -69,60 +69,9 @@ entries:
       - src/lib/api/context.ts
     status: Revised
 
-  # Deferred: FCS scoped to projects (E11.2)
-  - req: REQ-fcs-scoped-to-projects-create-fcs-assessment
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-fcs-scoped-to-projects-my-pending-assessments
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-fcs-scoped-to-projects-filter-pending-by-project
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-urls
-    lld: null
-    files: []
-    status: Draft
-
-  # Deferred: Project context and config (E11.3) — PATCH endpoint reused without backend changes
-  - req: REQ-project-context-and-config-configure-project-context-and-settings
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-project-context-and-config-rubric-uses-project-context
-    lld: null
-    files: []
-    status: Draft
-
-  # Deferred: Navigation and routing (E11.4)
-  - req: REQ-navigation-and-routing-navbar-projects-link
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-navigation-and-routing-projects-list-page
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-navigation-and-routing-breadcrumbs
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-navigation-and-routing-root-redirect
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-navigation-and-routing-last-visited-project
-    lld: null
-    files: []
-    status: Draft
-  - req: REQ-navigation-and-routing-deep-link-compatibility
-    lld: null
-    files: []
-    status: Draft
+# Stories from sibling V11 epics (E11.2, E11.3, E11.4) used to be tracked here
+# as `lld: null, status: Draft` placeholders. They now live in their own
+# per-epic manifests:
+#   - coverage-v11-e11-2.yaml — REQ-fcs-scoped-to-projects-* + Story 4.5 (deep-link compatibility, satisfied via E11.2 route migration)
+#   - coverage-v11-e11-3.yaml — REQ-project-context-and-config-* (when E11.3 LLD lands)
+#   - coverage-v11-e11-4.yaml — remaining REQ-navigation-and-routing-* (when E11.4 LLD lands)

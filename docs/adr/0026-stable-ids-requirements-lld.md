@@ -58,7 +58,7 @@ Auto-increment integers assigned sequentially across all epics.
 - **Cons:** Sequence resets are awkward across versions. Cannot infer epic or task
   context from the ID alone; harder to read in diffs and grep output.
 
-### Option 3: Hierarchical slug IDs (`REQ-<epic-slug>-<story-slug>`, `LLD-<epic>-<task>-<section>`)
+### Option 3: Hierarchical slug IDs (`REQ-<epic-slug>-<story-slug>`, `LLD-<epic-id>-<section-slug>`)
 
 Human-readable slugs derived from the epic and story/task names.
 
@@ -96,31 +96,39 @@ retrofitted unless the Stage 7 retro decides to promote this project-wide.
 
 ### LLD- anchors (LLD Part B sections)
 
-Format: `LLD-<epic-slug>-<task-slug>-<section-slug>`
+Format: `LLD-<epic-id>-<section-slug>`
 
-- `<epic-slug>` and `<task-slug>`: match the LLD file name
-  (`lld-<epic-slug>-<task-slug>.md`).
+- `<epic-id>`: the canonical epic identifier as used in the LLD file name
+  (`lld-<epic-id>-<short-name>.md` — e.g. `v11-e11-1`, `v11-e11-2`).
 - `<section-slug>`: lower-kebab-case of the Part B section heading, e.g.
-  `project-service`, `api-routes`, `database-schema`.
-- Full example: `LLD-project-management-create-project-api-routes`.
+  `projects-api-create-list`, `fcs-create-api`, `schema`. Must be unique within the file.
+- Full example: `LLD-v11-e11-1-projects-api-create-list`.
+
+> **As-implemented note (2026-05-01).** The original draft of this ADR contemplated
+> one LLD file per task, with the task slug embedded in the anchor. In practice the
+> project ships **one LLD per epic** (see `lld-v11-e11-1-project-management.md`,
+> `lld-v11-e11-2-fcs-scoped-to-projects.md`), each containing one Part B section per
+> task. The anchor format above reflects the as-implemented convention. The `<task-slug>`
+> component is dropped — task identity is carried by the section slug.
 
 Placement: an HTML anchor immediately before the Part B section heading:
 
 ```markdown
-<a id="LLD-project-management-create-project-api-routes"></a>
+<a id="LLD-v11-e11-1-projects-api-create-list"></a>
 
-#### API Routes
+### B.3 — Task T1.3: Projects API (create + list)
 ```
 
 ### Coverage manifest
 
-A YAML file `docs/design/coverage-<epic-slug>.yaml` maps requirements to LLD sections:
+A YAML file `docs/design/coverage-<epic-id>.yaml` (e.g. `coverage-v11-e11-1.yaml`)
+maps requirements to LLD sections:
 
 ```yaml
-epic: <epic-slug>
+epic: <epic-id>
 entries:
   - req: REQ-<epic-slug>-<story-slug>
-    lld: lld-<epic-slug>-<task-slug>.md#LLD-<epic>-<task>-<section>
+    lld: lld-<epic-id>-<short-name>.md#LLD-<epic-id>-<section-slug>
     issue: null      # issue tracker number (e.g. GitHub issue #N); populated by /feature-end
     files: []        # populated by /feature-end after merge
     status: Approved # Draft | Approved | Implemented | Revised

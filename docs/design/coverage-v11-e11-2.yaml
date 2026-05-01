@@ -1,0 +1,44 @@
+epic: v11-e11-2
+entries:
+  # In-scope: FCS scoped to projects (E11.2)
+  - req: REQ-fcs-scoped-to-projects-create-fcs-assessment
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-fcs-create-api
+    issue: null
+    files: []
+    status: Approved
+    # Schema enabling at #LLD-v11-e11-2-schema; new-assessment page at
+    # #LLD-v11-e11-2-new-assessment-page
+
+  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-project-scoped-list
+    issue: null
+    files: []
+    status: Approved
+
+  - req: REQ-fcs-scoped-to-projects-my-pending-assessments
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
+    issue: null
+    files: []
+    status: Approved
+
+  - req: REQ-fcs-scoped-to-projects-filter-pending-by-project
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
+    issue: null
+    files: []
+    status: Approved
+
+  - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-urls
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
+    issue: null
+    files: []
+    status: Approved
+
+  # Cross-epic story carried by E11.2 route migration:
+  # legacy `/assessments/[aid]` returns 404 (Story 4.5 deep-link compatibility).
+  - req: REQ-navigation-and-routing-deep-link-compatibility
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
+    issue: null
+    files: []
+    status: Approved
+    # Primary epic for navigation is E11.4; this entry duplicates the row in
+    # coverage-v11-e11-1.yaml's Deferred block once E11.4 has its own manifest.
