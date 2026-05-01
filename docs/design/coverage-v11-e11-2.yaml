@@ -20,7 +20,9 @@ entries:
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-project-scoped-list
     issue: 414
-    files: []
+    files:
+      - src/app/(authenticated)/projects/[id]/assessment-list.tsx
+      - src/app/(authenticated)/projects/[id]/page.tsx
     status: Revised
 
   - req: REQ-fcs-scoped-to-projects-my-pending-assessments
