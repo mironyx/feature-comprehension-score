@@ -306,12 +306,6 @@ Summarise what was done:
 - Any warnings or notes (PR size, diagnostics findings, design drift)
 - Suggested next item from the board
 
-### Step 10b: Compact
-
-Run `/compact` immediately after the Step 10 report — while the cache is still warm. 
-
-**Stop here.** User reviews the PR. `/feature-end` handles post-merge.
-
 ## Blocker policy
 
 **Pause and report** (do not attempt workarounds) if:
