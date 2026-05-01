@@ -23,7 +23,12 @@ entries:
 
   - req: REQ-project-management-list-projects
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create
-    files: []
+    issue: 398
+    files:
+      - src/app/(authenticated)/projects/page.tsx
+      - src/app/(authenticated)/projects/new/page.tsx
+      - src/app/(authenticated)/projects/new/create-form.tsx
+      - src/lib/supabase/membership.ts
     status: Revised
     # LLD §B.5 corrected in issue #398 lld-sync: guard renamed isAdminOrRepoAdmin (membership.ts);
     # inline query replaces listProjects(ctx) service call (ApiContext incompatibility);
