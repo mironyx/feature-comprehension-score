@@ -19,7 +19,7 @@ export async function readSnapshot(
   try {
     const snap = await readMembershipSnapshot(ctx.supabase, ctx.user.id, orgId);
     if (!snap) return null;
-    return { githubRole: snap.githubRole as 'admin' | 'member', adminRepoGithubIds: snap.adminRepoGithubIds };
+    return { githubRole: snap.githubRole, adminRepoGithubIds: snap.adminRepoGithubIds };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new ApiError(500, `Failed to read membership snapshot: ${msg}`);

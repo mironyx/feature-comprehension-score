@@ -11,7 +11,7 @@ export interface MembershipRow {
 export type OrgRole = 'admin' | 'repo_admin';
 
 export interface MembershipSnapshot {
-  githubRole: string;
+  githubRole: 'admin' | 'member';
   adminRepoGithubIds: number[];
 }
 
@@ -36,7 +36,7 @@ export async function readMembershipSnapshot(
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
-  const r = data as { github_role: string; admin_repo_github_ids: number[] };
+  const r = data as { github_role: 'admin' | 'member'; admin_repo_github_ids: number[] };
   return { githubRole: r.github_role, adminRepoGithubIds: r.admin_repo_github_ids ?? [] };
 }
 
