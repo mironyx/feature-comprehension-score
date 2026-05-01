@@ -19,26 +19,51 @@ Generates implementation-ready Low-Level Design documents from the implementatio
 
 ## Process
 
-### Step 0: Read context
+### Step 0: Resolve version
+
+Determine the version slug `v<N>` from `$ARGUMENTS` or by asking the user (e.g. `epic 45 v11` ⇒ `v11`). All version-scoped paths derive from it:
+
+- Requirements: `docs/requirements/v<N>-requirements.md`
+- High-level design: `docs/design/v<N>-design.md`
+- Implementation plan: newest match for `docs/plans/*-v<N>-*.md` (use `ls -t` if multiple)
+
+If any of these are missing, stop and ask. Do not guess.
+
+### Step 0b: Read context
 
 **Epic mode:**
 
 1. Read the epic issue: `gh issue view <number>`. Extract the task list and scope.
 2. For each task issue, read the issue body: `gh issue view <task-number>`.
-3. Read the high-level design: `docs/design/v1-design.md`. Identify relevant sections.
+3. Read the resolved HLD. Identify relevant sections.
 4. Read existing LLDs in `docs/design/` to understand the established format and avoid duplication.
 5. Read relevant ADRs from `docs/adr/`.
-6. Read relevant requirements from `docs/requirements/v1-requirements.md`.
+6. Read the resolved requirements file.
 7. Read existing source code in `src/` to understand what already exists.
 
 **Phase mode:**
 
-1. Read the implementation plan: `docs/plans/2026-03-09-v1-implementation-plan.md`. Extract all sections for the target phase.
-2. Read the high-level design: `docs/design/v1-design.md`. Identify which L4 contract sections are relevant.
+1. Read the resolved implementation plan. Extract all sections for the target phase.
+2. Read the resolved HLD. Identify which L4 contract sections are relevant.
 3. Read existing LLDs in `docs/design/` to understand the established format and avoid duplication.
 4. Read relevant ADRs from `docs/adr/` referenced by the phase sections.
-5. Read relevant requirements from `docs/requirements/v1-requirements.md` for the stories referenced.
+5. Read the resolved requirements file for the stories referenced.
 6. Read existing source code in `src/` to understand what already exists.
+
+### Step 0c: Optional context brief via subagent
+
+For large epics (≥ 4 tasks, or touching ≥ 3 layers), delegate context-gathering to the `feature-dev:code-explorer` agent **instead of** doing the reads above directly. Hand it: the epic/task issue numbers, the resolved doc paths, and the scope summary. Ask it to return a structured brief:
+
+- HLD sections in scope (with anchors)
+- Existing LLDs that overlap or constrain this work
+- Existing `src/` files/modules already implementing parts of this scope (with paths)
+- Existing helpers/types/services that should be reused (not re-implemented)
+- ADRs that bind decisions
+- Open questions the LLD must surface
+
+Keep the brief in your context; do not re-read the underlying files unless the brief points to a specific section you need verbatim. This keeps the main context clean for the actual design work.
+
+For small epics (1–3 tasks, single layer), skip the subagent and read directly.
 
 ### Step 1: Overview (epic mode or phase mode)
 
@@ -84,6 +109,23 @@ Present this overview and **wait for user confirmation** before generating the L
 **Section mode** (`/lld 2.3`): Update the relevant section within the existing phase LLD file rather than creating a new file.
 
 **Cross-cutting LLDs** (e.g., `lld-artefact-pipeline.md`) remain as standalone files when they span multiple phases or cover a topic orthogonal to the phase structure.
+
+### Step 2.5: Self-critique pass
+
+After producing the draft LLD (or each LLD in epic mode), run a critical re-read against the checklist below **before** moving to task breakdown. For each item that fails, fix the LLD in place. Do not skip — write the checklist results inline as a temporary "Critique" comment block, then remove it once issues are addressed.
+
+Be adversarial. The goal is to find the gaps a future `/feature` run will fall into, not to pat yourself on the back.
+
+- **Acceptance ↔ BDD ↔ Invariant coverage.** Does every Acceptance Criterion map to at least one BDD spec? Does every Invariant have a `Verification` method that is *executable* (test, type check, grep, lint) — not "code review" or "manual check"?
+- **Internal decomposition is concrete.** For every non-trivial route or component, is every function/class/helper named with a signature? "Service does X" is a failure — name `serviceFn(ctx, params): Promise<T>` and its private helpers.
+- **Type contracts match the DB.** For any type referencing a DB column or enum, did I grep `src/types/database.types.ts` and confirm the LLD type matches? Mismatches cause `as unknown as` casts downstream.
+- **Test seams.** No `fetchImpl?: typeof fetch` or similar HTTP-injection seams in `*Deps` interfaces. Use MSW. Only inject genuine behavioural dependencies (e.g. `getInstallationToken`).
+- **Task sizing.** Does each task plausibly fit in < 200 lines of diff? If unsure, split. Tasks > 200 lines are the single biggest cause of bad `/feature` runs.
+- **No HLD duplication.** Is anything in Part B copy-pasted from the HLD? Replace with a link.
+- **Open decisions surfaced.** Are there design questions still unresolved that the LLD silently picks a side on? List them at the top of the LLD as "Open questions" and flag to the user — do not decide in the LLD.
+- **Layer placement.** For each behaviour, is it in the right layer (DB constraint vs API guard vs UI guard)? Defence-in-depth is fine but the *primary* enforcement layer must be explicit.
+- **Error paths.** Is there at least one BDD spec per non-trivial error case, or did I only spec the happy path?
+- **Existing code reuse.** Did I grep for existing helpers/types/services that already do part of this work? Re-implementing what exists is the second-biggest cause of bad `/feature` runs.
 
 ### Step 3: Task breakdown
 
@@ -205,278 +247,15 @@ Add a `## Cross-References` section at the end of the phase LLD (before Tasks) n
 
 ## LLD Template
 
-The LLD is structured in two parts. **Part A** is for human review — a reviewer can read
-Part A alone and build sufficient theory about the feature. **Part B** is for the implementing
-agent — detailed enough for `/feature` to produce correct code autonomously.
+The full template — Document Control, Part A (Purpose / Behavioural Flows / Structural Overview / Invariants / Acceptance / BDD / HLD coverage), Part B (Database / Backend / Frontend with internal decomposition), Cross-References, Tasks, and Execution Order — lives in [`template.md`](template.md). Read it once at the start of a run and follow it verbatim. Do not paraphrase from memory.
 
-One file per phase. Each implementation plan section becomes a top-level heading.
+Key points the template encodes (do not violate):
 
-```markdown
-# Low-Level Design: Phase N — [Phase Name]
+- **Two parts.** Part A is reviewer-readable and self-contained; Part B is for the `/feature` agent and adds file paths, types, function signatures, and internal decomposition.
+- **Diagrams are required**, not decorative — sequence diagram per non-trivial flow, classDiagram per new module boundary.
+- **Invariants** must each have an executable verification method.
+- **Internal decomposition** names every function ≥ a few lines with its signature, before implementation begins.
 
-## Document Control
-
-| Field | Value |
-|-------|-------|
-| Version | 0.1 |
-| Status | Draft |
-| Author | LS / Claude |
-| Created | [today's date] |
-| Parent | [v1-design.md](v1-design.md) |
-| Implementation plan | [Phase N](../plans/2026-03-09-v1-implementation-plan.md) |
-
----
-
-# Part A — Human-Reviewable Design
-
-> Both the human reviewer and the implementing agent read this part.
-> For the reviewer, it builds theory about the feature. For the agent, it provides
-> the conceptual foundation that Part B's details depend on.
-> It answers: what does the feature do, how do the parts interact,
-> what must always be true, and how do we know it works.
-
-## N.1 [Section Name]
-
-**Stories:** [story numbers]
-**Layers:** DB | BE | FE
-
-### Purpose
-[1-3 sentences: what this section delivers and why]
-
-### Behavioural Flows
-
-Sequence diagrams for every non-trivial interaction (>2 components communicating).
-Use mermaid `sequenceDiagram` syntax. One diagram per key flow (happy path, error path,
-async/webhook flows as needed).
-
-` ` `mermaid
-sequenceDiagram
-    participant Client
-    participant API as API Route
-    participant Service
-    participant DB as Database
-
-    Client->>API: POST /api/example
-    API->>Service: processRequest(ctx, params)
-    Service->>DB: query(...)
-    DB-->>Service: rows
-    Service-->>API: Result
-    API-->>Client: 200 OK
-` ` `
-
-**When required:** Any flow involving >2 components or services. API routes with
-auth + service + DB. Webhook handling chains. Multi-step UI interactions with server calls.
-
-**When optional:** Single-component CRUD. Pure utility functions. Schema-only changes.
-
-### Structural Overview
-
-Module/class dependency diagram showing how the pieces fit together. Use mermaid
-`classDiagram` syntax. Works for both class-based and module-based codebases:
-
-- **Classes** — show with methods and relationships (inheritance, composition)
-- **Modules** — use `<<module>>` stereotype, show exported functions
-- **Interfaces/Ports** — use `<<interface>>`, show who implements them
-- **Direction** — arrows show dependency direction (who depends on whom)
-
-` ` `mermaid
-classDiagram
-    class engine/scoring {
-        <<module>>
-        +calculateScore(responses) Score
-        +buildDimensions(config) Dimension[]
-    }
-    class ports/github {
-        <<interface>>
-        +fetchPRs(org, repo) PR[]
-    }
-    class adapters/github {
-        <<module>>
-        +createGitHubClient(token) GitHubPort
-    }
-    engine/scoring --> ports/github : depends on
-    adapters/github ..|> ports/github : implements
-` ` `
-
-**When required:** Any task that introduces new modules/classes, modifies module boundaries,
-or adds new dependencies between existing modules. Changes touching the ports/adapters layer.
-
-**When optional:** Changes within a single existing module that do not alter its public
-surface or dependencies.
-
-### Invariants
-
-Hard constraints that the implementation must satisfy. Collected in one place so the
-reviewer can sign off on them and automated tools (`/pr-review-v2`, `/feature-evaluator`)
-can verify them.
-
-Each invariant should be testable — either by a unit test, a type check, or a lint rule.
-
-| # | Invariant | Verification |
-|---|-----------|-------------|
-| 1 | [e.g. Service never calls createClient() directly] | [e.g. grep for import; unit test with mock ApiContext] |
-| 2 | [e.g. Webhook replay is idempotent — no duplicate rows] | [e.g. test calls handler twice, asserts row count unchanged] |
-| 3 | [e.g. Engine module has zero framework imports] | [e.g. grep src/lib/engine/ for 'next', 'supabase'] |
-
-### Acceptance Criteria
-
-- [ ] [Concrete, testable criterion]
-- [ ] [Another criterion]
-
-### BDD Specs
-
-` ` `ts
-describe('[context]', () => {
-  it('[behaviour — given/when/then]');
-  it('[another behaviour]');
-});
-` ` `
-
-### HLD coverage assessment
-- [Section X.Y] — sufficient, referenced only
-- [Section X.Z] — needs extension, detailed below
-
----
-
-# Part B — Agent Implementation Detail
-
-> The implementing agent (`/feature`) reads both parts — Part A for the conceptual
-> model, Part B for precise file paths, types, function signatures, and decomposition
-> rules. A human reviewer may scan Part B for completeness but does not need to
-> review it line-by-line.
-
-## N.1 [Section Name] — Implementation
-
-### [Layer: Database] (if applicable)
-
-See [v1-design.md §N.N](v1-design.md#section-anchor) for [schema/RLS/functions].
-
-[Only what the HLD doesn't cover: migration file strategy, seed data, test isolation, etc.]
-
-### [Layer: Backend] (if applicable)
-
-See [v1-design.md §N.N](v1-design.md#section-anchor) for [contracts].
-
-#### File structure
-` ` `
-src/lib/module/
-  file.ts          — [purpose]
-  file.test.ts     — [what it tests]
-` ` `
-
-#### Internal types
-[Types not in the public L4 contract but needed for implementation]
-
-> **Constraint:** For any type referencing a DB column, grep `src/types/database.types.ts` to confirm the contract type matches the Supabase-inferred enum or union. Mismatches cause `as unknown as` casts at the call site — fix the type here in the LLD, not downstream in the implementation.
-
-#### Function signatures
-[Key internal functions with their signatures and behaviour]
-
-#### Internal decomposition — [route or component]
-
-For every non-trivial API route or component, add an explicit internal decomposition section
-**before implementation begins**. Name every function, class, or interface that will exist
-internally and state what is forbidden.
-
-```
-Controller (stays in route.ts, ≤ 5 lines):
-- const ctx = await createApiContext(request)   // per-request composition root: assembles all clients
-- return json(await service.fn(ctx, params))    // injects context into service
-
-Service ([endpoint]/service.ts):
-- Exported: `serviceFn(ctx: ApiContext, params: ParamType): Promise<ResponseType>` — [one-line purpose]
-- Receives ApiContext (DI) — never calls createClient() or any infrastructure factory
-
-  Private helpers (≤ 20 lines each):
-  - `helperName(params): ReturnType` — [purpose and error behaviour]
-
-Extracted to helpers.ts (if applicable):
-- `pureFunction(...)` — [why extracted: testability, reuse]
-```
-
-Use `> **Constraint:**` for notes written **before** implementation (hard limits for the implementing
-agent). Use `> **Implementation note (issue #N):**` only to document decisions made **after**
-implementation — these are historical records, not pre-implementation guidance.
-
-#### Error handling
-[Error cases, codes, and recovery strategies]
-
-### [Layer: Frontend] (if applicable)
-
-See [v1-design.md §N.N](v1-design.md#section-anchor) for [contracts].
-
-#### Component tree
-` ` `
-PageComponent
-  ├── SubComponent
-  │   └── ChildComponent
-  └── AnotherComponent
-` ` `
-
-> **Constraint (server components):** Use module-level render helper functions rather than JSX sub-components inside server component files. Sub-components defined in the same file are opaque to test traversal — `render()` returns a serialised tree, so `screen.getByRole` cannot cross a sub-component boundary. Module-level helpers keep assertions traversable without extra wrapper renders.
-
-#### Page routes
-| Route | Component | Data fetching | Auth |
-|-------|-----------|--------------|------|
-
-#### UI states
-| State | Trigger | Display |
-|-------|---------|---------|
-| Loading | Initial fetch | Skeleton |
-| Error | API failure | Error message + retry |
-| Empty | No data | Empty state message |
-| Success | Data loaded | Content |
-
-#### Client state
-[What state lives on the client, how it's managed]
-
----
-
-## N.2 [Next Section Name]
-
-[Same Part A + Part B structure as above]
-
----
-
-## Cross-References
-
-### Internal (within this phase)
-- §N.1 depends on: —
-- §N.2 depends on: [§N.1](#n1-section-name)
-- ...
-
-### External
-- Depends on: [lld-artefact-pipeline.md](lld-artefact-pipeline.md) (if applicable)
-- Depended on by: Phase M LLD (if applicable)
-
-### Shared types
-[Types used across multiple sections in this phase]
-
----
-
-## Tasks
-
-[Task entries per the format in Step 3, covering ALL sections in the phase]
-
----
-
-## Execution Order
-
-### Dependency DAG
-
-` ` `mermaid
-graph LR
-  T1[Task 1: ...] --> T3[Task 3: ...]
-  T2[Task 2: ...] --> T3
-` ` `
-
-### Execution Waves
-
-| Wave | Tasks | Blocked by | Notes |
-|------|-------|------------|-------|
-| 1 | Task 1, Task 2 | — | Parallelisable |
-| 2 | Task 3 | Wave 1 | |
-```
 
 ## Guidelines
 
