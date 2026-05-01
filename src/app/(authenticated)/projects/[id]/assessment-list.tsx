@@ -36,11 +36,12 @@ export async function AssessmentList({ projectId }: AssessmentListProps) {
   const supabase = await createServerSupabaseClient();
   const { data } = await supabase
     .from('assessments')
-    .select('id, type, status, feature_name, feature_description, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id')
+    .select('id, status, feature_name, feature_description, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id')
     .eq('project_id', projectId)
     .eq('type', 'fcs')
     .order('created_at', { ascending: false });
 
+  // error is not destructured; a DB failure renders as empty state — server logs carry the detail
   const rows = (data ?? []) as AssessmentItem[];
   const { pending, completed } = partitionAssessments(rows);
 
