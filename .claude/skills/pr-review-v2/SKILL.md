@@ -35,6 +35,7 @@ Run ALL of the following in parallel:
    **Local mode:** `git diff --name-only HEAD`.
 3. Read `CLAUDE.md` (root).
 4. Read `package.json` — capture exact versions of direct dependencies.
+5. Read `docs/design/kernel.md` — the canonical list of reusable helpers and anti-patterns. Pass its full contents to the review agent(s) as `{{KERNEL_MD}}`.
 
 If diff is empty, print "Nothing to review — diff is empty." and stop.
 
@@ -116,7 +117,59 @@ If found:
 
 Also scan for silent catch blocks (error not passed to any logger) → **block**.
 
-## Part 6: Known framework anti-patterns (always check, no web search)
+## Part 6: Kernel reuse (block if a kernel helper is re-implemented)
+
+The kernel (`docs/design/kernel.md`, provided below as `{{KERNEL_MD}}`) is the curated list of
+canonical helpers and the anti-patterns it exists to prevent. Every entry is there because
+re-implementing it has caused drift before. Apply these checks against the diff:
+
+1. **Anti-pattern list** — for each bullet under "Anti-patterns this kernel exists to prevent",
+   scan the diff for the pattern. Examples:
+   - Inline `user_organisations` membership query → use `readMembershipSnapshot` / `assertOrgAdminOrRepoAdmin` / `getOrgRole`
+   - Inline `cookies().get('fcs-org-id')` read → use `ctx.orgId` (API) or `getSelectedOrgId(cookies)` (page)
+   - `org_id` derived from request body or project row to set selected org → use `ctx.orgId`
+   - `createClient()` / `createSecretSupabaseClient()` called inside a service → inject via `ApiContext`
+   - Hand-rolled `await request.json()` + `schema.safeParse` → use `validateBody`
+   - Hand-rolled `try/catch` returning `Response.json` / `NextResponse.json` for errors → use `handleApiError` + `ApiError` + `json`
+   - Locally redefined `RepoAdminSnapshot` / `MembershipSnapshot` / `AuthUser` types → import canonical
+   - Rubric pipeline logic re-implemented outside `@/lib/engine/fcs-pipeline`
+   Each match → **block** with `"type": "kernel-reuse"`. Quote the offending code and name the
+   kernel symbol that should have been used.
+
+2. **Symbol table reuse** — for each row in the kernel symbol tables, if the diff introduces a
+   function that does the same job (same inputs/outputs, same domain) without delegating, **block**.
+   Heuristic: matching name fragments (`assertOrgAdmin`, `requireAuth`, `loadOrgPromptContext`),
+   matching SQL targets (`from('user_organisations')`, `from('organisation_contexts')`), or
+   matching response shapes (`{ githubRole, adminRepoGithubIds }`).
+
+3. **LLD kernel-reference check** — if the diff includes or modifies an LLD under `docs/design/`
+   that touches a topic covered by the kernel (auth, validation, response, supabase factories,
+   org context, rubric pipeline) but lacks a "Reused helpers — DO NOT re-implement" table that
+   names the kernel symbols it depends on → **warn** with `"type": "kernel-reuse"`.
+
+4. **Redundant DB round-trips** (`"type": "db-efficiency"`, **block** if duplicated, **warn**
+   if combinable) — within a single request handler / page render / service call:
+   - Two queries against the **same row or row-set** (same table + same predicate) that could
+     be a single query → **block**. Most common offender: calling `readMembershipSnapshot` /
+     `getOrgRole` / `assertOrgAdminOrRepoAdmin` more than once for the same `(userId, orgId)`,
+     or two `from('user_organisations')` reads for the same key.
+     Fix: capture the result once and pass it down.
+   - Two queries against **different tables** that Supabase could fetch in one call via an
+     embedded select (`from('a').select('*, b(*)')`) or a single GraphQL query → **warn**
+     with `"type": "db-efficiency"`. Surface the call sites and the suggested combined query.
+   - N+1 patterns: a `.map`/`for` loop where each iteration issues a query → **block**.
+     Fix: a single `.in('id', ids)` query, or a join, or a GraphQL request.
+
+5. **REST vs GraphQL** (`"type": "db-efficiency"`, **warn**) — when the route fetches multiple
+   related resources (parent + children, or a row plus joined lookups), prefer Supabase's
+   embedded selects or pg_graphql over chained REST calls. Flag chained `.from(...).select()`
+   calls in the same handler that could collapse into one. Do not flag a single query.
+
+The kernel is a hard contract: a service calling `createClient()` directly, a route returning
+`Response.json({ error })` instead of using `handleApiError`, a duplicate `user_organisations`
+query, or two membership reads for the same row is always a blocker — even if the code "works".
+
+## Part 7: Known framework anti-patterns (always check, no web search)
 Read `.claude/skills/shared/anti-patterns.md` and apply all checks from that file.
 
 ## What NOT to report
@@ -133,6 +186,11 @@ CLAUDE.md:
 <claude_md>
 {{CLAUDE_MD}}
 </claude_md>
+
+Kernel (canonical reusable helpers — block any re-implementation):
+<kernel_md>
+{{KERNEL_MD}}
+</kernel_md>
 
 Diff:
 <diff>
@@ -153,7 +211,7 @@ Issue body:
 
 JSON array. Each element:
 {
-  "type": "bug" | "justification" | "design-principle" | "compliance" | "unspecified-function" | "silent-swallow" | "anti-pattern",
+  "type": "bug" | "justification" | "design-principle" | "compliance" | "unspecified-function" | "silent-swallow" | "anti-pattern" | "kernel-reuse" | "db-efficiency",
   "severity": "block" | "warn",
   "file": "relative/path.ts",
   "line": 42,
@@ -302,7 +360,58 @@ Scan the diff for `catch` blocks where the error is not passed to at least a
 
 For each match: **block** finding. Fallback behaviour does not excuse missing observability.
 
-## Step 4: Diagnostics check
+## Step 4: Kernel reuse (canonical helpers — block re-implementation)
+
+The kernel (`docs/design/kernel.md`, provided as `{{KERNEL_MD}}`) lists every helper and type
+that exists specifically because re-implementing it has caused drift. Apply these checks:
+
+1. **Anti-pattern list** — scan the diff for each bullet under "Anti-patterns this kernel exists
+   to prevent". Examples worth memorising:
+   - Inline `from('user_organisations')` query → use `readMembershipSnapshot` /
+     `assertOrgAdminOrRepoAdmin` (API) / `getOrgRole` (page).
+   - Inline `cookies().get('fcs-org-id')` read → use `ctx.orgId` or `getSelectedOrgId(cookies)`.
+   - `org_id` derived from request body or project row to set the *selected* org → `ctx.orgId`.
+   - `createClient()` / `createSecretSupabaseClient()` called inside a service → inject `ApiContext`.
+   - Hand-rolled `await request.json()` + `schema.safeParse` → `validateBody`.
+   - Hand-rolled `try/catch` returning `Response.json` / `NextResponse.json` for errors →
+     `handleApiError` + `ApiError` + `json`.
+   - Locally redefined `RepoAdminSnapshot` / `MembershipSnapshot` / `AuthUser` → import canonical.
+   - Rubric pipeline logic outside `@/lib/engine/fcs-pipeline`.
+   Each match → **block** with `"type": "kernel-reuse"`. Quote the offending code; name the
+   kernel symbol that should have been used.
+
+2. **Symbol reuse** — for each new function in the diff, check whether a kernel symbol already
+   does the same job. Heuristics: matching domain (auth/membership, validation, response, org
+   context), matching SQL targets (`user_organisations`, `organisation_contexts`), matching
+   return shapes (`{ githubRole, adminRepoGithubIds }`). If yes and the new function does not
+   delegate to the kernel symbol → **block** with `"type": "kernel-reuse"`.
+
+3. **LLD kernel-reference check** — if the diff includes an LLD under `docs/design/` that
+   touches a kernel topic but lacks a "Reused helpers — DO NOT re-implement" table naming the
+   kernel symbols it depends on → **warn** with `"type": "kernel-reuse"`.
+
+4. **Redundant DB round-trips** (`"type": "db-efficiency"`) — within a single request handler
+   / page render / service call:
+   - Two queries against the **same row or row-set** (same table + same predicate) that could
+     be a single query → **block**. Most common offender: calling `readMembershipSnapshot` /
+     `getOrgRole` / `assertOrgAdminOrRepoAdmin` / any `from('user_organisations')` more than
+     once for the same `(userId, orgId)`. Fix: capture once, pass down.
+   - Two queries against **different tables** that Supabase could fetch in one call via an
+     embedded select (`from('a').select('*, b(*)')`) or a single GraphQL query → **warn**.
+     Surface the call sites and the suggested combined query.
+   - N+1 patterns (`.map`/`for` issuing a query per iteration) → **block**. Fix: a single
+     `.in('id', ids)`, a join via embedded select, or a GraphQL request.
+
+5. **REST vs GraphQL** (`"type": "db-efficiency"`, **warn**) — when the route fetches multiple
+   related resources (parent + children, or a row plus joined lookups), prefer Supabase
+   embedded selects or pg_graphql over chained REST calls. Flag chained `.from(...).select()`
+   calls in the same handler that could collapse into one. Do not flag a single query.
+
+The kernel is a hard contract. A duplicate `user_organisations` query, two membership reads
+for the same row, a service that calls `createClient()`, or a route returning
+`NextResponse.json({ error })` instead of `handleApiError` is a blocker even if tests pass.
+
+## Step 5: Diagnostics check
 
 For each changed source file, check whether a diagnostics file exists at
 `.diagnostics/<same relative path>`. If it exists, read it.
@@ -311,6 +420,11 @@ Surface any Error or Warning severity finding as a **warn**. Omit Info-level unl
 to a flagged function.
 
 ## Input
+
+Kernel (canonical reusable helpers — block any re-implementation):
+<kernel_md>
+{{KERNEL_MD}}
+</kernel_md>
 
 Diff:
 <diff>
@@ -326,7 +440,7 @@ Changed files:
 
 JSON array. Each element:
 {
-  "type": "unspecified-function" | "silent-swallow" | "diagnostic",
+  "type": "unspecified-function" | "silent-swallow" | "diagnostic" | "kernel-reuse" | "db-efficiency",
   "severity": "block" | "warn",
   "file": "relative/path.ts",
   "line": 42,
@@ -434,7 +548,7 @@ finding). Sort by severity: `block` items first, then `warn`.
 ### PR Review
 
 No issues found. Checked: bugs, code justification, design principles, CLAUDE.md compliance,
-framework anti-patterns, design conformance.
+kernel reuse, DB efficiency, framework anti-patterns, design conformance.
 [Framework best practices: skipped — no framework files changed.]
 ```
 
@@ -456,8 +570,9 @@ framework anti-patterns, design conformance.
 > <evidence>
 ```
 
-Types: `[bug]`, `[justification]`, `[design-principle]`, `[compliance]`, `[design-contract]`,
-`[anti-pattern]`, `[unspecified-function]`, `[silent-swallow]`, `[diagnostic]`.
+Types: `[bug]`, `[justification]`, `[design-principle]`, `[compliance]`, `[kernel-reuse]`,
+`[db-efficiency]`, `[design-contract]`, `[anti-pattern]`, `[unspecified-function]`,
+`[silent-swallow]`, `[diagnostic]`.
 
 **PR mode:** post as a PR comment:
 ```bash
