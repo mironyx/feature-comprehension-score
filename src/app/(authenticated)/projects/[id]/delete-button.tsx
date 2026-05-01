@@ -25,18 +25,22 @@ export function DeleteButton({ projectId }: DeleteButtonProps) {
     setDeleting(true);
     setError(null);
 
-    const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-    setDeleting(false);
-
-    if (res.status === 204) {
-      router.push('/projects');
-      return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+      if (res.status === 204) {
+        router.push('/projects');
+        return;
+      }
+      if (res.status === 409) {
+        setError('Project is not empty. Remove all assessments before deleting.');
+        return;
+      }
+      setError('Failed to delete project. Please try again.');
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setDeleting(false);
     }
-    if (res.status === 409) {
-      setError('Project is not empty. Remove all assessments before deleting.');
-      return;
-    }
-    setError('Failed to delete project. Please try again.');
   }, [projectId, router]);
 
   return (

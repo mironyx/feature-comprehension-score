@@ -65,17 +65,23 @@ export function InlineEditHeader({ projectId, initialName, initialDescription }:
     setSaving(true);
     setEditing(false);
 
-    const result = await patchProject(projectId, editName, editDescription || null);
-    setSaving(false);
-
-    if (!result.ok) {
+    try {
+      const result = await patchProject(projectId, editName, editDescription || null);
+      if (!result.ok) {
+        setName(prevName);
+        setDescription(prevDescription);
+        if (result.status === 409) {
+          setError('A project with that name already exists.');
+        } else {
+          setError('Failed to save changes. Please try again.');
+        }
+      }
+    } catch {
       setName(prevName);
       setDescription(prevDescription);
-      if (result.status === 409) {
-        setError('A project with that name already exists.');
-      } else {
-        setError('Failed to save changes. Please try again.');
-      }
+      setError('Network error. Please try again.');
+    } finally {
+      setSaving(false);
     }
   }, [projectId, editName, editDescription, name, description]);
 
