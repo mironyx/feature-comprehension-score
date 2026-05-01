@@ -20,7 +20,8 @@ vi.mock('@/lib/engine/pipeline', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ import type { ApiContext } from '@/lib/api/context';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 
 // ---------------------------------------------------------------------------
 // Mock chain builder
@@ -76,6 +78,7 @@ const mockOctokit = {
 const mockUserClient = {
   from: vi.fn((table: string) => {
     if (table === 'user_organisations') return makeChain(() => orgMemberResult);
+    if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -101,8 +104,7 @@ const AUTH_USER = {
   email: 'admin@example.com',
 };
 
-const VALID_BODY: FcsCreateBody = {
-  org_id: ORG_ID,
+const VALID_BODY: CreateFcsBody = {
   repository_id: REPO_ID,
   feature_name: 'New Checkout Flow',
   merged_pr_numbers: [42],
@@ -121,7 +123,7 @@ beforeEach(() => {
   mockOctokit.rest.pulls.get.mockResolvedValue({ data: { title: 'Test PR', merged_at: '2026-01-01T00:00:00Z' } });
   mockOctokit.rest.users.getByUsername.mockResolvedValue({ data: { id: 99001, login: 'alice' } });
 
-  orgMemberResult = { data: [{ github_role: 'admin' }], error: null };
+  orgMemberResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
   repoResult = {
     data: { github_repo_name: 'test-repo', org_id: ORG_ID, organisations: { github_org_name: 'test-org', installation_id: 42 } },
     error: null,
@@ -140,11 +142,12 @@ function makeCtx(): ApiContext {
     supabase: mockUserClient as never,
     adminSupabase: mockAdminClient as never,
     user: AUTH_USER,
+    orgId: ORG_ID,
   };
 }
 
-async function callCreateFcs(body: FcsCreateBody): Promise<{ assessment_id: string; status: string; participant_count: number }> {
-  return createFcs(makeCtx(), body);
+async function callCreateFcs(body: CreateFcsBody): Promise<{ assessment_id: string; status: string; participant_count: number }> {
+  return createFcsForProject(makeCtx(), PROJECT_ID, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,13 +157,13 @@ async function callCreateFcs(body: FcsCreateBody): Promise<{ assessment_id: stri
 describe('createFcs', () => {
   describe('given a user who is not Org Admin', () => {
     it('throws 403 when user is a member', async () => {
-      orgMemberResult = { data: [{ github_role: 'member' }], error: null };
+      orgMemberResult = { data: { github_role: 'member', admin_repo_github_ids: [] }, error: null };
       await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('throws 403 when user has no org membership', async () => {
-      orgMemberResult = { data: [], error: null };
-      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 403 });
+    it('throws 401 when user has no org membership', async () => {
+      orgMemberResult = { data: null, error: null };
+      await expect(callCreateFcs(VALID_BODY)).rejects.toMatchObject({ statusCode: 401 });
     });
   });
 
@@ -218,7 +221,7 @@ describe('createFcs', () => {
       mockOctokit.rest.users.getByUsername
         .mockResolvedValueOnce({ data: { id: 99001, login: 'alice' } })
         .mockResolvedValueOnce({ data: { id: 99002, login: 'bob' } });
-      const body: FcsCreateBody = { ...VALID_BODY, participants: [{ github_username: 'alice' }, { github_username: 'bob' }] };
+      const body: CreateFcsBody = { ...VALID_BODY, participants: [{ github_username: 'alice' }, { github_username: 'bob' }] };
       const result = await callCreateFcs(body);
       expect(result.participant_count).toBe(2);
     });
@@ -243,7 +246,7 @@ describe('createFcs', () => {
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
         expect.objectContaining({
-          p_org_id: VALID_BODY.org_id,
+          p_org_id: ORG_ID,
           p_repository_id: VALID_BODY.repository_id,
           p_feature_name: VALID_BODY.feature_name,
         }),

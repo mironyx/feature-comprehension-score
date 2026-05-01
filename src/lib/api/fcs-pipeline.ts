@@ -2,12 +2,10 @@
 // Lives in src/lib/api/ (not engine/) because it depends on supabase and github adapters.
 
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import type { Octokit } from '@octokit/rest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from '@/lib/api/errors';
 import { logger } from '@/lib/logger';
-import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import type { RepoCoords } from '@/lib/engine/ports/artefact-source';
@@ -25,7 +23,6 @@ import type { ToolCallEvent, ToolDefinition } from '@/lib/engine/llm/tools';
 import type { LLMError, LLMErrorCode } from '@/lib/engine/llm/types';
 
 type ServiceClient = SupabaseClient<Database>;
-type UserClient = ApiContext['supabase'];
 
 // Branded ID types — prevents accidental swaps between look-alike string arguments.
 type OrgId = string & { readonly _brand: 'OrgId' };
@@ -194,7 +191,7 @@ interface AssessmentBody {
 interface CreateAssessmentParams {
   body: AssessmentBody;
   orgId: string;
-  projectId: string | null;
+  projectId: string;
   repoInfo: RepoInfo;
   validatedPRs: ValidatedPR[];
   validatedIssues: ValidatedIssue[];
@@ -622,57 +619,3 @@ export async function retriggerRubricForAssessment(
   void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 
-// ---------------------------------------------------------------------------
-// Backward-compat exports — mirrors the public API of the deleted fcs/service.ts
-// so existing pipeline test files can be migrated with a one-line import change.
-// New code should use createFcsForProject in the projects route service instead.
-// ---------------------------------------------------------------------------
-
-export const FcsCreateBodySchema = z.object({
-  org_id: z.string().uuid(),
-  repository_id: z.string().uuid(),
-  feature_name: z.string().min(1),
-  feature_description: z.string().optional(),
-  merged_pr_numbers: z.array(z.number().int().positive()).optional(),
-  issue_numbers: z.array(z.number().int().positive()).optional(),
-  participants: z.array(z.object({ github_username: z.string().min(1) })).min(1),
-  comprehension_depth: z.enum(['conceptual', 'detailed']).default('conceptual'),
-}).refine(
-  (b) => (b.merged_pr_numbers?.length ?? 0) > 0 || (b.issue_numbers?.length ?? 0) > 0,
-  { message: 'At least one of merged_pr_numbers or issue_numbers is required' },
-);
-export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
-
-async function legacyAssertOrgAdmin(supabase: UserClient, userId: string, orgId: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('user_organisations')
-    .select('github_role')
-    .eq('user_id', userId)
-    .eq('org_id', orgId);
-  if (error) { logger.error({ err: error }, 'legacyAssertOrgAdmin: query failed'); throw new ApiError(500, 'Internal server error'); }
-  const rows = (data ?? []) as { github_role: string }[];
-  if (!rows.length || rows[0]?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
-}
-
-export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
-  const { adminSupabase: serviceClient, user } = ctx;
-  await legacyAssertOrgAdmin(ctx.supabase, user.id, body.org_id);
-  const repoInfo = await fetchRepoInfo(serviceClient, body.repository_id, body.org_id);
-  const octokit = await createGithubClient(repoInfo.installationId);
-  const prNumbers = body.merged_pr_numbers ?? [];
-  const issueNumbers = body.issue_numbers ?? [];
-  const [validatedPRs, participants, validatedIssues] = await Promise.all([
-    prNumbers.length > 0 ? validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, prNumbers) : Promise.resolve([]),
-    resolveParticipants(octokit, body.participants.map((p) => p.github_username)),
-    issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve([]),
-  ]);
-  const assessmentId = await createAssessmentWithParticipants(serviceClient, {
-    body, orgId: body.org_id, projectId: null,
-    repoInfo, validatedPRs, validatedIssues, participants,
-  });
-  void triggerRubricGeneration({
-    adminSupabase: serviceClient, assessmentId, repoInfo,
-    prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth ?? 'conceptual',
-  });
-  return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
-}
