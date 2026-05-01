@@ -1,35 +1,19 @@
-// My Assessments landing page — shows pending and completed assessments for the user.
-// Auth is enforced by the (authenticated) layout; this page only needs orgId.
-// Design reference: docs/design/lld-nav-results.md §1
-// Issues: #62, #121, #295
+// My Pending Assessments — cross-project FCS queue with project filter.
+// Auth is enforced by the (authenticated) layout; page also guards for missing orgId.
+// Design reference: docs/design/lld-v11-e11-2-fcs-scoped-to-projects.md §B.6
+// Issue: #415
 
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card } from '@/components/ui/card';
-import { StatusBadge } from './assessment-status';
-import { PollingStatusBadge } from './polling-status-badge';
-import { partitionAssessments, type AssessmentItem } from './partition';
-
-function toPercent(score: number | null): string {
-  if (score === null) return '—';
-  return `${Math.round(score * 100)}%`;
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
+import { ProjectFilter } from './project-filter';
+import type { ProjectAssessmentItem } from './project-filter';
 
 export default async function AssessmentsPage(
-  props: { searchParams: Promise<{ created?: string }> },
+  _props: { searchParams: Promise<Record<string, string>> },
 ) {
-  const { searchParams } = props;
-  const resolvedParams = await searchParams;
-  const created = resolvedParams.created;
-
   const cookieStore = await cookies();
   const orgId = getSelectedOrgId(cookieStore);
   if (!orgId) redirect('/org-select');
@@ -38,100 +22,48 @@ export default async function AssessmentsPage(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
+  // error intentionally ignored — a transient DB failure shows the empty state, not an error page
   const { data } = await supabase
-    .from('assessments')
-    .select('id, feature_name, feature_description, status, aggregate_score, created_at, rubric_error_code, rubric_retry_count, rubric_error_retryable, project_id, assessment_participants!inner(user_id)')
+    .from('assessment_participants')
+    .select(`
+      assessments!inner(
+        id, type, status, feature_name, feature_description, created_at,
+        rubric_error_code, rubric_retry_count, rubric_error_retryable,
+        project_id,
+        projects!inner(id, name)
+      )
+    `)
+    .eq('user_id', user.id)
     .eq('org_id', orgId)
-    .eq('assessment_participants.user_id', user.id)
-    .order('created_at', { ascending: false });
+    .eq('status', 'pending')
+    .eq('assessments.type', 'fcs')
+    .order('created_at', { foreignTable: 'assessments', ascending: false });
 
-  const all = (data ?? []) as AssessmentItem[];
-  const { pending, completed } = partitionAssessments(all);
+  const rawItems = (data ?? []) as unknown as ProjectAssessmentItem[];
+
+  const items = rawItems.map((r) => ({
+    ...r,
+    href: `/projects/${r.assessments.project_id}/assessments/${r.assessments.id}`,
+  }));
+
+  const distinctProjects = Array.from(
+    new Map(items.map((r) => [r.assessments.project_id, r.assessments.projects.name])).entries(),
+  ).map(([id, name]) => ({ id, name }));
 
   return (
     <div className="space-y-section-gap">
-      {created && (
-        <p role="status" className="text-body text-accent">Assessment created successfully.</p>
-      )}
-      <PageHeader title="My Assessments" />
-
-      <section className="space-y-3">
-        <h2 className="text-heading text-text-primary">Pending</h2>
-        {pending.length === 0 ? (
-          <p className="text-body text-text-secondary">No pending assessments.</p>
-        ) : (
-          <ul className="space-y-3">
-            {pending.map((a) => (
-              <li key={a.id}>
-                <Card className="flex items-center justify-between">
-                  <div>
-                    {a.project_id ? (
-                      <Link href={`/projects/${a.project_id}/assessments/${a.id}`} className="text-body text-text-primary hover:text-accent">
-                        {a.feature_name ?? `Assessment ${a.id}`}
-                      </Link>
-                    ) : (
-                      <span className="text-body text-text-primary">{a.feature_name ?? `Assessment ${a.id}`}</span>
-                    )}
-                    {a.feature_description ? (
-                      <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {a.status === 'rubric_generation'
-                      ? <PollingStatusBadge
-                          assessmentId={a.id}
-                          initialStatus={a.status}
-                        />
-                      : <>
-                          <StatusBadge status={a.status} />
-                          {a.status === 'rubric_failed' && a.rubric_error_code && (
-                            <span className="text-caption text-text-secondary">{a.rubric_error_code}</span>
-                          )}
-                        </>}
-                  </div>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-heading text-text-primary">Completed</h2>
-        {completed.length === 0 ? (
-          <p className="text-body text-text-secondary">No completed assessments.</p>
-        ) : (
-          <ul className="space-y-3">
-            {completed.map((a) => (
-              <li key={a.id}>
-                <Card className="flex items-center justify-between">
-                  <div>
-                    {a.project_id ? (
-                      <Link
-                        href={`/projects/${a.project_id}/assessments/${a.id}/results`}
-                        className="text-body text-text-primary hover:text-accent"
-                      >
-                        {a.feature_name ?? `Assessment ${a.id}`}
-                      </Link>
-                    ) : (
-                      <span className="text-body text-text-primary">{a.feature_name ?? `Assessment ${a.id}`}</span>
-                    )}
-                    {a.feature_description ? (
-                      <p className="text-caption text-text-secondary mt-0.5">{a.feature_description}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-body text-text-primary" aria-label="Aggregate score">
-                      {toPercent(a.aggregate_score)}
-                    </span>
-                    <StatusBadge status={a.status} />
-                  </div>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <PageHeader title="My Pending Assessments" />
+      {items.length === 0
+        ? <p className="text-body text-text-secondary">No pending assessments.</p>
+        : (
+          <ProjectFilter
+            items={items}
+            projects={distinctProjects}
+            projectFilterItems={items}
+            projectFilterProjects={distinctProjects}
+          />
+        )
+      }
     </div>
   );
 }
