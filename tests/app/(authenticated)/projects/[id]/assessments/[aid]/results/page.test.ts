@@ -850,6 +850,18 @@ describe('FCS results page', () => {
           getUser: vi.fn().mockResolvedValue({ data: { user: AUTHED_USER }, error: null }),
         },
         from: vi.fn((table: string) => {
+          if (table === 'assessments') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
           if (table === 'participant_answers') {
             return { select: vi.fn().mockReturnValue(makeEqChain()) };
           }
