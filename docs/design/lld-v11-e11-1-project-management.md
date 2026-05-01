@@ -1,8 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
-**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync), 2026-05-01 (issue #398 — lld-sync), 2026-05-01 (issue #399 — lld-sync)
-**Version:** 0.5
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync), 2026-05-01 (issue #398 — lld-sync), 2026-05-01 (issue #399 — lld-sync), 2026-05-01 (issue #408 — lld-sync)
+**Version:** 0.6
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -674,7 +674,7 @@ export const UpdateProjectSchema = z.object({
 
 > **Implementation note (issue #399):** The LLD specified calling `getProject(ctx, id)` directly. As with B.5 (issue #398), `getProject` is designed for `ApiContext` assembled from route-handler clients — composing it in a server component would require a fake `ApiContext`. Inline queries via `createServerSupabaseClient()` were used instead, consistent with all other server pages in this codebase.
 
-> **Implementation note (issue #399):** Access guard uses `isAdminOrRepoAdmin(supabase, userId, orgId)` from `src/lib/supabase/membership.ts` (added in T1.5, issue #398) rather than inlining the check. A parallel `user_organisations` query then reads `github_role` to determine whether to render the delete button — the `isAdminOrRepoAdmin` helper returns a boolean and cannot be reused for this second purpose. A future refactor (`chore: refactor isAdminOrRepoAdmin to return role` — issue #408) will eliminate the second query.
+> **Implementation note (issue #399, updated #408):** Access guard originally used `isAdminOrRepoAdmin(supabase, userId, orgId)` (returns `boolean`) with a parallel `user_organisations` query to read `github_role` for the delete-button decision. Issue #408 replaced this with `getOrgRole(supabase, userId, orgId)` (returns `'admin' | 'repo_admin' | null`) from `src/lib/supabase/membership.ts`. The page now redirects when `role` is `null`, and derives `isAdmin = role === 'admin'` directly — eliminating the second query. `isAdminOrRepoAdmin` is kept as a thin wrapper around `getOrgRole` for backwards compatibility with the list/create pages.
 
 > **Implementation note (issue #399):** LLD specifies "error toast on 409". No toast library is installed in this codebase. Implemented as an inline error `<p role="alert">` state with a 5 s `useEffect` auto-dismiss — equivalent UX without a new dependency.
 
@@ -683,7 +683,7 @@ export const UpdateProjectSchema = z.object({
 **Tasks:**
 1. Dashboard page + redirect guard + 404 path.
 2. Inline edit client component + tests.
-3. Delete button (visible iff `github_role === 'admin'`) + tests.
+3. Delete button (visible iff `getOrgRole` returns `'admin'`) + tests.
 
 **Acceptance:**
 - All §A.1-related BDD specs for the dashboard + inline edit pass.
