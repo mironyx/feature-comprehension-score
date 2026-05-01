@@ -1,8 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
-**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync), 2026-05-01 (issue #398 — lld-sync)
-**Version:** 0.4
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync), 2026-05-01 (issue #398 — lld-sync), 2026-05-01 (issue #399 — lld-sync)
+**Version:** 0.5
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -662,7 +662,7 @@ export const UpdateProjectSchema = z.object({
 - `src/app/(authenticated)/projects/[id]/page.tsx` (server component)
 - `src/app/(authenticated)/projects/[id]/inline-edit-header.tsx` (client — pencil affordance)
 - `src/app/(authenticated)/projects/[id]/delete-button.tsx` (client — Org Admin only)
-- `tests/app/(authenticated)/projects/dashboard-page.test.tsx`, `inline-edit-header.test.tsx`
+- `tests/app/(authenticated)/projects/dashboard-page.test.ts`, `inline-edit-header.test.ts`, `delete-button.test.ts`
 
 **Behaviour:**
 
@@ -671,6 +671,14 @@ export const UpdateProjectSchema = z.object({
 - Page renders: header with name + description + pencil (visible to admins/repo-admins), delete button (visible only to Org Admin), placeholder "Assessments" section + "New assessment" CTA (link to `/projects/[id]/assessments/new` — route created in E11.2; CTA renders disabled until E11.2 lands, with comment indicating that).
 - Inline edit submits PATCH `/api/projects/[id]` with `{name, description}`, optimistic update, error toast on 409.
 - Delete button confirms then DELETEs; redirects to `/projects` on 204; surfaces 409 "project not empty" inline.
+
+> **Implementation note (issue #399):** The LLD specified calling `getProject(ctx, id)` directly. As with B.5 (issue #398), `getProject` is designed for `ApiContext` assembled from route-handler clients — composing it in a server component would require a fake `ApiContext`. Inline queries via `createServerSupabaseClient()` were used instead, consistent with all other server pages in this codebase.
+
+> **Implementation note (issue #399):** Access guard uses `isAdminOrRepoAdmin(supabase, userId, orgId)` from `src/lib/supabase/membership.ts` (added in T1.5, issue #398) rather than inlining the check. A parallel `user_organisations` query then reads `github_role` to determine whether to render the delete button — the `isAdminOrRepoAdmin` helper returns a boolean and cannot be reused for this second purpose. A future refactor (`chore: refactor isAdminOrRepoAdmin to return role` — issue #408) will eliminate the second query.
+
+> **Implementation note (issue #399):** LLD specifies "error toast on 409". No toast library is installed in this codebase. Implemented as an inline error `<p role="alert">` state with a 5 s `useEffect` auto-dismiss — equivalent UX without a new dependency.
+
+> **Implementation note (issue #399):** Test file extensions are `.ts`, not `.tsx` — the test files do not contain JSX. `delete-button.test.ts` is a separate file from `dashboard-page.test.ts` because `vi.mock` applies file-wide; mocking the `DeleteButton` module in the page tests conflicts with testing `DeleteButton` itself.
 
 **Tasks:**
 1. Dashboard page + redirect guard + 404 path.
