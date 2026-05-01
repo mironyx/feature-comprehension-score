@@ -4,10 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
+| Version | 0.5 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
+| Revised | 2026-05-01 | Issue #413 |
 | Revised | 2026-05-01 | Issue #412 |
 | Revised | 2026-05-01 | Issue #411 |
 | Epic | E11.2 (#409) |
@@ -491,44 +492,45 @@ export default async function Page({ params }: { params: Promise<{ id: string; a
 
 ```ts
 import { notFound, redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getOrgRole } from '@/lib/supabase/membership';
+import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 
 export default async function NewAssessmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = await params;
   const supabase = await createServerSupabaseClient();
 
-  const { data: project } = await supabase
-    .from('projects').select('id, org_id, name').eq('id', projectId).maybeSingle();
-  if (!project) notFound();
-
-  const { user } = (await supabase.auth.getUser()).data;
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const role = await getOrgRole(supabase, user.id, project.org_id);
-  if (role === null) redirect('/assessments');
+  const orgId = getSelectedOrgId(await cookies());
+  if (!orgId) redirect('/org-select');
 
-  // Repo Admins also need their snapshot to filter the repo list.
-  let adminRepoIds: number[] = [];
-  if (role === 'repo_admin') {
-    const { data } = await supabase
-      .from('user_organisations')
-      .select('admin_repo_github_ids')
-      .eq('user_id', user.id).eq('org_id', project.org_id).maybeSingle();
-    adminRepoIds = (data?.admin_repo_github_ids ?? []) as number[];
-  }
+  const { data: project } = await supabase
+    .from('projects').select('id, org_id, name').eq('id', projectId).eq('org_id', orgId).maybeSingle();
+  if (!project) notFound();
+
+  // Justification: readMembershipSnapshot used directly (vs getOrgRole) because the snapshot
+  // is needed for the Repo Admin repo filter — getOrgRole doesn't return adminRepoGithubIds.
+  const snapshot = await readMembershipSnapshot(supabase, user.id, project.org_id);
+  const role = snapshot ? snapshotToOrgRole(snapshot) : null;
+  if (!role) redirect('/assessments');
 
   let q = supabase.from('repositories')
     .select('id, github_repo_name, github_repo_id')
     .eq('org_id', project.org_id).order('github_repo_name');
-  if (role === 'repo_admin') q = q.in('github_repo_id', adminRepoIds);
+  if (role === 'repo_admin' && snapshot) q = q.in('github_repo_id', snapshot.adminRepoGithubIds);
   const { data: repos } = await q;
 
   return <CreateAssessmentForm projectId={projectId} repositories={(repos ?? [])} />;
 }
 ```
 
-> **Implementation note.** `getOrgRole` returns `'admin' | 'repo_admin' | null`. Do NOT inline a `from('user_organisations').select('github_role, admin_repo_github_ids')` query for the role check — that pattern was replaced in E11.1 (#398, #408). The second query above is the only place we need raw snapshot fields, and only because `getOrgRole` does not currently return `adminRepoGithubIds`. If a third caller emerges, extend `getOrgRole` to return the array; do not duplicate the query.
+> **Implementation note (issue #413):** Three corrections vs. the original sketch:
+> 1. **Auth ordering** — `auth.getUser()` and the org-cookie check (`getSelectedOrgId`) now run *before* the project query. The original sketch queried the project first, which allowed unauthenticated callers to probe project existence.
+> 2. **Cross-org isolation** — the project query filters by both `id` *and* `org_id` (from the cookie). This ensures a pid in another org returns 404 rather than leaking its existence.
+> 3. **Single membership round-trip** — the original sketch called `getOrgRole` (one `user_organisations` query) then issued a *second* query for `admin_repo_github_ids` when the role was `repo_admin`. The implementation uses `readMembershipSnapshot` + `snapshotToOrgRole` directly, retrieving both the role and the admin-repo list in one query. This is the preferred pattern when `adminRepoGithubIds` is needed; use `getOrgRole` only when the role value alone is sufficient.
 
 **Form (client) changes vs. existing form:**
 - New prop: `projectId: string`. `org_id` is no longer needed — server already resolved it via project.

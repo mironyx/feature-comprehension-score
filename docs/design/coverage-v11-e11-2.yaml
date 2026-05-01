@@ -8,8 +8,14 @@ entries:
     status: Revised
     # LLD corrected by issue #411 (pipeline path, enforcePerRepoAdmin signature, auth order).
     # files: populated by /feature-end after merge.
-    # Schema enabling at #LLD-v11-e11-2-schema; new-assessment page at
-    # #LLD-v11-e11-2-new-assessment-page
+
+  - req: REQ-fcs-scoped-to-projects-new-assessment-page
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-new-assessment-page
+    issue: 413
+    files: []
+    status: Revised
+    # LLD corrected by issue #413 (auth ordering, org scoping, single readMembershipSnapshot round-trip).
+    # files: populated by /feature-end after merge.
 
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-project-scoped-list
