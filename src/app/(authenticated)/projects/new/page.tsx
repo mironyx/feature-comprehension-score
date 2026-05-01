@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { isAdminOrRepoAdmin } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import CreateProjectForm from './create-form';
 
@@ -22,16 +23,7 @@ export default async function NewProjectPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const { data: row } = await supabase
-    .from('user_organisations')
-    .select('github_role, admin_repo_github_ids')
-    .eq('org_id', orgId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  const isAdmin = row?.github_role === 'admin';
-  const isRepoAdmin = ((row?.admin_repo_github_ids ?? []) as number[]).length > 0;
-  if (!isAdmin && !isRepoAdmin) redirect('/assessments');
+  if (!await isAdminOrRepoAdmin(supabase, user.id, orgId)) redirect('/assessments');
 
   return (
     <div className="space-y-section-gap">
