@@ -3,7 +3,8 @@
 
 import { ApiError } from '@/lib/api/errors';
 import type { ApiContext } from '@/lib/api/context';
-import { assertOrgAdmin, retriggerRubricForAssessment, MAX_RUBRIC_RETRIES } from '@/app/api/fcs/service';
+import { assertOrgAdmin } from '@/lib/api/repo-admin-gate';
+import { retriggerRubricForAssessment, MAX_RUBRIC_RETRIES } from '@/lib/api/fcs-pipeline';
 
 export async function retryRubricGeneration(
   ctx: ApiContext,
@@ -17,7 +18,7 @@ export async function retryRubricGeneration(
     .eq('id', assessmentId)
     .single();
   if (error ?? !assessment) throw new ApiError(404, 'Assessment not found');
-  await assertOrgAdmin(ctx.supabase, ctx.user.id, assessment.org_id);
+  await assertOrgAdmin(ctx, assessment.org_id);
   if (assessment.status !== 'rubric_failed') throw new ApiError(400, 'Assessment must be in rubric_failed status to retry');
   if (assessment.rubric_retry_count >= MAX_RUBRIC_RETRIES) throw new ApiError(400, 'Maximum retry limit reached');
   if (assessment.rubric_error_retryable === false) throw new ApiError(400, 'Error is not retryable');

@@ -22,7 +22,7 @@ This is the curated list of helpers, types, and entry points that every new feat
 |---|---|---|
 | `requireAuth(request) → Promise<AuthUser>` | `@/lib/api/auth` | Lower-level than `createApiContext` — used inside the context factory. New routes should not call this directly. |
 | `assertOrgAdmin(ctx, orgId)` | `@/lib/api/repo-admin-gate` | Throws `ApiError(401)` if no membership, `ApiError(403)` unless `github_role = 'admin'`. |
-| `assertOrgAdminOrRepoAdmin(ctx, orgId)` | `@/lib/api/repo-admin-gate` | Throws `ApiError(401)` / `ApiError(403)`. The default gate for project-write routes. |
+| `assertOrgAdminOrRepoAdmin(ctx, orgId) → Promise<RepoAdminSnapshot>` | `@/lib/api/repo-admin-gate` | Throws `ApiError(401)` / `ApiError(403)`. Returns the snapshot so callers can pass it to per-repo checks without a second DB round-trip (updated by issue #411). |
 | `isOrgAdminOrRepoAdmin(ctx, orgId) → Promise<boolean>` | `@/lib/api/repo-admin-gate` | Boolean variant. Use when the caller wants to branch, not gate. |
 | `readSnapshot(ctx, orgId) → Promise<RepoAdminSnapshot \| null>` | `@/lib/api/repo-admin-gate` | Returns `{ githubRole, adminRepoGithubIds }`. Use when finer-grained checks are needed (e.g. per-repo admin filtering). |
 | `RepoAdminSnapshot` | `@/lib/api/repo-admin-gate` | Type exported alongside the helpers. Do not redefine. |
@@ -58,11 +58,11 @@ This is the curated list of helpers, types, and entry points that every new feat
 | `createMiddlewareSupabaseClient(request, response)` | `@/lib/supabase/middleware` | `middleware.ts` only. |
 | `supabase` (browser) | `@/lib/supabase/client` | Client components only. |
 
-## Engine modules (pure domain logic — no framework imports)
+## API pipeline modules (use Supabase/Octokit — not in engine/)
 
 | Module | Path | Purpose |
 |---|---|---|
-| `fcs-pipeline` | `@/lib/engine/fcs-pipeline` | Rubric pipeline: `triggerRubricGeneration`, `retriggerRubricForAssessment`, `extractArtefacts`, `finaliseRubric`, plus retry/error helpers and `CreateFcsResponse`. **Never re-implement.** Established by E11.2 T2.2. |
+| `fcs-pipeline` | `@/lib/api/fcs-pipeline` | Rubric pipeline: `triggerRubricGeneration`, `retriggerRubricForAssessment`, `extractArtefacts`, `finaliseRubric`, plus retry/error helpers, `CreateFcsResponse`, and GitHub validation helpers (`validateMergedPRs`, `validateIssues`, `resolveParticipants`, `fetchRepoInfo`). **Never re-implement.** Relocated from `/api/fcs/service.ts` by E11.2 T2.2 (issue #411). Uses Supabase and Octokit — cannot live in `src/lib/engine/`. |
 
 ## Project / org context loaders
 
@@ -92,7 +92,8 @@ These are the duplicate-implementation patterns we have already corrected once v
 - Hand-rolled `await request.json()` + Zod parse — use `validateBody`.
 - Hand-rolled `try/catch` returning `Response.json` — use `handleApiError` and `json` / `ApiError`.
 - Defining a local `RepoAdminSnapshot` interface — import the canonical type.
-- Re-implementing rubric pipeline functions outside `@/lib/engine/fcs-pipeline`.
+- Re-implementing rubric pipeline functions outside `@/lib/api/fcs-pipeline`.
+- Placing rubric pipeline helpers in `@/lib/engine/` — the pipeline uses Supabase and Octokit clients, violating the engine layer's Clean Architecture constraint (no framework imports).
 - Constructing `/assessments/${id}` hrefs when rendering assessment list items — after T2.3 (issue #412) the correct shape is `/projects/${project_id}/assessments/${id}`. PRCC rows have `project_id === null` and must render as non-navigable `<span>` elements; never use `href="#"` as a placeholder.
 
 ---

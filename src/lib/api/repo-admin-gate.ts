@@ -36,11 +36,12 @@ export async function isOrgAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Pro
   }
 }
 
-/** Throws ApiError(401) if no membership, ApiError(403) if insufficient permissions. */
-export async function assertOrgAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<void> {
+/** Throws ApiError(401) if no membership, ApiError(403) if insufficient permissions. Returns snapshot for callers that need it. */
+export async function assertOrgAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<RepoAdminSnapshot> {
   const snapshot = await readSnapshot(ctx, orgId);
   if (!snapshot) throw new ApiError(401, 'No membership for this organisation');
   if (!snapshotToOrgRole(snapshot)) throw new ApiError(403, 'Org Admin or Repo Admin role required');
+  return snapshot;
 }
 
 /** Throws ApiError(401) if no membership, ApiError(403) unless github_role = 'admin'. */

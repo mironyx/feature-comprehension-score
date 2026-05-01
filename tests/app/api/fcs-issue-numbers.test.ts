@@ -1,26 +1,13 @@
-// Tests for POST /api/fcs — issue numbers feature (Story 19.1, issue #287).
+// Tests for FCS — issue numbers feature (Story 19.1, issue #287).
 // Contract source: docs/requirements/v2-requirements.md §"Story 19.1", issue #287 AC list.
-// This file tests only the issue-numbers contract. The base POST /api/fcs contract
+// This file tests only the issue-numbers contract. The base createFcs contract
 // (auth, repo validation, PR validation, etc.) is covered by fcs.test.ts.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
 
 // ---------------------------------------------------------------------------
 // Module mocks — declared before imports that depend on them
 // ---------------------------------------------------------------------------
-
-vi.mock('@/lib/api/auth', () => ({
-  requireAuth: vi.fn(),
-}));
-
-vi.mock('@/lib/supabase/route-handler-readonly', () => ({
-  createReadonlyRouteHandlerClient: vi.fn(() => mockUserClient),
-}));
-
-vi.mock('@/lib/supabase/secret', () => ({
-  createSecretSupabaseClient: vi.fn(() => mockAdminClient),
-}));
 
 vi.mock('@/lib/github/client', () => ({
   createGithubClient: vi.fn(),
@@ -34,12 +21,12 @@ vi.mock('@/lib/engine/pipeline', () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { requireAuth } from '@/lib/api/auth';
 import { createGithubClient } from '@/lib/github/client';
 
-import { POST } from '@/app/api/fcs/route';
-import { FcsCreateBodySchema } from '@/app/api/fcs/service';
-import { retriggerRubricForAssessment } from '@/app/api/fcs/service';
+import { createFcsForProject } from '@/app/api/projects/[id]/assessments/service';
+import { CreateFcsBodySchema, type CreateFcsBody } from '@/app/api/projects/[id]/assessments/validation';
+import { retriggerRubricForAssessment } from '@/lib/api/fcs-pipeline';
+import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -47,6 +34,7 @@ import { retriggerRubricForAssessment } from '@/app/api/fcs/service';
 
 const ORG_ID = 'a0000000-0000-4000-8000-000000000001';
 const REPO_ID = 'a0000000-0000-4000-8000-000000000002';
+const PROJECT_ID = 'a0000000-0000-4000-8000-000000000003';
 
 // ---------------------------------------------------------------------------
 // Mock chain builder — mirrors the pattern in fcs.test.ts
@@ -97,6 +85,7 @@ const mockOctokit = {
 const mockUserClient = {
   from: vi.fn((table: string) => {
     if (table === 'user_organisations') return makeChain(() => orgMemberResult);
+    if (table === 'projects') return makeChain(() => ({ data: { id: PROJECT_ID }, error: null }));
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -120,13 +109,10 @@ const mockAdminClient = {
 const AUTH_USER = {
   id: 'a0000000-0000-0000-0000-000000000001',
   email: 'admin@example.com',
-  githubUserId: 1001,
-  githubUsername: 'adminuser',
 };
 
 /** Minimal valid body with only merged_pr_numbers — backward-compat baseline. */
-const BASE_BODY_WITH_PRS = {
-  org_id: ORG_ID,
+const BASE_BODY_WITH_PRS: CreateFcsBody = {
   repository_id: REPO_ID,
   feature_name: 'New Checkout Flow',
   merged_pr_numbers: [42],
@@ -134,8 +120,7 @@ const BASE_BODY_WITH_PRS = {
 };
 
 /** Minimal valid body with only issue_numbers — no PR numbers. */
-const BASE_BODY_WITH_ISSUES = {
-  org_id: ORG_ID,
+const BASE_BODY_WITH_ISSUES: CreateFcsBody = {
   repository_id: REPO_ID,
   feature_name: 'New Checkout Flow',
   issue_numbers: [101],
@@ -146,17 +131,18 @@ const BASE_BODY_WITH_ISSUES = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeRequest(body: unknown): NextRequest {
-  return new NextRequest('http://localhost/api/fcs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function makeCtx(): ApiContext {
+  return {
+    supabase: mockUserClient as never,
+    adminSupabase: mockAdminClient as never,
+    user: AUTH_USER,
+    orgId: ORG_ID,
+  };
 }
 
-async function callPost(body: unknown): Promise<{ status: number; json: unknown }> {
-  const res = await POST(makeRequest(body));
-  return { status: res.status, json: await res.json() };
+async function callPost(body: CreateFcsBody): Promise<{ status: number; json: unknown }> {
+  const result = await createFcsForProject(makeCtx(), PROJECT_ID, body);
+  return { status: 201, json: result };
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +152,6 @@ async function callPost(body: unknown): Promise<{ status: number; json: unknown 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
   vi.mocked(createGithubClient).mockResolvedValue(mockOctokit as never);
 
   // PR validation — merged by default
@@ -176,7 +161,7 @@ beforeEach(() => {
   // Issue validation — exists, is a genuine issue (no pull_request field) by default
   mockOctokit.rest.issues.get.mockResolvedValue({ data: { number: 101, title: 'My Issue', body: 'body text', pull_request: undefined } });
 
-  orgMemberResult = { data: [{ github_role: 'admin' }], error: null };
+  orgMemberResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
   repoResult = {
     data: {
       github_repo_name: 'test-repo',
@@ -197,22 +182,22 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('POST /api/fcs — issue numbers', () => {
+describe('createFcs — issue numbers', () => {
 
   // -------------------------------------------------------------------------
-  // Schema validation
+  // Pipeline acceptance (201 paths)
   // -------------------------------------------------------------------------
 
-  describe('schema validation', () => {
+  describe('pipeline acceptance', () => {
     it('accepts issue_numbers alongside merged_pr_numbers', async () => {
-      // [req §Story 19.1 API schema] Both fields provided → 201 created
-      const body = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
+      // [req §Story 19.1 API schema] Both fields provided → succeeds
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
       const { status } = await callPost(body);
       expect(status).toBe(201);
     });
 
     it('accepts issue_numbers without merged_pr_numbers', async () => {
-      // [req §Story 19.1] issue_numbers alone → 201 created (no PRs required)
+      // [req §Story 19.1] issue_numbers alone → succeeds (no PRs required)
       const { status } = await callPost(BASE_BODY_WITH_ISSUES);
       expect(status).toBe(201);
     });
@@ -222,33 +207,6 @@ describe('POST /api/fcs — issue numbers', () => {
       const { status } = await callPost(BASE_BODY_WITH_PRS);
       expect(status).toBe(201);
     });
-
-    it('rejects request with neither merged_pr_numbers nor issue_numbers — 422', async () => {
-      // [req §Story 19.1] HTTP 422 with explicit error message when both are absent
-      const body = {
-        org_id: ORG_ID,
-        repository_id: REPO_ID,
-        feature_name: 'New Checkout Flow',
-        participants: [{ github_username: 'alice' }],
-      };
-      const { status, json } = await callPost(body);
-      expect(status).toBe(422);
-      expect(JSON.stringify(json)).toContain('At least one of merged_pr_numbers or issue_numbers is required');
-    });
-
-    it('rejects request with empty merged_pr_numbers and no issue_numbers — 422', async () => {
-      // [req §Story 19.1] empty arrays are equivalent to absent — refine catches this
-      const body = { ...BASE_BODY_WITH_PRS, merged_pr_numbers: [], issue_numbers: [] };
-      const { status } = await callPost(body);
-      expect(status).toBe(422);
-    });
-
-    it('rejects request with empty merged_pr_numbers and absent issue_numbers — 422', async () => {
-      // [req §Story 19.1] the original "merged_pr_numbers: []" case still 422s
-      const body = { ...BASE_BODY_WITH_PRS, merged_pr_numbers: [] };
-      const { status } = await callPost(body);
-      expect(status).toBe(422);
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -257,7 +215,6 @@ describe('POST /api/fcs — issue numbers', () => {
 
   describe('FcsCreateBodySchema', () => {
     const VALID_BASE = {
-      org_id: ORG_ID,
       repository_id: REPO_ID,
       feature_name: 'Feature',
       participants: [{ github_username: 'alice' }],
@@ -265,25 +222,25 @@ describe('POST /api/fcs — issue numbers', () => {
 
     it('succeeds with issue_numbers only', () => {
       // [req §Story 19.1] schema-level: issue_numbers alone satisfies the refine
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [101] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [101] });
       expect(result.success).toBe(true);
     });
 
     it('succeeds with merged_pr_numbers only', () => {
       // [req §Story 19.1 — backward compat]
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [42] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [42] });
       expect(result.success).toBe(true);
     });
 
     it('succeeds with both issue_numbers and merged_pr_numbers', () => {
       // [req §Story 19.1]
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [42], issue_numbers: [101] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [42], issue_numbers: [101] });
       expect(result.success).toBe(true);
     });
 
     it('fails when neither field is provided', () => {
       // [req §Story 19.1]
-      const result = FcsCreateBodySchema.safeParse(VALID_BASE);
+      const result = CreateFcsBodySchema.safeParse(VALID_BASE);
       expect(result.success).toBe(false);
       const errorMessages = result.error?.issues.map((i) => i.message) ?? [];
       expect(errorMessages.some((m) => m.includes('At least one of merged_pr_numbers or issue_numbers is required'))).toBe(true);
@@ -291,19 +248,19 @@ describe('POST /api/fcs — issue numbers', () => {
 
     it('fails when both arrays are empty', () => {
       // [req §Story 19.1] empty arrays treated as absent
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [], issue_numbers: [] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, merged_pr_numbers: [], issue_numbers: [] });
       expect(result.success).toBe(false);
     });
 
     it('rejects non-positive issue numbers', () => {
       // [req §Story 19.1] issue_numbers must be positive integers
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [0] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [0] });
       expect(result.success).toBe(false);
     });
 
     it('rejects negative issue numbers', () => {
       // [req §Story 19.1] issue_numbers must be positive integers
-      const result = FcsCreateBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [-1] });
+      const result = CreateFcsBodySchema.safeParse({ ...VALID_BASE, issue_numbers: [-1] });
       expect(result.success).toBe(false);
     });
   });
@@ -316,9 +273,7 @@ describe('POST /api/fcs — issue numbers', () => {
     it('rejects issue number that does not exist — 422', async () => {
       // [req §Story 19.1 Issue validation] GitHub returns 404 → 422 with identifying message
       mockOctokit.rest.issues.get.mockRejectedValue(new Error('Not Found'));
-      const { status, json } = await callPost(BASE_BODY_WITH_ISSUES);
-      expect(status).toBe(422);
-      expect(JSON.stringify(json)).toContain('Issue #101 not found');
+      await expect(callPost(BASE_BODY_WITH_ISSUES)).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('Issue #101 not found') });
     });
 
     it('rejects issue number that is actually a PR — 422 with guidance message', async () => {
@@ -327,9 +282,7 @@ describe('POST /api/fcs — issue numbers', () => {
       mockOctokit.rest.issues.get.mockResolvedValue({
         data: { number: 101, title: 'Some PR', pull_request: { url: 'https://api.github.com/repos/x/y/pulls/101' } },
       });
-      const { status, json } = await callPost(BASE_BODY_WITH_ISSUES);
-      expect(status).toBe(422);
-      expect(JSON.stringify(json)).toContain('#101 is a pull request, not an issue. Use merged_pr_numbers for PRs.');
+      await expect(callPost(BASE_BODY_WITH_ISSUES)).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('#101 is a pull request, not an issue. Use merged_pr_numbers for PRs.') });
     });
 
     it('validates each issue number individually', async () => {
@@ -337,9 +290,8 @@ describe('POST /api/fcs — issue numbers', () => {
       mockOctokit.rest.issues.get
         .mockResolvedValueOnce({ data: { number: 101, title: 'Real Issue', pull_request: undefined } })
         .mockRejectedValueOnce(new Error('Not Found'));
-      const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 999] };
-      const { status } = await callPost(body);
-      expect(status).toBe(422);
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 999] };
+      await expect(callPost(body)).rejects.toMatchObject({ statusCode: 422 });
     });
 
     it('does NOT call issues.get when issue_numbers is absent', async () => {
@@ -350,8 +302,8 @@ describe('POST /api/fcs — issue numbers', () => {
 
     it('does NOT call issues.get when issue_numbers is empty', async () => {
       // [issue #287] empty array is equivalent to absent — no validation calls
-      const body = { ...BASE_BODY_WITH_PRS, issue_numbers: [] };
-      // merged_pr_numbers is still present so schema passes
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_PRS, issue_numbers: [] };
+      // merged_pr_numbers is still present so validation passes
       const { status } = await callPost(body);
       expect(status).toBe(201);
       expect(mockOctokit.rest.issues.get).not.toHaveBeenCalled();
@@ -373,7 +325,7 @@ describe('POST /api/fcs — issue numbers', () => {
   describe('persistence', () => {
     it('stores issue numbers AND titles in fcs_issue_sources table via RPC p_issue_sources param', async () => {
       // [lld §19.1 — ValidatedIssue] p_issue_sources must include issue_title, not just issue_number.
-      // Default mock returns title: 'My Issue' (line 177). Regression for issue #291.
+      // Default mock returns title: 'My Issue' (line in beforeEach). Regression for issue #291.
       await callPost(BASE_BODY_WITH_ISSUES);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -404,7 +356,7 @@ describe('POST /api/fcs — issue numbers', () => {
       mockOctokit.rest.issues.get
         .mockResolvedValueOnce({ data: { number: 101, title: 'Implement login page', pull_request: undefined } })
         .mockResolvedValueOnce({ data: { number: 202, title: 'Fix broken header', pull_request: undefined } });
-      const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
       await callPost(body);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -420,7 +372,7 @@ describe('POST /api/fcs — issue numbers', () => {
     it('stores multiple issue numbers with their titles as separate objects', async () => {
       // [lld §19.1] each issue number becomes a separate row via p_issue_sources; titles included
       mockOctokit.rest.issues.get.mockResolvedValue({ data: { number: 0, title: 'Issue', pull_request: undefined } });
-      const body = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_ISSUES, issue_numbers: [101, 202] };
       await callPost(body);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -447,7 +399,7 @@ describe('POST /api/fcs — issue numbers', () => {
     it('passes p_merged_prs alongside p_issue_sources with titles when both are provided', async () => {
       // [lld §19.1] both tables populated when request includes both PR and issue numbers;
       // p_issue_sources entries must include issue_title
-      const body = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
+      const body: CreateFcsBody = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
       await callPost(body);
       expect(mockAdminClient.rpc).toHaveBeenCalledWith(
         'create_fcs_assessment',
@@ -530,23 +482,19 @@ describe('POST /api/fcs — issue numbers', () => {
   // -------------------------------------------------------------------------
 
   describe('success response', () => {
-    it('returns 201 with assessment_id, status rubric_generation, and participant_count when only issue_numbers provided', async () => {
+    it('returns assessment_id, status rubric_generation, and participant_count when only issue_numbers provided', async () => {
       // [req §Story 19.1] same 201 shape regardless of whether PRs or issues were supplied
-      const { status, json } = await callPost(BASE_BODY_WITH_ISSUES);
-      expect(status).toBe(201);
-      const body = json as Record<string, unknown>;
-      expect(typeof body['assessment_id']).toBe('string');
-      expect(body['status']).toBe('rubric_generation');
-      expect(body['participant_count']).toBe(1);
+      const result = await createFcsForProject(makeCtx(), PROJECT_ID, BASE_BODY_WITH_ISSUES);
+      expect(typeof result.assessment_id).toBe('string');
+      expect(result.status).toBe('rubric_generation');
+      expect(result.participant_count).toBe(1);
     });
 
-    it('returns 201 with assessment_id, status rubric_generation, and participant_count when both types provided', async () => {
-      // [req §Story 19.1] combined request still yields the same 201 shape
-      const combinedBody = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
-      const { status, json } = await callPost(combinedBody);
-      expect(status).toBe(201);
-      const body = json as Record<string, unknown>;
-      expect(body['status']).toBe('rubric_generation');
+    it('returns assessment_id, status rubric_generation, and participant_count when both types provided', async () => {
+      // [req §Story 19.1] combined request still yields the same response shape
+      const combinedBody: CreateFcsBody = { ...BASE_BODY_WITH_PRS, issue_numbers: [101] };
+      const result = await createFcsForProject(makeCtx(), PROJECT_ID, combinedBody);
+      expect(result.status).toBe('rubric_generation');
     });
   });
 });

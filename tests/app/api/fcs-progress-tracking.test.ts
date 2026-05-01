@@ -79,7 +79,7 @@ vi.mock('@/lib/github/tools/list-directory', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/app/api/fcs/service';
+import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
 import type { ApiContext } from '@/lib/api/context';
 import { generateRubric } from '@/lib/engine/pipeline';
 

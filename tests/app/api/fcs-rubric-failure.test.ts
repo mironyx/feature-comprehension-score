@@ -55,7 +55,7 @@ vi.mock('@/lib/api/llm', () => ({
 // ---------------------------------------------------------------------------
 
 import { createGithubClient } from '@/lib/github/client';
-import { createFcs, type FcsCreateBody } from '@/app/api/fcs/service';
+import { createFcs, type FcsCreateBody } from '@/lib/api/fcs-pipeline';
 import type { ApiContext } from '@/lib/api/context';
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,11 @@
-// POST /api/fcs — FCS assessment creation service.
-// Design reference: docs/design/lld-phase-2-web-auth-db.md §2.4 POST /api/fcs
+// Rubric generation pipeline — orchestration layer shared by FCS create + retry-rubric.
+// Lives in src/lib/api/ (not engine/) because it depends on supabase and github adapters.
 
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import type { Octokit } from '@octokit/rest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ApiError } from '@/lib/api/errors';
 import { logger } from '@/lib/logger';
-import type { ApiContext } from '@/lib/api/context';
 import { createGithubClient } from '@/lib/github/client';
 import { GitHubArtefactSource } from '@/lib/github';
 import type { RepoCoords } from '@/lib/engine/ports/artefact-source';
@@ -24,39 +22,16 @@ import { makeListDirectoryTool } from '@/lib/github/tools/list-directory';
 import type { ToolCallEvent, ToolDefinition } from '@/lib/engine/llm/tools';
 import type { LLMError, LLMErrorCode } from '@/lib/engine/llm/types';
 
-type UserClient = ApiContext['supabase'];
 type ServiceClient = SupabaseClient<Database>;
 
 // Branded ID types — prevents accidental swaps between look-alike string arguments.
 type OrgId = string & { readonly _brand: 'OrgId' };
-type UserId = string & { readonly _brand: 'UserId' };
 type RepositoryId = string & { readonly _brand: 'RepositoryId' };
 type AssessmentId = string & { readonly _brand: 'AssessmentId' };
 
 // ---------------------------------------------------------------------------
-// Request / response contracts
+// Public response contract
 // ---------------------------------------------------------------------------
-
-// Story 19.1 (#287): merged_pr_numbers becomes optional; issue_numbers is added as optional.
-// At least one of the two must be provided — enforced by `.refine()` so the 422 message is explicit.
-export const FcsCreateBodySchema = z.object({
-  org_id: z.uuid(),
-  repository_id: z.uuid(),
-  feature_name: z.string().min(1),
-  feature_description: z.string().optional(),
-  merged_pr_numbers: z.array(z.number().int().positive()).optional(),
-  issue_numbers: z.array(z.number().int().positive()).optional(),
-  participants: z.array(z.object({ github_username: z.string().min(1) })).min(1),
-  comprehension_depth: z.enum(['conceptual', 'detailed']).default('conceptual'),
-}).refine(
-  (body) => (body.merged_pr_numbers?.length ?? 0) > 0 || (body.issue_numbers?.length ?? 0) > 0,
-  { message: 'At least one of merged_pr_numbers or issue_numbers is required' },
-);
-
-export type FcsCreateBody = z.infer<typeof FcsCreateBodySchema>;
-// FcsCreateInput is the subset of fields passed to createAssessmentRecord (LLD §2.4 constraint).
-// Narrowed to only the fields the DB write needs, enforcing the design boundary.
-export type FcsCreateInput = Pick<FcsCreateBody, 'org_id' | 'repository_id' | 'feature_name' | 'feature_description' | 'comprehension_depth'>;
 
 export interface CreateFcsResponse {
   assessment_id: string;
@@ -120,28 +95,6 @@ interface RubricTriggerParams {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-// Justification: assertOrgAdmin is extracted from createFcs to keep the exported function
-// under 20 lines. The LLD places the org-admin check in the controller; createApiContext does
-// not yet include adminSupabase + role-check together, so the check lives here until §2.4
-// controller refactor consolidates it into requireOrgAdmin().
-export async function assertOrgAdmin(supabase: UserClient, userId: string, orgId: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('user_organisations')
-    .select('github_role')
-    .eq('user_id', userId)
-    .eq('org_id', orgId);
-  if (error) {
-    logger.error({ err: error }, 'assertOrgAdmin: query failed');
-    throw new ApiError(500, 'Internal server error');
-  }
-  const rows = (data ?? []) as { github_role: string }[];
-  if (!rows.length || rows[0]?.github_role !== 'admin') throw new ApiError(403, 'Forbidden');
-}
-
-// Justification: toRepoInfo and fetchRepoInfo are not in the LLD §2.4 internal decomposition.
-// They were extracted to keep fetchRepoInfo CC below 9 (CodeScene complex-method threshold).
-// The LLD §2.4 Private helpers list omits the repo+config fetch step entirely; these helpers
-// implement that implicit step. The LLD should be updated to include them.
 function toRepoInfo(repo: RepoRow, cfg: ConfigRow, orgId: OrgId): RepoInfo {
   const storedName = repo.github_repo_name;
   const repoName = storedName.includes('/') ? storedName.split('/')[1]! : storedName;
@@ -170,7 +123,7 @@ function validateCfg(result: { data: ConfigRow | null; error: unknown }): Config
   return data;
 }
 
-async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: RepositoryId, orgId: OrgId): Promise<RepoInfo> {
+export async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: string, orgId: string): Promise<RepoInfo> {
   const [repoResult, cfgResult] = await Promise.all([
     adminSupabase
       .from('repositories')
@@ -183,10 +136,10 @@ async function fetchRepoInfo(adminSupabase: ServiceClient, repositoryId: Reposit
       .eq('org_id', orgId)
       .single() as unknown as Promise<{ data: ConfigRow | null; error: unknown }>,
   ]);
-  return toRepoInfo(validateRepo(repoResult, orgId), validateCfg(cfgResult), orgId);
+  return toRepoInfo(validateRepo(repoResult, orgId as OrgId), validateCfg(cfgResult), orgId as OrgId);
 }
 
-async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, prNumbers: number[]): Promise<ValidatedPR[]> {
+export async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, prNumbers: number[]): Promise<ValidatedPR[]> {
   return Promise.all(prNumbers.map(async (prNumber) => {
     try {
       const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
@@ -200,11 +153,7 @@ async function validateMergedPRs(octokit: Octokit, owner: string, repo: string, 
   }));
 }
 
-// Story 19.1 (#287): validate each issue number exists and is not actually a PR.
-// The GitHub REST `GET /issues/{n}` endpoint returns a `pull_request` field when
-// the number refers to a PR — we reject that case with a guidance message.
-// Issue #291: capture the issue title so it can be persisted in fcs_issue_sources.
-async function validateIssues(octokit: Octokit, owner: string, repo: string, issueNumbers: number[]): Promise<ValidatedIssue[]> {
+export async function validateIssues(octokit: Octokit, owner: string, repo: string, issueNumbers: number[]): Promise<ValidatedIssue[]> {
   return Promise.all(issueNumbers.map(async (issueNumber) => {
     try {
       const { data } = await octokit.rest.issues.get({ owner, repo, issue_number: issueNumber });
@@ -220,7 +169,7 @@ async function validateIssues(octokit: Octokit, owner: string, repo: string, iss
   }));
 }
 
-async function resolveParticipants(octokit: Octokit, usernames: string[]): Promise<ResolvedParticipant[]> {
+export async function resolveParticipants(octokit: Octokit, usernames: string[]): Promise<ResolvedParticipant[]> {
   return Promise.all(usernames.map(async (username) => {
     try {
       const { data } = await octokit.rest.users.getByUsername({ username });
@@ -232,27 +181,32 @@ async function resolveParticipants(octokit: Octokit, usernames: string[]): Promi
   }));
 }
 
-// Justification: CreateAssessmentParams bundles 4 fields to keep createAssessmentWithParticipants
-// under the CodeScene "Excess Number of Function Arguments" threshold (5). The LLD §2.4 specified
-// separate createAssessmentRecord + enrollParticipants; these were merged into a single RPC call
-// (create_fcs_assessment) as part of the #118 transactional refactor.
+interface AssessmentBody {
+  repository_id: string;
+  feature_name: string;
+  feature_description?: string;
+  comprehension_depth?: 'conceptual' | 'detailed';
+}
+
 interface CreateAssessmentParams {
-  body: FcsCreateInput;
+  body: AssessmentBody;
+  orgId: string;
+  projectId: string;
   repoInfo: RepoInfo;
   validatedPRs: ValidatedPR[];
   validatedIssues: ValidatedIssue[];
   participants: ResolvedParticipant[];
 }
 
-async function createAssessmentWithParticipants(
+export async function createAssessmentWithParticipants(
   adminSupabase: ServiceClient,
   params: CreateAssessmentParams,
 ): Promise<AssessmentId> {
-  const { body, repoInfo, validatedPRs, validatedIssues, participants } = params;
+  const { body, orgId, projectId, repoInfo, validatedPRs, validatedIssues, participants } = params;
   const assessmentId = randomUUID() as AssessmentId;
   const { error } = await adminSupabase.rpc('create_fcs_assessment', {
     p_id: assessmentId,
-    p_org_id: body.org_id,
+    p_org_id: orgId,
     p_repository_id: body.repository_id,
     p_feature_name: body.feature_name,
     p_feature_description: body.feature_description ?? '',
@@ -267,6 +221,7 @@ async function createAssessmentWithParticipants(
     })) as unknown as Json,
     p_config_comprehension_depth: body.comprehension_depth ?? 'conceptual',
     p_issue_sources: validatedIssues as unknown as Json,
+    p_project_id: projectId,
   });
   if (error) {
     logger.error({ err: error }, 'createAssessmentWithParticipants: rpc failed');
@@ -275,9 +230,6 @@ async function createAssessmentWithParticipants(
   return assessmentId;
 }
 
-// Justification: logArtefactSummary extracted from finaliseRubric to log artefact metadata
-// before the LLM call (#136). Not in LLD §2.4 — added for observability.
-// E19.3 (#282): logs filePaths (capped to keep entries small) and issueCount for debuggability.
 const FILE_PATHS_LOG_LIMIT = 50;
 
 function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: number, tokenBudget: number, rawTokens: number): void {
@@ -302,9 +254,6 @@ function logArtefactSummary(artefacts: AssembledArtefactSet, contextLimit: numbe
   }, 'Rubric generation: artefact summary');
 }
 
-// Pipeline step names persisted to `assessments.rubric_progress`. Each value
-// maps to a human-readable label on the client (see getProgressLabel).
-// V2 Epic 18, Story 18.3. See docs/design/lld-e18.md §18.3.
 export type PipelineStep = 'artefact_extraction' | 'llm_request' | 'llm_tool_call' | 'rubric_parsing' | 'persisting';
 
 export async function updateProgress(
@@ -321,10 +270,6 @@ export async function updateProgress(
   if (error) logger.warn({ err: error, assessmentId, step }, 'updateProgress: failed');
 }
 
-// Justification: buildRubricTools and persistRubricFinalisation are extracted from
-// finaliseRubric to keep it under the 20-line budget while adding tool-use + observability
-// (§17.1e). Tools attach only when the org has opted in via `tool_use_enabled`; the loop
-// degenerates to a single-shot call when the tool set is empty.
 function buildRubricTools(
   octokit: Octokit,
   repoRef: { owner: string; repo: string },
@@ -374,13 +319,6 @@ interface FinaliseRubricParams {
   rawTokens: number;
 }
 
-// Justification: helpers below (makeOnToolCall, logResponseReceived, failGeneration,
-// runGeneration, buildFailureUpdate, toFailureDetails) are extracted from finaliseRubric +
-// triggerRubricGeneration to keep both functions within CLAUDE.md's 20-line body budget.
-// The LLD §18.1 shows the wiring inline (and names the err→LLMError converter `extractLlmError`);
-// see PR #275 "Design deviations" for the reconciliation note picked up by /lld-sync.
-// makeOnToolCall also drives the E18.3 llm_tool_call progress write (pushed into pendingWrites
-// and drained by runGeneration before any branching).
 function makeOnToolCall(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
@@ -443,18 +381,11 @@ async function runGeneration(
     bounds,
     onToolCall: makeOnToolCall(params.adminSupabase, assessmentId, orgId, settings.tool_use_enabled, pendingWrites),
   });
-  // Drain before any branching — otherwise a late-resolving `llm_tool_call` progress write
-  // can overwrite the `null` progress that markRubricFailed sets on the failure path,
-  // or the `rubric_parsing` progress on the success path. See lld-e18.md §18.3.
   await Promise.allSettled(pendingWrites);
   if (result.status === 'generation_failed') failGeneration(assessmentId, orgId, result.error);
   return result;
 }
 
-// Justification: finaliseRubric absorbs storeRubricQuestions (LLD §2.4) and the status
-// transition into a single finalise_rubric RPC call as part of the #118 transactional refactor.
-// Tool-use + observability wiring added for §17.1e (#246). Structured step logging + onToolCall
-// wiring added for E18.1 (#272). Progress tracking via updateProgress added for E18.3 (#274).
 async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   logArtefactSummary(params.artefacts, params.contextLimit, params.tokenBudget, params.rawTokens);
   const { assessmentId, orgId } = params;
@@ -472,9 +403,6 @@ async function finaliseRubric(params: FinaliseRubricParams): Promise<void> {
   logger.info({ assessmentId, orgId, step: 'rubric_persisted' }, 'pipeline: rubric persisted');
 }
 
-// Carries the LLMError + partial observability from finaliseRubric out to the
-// triggerRubricGeneration catch block, so failure-path persistence can record
-// what was learned before the failure. See lld-e18.md §18.1.
 export class RubricGenerationError extends Error {
   constructor(
     readonly llmError: LLMError,
@@ -516,8 +444,6 @@ function buildFailureUpdate(details?: RubricFailureDetails): Database['public'][
   return update;
 }
 
-// Defence-in-depth: service-role client bypasses RLS, so every write must be scoped
-// by `org_id` in addition to the primary key. See ADR-0025.
 async function markRubricFailed(
   adminSupabase: ServiceClient,
   assessmentId: AssessmentId,
@@ -542,12 +468,6 @@ function toFailureDetails(err: unknown): RubricFailureDetails | undefined {
   };
 }
 
-// Justification: extractArtefacts is not in the LLD §18.3 decomposition — extracted
-// from triggerRubricGeneration's body to keep it under the 20-line budget. Collects PRs,
-// explicit issue content, and org prompt context in parallel, then assembles the artefact
-// set for rubric generation. Story 19.1 (#287): issue content from explicit issue_numbers
-// is merged into `linked_issues`, deduplicated by title against issues discovered from
-// PR bodies.
 interface ExtractArtefactsParams {
   adminSupabase: ServiceClient;
   octokit: Octokit;
@@ -584,11 +504,6 @@ async function extractArtefacts(params: ExtractArtefactsParams): Promise<{ assem
   return { assembled: { ...assembled, organisation_context, comprehension_depth: comprehensionDepth }, contextLimit, tokenBudget: opts.tokenBudget!, rawTokens };
 }
 
-// Story 19.2 (#288) + Epic 2 (#322): unions explicit PRs, PRs discovered from
-// the provided issues, and PRs discovered from their child issues. The
-// `providedIssueNumbers` argument is deliberately scoped to the originally-
-// provided issues — child-issue PRs are already resolved by discoverChildIssues,
-// so calling discoverLinkedPRs for them again would duplicate work.
 async function resolveMergedPrSet(
   source: GitHubArtefactSource,
   coords: RepoCoords,
@@ -606,9 +521,6 @@ async function resolveMergedPrSet(
   return merged;
 }
 
-// Justification: when only issue numbers are provided (no PRs), we still need a
-// RawArtefactSet shape for downstream merging. Uses 'feature' artefact_type and a
-// placeholder file listing so that the engine's RawArtefactSetSchema is respected.
 function emptyRawArtefactSet(): RawArtefactSet {
   return {
     artefact_type: 'feature',
@@ -618,15 +530,9 @@ function emptyRawArtefactSet(): RawArtefactSet {
   };
 }
 
-// Justification: not in §Story 19.1's call graph — extracted from extractArtefacts so the
-// latter stays under the 20-line budget. Merges explicit issue content with whatever
-// linked_issues were discovered from PR bodies, dedupes by title (matches mergeRawArtefacts).
 function mergeIssueContent(raw: RawArtefactSet, issues: LinkedIssue[]): RawArtefactSet {
   const rawIssues = raw.linked_issues ?? [];
   if (issues.length === 0 && rawIssues.length === 0) return raw;
-  // Key by #<number> when known; fall back to title for PR-body-discovered issues
-  // that don't carry a number. Prevents distinct issues with the same title from
-  // being merged (Epic 2, Invariant I6).
   const keyOf = (issue: LinkedIssue): string =>
     issue.number !== undefined ? `#${issue.number}` : issue.title;
   const byKey = new Map<string, LinkedIssue>();
@@ -635,7 +541,7 @@ function mergeIssueContent(raw: RawArtefactSet, issues: LinkedIssue[]): RawArtef
   return { ...raw, linked_issues: Array.from(byKey.values()) };
 }
 
-async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
+export async function triggerRubricGeneration(params: RubricTriggerParams): Promise<void> {
   const { assessmentId } = params;
   const orgId = params.repoInfo.orgId;
   try {
@@ -660,10 +566,6 @@ async function triggerRubricGeneration(params: RubricTriggerParams): Promise<voi
   }
 }
 
-// ---------------------------------------------------------------------------
-// Exported service functions
-// ---------------------------------------------------------------------------
-
 interface AssessmentRetryRow {
   id: string;
   org_id: string;
@@ -677,9 +579,6 @@ interface AssessmentRetryRow {
 
 export const MAX_RUBRIC_RETRIES = 3;
 
-// Justification: buildRetryResetUpdate is not in the LLD §18.2 internal decomposition —
-// extracted from retriggerRubricForAssessment to keep that function under the 20-line
-// budget (CLAUDE.md) and to isolate the pure payload construction from the I/O call.
 function buildRetryResetUpdate(retryCount: number): Database['public']['Tables']['assessments']['Update'] {
   return {
     status: 'rubric_generation',
@@ -697,8 +596,6 @@ function buildRetryResetUpdate(retryCount: number): Database['public']['Tables']
   };
 }
 
-// Resets a rubric_failed assessment to rubric_generation and re-runs generation
-// against the already-stored PR and issue records. Called by the retry-rubric route.
 export async function retriggerRubricForAssessment(
   adminSupabase: ServiceClient,
   assessment: AssessmentRetryRow,
@@ -722,24 +619,3 @@ export async function retriggerRubricForAssessment(
   void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: assessment.config_comprehension_depth ?? 'conceptual' });
 }
 
-export async function createFcs(ctx: ApiContext, body: FcsCreateBody): Promise<CreateFcsResponse> {
-  const { supabase, adminSupabase, user } = ctx;
-  // Cast plain strings to branded types at the service boundary (Zod validates format upstream).
-  const userId = user.id as UserId;
-  const orgId = body.org_id as OrgId;
-  const repositoryId = body.repository_id as RepositoryId;
-  await assertOrgAdmin(supabase, userId, orgId);
-  const repoInfo = await fetchRepoInfo(adminSupabase, repositoryId, orgId);
-  const octokit = await createGithubClient(repoInfo.installationId);
-  const prNumbers = body.merged_pr_numbers ?? [];
-  const issueNumbers = body.issue_numbers ?? [];
-  const [validatedPRs, participants, validatedIssues] = await Promise.all([
-    prNumbers.length > 0 ? validateMergedPRs(octokit, repoInfo.orgName, repoInfo.repoName, prNumbers) : Promise.resolve([] as ValidatedPR[]),
-    resolveParticipants(octokit, body.participants.map((p) => p.github_username)),
-    issueNumbers.length > 0 ? validateIssues(octokit, repoInfo.orgName, repoInfo.repoName, issueNumbers) : Promise.resolve([] as ValidatedIssue[]),
-  ]);
-  const input: FcsCreateInput = body; // LLD §2.4 constraint: map body → FcsCreateInput before passing
-  const assessmentId = await createAssessmentWithParticipants(adminSupabase, { body: input, repoInfo, validatedPRs, validatedIssues, participants });
-  void triggerRubricGeneration({ adminSupabase, assessmentId, repoInfo, prNumbers, issueNumbers, comprehensionDepth: body.comprehension_depth });
-  return { assessment_id: assessmentId, status: 'rubric_generation', participant_count: participants.length };
-}

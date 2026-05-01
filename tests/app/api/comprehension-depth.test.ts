@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { FcsCreateBodySchema } from '@/app/api/fcs/service';
+import { FcsCreateBodySchema } from '@/lib/api/fcs-pipeline';
 import { AssembledArtefactSetSchema } from '@/lib/engine/prompts/artefact-types';
 
 // Base assembled artefact — required fields, no comprehension_depth.
