@@ -80,15 +80,6 @@ export async function deleteProject(ctx: ApiContext, projectId: string): Promise
   const adminOrgIds = memberships.filter(m => m.github_role === 'admin').map(m => m.org_id);
   if (!adminOrgIds.length) throw new ApiError(403, 'forbidden');
 
-  const { data: hit, error: hitError } = await ctx.supabase
-    .from('assessments')
-    .select('id')
-    .eq('project_id', projectId)
-    .limit(1)
-    .maybeSingle();
-  if (hitError) throw new ApiError(500, `Failed to check assessments: ${hitError.message}`);
-  if (hit) throw new ApiError(409, 'project_not_empty');
-
   const { count, error } = await ctx.adminSupabase
     .from('projects')
     .delete({ count: 'exact' })
