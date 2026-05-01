@@ -7,7 +7,7 @@ import { notFound, redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
-import { isAdminOrRepoAdmin } from '@/lib/supabase/membership';
+import { getOrgRole } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import { InlineEditHeader } from './inline-edit-header';
 import { DeleteButton } from './delete-button';
@@ -27,16 +27,19 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  if (!await isAdminOrRepoAdmin(supabase, user.id, orgId)) redirect('/assessments');
+  const role = await getOrgRole(supabase, user.id, orgId);
+  if (!role) redirect('/assessments');
 
-  const [{ data: project }, { data: memberData }] = await Promise.all([
-    supabase.from('projects').select('id, name, description, created_at, updated_at').eq('id', id).eq('org_id', orgId).maybeSingle(),
-    supabase.from('user_organisations').select('github_role').eq('user_id', user.id).eq('org_id', orgId).maybeSingle(),
-  ]);
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, name, description, created_at, updated_at')
+    .eq('id', id)
+    .eq('org_id', orgId)
+    .maybeSingle();
 
   if (!project) notFound();
 
-  const isAdmin = memberData?.github_role === 'admin';
+  const isAdmin = role === 'admin';
 
   return (
     <div className="space-y-section-gap">

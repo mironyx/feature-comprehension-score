@@ -43,9 +43,11 @@ entries:
       - src/app/(authenticated)/projects/[id]/page.tsx
       - src/app/(authenticated)/projects/[id]/inline-edit-header.tsx
       - src/app/(authenticated)/projects/[id]/delete-button.tsx
+      - src/lib/supabase/membership.ts
     status: Revised
     # getProject service call → inline queries (consistent with B.5);
     # toast → inline error state with 5 s auto-dismiss; delete-button.test.ts separate file
+    # issue #408: getOrgRole added to membership.ts; second user_organisations query eliminated
 
   - req: REQ-project-management-edit-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
