@@ -3,10 +3,24 @@
 
 import type { ApiContext } from '@/lib/api/context';
 import { ApiError } from '@/lib/api/errors';
-import { assertOrgAdminOrRepoAdmin, assertOrgAdmin } from '@/lib/api/repo-admin-gate';
+import { assertOrgAdminOrRepoAdmin } from '@/lib/api/repo-admin-gate';
 import type { UpdateProjectInput } from '@/app/api/projects/validation';
 import type { ProjectResponse } from '@/types/projects';
 import type { Json } from '@/lib/supabase/types';
+
+type MembershipRow = { org_id: string; github_role: string; admin_repo_github_ids: number[] };
+
+// Shared by updateProject and deleteProject — returns all org memberships for the
+// current user, or throws 401 if none exist.
+async function fetchMemberships(ctx: ApiContext): Promise<MembershipRow[]> {
+  const { data, error } = await ctx.supabase
+    .from('user_organisations')
+    .select('org_id, github_role, admin_repo_github_ids')
+    .eq('user_id', ctx.user.id);
+  if (error) throw new ApiError(500, `Failed to check memberships: ${error.message}`);
+  if (!data?.length) throw new ApiError(401, 'no_membership');
+  return data as MembershipRow[];
+}
 
 async function resolveProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse> {
   const { data, error } = await ctx.supabase
@@ -31,50 +45,56 @@ export async function updateProject(
   patch: UpdateProjectInput,
 ): Promise<ProjectResponse> {
   const { name, description, glob_patterns, domain_notes, question_count } = patch;
-  const project = await resolveProject(ctx, projectId);
-  await assertOrgAdminOrRepoAdmin(ctx, project.org_id);
 
-  let result = project;
-  const pf: { name?: string; description?: string } = {};
-  if (name !== undefined) pf.name = name;
-  if (description !== undefined) pf.description = description;
-  if (Object.keys(pf).length > 0) {
-    const { data, error } = await ctx.adminSupabase
-      .from('projects').update(pf).eq('id', projectId).select().single();
-    if (error?.code === '23505') throw new ApiError(409, 'name_taken');
-    if (error) throw new ApiError(500, `Failed to update project: ${error.message}`);
-    result = data as ProjectResponse;
+  const memberships = await fetchMemberships(ctx);
+  const authorisedOrgIds = memberships
+    .filter(m => m.github_role === 'admin' || m.admin_repo_github_ids.length > 0)
+    .map(m => m.org_id);
+  if (!authorisedOrgIds.length) throw new ApiError(403, 'forbidden');
+
+  const pf = Object.fromEntries(
+    [['name', name], ['description', description]].filter(([, v]) => v !== undefined),
+  );
+  const cf = Object.fromEntries(
+    [['glob_patterns', glob_patterns], ['domain_notes', domain_notes], ['question_count', question_count]]
+      .filter(([, v]) => v !== undefined),
+  );
+
+  const { data, error } = await ctx.adminSupabase.rpc('patch_project', {
+    p_project_id: projectId,
+    p_org_ids: authorisedOrgIds,
+    p_project_fields: Object.keys(pf).length ? (pf as Json) : null,
+    p_context_fields: Object.keys(cf).length ? (cf as Json) : null,
+  });
+  if (error) {
+    if (error.code === '23505') throw new ApiError(409, 'name_taken');
+    if (error.message === 'project_not_found') throw new ApiError(404, 'project_not_found');
+    throw new ApiError(500, `Failed to update project: ${error.message}`);
   }
 
-  const cf: Record<string, unknown> = {};
-  if (glob_patterns !== undefined) cf.glob_patterns = glob_patterns;
-  if (domain_notes !== undefined) cf.domain_notes = domain_notes;
-  if (question_count !== undefined) cf.question_count = question_count;
-  if (Object.keys(cf).length > 0) {
-    // Read before write: Supabase upsert replaces the whole jsonb column; we must
-    // merge manually to preserve keys not present in this patch (Invariant I7).
-    const { data: existing, error: se } = await ctx.supabase
-      .from('organisation_contexts').select('context')
-      .eq('org_id', project.org_id).eq('project_id', projectId).maybeSingle();
-    if (se) throw new ApiError(500, `Failed to read context: ${se.message}`);
-    const merged = { ...(existing as { context?: Record<string, unknown> } | null)?.context, ...cf } as Json;
-    const { error: ue } = await ctx.adminSupabase
-      .from('organisation_contexts')
-      .upsert({ org_id: project.org_id, project_id: projectId, context: merged });
-    if (ue) throw new ApiError(500, `Failed to upsert context: ${ue.message}`);
-  }
-  return result;
+  return data as unknown as ProjectResponse;
 }
 
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void> {
-  const project = await resolveProject(ctx, projectId);
-  await assertOrgAdmin(ctx, project.org_id);
+  const memberships = await fetchMemberships(ctx);
+  const adminOrgIds = memberships.filter(m => m.github_role === 'admin').map(m => m.org_id);
+  if (!adminOrgIds.length) throw new ApiError(403, 'forbidden');
+
   const { data: hit, error: hitError } = await ctx.supabase
-    .from('assessments').select('id').eq('project_id', projectId).limit(1).maybeSingle();
+    .from('assessments')
+    .select('id')
+    .eq('project_id', projectId)
+    .limit(1)
+    .maybeSingle();
   if (hitError) throw new ApiError(500, `Failed to check assessments: ${hitError.message}`);
   if (hit) throw new ApiError(409, 'project_not_empty');
+
   const { data: deleted, error } = await ctx.adminSupabase
-    .from('projects').delete().eq('id', projectId).select();
+    .from('projects')
+    .delete()
+    .eq('id', projectId)
+    .in('org_id', adminOrgIds)
+    .select();
   if (error) throw new ApiError(500, `Failed to delete project: ${error.message}`);
   if (!deleted?.length) throw new ApiError(404, 'project_not_found');
 }

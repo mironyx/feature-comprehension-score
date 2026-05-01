@@ -37,12 +37,10 @@ let PATCH: RouteHandler;
 // Mock Supabase clients
 // ---------------------------------------------------------------------------
 
-// Each result variable is overridden per-test to simulate different DB states.
-let projectLookupResult: { data: unknown; error: unknown };
-let membershipResult: { data: unknown; error: unknown };
-let projectUpdateResult: { data: unknown; error: unknown };
-let contextSelectResult: { data: unknown; error: unknown };
-let contextUpsertResult: { data: unknown; error: unknown };
+// membershipsResult: array response from user_organisations SELECT
+let membershipsResult: { data: unknown; error: unknown };
+// rpcResult: response from adminSupabase.rpc('patch_project', ...)
+let rpcResult: { data: unknown; error: unknown };
 
 function makeChain(resolver: () => { data: unknown; error: unknown }) {
   const chain = Object.assign(Promise.resolve(resolver()), {
@@ -68,18 +66,14 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => projectLookupResult);
-    if (table === 'organisation_contexts') return makeChain(() => contextSelectResult);
-    return makeChain(() => membershipResult);
+    if (table === 'user_organisations') return makeChain(() => membershipsResult);
+    return makeChain(() => ({ data: null, error: null }));
   }),
 };
 
+// updateProject only touches adminSupabase via rpc — no .from() calls
 const mockAdminClient = {
-  from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => projectUpdateResult);
-    if (table === 'organisation_contexts') return makeChain(() => contextUpsertResult);
-    return makeChain(() => ({ data: null, error: null }));
-  }),
+  rpc: vi.fn(() => Promise.resolve(rpcResult)),
 };
 
 // ---------------------------------------------------------------------------
@@ -104,11 +98,9 @@ const PROJECT_ROW = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-const CONTEXT_ROW = {
-  org_id: ORG_ID,
-  project_id: PROJECT_ID,
-  context: { glob_patterns: ['src/**'], domain_notes: 'Original notes', question_count: 4 },
-};
+const ORG_ADMIN_MEMBERSHIP = [
+  { org_id: ORG_ID, github_role: 'admin', admin_repo_github_ids: [] },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,11 +128,8 @@ function patchProject(body: unknown, projectId = PROJECT_ID) {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  projectLookupResult = { data: PROJECT_ROW, error: null };
-  membershipResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
-  projectUpdateResult = { data: { ...PROJECT_ROW }, error: null };
-  contextSelectResult = { data: CONTEXT_ROW, error: null };
-  contextUpsertResult = { data: CONTEXT_ROW, error: null };
+  membershipsResult = { data: ORG_ADMIN_MEMBERSHIP, error: null };
+  rpcResult = { data: { ...PROJECT_ROW }, error: null };
   ({ PATCH } = await import('@/app/api/projects/[id]/route'));
 });
 
@@ -158,8 +147,8 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given an Org Member (member with empty admin_repo_github_ids)', () => {
     it('then it returns 403 and the project is unchanged [req §Story 1.4, I5]', async () => {
-      membershipResult = {
-        data: { github_role: 'member', admin_repo_github_ids: [] },
+      membershipsResult = {
+        data: [{ org_id: ORG_ID, github_role: 'member', admin_repo_github_ids: [] }],
         error: null,
       };
 
@@ -171,11 +160,11 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given a Repo Admin (member with non-empty admin_repo_github_ids)', () => {
     it('then it accepts the edit and returns 200 [req §Story 1.4]', async () => {
-      membershipResult = {
-        data: { github_role: 'member', admin_repo_github_ids: [101] },
+      membershipsResult = {
+        data: [{ org_id: ORG_ID, github_role: 'member', admin_repo_github_ids: [101] }],
         error: null,
       };
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'Updated Name' }, error: null };
+      rpcResult = { data: { ...PROJECT_ROW, name: 'Updated Name' }, error: null };
 
       const response = await patchProject({ name: 'Updated Name' });
 
@@ -183,9 +172,19 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
+  describe('Given the caller has no membership rows', () => {
+    it('then it returns 401 [I5]', async () => {
+      membershipsResult = { data: [], error: null };
+
+      const response = await patchProject({ name: 'New Name' });
+
+      expect(response.status).toBe(401);
+    });
+  });
+
   describe('Given a missing project id', () => {
     it('then it returns 404 [req §Story 1.3]', async () => {
-      projectLookupResult = { data: null, error: null };
+      rpcResult = { data: null, error: { message: 'project_not_found', code: 'P0001' } };
 
       const response = await patchProject({ name: 'New Name' }, 'nonexistent-id');
 
@@ -195,7 +194,7 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given a valid PATCH with {name} only (Invariant I7)', () => {
     it('then it returns 200 [req §Story 1.4]', async () => {
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
+      rpcResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
 
       const response = await patchProject({ name: 'New Name' });
 
@@ -203,7 +202,7 @@ describe('PATCH /api/projects/[id]', () => {
     });
 
     it('then the response body reflects the updated name [req §Story 1.4, I7]', async () => {
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
+      rpcResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
 
       const response = await patchProject({ name: 'New Name' });
       const body = await response.json();
@@ -211,14 +210,13 @@ describe('PATCH /api/projects/[id]', () => {
       expect(body.name).toBe('New Name');
     });
 
-    it('then it does NOT write to organisation_contexts (description-only write skips context table) [I7]', async () => {
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
+    it('then the rpc p_context_fields is null — no context write (Invariant I7)', async () => {
+      rpcResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
 
       await patchProject({ name: 'New Name' });
 
-      // Admin client should NOT have been called for organisation_contexts
-      const adminFromCalls = vi.mocked(mockAdminClient.from).mock.calls.map((c) => c[0]);
-      expect(adminFromCalls).not.toContain('organisation_contexts');
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_context_fields).toBeNull();
     });
   });
 
@@ -229,25 +227,24 @@ describe('PATCH /api/projects/[id]', () => {
       expect(response.status).toBe(200);
     });
 
-    it('then it does NOT update the projects table name or description [I7]', async () => {
+    it('then the rpc p_project_fields is null — no project table update [I7]', async () => {
       await patchProject({ domain_notes: 'Updated domain notes' });
 
-      // Admin client should NOT have been called for projects table update
-      const adminFromCalls = vi.mocked(mockAdminClient.from).mock.calls.map((c) => c[0]);
-      expect(adminFromCalls).not.toContain('projects');
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_project_fields).toBeNull();
     });
 
-    it('then it writes only the organisation_contexts row [I7]', async () => {
+    it('then the rpc p_context_fields is non-null [I7]', async () => {
       await patchProject({ domain_notes: 'Updated domain notes' });
 
-      const adminFromCalls = vi.mocked(mockAdminClient.from).mock.calls.map((c) => c[0]);
-      expect(adminFromCalls).toContain('organisation_contexts');
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_context_fields).not.toBeNull();
     });
   });
 
   describe('Given a PATCH with both project fields and context fields', () => {
     it('then it returns 200 [req §Story 1.4]', async () => {
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'Updated' }, error: null };
+      rpcResult = { data: { ...PROJECT_ROW, name: 'Updated' }, error: null };
 
       const response = await patchProject({
         name: 'Updated',
@@ -316,7 +313,7 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given a duplicate name within the same org (case-insensitive unique violation)', () => {
     it('then it returns 409 [req §Story 1.4, I2]', async () => {
-      projectUpdateResult = {
+      rpcResult = {
         data: null,
         error: { code: '23505', message: 'unique constraint violation' },
       };
@@ -329,7 +326,7 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given a successful PATCH', () => {
     it('then the response body contains the project id [req §Story 1.4]', async () => {
-      projectUpdateResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
+      rpcResult = { data: { ...PROJECT_ROW, name: 'New Name' }, error: null };
 
       const response = await patchProject({ name: 'New Name' });
       const body = await response.json();
@@ -338,7 +335,7 @@ describe('PATCH /api/projects/[id]', () => {
     });
 
     it('then the response body contains org_id [req §Story 1.4]', async () => {
-      projectUpdateResult = { data: PROJECT_ROW, error: null };
+      rpcResult = { data: PROJECT_ROW, error: null };
 
       const response = await patchProject({ description: 'Updated desc' });
       const body = await response.json();

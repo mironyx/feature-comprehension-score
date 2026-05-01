@@ -2,22 +2,17 @@
 //
 // Gap 1 — I7 context merge (UNCOVERED by test-author):
 //   The test-author verified *which* tables the admin client writes to, but not *what
-//   payload* is sent to the upsert. The spec (LLD §B.4 step 5, I7, Story 1.4 AC 5)
-//   requires that a PATCH supplying only `domain_notes` preserves existing
-//   `glob_patterns` and `question_count` in the merged context written to
-//   `organisation_contexts`. The service reads the existing context then spreads the
-//   incoming patch over it — that merge must be exercised with a spy on the upsert
-//   payload.
+//   payload* is sent to the rpc. The spec (LLD §B.4 step 5, I7, Story 1.4 AC 5)
+//   requires that a PATCH supplying only `domain_notes` passes only that key in
+//   p_context_fields — the DB function (jsonb ||) then merges it atomically, preserving
+//   existing keys without a round-trip. The correct p_context_fields content is exercised
+//   here; the DB-level merge is tested at schema test level.
 //
-// Gap 2 — updateProject returns pre-mutation state when only context fields are patched
-//   (spec gap, not a test-author failure):
-//   When only context fields are supplied, `result` stays as the project row from
-//   `resolveProject` (line 87-90 of service.ts). The response therefore reflects the
-//   pre-patch project row. This is the expected behaviour (ProjectResponse has no
-//   context fields), but it is not explicitly tested — a caller sending only
-//   `glob_patterns` gets back the original project data and might be confused. The
-//   spec is silent on this edge, so this is a spec gap rather than a defect; the test
-//   here documents the actual behaviour.
+// Gap 2 — updateProject returns the rpc result row
+//   When only context fields are supplied, p_project_fields is null and the DB function
+//   returns the existing projects row. The response therefore reflects the current project
+//   data. This is the expected behaviour (ProjectResponse has no context fields), but it
+//   was not explicitly tested. This test documents the actual behaviour.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -50,8 +45,7 @@ type RouteHandler = (req: NextRequest, ctx: RouteContext) => Promise<NextRespons
 let PATCH: RouteHandler;
 
 // ---------------------------------------------------------------------------
-// Stateful mock plumbing — mirrors the pattern from update.test.ts but adds
-// a spy on the upsert payload so we can assert merge correctness.
+// Stateful mock plumbing
 // ---------------------------------------------------------------------------
 
 const PROJECT_ID = 'proj-uuid-eval-001';
@@ -73,22 +67,8 @@ const PROJECT_ROW = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-// Existing context in DB before the PATCH.
-const EXISTING_CONTEXT = {
-  glob_patterns: ['docs/adr/*.md', 'src/**/*.ts'],
-  domain_notes: 'Original domain notes',
-  question_count: 4,
-};
-
-// Per-test state that the mock chain closures capture.
-let projectLookupResult: { data: unknown; error: unknown };
-let membershipResult: { data: unknown; error: unknown };
-let projectUpdateResult: { data: unknown; error: unknown };
-let contextSelectResult: { data: unknown; error: unknown };
-let contextUpsertResult: { data: unknown; error: unknown };
-
-// Spy that captures the payload passed to upsert on organisation_contexts.
-let capturedUpsertPayload: unknown = undefined;
+let membershipsResult: { data: unknown; error: unknown };
+let rpcResult: { data: unknown; error: unknown };
 
 function makeChain(resolver: () => { data: unknown; error: unknown }) {
   const chain = Object.assign(Promise.resolve(resolver()), {
@@ -97,10 +77,7 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     is: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
-    upsert: vi.fn((payload: unknown) => {
-      capturedUpsertPayload = payload;
-      return Promise.resolve(resolver());
-    }),
+    upsert: vi.fn(() => Promise.resolve(resolver())),
     update: vi.fn(),
     delete: vi.fn(),
     limit: vi.fn(),
@@ -116,18 +93,13 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => projectLookupResult);
-    if (table === 'organisation_contexts') return makeChain(() => contextSelectResult);
-    return makeChain(() => membershipResult);
+    if (table === 'user_organisations') return makeChain(() => membershipsResult);
+    return makeChain(() => ({ data: null, error: null }));
   }),
 };
 
 const mockAdminClient = {
-  from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => projectUpdateResult);
-    if (table === 'organisation_contexts') return makeChain(() => contextUpsertResult);
-    return makeChain(() => ({ data: null, error: null }));
-  }),
+  rpc: vi.fn(() => Promise.resolve(rpcResult)),
 };
 
 // ---------------------------------------------------------------------------
@@ -152,86 +124,74 @@ function patchProject(body: unknown, projectId = PROJECT_ID) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  capturedUpsertPayload = undefined;
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  projectLookupResult = { data: PROJECT_ROW, error: null };
-  membershipResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
-  projectUpdateResult = { data: { ...PROJECT_ROW }, error: null };
-  contextSelectResult = {
-    data: { org_id: ORG_ID, project_id: PROJECT_ID, context: EXISTING_CONTEXT },
+  membershipsResult = {
+    data: [{ org_id: ORG_ID, github_role: 'admin', admin_repo_github_ids: [] }],
     error: null,
   };
-  contextUpsertResult = { data: null, error: null };
+  rpcResult = { data: { ...PROJECT_ROW }, error: null };
   ({ PATCH } = await import('@/app/api/projects/[id]/route'));
 });
 
 // ---------------------------------------------------------------------------
-// Gap 1 — I7: context merge preserves unpatched keys
+// Gap 1 — I7: rpc receives only the supplied context fields (no read-then-merge)
 // ---------------------------------------------------------------------------
 
-describe('Gap 1 — I7: PATCH context fields merges with existing context', () => {
-  describe('Given existing context has glob_patterns + domain_notes + question_count', () => {
-    describe('When PATCH supplies only domain_notes', () => {
-      it('then the upsert payload preserves the existing glob_patterns [I7, Story 1.4 AC 5]', async () => {
-        await patchProject({ domain_notes: 'New domain notes' });
+describe('Gap 1 — I7: PATCH context fields sends correct p_context_fields to rpc', () => {
+  describe('When PATCH supplies only domain_notes', () => {
+    it('then p_context_fields contains only domain_notes [I7, Story 1.4 AC 5]', async () => {
+      await patchProject({ domain_notes: 'New domain notes' });
 
-        const payload = capturedUpsertPayload as Record<string, unknown> | null;
-        expect(payload).not.toBeNull();
-        const context = payload?.['context'] as Record<string, unknown> | undefined;
-        expect(context?.['glob_patterns']).toEqual(EXISTING_CONTEXT.glob_patterns);
-      });
-
-      it('then the upsert payload preserves the existing question_count [I7, Story 1.4 AC 5]', async () => {
-        await patchProject({ domain_notes: 'New domain notes' });
-
-        const payload = capturedUpsertPayload as Record<string, unknown> | null;
-        const context = payload?.['context'] as Record<string, unknown> | undefined;
-        expect(context?.['question_count']).toBe(EXISTING_CONTEXT.question_count);
-      });
-
-      it('then the upsert payload contains the new domain_notes [I7]', async () => {
-        await patchProject({ domain_notes: 'New domain notes' });
-
-        const payload = capturedUpsertPayload as Record<string, unknown> | null;
-        const context = payload?.['context'] as Record<string, unknown> | undefined;
-        expect(context?.['domain_notes']).toBe('New domain notes');
-      });
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_context_fields).toEqual({ domain_notes: 'New domain notes' });
     });
 
-    describe('When PATCH supplies only question_count', () => {
-      it('then the upsert payload preserves the existing glob_patterns [I7]', async () => {
-        await patchProject({ question_count: 5 });
+    it('then p_project_fields is null [I7]', async () => {
+      await patchProject({ domain_notes: 'New domain notes' });
 
-        const payload = capturedUpsertPayload as Record<string, unknown> | null;
-        const context = payload?.['context'] as Record<string, unknown> | undefined;
-        expect(context?.['glob_patterns']).toEqual(EXISTING_CONTEXT.glob_patterns);
-      });
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_project_fields).toBeNull();
+    });
+  });
 
-      it('then the upsert payload preserves the existing domain_notes [I7]', async () => {
-        await patchProject({ question_count: 5 });
+  describe('When PATCH supplies only question_count', () => {
+    it('then p_context_fields contains only question_count [I7]', async () => {
+      await patchProject({ question_count: 5 });
 
-        const payload = capturedUpsertPayload as Record<string, unknown> | null;
-        const context = payload?.['context'] as Record<string, unknown> | undefined;
-        expect(context?.['domain_notes']).toBe(EXISTING_CONTEXT.domain_notes);
-      });
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_context_fields).toEqual({ question_count: 5 });
+    });
+  });
+
+  describe('When PATCH supplies both name and domain_notes', () => {
+    it('then p_project_fields contains only name [I7]', async () => {
+      await patchProject({ name: 'New Name', domain_notes: 'New notes' });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_project_fields).toEqual({ name: 'New Name' });
+    });
+
+    it('then p_context_fields contains only domain_notes [I7]', async () => {
+      await patchProject({ name: 'New Name', domain_notes: 'New notes' });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_context_fields).toEqual({ domain_notes: 'New notes' });
     });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Gap 2 — updateProject returns original row when only context fields patched
-// (spec gap — documents actual behaviour, not a defect)
+// Gap 2 — updateProject returns the rpc result row
 // ---------------------------------------------------------------------------
 
-describe('Gap 2 — updateProject returns original project row when only context fields are patched', () => {
+describe('Gap 2 — updateProject returns rpc result', () => {
   describe('When PATCH supplies only glob_patterns (a context field)', () => {
-    it('then the response body still contains the original project name [spec gap — documented behaviour]', async () => {
+    it('then the response body contains the project data returned by rpc [spec gap — documented behaviour]', async () => {
+      rpcResult = { data: PROJECT_ROW, error: null };
+
       const response = await patchProject({ glob_patterns: ['docs/**'] });
       const body = await response.json() as Record<string, unknown>;
 
-      // The service returns the pre-patch project row when no project-table fields are updated.
-      // ProjectResponse has no context fields, so the caller cannot distinguish "updated"
-      // from "unchanged" on context-only patches from the response alone.
       expect(response.status).toBe(200);
       expect(body['name']).toBe(PROJECT_ROW.name);
     });

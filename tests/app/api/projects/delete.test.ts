@@ -37,8 +37,7 @@ let DELETE: RouteHandler;
 // Mock Supabase clients
 // ---------------------------------------------------------------------------
 
-let projectLookupResult: { data: unknown; error: unknown };
-let membershipResult: { data: unknown; error: unknown };
+let membershipsResult: { data: unknown; error: unknown };
 let assessmentCountResult: { data: unknown; error: unknown };
 let deleteResult: { data: unknown; error: unknown };
 
@@ -47,6 +46,7 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     select: vi.fn(),
     eq: vi.fn(),
     is: vi.fn(),
+    in: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
     upsert: vi.fn(() => Promise.resolve(resolver())),
@@ -57,6 +57,7 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.is.mockReturnValue(chain);
+  chain.in.mockReturnValue(chain);
   chain.upsert.mockReturnValue(chain);
   chain.update.mockReturnValue(chain);
   chain.delete.mockReturnValue(chain);
@@ -66,9 +67,9 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'projects') return makeChain(() => projectLookupResult);
+    if (table === 'user_organisations') return makeChain(() => membershipsResult);
     if (table === 'assessments') return makeChain(() => assessmentCountResult);
-    return makeChain(() => membershipResult);
+    return makeChain(() => ({ data: null, error: null }));
   }),
 };
 
@@ -122,9 +123,8 @@ function deleteProject(projectId = PROJECT_ID) {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  projectLookupResult = { data: PROJECT_ROW, error: null };
   // Org Admin by default
-  membershipResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
+  membershipsResult = { data: [{ org_id: ORG_ID, github_role: 'admin' }], error: null };
   // No assessments by default — safe to delete
   assessmentCountResult = { data: null, error: null };
   // Delete returns one affected row
@@ -146,8 +146,9 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given a Repo Admin (member with non-empty admin_repo_github_ids)', () => {
     it('then it returns 403 — delete is Org Admin only [req §Story 1.5, I5]', async () => {
-      membershipResult = {
-        data: { github_role: 'member', admin_repo_github_ids: [101] },
+      // Repo Admin has github_role=member — filter produces empty adminOrgIds
+      membershipsResult = {
+        data: [{ org_id: ORG_ID, github_role: 'member' }],
         error: null,
       };
 
@@ -159,8 +160,8 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given an Org Member (member with empty admin_repo_github_ids)', () => {
     it('then it returns 403 [req §Story 1.5, I5]', async () => {
-      membershipResult = {
-        data: { github_role: 'member', admin_repo_github_ids: [] },
+      membershipsResult = {
+        data: [{ org_id: ORG_ID, github_role: 'member' }],
         error: null,
       };
 
@@ -170,9 +171,9 @@ describe('DELETE /api/projects/[id]', () => {
     });
   });
 
-  describe('Given the caller has no membership row for the org', () => {
+  describe('Given the caller has no membership rows', () => {
     it('then it returns 401 [I5]', async () => {
-      membershipResult = { data: null, error: null };
+      membershipsResult = { data: [], error: null };
 
       const response = await deleteProject();
 
@@ -180,9 +181,10 @@ describe('DELETE /api/projects/[id]', () => {
     });
   });
 
-  describe('Given the project id does not exist', () => {
+  describe('Given the project id does not exist (or belongs to a different org)', () => {
     it('then it returns 404 [req §Story 1.5]', async () => {
-      projectLookupResult = { data: null, error: null };
+      // delete with .in('org_id', adminOrgIds) affects 0 rows when project absent
+      deleteResult = { data: [], error: null };
 
       const response = await deleteProject('nonexistent-proj-id');
 
@@ -226,8 +228,8 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given a second DELETE on an already-deleted project id (idempotent)', () => {
     it('then it returns 404 [req §Story 1.5]', async () => {
-      // Project no longer found on lookup (already deleted)
-      projectLookupResult = { data: null, error: null };
+      // Delete affects 0 rows — project no longer in DB
+      deleteResult = { data: [], error: null };
 
       const response = await deleteProject();
 
@@ -237,7 +239,6 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given the DB delete affects 0 rows (race condition after successful lookup)', () => {
     it('then it returns 404 [lld §B.4 step 6]', async () => {
-      // Lookup succeeds but delete returns empty array (row already gone)
       deleteResult = { data: [], error: null };
 
       const response = await deleteProject();
