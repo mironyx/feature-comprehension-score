@@ -485,6 +485,11 @@ const opts = buildTruncationOptions(contextLimit, effectiveQuestionCount, settin
 - **British English** throughout.
 - **No silent catch.** The resolver logs warn + returns undefined on parse failure (preserves rubric generation per existing `loadOrgPromptContext` precedent).
 - **PRCC unaffected.** PRCC rubric generation does not pass through the FCS path; `loadOrgPromptContext` remains for any future PRCC reuse and for the existing org-context UI (`/organisation` page).
+- **Org-level context is dormant in V11.** The `loadOrgPromptContext` helper, the `/organisation` org-context form, and the org-level row in `organisation_contexts` (the row where `project_id IS NULL`) are kept on disk but **must not influence FCS rubric generation**. Concretely, in V11:
+  - FCS code paths must not import `loadOrgPromptContext`.
+  - The org-context form must **not** be extended with the new V11 fields (`glob_patterns`, `question_count`) — those are project-only. The form keeps its pre-V11 field set (`domain_vocabulary`, `focus_areas`, `exclusions`, `domain_notes`).
+  - Even though Option A widens `OrganisationContextSchema` with two new optional fields, the org-context form has no UI for them; any value previously written there from another path (none currently) is ignored by FCS because FCS reads the project row, not the org row.
+  - Navigation/visibility of the `/organisation` org-context entry point is not changed in this epic (out of scope), but a future ticket may hide it once PRCC migrates off the org row.
 
 <a id="LLD-v11-e11-3-out-of-scope"></a>
 
