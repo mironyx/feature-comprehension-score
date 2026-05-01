@@ -20,6 +20,10 @@ vi.mock('@/lib/supabase/org-context', () => ({
   getSelectedOrgId: vi.fn(),
 }));
 
+vi.mock('@/lib/supabase/membership', () => ({
+  isAdminOrRepoAdmin: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -55,12 +59,14 @@ vi.mock('@/components/ui/page-header', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { isAdminOrRepoAdmin } from '@/lib/supabase/membership';
 import { cookies } from 'next/headers';
 import ProjectDashboardPage from '@/app/(authenticated)/projects/[id]/page';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockGetOrgId = vi.mocked(getSelectedOrgId);
 const mockCookies = vi.mocked(cookies);
+const mockIsAdminOrRepoAdmin = vi.mocked(isAdminOrRepoAdmin);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,22 +89,24 @@ const MOCK_PROJECT = {
 // ---------------------------------------------------------------------------
 
 /**
- * Builds a mock Supabase client that chains:
+ * Builds a mock Supabase client for page.tsx queries:
  *   auth.getUser() → user
- *   .from('user_organisations').select().eq().eq().maybeSingle() → membership
  *   .from('projects').select().eq().eq().maybeSingle() → project
+ *   .from('user_organisations').select('github_role').eq().eq().maybeSingle() → { github_role }
+ *
+ * isAdminOrRepoAdmin is mocked separately via vi.mock('@/lib/supabase/membership').
  */
 function makeClient({
-  membership = { github_role: 'admin', admin_repo_github_ids: [] as number[] } as { github_role: string; admin_repo_github_ids: number[] } | null,
+  githubRole = 'admin' as string,
   project = MOCK_PROJECT as typeof MOCK_PROJECT | null,
 }: {
-  membership?: { github_role: string; admin_repo_github_ids: number[] } | null;
+  githubRole?: string;
   project?: typeof MOCK_PROJECT | null;
 } = {}) {
-  const makeMaybySingle = (data: unknown) =>
+  const makeMaybeSingle = (data: unknown) =>
     ({ maybeSingle: vi.fn().mockResolvedValue({ data, error: null }) });
   const makeEq2 = (data: unknown) =>
-    ({ eq: vi.fn().mockReturnValue(makeMaybySingle(data)) });
+    ({ eq: vi.fn().mockReturnValue(makeMaybeSingle(data)) });
   const makeEq1 = (data: unknown) =>
     ({ eq: vi.fn().mockReturnValue(makeEq2(data)) });
   const makeSelectChain = (data: unknown) =>
@@ -109,7 +117,7 @@ function makeClient({
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
     },
     from: vi.fn().mockImplementation((table: string) => {
-      if (table === 'user_organisations') return makeSelectChain(membership);
+      if (table === 'user_organisations') return makeSelectChain({ github_role: githubRole });
       if (table === 'projects') return makeSelectChain(project);
       return makeSelectChain(null);
     }),
@@ -125,6 +133,7 @@ describe('/projects/[id] dashboard', () => {
     vi.clearAllMocks();
     mockCookies.mockResolvedValue({} as never);
     mockGetOrgId.mockReturnValue(ORG_ID);
+    mockIsAdminOrRepoAdmin.mockResolvedValue(true);
   });
 
   // -------------------------------------------------------------------------
@@ -132,11 +141,10 @@ describe('/projects/[id] dashboard', () => {
   // [req §Story 1.3 AC5] [lld §B.6 invariant I8]
   // -------------------------------------------------------------------------
 
-  describe('Given an Org Member (github_role=member, empty admin_repo_github_ids)', () => {
+  describe('Given an Org Member (not admin or repo-admin)', () => {
     it('is redirected to /assessments', async () => {
-      const client = makeClient({
-        membership: { github_role: 'member', admin_repo_github_ids: [] },
-      });
+      mockIsAdminOrRepoAdmin.mockResolvedValue(false);
+      const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
       await expect(
@@ -146,18 +154,19 @@ describe('/projects/[id] dashboard', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property: No membership row → 404
+  // Property: No membership row → redirect (isAdminOrRepoAdmin returns false)
   // [req §Story 1.3 AC3] [lld §B.6 invariant I5]
   // -------------------------------------------------------------------------
 
   describe('Given the user has no membership row in the org', () => {
-    it('calls notFound() — throws NEXT_NOT_FOUND', async () => {
-      const client = makeClient({ membership: null });
+    it('redirects to /assessments', async () => {
+      mockIsAdminOrRepoAdmin.mockResolvedValue(false);
+      const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
 
       await expect(
         ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) }),
-      ).rejects.toThrow('NEXT_NOT_FOUND');
+      ).rejects.toThrow('NEXT_REDIRECT:/assessments');
     });
   });
 
@@ -184,7 +193,6 @@ describe('/projects/[id] dashboard', () => {
 
   describe('Given a project ID that has been deleted (row absent from DB)', () => {
     it('calls notFound() — throws NEXT_NOT_FOUND', async () => {
-      // Hard-deleted projects have no row — same DB outcome as non-existent
       const client = makeClient({ project: null });
       mockCreateServer.mockResolvedValue(client as never);
 
@@ -197,24 +205,16 @@ describe('/projects/[id] dashboard', () => {
   // -------------------------------------------------------------------------
   // Property: Org Admin → DeleteButton included (action prop non-null)
   // [req §Story 1.5] "Org Admin invokes delete"; [lld §B.6 "visible iff github_role === 'admin'"]
-  //
-  // The page renders <PageHeader action={<DeleteButton projectId={id} />} />.
-  // Serialising the JSX tree: admin case → action element has a non-null props
-  // object; "action":null absent. Repo Admin case → action={null}, so the
-  // serialised output contains "action":null.
   // -------------------------------------------------------------------------
 
   describe('Given an Org Admin (github_role=admin)', () => {
     it('passes a non-null DeleteButton element as action to PageHeader', async () => {
-      const client = makeClient({
-        membership: { github_role: 'admin', admin_repo_github_ids: [] },
-      });
+      const client = makeClient({ githubRole: 'admin' });
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
       const rendered = JSON.stringify(result);
 
-      // When action is non-null the serialised tree does NOT contain "action":null
       expect(rendered).not.toContain('"action":null');
     });
   });
@@ -224,17 +224,14 @@ describe('/projects/[id] dashboard', () => {
   // [req §Story 1.5 AC3] "Repo Admin → 403"; [lld §B.6 "visible iff github_role === 'admin'"]
   // -------------------------------------------------------------------------
 
-  describe('Given a Repo Admin (github_role=member, non-empty admin_repo_github_ids)', () => {
+  describe('Given a Repo Admin (github_role=member, passes isAdminOrRepoAdmin)', () => {
     it('passes null action to PageHeader — DeleteButton not rendered', async () => {
-      const client = makeClient({
-        membership: { github_role: 'member', admin_repo_github_ids: [42, 99] },
-      });
+      const client = makeClient({ githubRole: 'member' });
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
       const rendered = JSON.stringify(result);
 
-      // Repo Admin: isAdmin=false → action={null} → serialised as "action":null
       expect(rendered).toContain('"action":null');
     });
   });
@@ -250,9 +247,8 @@ describe('/projects/[id] dashboard', () => {
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
-      const rendered = JSON.stringify(result);
 
-      expect(rendered).toContain('Payment Service');
+      expect(JSON.stringify(result)).toContain('Payment Service');
     });
   });
 
@@ -269,18 +265,14 @@ describe('/projects/[id] dashboard', () => {
       mockCreateServer.mockResolvedValue(client as never);
 
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
-      const rendered = JSON.stringify(result);
 
-      expect(rendered).toContain('Handles all payment flows');
+      expect(JSON.stringify(result)).toContain('Handles all payment flows');
     });
   });
 
   // -------------------------------------------------------------------------
   // Property: InlineEditHeader receives initialName and initialDescription
   // [req §Story 1.3 AC1] "inline edit affordance"; [lld §B.6]
-  //
-  // The InlineEditHeader element props appear in the serialised React tree.
-  // "initialName" is a prop name unique to InlineEditHeader in this page.
   // -------------------------------------------------------------------------
 
   describe('Given an active project', () => {
