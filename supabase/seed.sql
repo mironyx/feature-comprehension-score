@@ -159,6 +159,19 @@ VALUES (
 );
 
 -- ---------------------------------------------------------------------------
+-- Projects (V11 E11.2)
+-- ---------------------------------------------------------------------------
+
+-- Project 1: Web Platform project in Acme Corp
+INSERT INTO projects (id, org_id, name, description)
+VALUES (
+  '00000000-0000-0000-0004-000000000001',
+  '00000000-0000-0000-0000-000000000001',
+  'Web Platform',
+  'Acme Corp web frontend project'
+);
+
+-- ---------------------------------------------------------------------------
 -- Assessments
 -- ---------------------------------------------------------------------------
 
@@ -178,12 +191,13 @@ INSERT INTO assessments (
   'abc123def456abc123def456abc123def456abc1'
 );
 
--- Assessment 2: FCS on acme/web (completed)
+-- Assessment 2: FCS on acme/web (completed), scoped to Web Platform project
 INSERT INTO assessments (
   id, org_id, repository_id, type, status,
   config_enforcement_mode, config_score_threshold, config_question_count, config_min_pr_size,
   feature_name, feature_description,
-  aggregate_score, conclusion
+  aggregate_score, conclusion,
+  project_id
 ) VALUES (
   '00000000-0000-0000-0002-000000000002',
   '00000000-0000-0000-0000-000000000001',
@@ -194,7 +208,8 @@ INSERT INTO assessments (
   'User authentication',
   'GitHub OAuth integration for the web frontend',
   0.8200,
-  'success'
+  'success',
+  '00000000-0000-0000-0004-000000000001'
 );
 
 -- ---------------------------------------------------------------------------

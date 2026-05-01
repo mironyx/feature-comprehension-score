@@ -239,7 +239,8 @@ CREATE OR REPLACE FUNCTION create_fcs_assessment(
   p_merged_prs                  jsonb,
   p_participants                jsonb,
   p_config_comprehension_depth  text DEFAULT 'conceptual',
-  p_issue_sources               jsonb DEFAULT '[]'::jsonb
+  p_issue_sources               jsonb DEFAULT '[]'::jsonb,
+  p_project_id                  uuid DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -251,13 +252,15 @@ BEGIN
     feature_name, feature_description,
     config_enforcement_mode, config_score_threshold,
     config_question_count, config_min_pr_size,
-    config_comprehension_depth
+    config_comprehension_depth,
+    project_id
   ) VALUES (
     p_id, p_org_id, p_repository_id, 'fcs', 'rubric_generation',
     p_feature_name, p_feature_description,
     p_config_enforcement_mode, p_config_score_threshold,
     p_config_question_count, p_config_min_pr_size,
-    p_config_comprehension_depth
+    p_config_comprehension_depth,
+    p_project_id
   );
 
   INSERT INTO fcs_merged_prs (org_id, assessment_id, pr_number, pr_title)

@@ -164,6 +164,7 @@ describe('create_fcs_assessment', () => {
     const svc = secretClient();
     orgId = await createTestOrg(svc);
     repoId = await createTestRepo(svc, orgId);
+    const { data: proj } = await svc.from('projects').insert({ org_id: orgId, name: 'TxnTestProject' }).select('id').single();
     const assessmentId = crypto.randomUUID();
 
     const { error } = await svc.rpc('create_fcs_assessment', {
@@ -184,6 +185,7 @@ describe('create_fcs_assessment', () => {
         { github_user_id: 1001, github_username: 'alice' },
         { github_user_id: 1002, github_username: 'bob' },
       ],
+      p_project_id: proj!.id,
     });
 
     expect(error).toBeNull();
@@ -222,7 +224,7 @@ describe('finalise_rubric', () => {
       id: assessmentId,
       org_id: orgId,
       repository_id: repoId,
-      type: 'fcs',
+      type: 'prcc',
       status: 'rubric_generation',
       config_enforcement_mode: 'soft',
       config_score_threshold: 70,
@@ -271,7 +273,7 @@ describe('finalise_rubric — org_id scoping', () => {
       id: assessmentId,
       org_id: orgId,
       repository_id: repoId,
-      type: 'fcs',
+      type: 'prcc',
       status: 'rubric_generation',
       config_enforcement_mode: 'soft',
       config_score_threshold: 70,
@@ -348,7 +350,7 @@ describe('finalise_rubric — hint column', () => {
       id: assessmentId,
       org_id: orgId,
       repository_id: repoId,
-      type: 'fcs',
+      type: 'prcc',
       status: 'rubric_generation',
       config_enforcement_mode: 'soft',
       config_score_threshold: 70,
@@ -593,7 +595,7 @@ describe('persist_scoring_results', () => {
       id: assessmentId,
       org_id: orgId,
       repository_id: repoId,
-      type: 'fcs',
+      type: 'prcc',
       status: 'scoring',
       config_enforcement_mode: 'soft',
       config_score_threshold: 70,
