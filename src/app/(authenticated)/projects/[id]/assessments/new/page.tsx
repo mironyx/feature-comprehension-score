@@ -1,63 +1,45 @@
-// New assessment page — admin-only form to create an FCS assessment.
-// Issue: #121
+// New assessment page — server component.
+// Resolves project + membership server-side; filters repo list by admin-repo snapshot for Repo Admins.
+// Issue: #413
 
-import { redirect } from 'next/navigation';
-import { cookies } from 'next/headers';
+import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getSelectedOrgId } from '@/lib/supabase/org-context';
-import { isOrgAdmin } from '@/lib/supabase/membership';
-import type { MembershipRow } from '@/lib/supabase/membership';
+import { readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
 import CreateAssessmentForm from './create-assessment-form';
-import type { Database } from '@/lib/supabase/types';
+import type { JSX } from 'react';
 
-type RepoRow = Pick<Database['public']['Tables']['repositories']['Row'], 'id' | 'github_repo_name'>;
-
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-
-async function fetchAdminRepos(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  userId: string,
-  orgId: string,
-): Promise<{ isAdmin: boolean; repos: RepoRow[] }> {
-  const [{ data: membership }, { data: repos }] = await Promise.all([
-    supabase
-      .from('user_organisations')
-      .select('github_role')
-      .eq('user_id', userId)
-      .eq('org_id', orgId),
-    supabase
-      .from('repositories')
-      .select('id, github_repo_name')
-      .eq('org_id', orgId)
-      .order('github_repo_name'),
-  ]);
-
-  return { isAdmin: isOrgAdmin((membership ?? []) as MembershipRow[]), repos: (repos ?? []) as RepoRow[] };
+interface NewAssessmentPageProps {
+  readonly params: Promise<{ id: string }>;
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
-export default async function NewAssessmentPage() {
-  const cookieStore = await cookies();
-  const orgId = getSelectedOrgId(cookieStore);
-  if (!orgId) redirect('/org-select');
-
+export default async function NewAssessmentPage({ params }: NewAssessmentPageProps): Promise<JSX.Element> {
+  const { id: projectId } = await params;
   const supabase = await createServerSupabaseClient();
+
+  const { data: project } = await supabase
+    .from('projects').select('id, org_id, name').eq('id', projectId).maybeSingle();
+  if (!project) notFound();
+
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const { isAdmin, repos } = await fetchAdminRepos(supabase, user.id, orgId);
-  if (!isAdmin) redirect('/assessments');
+  const snapshot = await readMembershipSnapshot(supabase, user.id, project.org_id);
+  const role = snapshot ? snapshotToOrgRole(snapshot) : null;
+  if (!role) redirect('/assessments');
+
+  let q = supabase
+    .from('repositories')
+    .select('id, github_repo_name, github_repo_id')
+    .eq('org_id', project.org_id)
+    .order('github_repo_name');
+  if (role === 'repo_admin') q = q.in('github_repo_id', snapshot!.adminRepoGithubIds);
+  const { data: repos } = await q;
 
   return (
     <div className="space-y-section-gap">
       <PageHeader title="New Assessment" subtitle="Create an FCS assessment for your team" />
-      <CreateAssessmentForm orgId={orgId} repositories={repos} />
+      <CreateAssessmentForm projectId={projectId} repositories={repos ?? []} />
     </div>
   );
 }

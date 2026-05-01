@@ -1,10 +1,11 @@
 // Project dashboard page — server component.
 // Fetches project and membership, applies role-based access guards.
 // Design reference: docs/design/lld-v11-e11-1-project-management.md §B.6
-// Issue: #399
+// Issue: #399, #413
 
 import { notFound, redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { getOrgRole } from '@/lib/supabase/membership';
@@ -54,15 +55,14 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
       />
       <section className="space-y-3">
         <h2 className="text-heading text-text-primary">Assessments</h2>
-        {/* TODO E11.2: render assessment list filtered by project_id */}
+        {/* TODO E11.2 T2.5: render assessment list filtered by project_id */}
         <p className="text-body text-text-secondary">No assessments yet.</p>
-        {/* CTA disabled until E11.2 lands — /projects/[id]/assessments/new does not yet exist */}
-        <button
-          disabled
-          className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background opacity-50 pointer-events-none h-9 px-3.5"
+        <Link
+          href={`/projects/${id}/assessments/new`}
+          className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5"
         >
           New assessment
-        </button>
+        </Link>
       </section>
     </div>
   );
