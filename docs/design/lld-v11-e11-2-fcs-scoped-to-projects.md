@@ -4,11 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.3 |
+| Version | 0.4 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
 | Revised | 2026-05-01 | Issue #412 |
+| Revised | 2026-05-01 | Issue #411 |
 | Epic | E11.2 (#409) |
 | Parent HLD | [v11-design.md §C3, §3.V11.1](v11-design.md#c3-feature-comprehension-score-fcs--extended) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -232,7 +233,7 @@ describe('/projects/[id]/assessments/new')
 | Layer | Files |
 |-------|-------|
 | **DB** | `supabase/schemas/tables.sql`, generated migration; `src/lib/supabase/types.ts` (manual patch — see #394) |
-| **BE — engine** | `src/lib/engine/fcs-pipeline.ts` (new — extracted from `/api/fcs/service.ts`: `triggerRubricGeneration`, `retriggerRubricForAssessment`, `extractArtefacts`, `finaliseRubric`, `markRubricFailed`, `updateProgress`, `RubricGenerationError`, `MAX_RUBRIC_RETRIES`) |
+| **BE — API** (pipeline) | `src/lib/api/fcs-pipeline.ts` (extracted from `/api/fcs/service.ts`: `triggerRubricGeneration`, `retriggerRubricForAssessment`, `extractArtefacts`, `finaliseRubric`, `markRubricFailed`, `updateProgress`, `RubricGenerationError`, `MAX_RUBRIC_RETRIES`, and validation helpers) |
 | **BE — API** | `src/app/api/projects/[id]/assessments/route.ts`, `service.ts`, `validation.ts` (new); `src/app/api/fcs/` (deleted); `src/app/api/assessments/[id]/retry-rubric/...` (import update only) |
 | **FE — pages** | `src/app/(authenticated)/projects/[id]/assessments/new/{page,create-assessment-form}.tsx` (move + adapt); `src/app/(authenticated)/projects/[id]/assessments/[aid]/{page,results/page,submitted/page}.tsx` (move from legacy); `src/app/(authenticated)/projects/[id]/page.tsx` (lift placeholder slot to real list); `src/app/(authenticated)/projects/[id]/assessment-list.tsx` (new); `src/app/(authenticated)/assessments/page.tsx` (rewrite); `src/app/(authenticated)/assessments/project-filter.tsx` (new) |
 | **FE — deletions** | `src/app/(authenticated)/assessments/[id]/...` directory; `src/app/(authenticated)/assessments/new/` directory |
@@ -245,7 +246,7 @@ These helpers already exist (E11.1). Inlining their logic is forbidden — `/fea
 
 | Helper | Import path | Use it instead of |
 |--------|-------------|-------------------|
-| `assertOrgAdminOrRepoAdmin(ctx, orgId)` | `@/lib/api/repo-admin-gate` | Inlining a `user_organisations` query in API routes. Throws `ApiError(401)` / `ApiError(403)`. |
+| `assertOrgAdminOrRepoAdmin(ctx, orgId)` | `@/lib/api/repo-admin-gate` | Inlining a `user_organisations` query in API routes. Throws `ApiError(401)` / `ApiError(403)`. Returns `Promise<RepoAdminSnapshot>` so callers can reuse the snapshot without a second DB round-trip (established by issue #411). |
 | `readSnapshot(ctx, orgId): Promise<RepoAdminSnapshot \| null>` | `@/lib/api/repo-admin-gate` | Re-querying `github_role, admin_repo_github_ids` in API services. Returns `{ githubRole, adminRepoGithubIds }`. |
 | `RepoAdminSnapshot` type | `@/lib/api/repo-admin-gate` | Defining a local snapshot interface. |
 | `assertOrgAdmin(ctx, orgId)` | `@/lib/api/repo-admin-gate` | Inline `if (role !== 'admin') throw 403`. |
@@ -314,8 +315,9 @@ import { createApiContext } from '@/lib/api/context';
 import { handleApiError } from '@/lib/api/errors';
 import { json } from '@/lib/api/response';
 import { validateBody } from '@/lib/api/validation';
-import { CreateFcsBodySchema, createFcsForProject } from './service';
-export type { CreateFcsResponse } from '@/lib/engine/fcs-pipeline';
+import { CreateFcsBodySchema } from './validation';
+import { createFcsForProject } from './service';
+export type { CreateFcsResponse } from './service';
 
 interface RouteContext { params: Promise<{ id: string }> }
 
@@ -331,17 +333,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
 **Service contract:**
 
-```ts
-import type { ApiContext } from '@/lib/api/context';
-import { z } from 'zod';
-import { ApiError } from '@/lib/api/errors';
-import { assertOrgAdminOrRepoAdmin, readSnapshot } from '@/lib/api/repo-admin-gate';
-import { triggerRubricGeneration, type CreateFcsResponse } from '@/lib/engine/fcs-pipeline';
+`CreateFcsBodySchema` and `CreateFcsBody` live in `validation.ts` (separate file for cleaner imports):
 
-// Body no longer carries org_id or project_id — pid comes from the path,
-// org_id is resolved server-side from the project row.
+```ts
+// validation.ts
 export const CreateFcsBodySchema = z.object({
-  repository_id: z.uuid(),
+  repository_id: z.string().uuid(),
   feature_name: z.string().min(1),
   feature_description: z.string().optional(),
   merged_pr_numbers: z.array(z.number().int().positive()).optional(),
@@ -353,18 +350,26 @@ export const CreateFcsBodySchema = z.object({
   { message: 'At least one of merged_pr_numbers or issue_numbers is required' },
 );
 export type CreateFcsBody = z.infer<typeof CreateFcsBodySchema>;
+```
+
+```ts
+// service.ts
+import type { ApiContext } from '@/lib/api/context';
+import { ApiError } from '@/lib/api/errors';
+import { assertOrgAdminOrRepoAdmin, type RepoAdminSnapshot } from '@/lib/api/repo-admin-gate';
+import { triggerRubricGeneration, type CreateFcsResponse } from '@/lib/api/fcs-pipeline';
 
 export async function createFcsForProject(
   ctx: ApiContext,
   projectId: string,
   body: CreateFcsBody,
 ): Promise<CreateFcsResponse>;
-// 1. if (!ctx.orgId) throw ApiError(401, 'no_org_selected')   // ctx.orgId is the source of truth
-// 2. assertProjectInSelectedOrg(ctx, projectId)               // 404 if project missing or in different org
-// 3. assertOrgAdminOrRepoAdmin(ctx, ctx.orgId)                // 401 / 403
-// 4. enforcePerRepoAdmin(ctx, body.repository_id)             // see helper below
+// 1. if (!ctx.orgId) throw ApiError(401, 'no_org_selected')    // ctx.orgId is the source of truth
+// 2. snapshot = assertOrgAdminOrRepoAdmin(ctx, ctx.orgId)      // 401 / 403 — returns snapshot for reuse
+// 3. assertProjectInSelectedOrg(ctx, projectId)                // 404 if project missing or in different org
+// 4. enforcePerRepoAdmin(ctx, snapshot, body.repository_id)    // see helper below
 // 5. fetchRepoInfo(ctx.adminSupabase, body.repository_id, ctx.orgId)
-// 6. resolveParticipants + validateMergedPRs + validateIssues (existing helpers, relocated)
+// 6. resolveParticipants + validateMergedPRs + validateIssues (existing helpers, in fcs-pipeline)
 // 7. createAssessmentWithParticipants — pass p_project_id = projectId to RPC
 // 8. triggerRubricGeneration (fire-and-forget, existing pipeline)
 // 9. return { assessment_id, status: 'rubric_generation', participant_count }
@@ -376,18 +381,30 @@ async function assertProjectInSelectedOrg(ctx: ApiContext, projectId: string): P
 // a project that exists in a different org returns 404, never 403, so existence
 // is not leaked across tenants. ctx.orgId is non-null by step 1's guard.
 
-// Private helper (≤ 15 lines).
-async function enforcePerRepoAdmin(ctx: ApiContext, repositoryId: string): Promise<void>;
-// orgId is read from ctx.orgId — caller already asserted non-null.
-// 1. snapshot = readSnapshot(ctx, ctx.orgId)
-// 2. if snapshot.githubRole === 'admin' return  // org admin bypass
-// 3. select github_repo_id from repositories where id=$1 and org_id=ctx.orgId → null ⇒ 422 'repo_not_in_org'
-// 4. if !snapshot.adminRepoGithubIds.includes(repoGithubId) ⇒ ApiError(403, 'repo_admin_required')
+// Private helper (≤ 15 lines). Accepts snapshot to avoid a second DB round-trip.
+async function enforcePerRepoAdmin(
+  ctx: ApiContext,
+  snapshot: RepoAdminSnapshot,
+  repositoryId: string,
+): Promise<void>;
+// 1. if snapshot.githubRole === 'admin' return  // org admin bypass
+// 2. select github_repo_id from repositories where id=$1 and org_id=ctx.orgId → null ⇒ 422 'repo_not_in_org'
+// 3. if !snapshot.adminRepoGithubIds.includes(repoGithubId) ⇒ ApiError(403, 'repo_admin_required')
 ```
+
+> **Implementation note (issue #411):** Four deviations from the original spec:
+>
+> 1. **Pipeline location changed**: `src/lib/engine/fcs-pipeline.ts` → `src/lib/api/fcs-pipeline.ts`. The rubric pipeline functions require Supabase and Octokit clients, violating `src/lib/engine/`'s Clean Architecture constraint (no framework imports). Moving to `src/lib/api/` preserves the constraint.
+>
+> 2. **`enforcePerRepoAdmin` accepts snapshot as a parameter** (not `readSnapshot` internally). `assertOrgAdminOrRepoAdmin` already fetched the snapshot; passing it avoids a second identical DB round-trip. Accordingly, `assertOrgAdminOrRepoAdmin` return type was changed from `void` to `Promise<RepoAdminSnapshot>`.
+>
+> 3. **Auth check runs before project lookup** (steps 2 and 3 swapped vs original spec). Fail-fast on auth before issuing any DB query is the correct security-first ordering.
+>
+> 4. **`CreateFcsBodySchema` lives in `validation.ts`** (extracted from `service.ts`) for cleaner import separation; `route.ts` imports schema from `./validation` and service from `./service`.
 
 > **RPC change.** The existing `create_fcs_assessment` Postgres function takes `p_org_id`, `p_repository_id`, etc. Add a new positional argument `p_project_id uuid` and INSERT it into the row. Update `supabase/schemas/functions.sql`. Migration regenerates. The branded type `AssessmentId` and helpers stay; only the call site adds `p_project_id`.
 
-**Pipeline relocation.** Move from `src/app/api/fcs/service.ts` into `src/lib/engine/fcs-pipeline.ts` (no behavioural change, just relocation):
+**Pipeline relocation.** Move from `src/app/api/fcs/service.ts` into `src/lib/api/fcs-pipeline.ts` (no behavioural change, just relocation):
 
 - `triggerRubricGeneration`, `retriggerRubricForAssessment`
 - `extractArtefacts`, `finaliseRubric`, `runGeneration`, `failGeneration`, `markRubricFailed`
@@ -396,7 +413,7 @@ async function enforcePerRepoAdmin(ctx: ApiContext, repositoryId: string): Promi
 - `validateMergedPRs`, `validateIssues`, `resolveParticipants`, `fetchRepoInfo`, `toRepoInfo`, `validateRepo`, `validateCfg`, `createAssessmentWithParticipants`
 - Re-export `CreateFcsResponse` type
 
-The new `service.ts` imports from `@/lib/engine/fcs-pipeline`. The existing `assertOrgAdmin` helper in the old service is replaced by `assertOrgAdminOrRepoAdmin` from the gate (broader role allowance per requirements).
+The new `service.ts` imports from `@/lib/api/fcs-pipeline`. The existing `assertOrgAdmin` helper in the old service is replaced by `assertOrgAdminOrRepoAdmin` from the gate (broader role allowance per requirements).
 
 **Tasks:**
 1. Add `p_project_id` to the RPC; update migration.
