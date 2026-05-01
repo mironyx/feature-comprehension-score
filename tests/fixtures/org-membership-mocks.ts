@@ -38,15 +38,23 @@ export function makeUserOrg(overrides: Partial<UserOrgRow> = {}): UserOrgRow {
     github_user_id: INPUT.githubUserId,
     github_username: INPUT.githubLogin,
     github_role: 'member',
+    admin_repo_github_ids: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
+export interface RegisteredRepoRow {
+  org_id: string;
+  github_repo_id: number;
+  github_repo_name: string;
+}
+
 export interface MockClientOptions {
   installedOrgs: OrgRow[];
   finalUserOrgs: UserOrgRow[];
+  registeredRepos?: RegisteredRepoRow[];
   orgQueryError?: { message: string };
   upsertError?: { message: string };
   deleteError?: { message: string };
@@ -75,9 +83,19 @@ export function buildMockClient(opts: MockClientOptions) {
     }),
   };
 
+  // Repositories query chain: .select(...).eq('org_id', orgId).eq('status', 'active')
+  // Returns rows filtered by org_id.
+  const reposEqOrgId = vi.fn().mockImplementation((_col: string, orgId: string) => {
+    const filtered = (opts.registeredRepos ?? []).filter((r) => r.org_id === orgId);
+    return { eq: vi.fn().mockResolvedValue({ data: filtered, error: null }) };
+  });
+
   const fromSpy = vi.fn((table: string) => {
     if (table === 'organisations') {
       return { select: vi.fn().mockReturnValue(orgsSelectChain) };
+    }
+    if (table === 'repositories') {
+      return { select: vi.fn().mockReturnValue({ eq: reposEqOrgId }) };
     }
     if (table === 'user_organisations') {
       return {
@@ -93,6 +111,3 @@ export function buildMockClient(opts: MockClientOptions) {
   return { client, upsertSpy, deleteSpy, notSpy };
 }
 
-export function membershipResponse(role: 'admin' | 'member'): Response {
-  return new Response(JSON.stringify({ role }), { status: 200 });
-}

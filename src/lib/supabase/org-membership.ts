@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { getInstallationToken as defaultGetInstallationToken } from '@/lib/github/app-auth';
+import { listAdminReposForUser, type RegisteredRepo } from '@/lib/github/repo-admin-list';
 
 type ServiceClient = SupabaseClient<Database>;
 type UserOrganisation = Database['public']['Tables']['user_organisations']['Row'];
@@ -23,26 +24,38 @@ export interface ResolveUserOrgsInput {
 
 export interface ResolveUserOrgsDeps {
   getInstallationToken?: (installationId: number) => Promise<string>;
-  fetchImpl?: typeof fetch;
 }
 
 interface MatchedOrg {
   org: OrganisationRow;
   role: 'admin' | 'member';
+  adminRepoGithubIds: number[];
 }
 
-async function fetchMembershipRole(
+async function fetchRegisteredRepos(
+  serviceClient: ServiceClient,
+  orgId: string,
+): Promise<RegisteredRepo[]> {
+  const { data, error } = await serviceClient
+    .from('repositories')
+    .select('github_repo_id, github_repo_name')
+    .eq('org_id', orgId)
+    .eq('status', 'active');
+  if (error) throw new Error(`Failed to load repositories: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    githubRepoId: r.github_repo_id,
+    repoFullName: r.github_repo_name,
+  }));
+}
+
+async function checkMembershipRole(
   org: OrganisationRow,
-  input: ResolveUserOrgsInput,
+  githubLogin: string,
   getToken: (id: number) => Promise<string>,
-  fetchImpl: typeof fetch,
-): Promise<MatchedOrg | null> {
-  if (org.github_org_id === input.githubUserId) {
-    return { org, role: 'admin' };
-  }
+): Promise<'admin' | 'member' | null> {
   const token = await getToken(org.installation_id);
-  const resp = await fetchImpl(
-    `${GITHUB_API}/orgs/${org.github_org_name}/memberships/${input.githubLogin}`,
+  const resp = await fetch(
+    `${GITHUB_API}/orgs/${org.github_org_name}/memberships/${githubLogin}`,
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -52,16 +65,40 @@ async function fetchMembershipRole(
   );
   if (resp.status === 404) return null;
   if (!resp.ok) {
-    throw new Error(`GitHub membership lookup failed: ${resp.status} for ${org.github_org_name}`);
+    throw new Error(
+      `GitHub membership lookup failed: ${resp.status} for ${org.github_org_name}`,
+    );
   }
   const body = (await resp.json()) as { role: 'admin' | 'member' };
-  return { org, role: body.role };
+  return body.role;
+}
+
+async function fetchMembershipRole(
+  org: OrganisationRow,
+  input: ResolveUserOrgsInput,
+  repos: RegisteredRepo[],
+  getToken: (id: number) => Promise<string>,
+): Promise<MatchedOrg | null> {
+  // Personal-account install: owner is always admin; skip membership + repo checks.
+  if (org.github_org_id === input.githubUserId) {
+    return { org, role: 'admin', adminRepoGithubIds: [] };
+  }
+
+  const role = await checkMembershipRole(org, input.githubLogin, getToken);
+  if (!role) return null;
+
+  const adminRepoGithubIds = await listAdminReposForUser(
+    { installationId: org.installation_id, githubLogin: input.githubLogin, repos },
+    { getInstallationToken: getToken },
+  );
+
+  return { org, role, adminRepoGithubIds };
 }
 
 async function matchOrgsForUser(
   serviceClient: ServiceClient,
   input: ResolveUserOrgsInput,
-  deps: Required<ResolveUserOrgsDeps>,
+  getToken: (id: number) => Promise<string>,
 ): Promise<MatchedOrg[]> {
   const { data, error } = await serviceClient
     .from('organisations')
@@ -69,18 +106,25 @@ async function matchOrgsForUser(
     .eq('status', 'active');
   if (error) throw new Error(`Failed to load organisations: ${error.message}`);
   const results = await Promise.all(
-    (data ?? []).map((org) => fetchMembershipRole(org, input, deps.getInstallationToken, deps.fetchImpl)),
+    (data ?? []).map(async (org) => {
+      // Skip DB lookup for personal accounts — fetchMembershipRole short-circuits immediately.
+      const repos = org.github_org_id === input.githubUserId
+        ? []
+        : await fetchRegisteredRepos(serviceClient, org.id);
+      return fetchMembershipRole(org, input, repos, getToken);
+    }),
   );
   return results.filter((r): r is MatchedOrg => r !== null);
 }
 
 function buildUpsertRows(input: ResolveUserOrgsInput, matches: MatchedOrg[]) {
-  return matches.map(({ org, role }) => ({
+  return matches.map(({ org, role, adminRepoGithubIds }) => ({
     user_id: input.userId,
     org_id: org.id,
     github_user_id: input.githubUserId,
     github_username: input.githubLogin,
     github_role: role,
+    admin_repo_github_ids: adminRepoGithubIds,
   }));
 }
 
@@ -135,10 +179,7 @@ export async function resolveUserOrgsViaApp(
   input: ResolveUserOrgsInput,
   deps: ResolveUserOrgsDeps = {},
 ): Promise<UserOrganisation[]> {
-  const resolved: Required<ResolveUserOrgsDeps> = {
-    getInstallationToken: deps.getInstallationToken ?? defaultGetInstallationToken,
-    fetchImpl: deps.fetchImpl ?? fetch,
-  };
-  const matches = await matchOrgsForUser(serviceClient, input, resolved);
+  const getToken = deps.getInstallationToken ?? defaultGetInstallationToken;
+  const matches = await matchOrgsForUser(serviceClient, input, getToken);
   return writeUserOrgs(serviceClient, input, matches);
 }

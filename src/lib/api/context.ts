@@ -11,6 +11,7 @@ export interface ApiContext {
   supabase: ReturnType<typeof createReadonlyRouteHandlerClient>;
   adminSupabase: ReturnType<typeof createSecretSupabaseClient>;
   user: AuthUser;
+  orgId: string | null;
 }
 
 /** Per-request composition root. Creates all infrastructure clients from the request.
@@ -19,5 +20,6 @@ export async function createApiContext(request: NextRequest): Promise<ApiContext
   const user = await requireAuth(request);
   const supabase = createReadonlyRouteHandlerClient(request);
   const adminSupabase = createSecretSupabaseClient();
-  return { user, supabase, adminSupabase };
+  const orgId = request.cookies.get('fcs-org-id')?.value ?? null;
+  return { user, supabase, adminSupabase, orgId };
 }

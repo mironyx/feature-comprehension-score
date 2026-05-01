@@ -62,7 +62,7 @@ export default async function OrganisationPage() {
     loadOrgPromptContext(supabase, orgId),
     loadOrgRetrievalSettings(supabase, orgId),
     loadOrgAssessmentsOverview(supabase, orgId),
-    listRepositories({ supabase, adminSupabase, user: authUser }, orgId),
+    listRepositories({ supabase, adminSupabase, user: authUser, orgId }, orgId),
   ]);
 
   const tabs = [

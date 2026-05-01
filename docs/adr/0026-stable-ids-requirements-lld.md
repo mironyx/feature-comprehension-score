@@ -121,12 +121,13 @@ epic: <epic-slug>
 entries:
   - req: REQ-<epic-slug>-<story-slug>
     lld: lld-<epic-slug>-<task-slug>.md#LLD-<epic>-<task>-<section>
+    issue: null      # issue tracker number (e.g. GitHub issue #N); populated by /feature-end
     files: []        # populated by /feature-end after merge
     status: Approved # Draft | Approved | Implemented | Revised
 ```
 
-The manifest is written by `/lld` (entries with empty `files`, `status: Approved`)
-and updated by `/feature-end` (file paths appended, `status: Implemented`).
+The manifest is written by `/lld` (entries with empty `files`, `issue: null`, `status: Approved`)
+and updated by `/feature-end` (issue number and file paths set, `status: Implemented`).
 Detailed mechanics are owned by the relevant skills; this ADR records the schema
 contract only.
 

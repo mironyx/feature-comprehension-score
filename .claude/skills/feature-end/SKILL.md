@@ -335,12 +335,13 @@ the entries that this feature implemented.
 3. If it exists, find the manifest entries whose `lld:` anchor lives in the LLD file(s) that
    this PR implements (read the `LLD reference` from the issue body or from `lld-sync` output).
    For each matching entry:
+   - Set `issue:` to the current issue number (integer, e.g. `394`).
    - Append every merged source file path (from `git diff --name-only origin/main...HEAD -- 'src/**'`,
      captured **before** the rebase in Step 3.5) to `files:`.
    - Flip `status` from `Approved` (or `Revised`) to `Implemented`.
    - Leave `status` at `Revised` if `/lld-sync` already flipped it — `Revised` outranks
-     `Implemented` until the next feature confirms the new shape; in that case still append
-     to `files:` but keep `status: Revised`.
+     `Implemented` until the next feature confirms the new shape; in that case still set
+     `issue:` and append to `files:` but keep `status: Revised`.
 
 4. Verify the manifest entries point at anchors that resolve:
    ```bash

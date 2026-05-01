@@ -1,11 +1,25 @@
 epic: v11-e11-1
 entries:
+  # Infrastructure: Sign-in admin-repo snapshot + Repo-Admin gate (E11.1 T1.2 — enabling ADR-0029)
+  - req: REQ-project-management-repo-admin-gate
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-sign-in-snapshot-and-gate
+    files:
+      - src/lib/github/repo-admin-list.ts
+      - src/lib/supabase/org-membership.ts
+      - src/lib/api/repo-admin-gate.ts
+    status: Revised
+    # LLD §B.2 corrected in issue #395 lld-sync: ListAdminReposInput changed from
+    # orgGithubName + /installation/repositories to repos: RegisteredRepo[] from DB;
+    # fetchImpl removed; fetchRegisteredRepos + checkMembershipRole helpers added.
+
   # In-scope: Project Management (E11.1)
   - req: REQ-project-management-create-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-create-list
     files: []
-    status: Approved
-    # FE create form covered in #LLD-v11-e11-1-project-pages-list-create
+    status: Revised
+    # LLD §B.3 corrected in issue #396 lld-sync: inline ADR-0014 types moved to src/types/projects.ts;
+    # listProjects error codes updated to 403/403; upsertContextFields + requireAdminOrRepoAdmin
+    # private helpers added; json() call signature corrected.
 
   - req: REQ-project-management-list-projects
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create
@@ -20,14 +34,23 @@ entries:
 
   - req: REQ-project-management-edit-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
-    files: []
-    status: Approved
+    issue: 397
+    files:
+      - src/app/api/projects/[id]/route.ts
+      - src/app/api/projects/[id]/service.ts
+      - src/lib/api/context.ts
+      - supabase/schemas/functions.sql
+    status: Revised
     # Inline edit UI at #LLD-v11-e11-1-project-dashboard-inline-edit
 
   - req: REQ-project-management-delete-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete
-    files: []
-    status: Approved
+    issue: 397
+    files:
+      - src/app/api/projects/[id]/route.ts
+      - src/app/api/projects/[id]/service.ts
+      - src/lib/api/context.ts
+    status: Revised
 
   # Deferred: FCS scoped to projects (E11.2)
   - req: REQ-fcs-scoped-to-projects-create-fcs-assessment

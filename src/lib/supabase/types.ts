@@ -748,6 +748,22 @@ export interface Database {
         };
         Returns: void;
       };
+      patch_project: {
+        Args: {
+          p_project_id: string;
+          p_org_id: string;
+          p_project_fields: Json | null;
+          p_context_fields: Json | null;
+        };
+        Returns: {
+          id: string;
+          org_id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+      };
     };
   };
 }

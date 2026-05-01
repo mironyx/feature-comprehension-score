@@ -1,6 +1,8 @@
 # LLD — V11 Epic E11.1: Project Management
 
 **Date:** 2026-04-30
+**Revised:** 2026-04-30 (issue #395 — lld-sync), 2026-05-01 (issue #396 — lld-sync), 2026-05-01 (issue #397 — lld-sync)
+**Version:** 0.3
 **Epic:** E11.1 (foundation)
 **Plan:** [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md)
 **HLD:** [v11-design.md §C1, §Level 2](v11-design.md#c1-organisation-management--extended)
@@ -85,11 +87,11 @@ sequenceDiagram
     API-->>U: 409 {error: "project_not_empty"}
   else count == 0
     API->>DB: delete from projects where id=$1
-    alt 0 rows affected
-      API-->>U: 404
-    else 1 row affected
-      API-->>U: 204
-    end
+  end
+  alt row deleted
+    API-->>U: 204
+  else not found (already deleted)
+    API-->>U: 404
   end
 ```
 
@@ -105,14 +107,16 @@ sequenceDiagram
   R->>GH: GET /orgs/{org}/memberships/{user} (per active org)
   GH-->>R: {role: admin|member}
   loop for each matched org
-    R->>GH: GET /user/repos?affiliation=organization_member&per_page=100<br/>(filtered to org installation token)
-    GH-->>R: repo list with permissions.admin = true|false
-    R->>R: collect github_repo_id where permissions.admin = true
+    R->>DB: select github_repo_id, github_repo_name from repositories<br/>where org_id=$1 and status='active'
+    DB-->>R: registered repo list
+    R->>GH: GET /repos/{owner}/{repo}/collaborators/{user}/permission<br/>(for each registered repo, bounded concurrency 8)
+    GH-->>R: {permission: admin|write|read|none}
+    R->>R: collect github_repo_id where permission === 'admin'
   end
   R->>DB: upsert user_organisations<br/>{user_id, org_id, github_role, admin_repo_github_ids: [...]}
 ```
 
-The admin-repo set is computed by listing repos visible to the installation token in the org and filtering for `permissions.admin === true` for the authenticated user. Implementation details in §B.
+The admin-repo set is computed by fetching the product-registered repos for the org from the `repositories` table, then checking per-repo collaborator permission via the GitHub API. Only repos already registered in the product are permission-checked — this avoids querying all installation repos and prevents over-granting access based on unregistered repos. Implementation details in §B.
 
 ### Structural overview
 
@@ -135,7 +139,7 @@ classDiagram
   class RepoAdminGate {
     assertOrgAdminOrRepoAdmin(ctx, orgId)
     isOrgAdminOrRepoAdmin(ctx, orgId)
-    readAdminRepoSet(ctx, orgId)
+    readSnapshot(ctx, orgId)
   }
   class OrgMembershipResolver {
     resolveUserOrgsViaApp(serviceClient, input, deps)
@@ -159,7 +163,7 @@ classDiagram
 |---|-----------|-------------|
 | I1 | Every project row has an `org_id` matching an active organisation | FK + RLS policy `projects_select_member` |
 | I2 | Project names are unique within an org, case-insensitive | Unique index on `(org_id, lower(name))` |
-| I3 | A project can only be deleted when no assessments reference it | Service-level count check + 409 on non-empty (no FK CASCADE on assessments.project_id) |
+| I3 | A project can only be deleted when no assessments reference it | _(deferred → assessments.project_id not yet in schema; service-level check will be added when column lands)_ |
 | I4 | `organisation_contexts.project_id` references a real project (or is NULL for legacy org rows) | FK with `ON DELETE CASCADE` (added in T1.1) |
 | I5 | Project CRUD endpoints require Org Admin OR Repo Admin (snapshot non-empty); DELETE additionally requires Org Admin | Gate helper + service authorisation (BDD specs in §B) |
 | I6 | The admin-repo snapshot is refreshed atomically with the membership upsert during sign-in | Single transaction in `resolveUserOrgsViaApp` (no partial state visible) |
@@ -313,31 +317,32 @@ CREATE POLICY projects_select_member ON projects
 **Internal decomposition — `repo-admin-list.ts`:**
 
 ```ts
-// Fetch the set of repos in `org` where `githubLogin` holds admin permission.
-// Strategy: use the installation token (already org-scoped) to list repos,
-// then for each call GET /repos/{owner}/{repo}/collaborators/{username}/permission
-// — but that's N+1. Prefer GET /orgs/{org}/repos and filter by the user's repo
-// permissions returned via GET /repos/{owner}/{repo}/collaborators with affiliation.
+// Check admin permission on repos registered in the product.
+// Caller pre-filters the repo list from the repositories table — avoids querying
+// all installation repos and prevents over-granting on unregistered repos.
 //
-// Concrete approach (single round trip per repo, parallelised):
-//   1. GET /installation/repositories with installation token → list of repos
-//      visible to the installation in this org.
-//   2. For each repo, GET /repos/{owner}/{repo}/collaborators/{username}/permission
+// Concrete approach (per registered repo, parallelised, bounded concurrency 8):
+//   1. Caller fetches registered repos from repositories table (org_id + status='active').
+//   2. For each RegisteredRepo, GET /repos/{owner}/{repo}/collaborators/{username}/permission
 //      → { permission: 'admin'|'write'|'read'|'none' }.
 //   3. Collect github_repo_id where permission === 'admin'.
 //
-// Cap: at most N repos per org (N = installation visibility). Run with
-// Promise.all but bound concurrency to 8 to be polite to rate limits.
+// Uses global fetch; MSW intercepts in tests. No fetchImpl injection.
+
+export interface RegisteredRepo {
+  githubRepoId: number;
+  repoFullName: string; // "owner/repo" as stored in repositories.github_repo_name
+}
 
 export interface ListAdminReposInput {
   installationId: number;
-  orgGithubName: string;
   githubLogin: string;
+  repos: RegisteredRepo[]; // pre-filtered from DB; not queried from GitHub
 }
 
 export interface ListAdminReposDeps {
   getInstallationToken?: (id: number) => Promise<string>;
-  fetchImpl?: typeof fetch;
+  // fetchImpl removed — global fetch used directly; MSW intercepts in tests
 }
 
 export async function listAdminReposForUser(
@@ -345,6 +350,10 @@ export async function listAdminReposForUser(
   deps?: ListAdminReposDeps,
 ): Promise<number[]>; // returns github_repo_id list
 ```
+
+> **Implementation note (issue #395):** The LLD originally specified `orgGithubName: string` and `GET /installation/repositories` as step 1 to enumerate all repos visible to the installation. This was amended during implementation: the caller now passes `repos: RegisteredRepo[]` pre-fetched from the `repositories` DB table. Rationale: scopes permission checks to product-registered repos only; avoids a GitHub API round trip; prevents over-granting based on repos not yet registered. `fetchImpl` was also removed from `ListAdminReposDeps` — CLAUDE.md requires MSW for HTTP mocking, so `fetch` is used directly.
+
+> **Implementation note (issue #395):** `fetchRegisteredRepos(serviceClient, orgId)` was added to `org-membership.ts` as a private helper to query the `repositories` table per matched org. It is called inside `matchOrgsForUser`, with a short-circuit for personal-account installs (`org.github_org_id === input.githubUserId`) that skips the DB lookup entirely. `checkMembershipRole` was also extracted from `fetchMembershipRole` to stay within the 20-line function budget.
 
 **Internal decomposition — `repo-admin-gate.ts`:**
 
@@ -409,31 +418,15 @@ export async function assertOrgAdmin(
 **Internal decomposition — controller (`route.ts`):**
 
 ```ts
-// Convention: ADR-0014 contract types inline.
-interface CreateProjectRequest {
-  org_id: string;
-  name: string;
-  description?: string;
-  glob_patterns?: string[];
-  domain_notes?: string;
-  question_count?: number;
-}
-interface ProjectResponse {
-  id: string;
-  org_id: string;
-  name: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
-interface ProjectsListResponse { projects: ProjectResponse[] }
+// Types live in src/types/projects.ts (see implementation note below).
+import type { ProjectsListResponse } from '@/types/projects';
 
 export async function POST(request: NextRequest) {
   try {
     const ctx = await createApiContext(request);
     const body = await validateBody(request, CreateProjectSchema);
     const project = await createProject(ctx, body);
-    return json(project, { status: 201 });
+    return json(project, 201);
   } catch (e) { return handleApiError(e); }
 }
 
@@ -443,10 +436,13 @@ export async function GET(request: NextRequest) {
     const orgId = new URL(request.url).searchParams.get('org_id');
     if (!orgId) throw new ApiError(400, 'org_id required');
     const projects = await listProjects(ctx, orgId);
-    return json({ projects });
+    const body: ProjectsListResponse = { projects };
+    return json(body);
   } catch (e) { return handleApiError(e); }
 }
 ```
+
+> **Implementation note (issue #396):** The LLD originally specified ADR-0014 inline contract types (`CreateProjectRequest`, `ProjectResponse`, `ProjectsListResponse`) in `route.ts`. During implementation, `ProjectResponse` was already in `src/types/projects.ts` from the T1.1 schema work. For consistency, all three types were consolidated into `src/types/projects.ts` rather than duplicating them inline. The ADR-0014 intent (types co-located with the route contract) is satisfied by the shared types file. The `json()` helper also takes a positional status code (`json(body, 201)`) not an options object.
 
 **Service contracts (`service.ts`):**
 
@@ -455,24 +451,43 @@ import type { ApiContext } from '@/lib/api/context';
 import { assertOrgAdminOrRepoAdmin } from '@/lib/api/repo-admin-gate';
 // service receives ApiContext; never calls createClient() directly (CLAUDE.md).
 
+// Private helper — decomposed from createProject to stay within 20-line budget.
+async function upsertContextFields(
+  ctx: ApiContext,
+  orgId: string,
+  projectId: string,
+  input: CreateProjectInput,
+): Promise<void>;
+// upsert organisation_contexts (org_id, project_id, context = {globs, notes, count})
+// onConflict: 'org_id,project_id'
+
+// Private helper — decomposed from listProjects (20-line budget + 403-consistency, see note).
+async function requireAdminOrRepoAdmin(ctx: ApiContext, orgId: string): Promise<void>;
+// reads user_organisations via ctx.supabase (RLS-scoped)
+// throws ApiError(403) for both missing membership AND insufficient role
+
 export async function createProject(
   ctx: ApiContext,
-  input: CreateProjectRequest,
+  input: CreateProjectInput,
 ): Promise<ProjectResponse>;
 // 1. assertOrgAdminOrRepoAdmin(ctx, input.org_id)
 // 2. insert via ctx.adminSupabase; map unique_violation -> ApiError(409, 'name_taken')
 // 3. if any of {glob_patterns, domain_notes, question_count} present:
-//    upsert organisation_contexts (org_id, project_id, context = {globs, notes, count})
+//    upsertContextFields(ctx, input.org_id, project.id, input)
 // 4. return mapped row
 
 export async function listProjects(
   ctx: ApiContext,
   orgId: string,
 ): Promise<ProjectResponse[]>;
-// 1. read membership row; 401/403 if not member of orgId
+// 1. requireAdminOrRepoAdmin(ctx, orgId) — throws 403/403 (see implementation note)
 // 2. select id, org_id, name, description, created_at, updated_at from projects
 //    where org_id = $1 order by created_at desc (RLS enforces too — defence in depth)
 ```
+
+> **Implementation note (issue #396):** The original LLD comment said "401/403 if not member of orgId". However, `assertOrgAdminOrRepoAdmin` (from §B.2) throws `ApiError(401)` for a missing membership row, which contradicts issue #396 AC: "GET returns 403 for non-member of queried org." A local private helper `requireAdminOrRepoAdmin` was added to `service.ts` that throws `ApiError(403)` consistently — both for missing membership and for insufficient role. The `assertOrgAdminOrRepoAdmin` gate is still used by `createProject` (which inherits the 401 behaviour; its AC does not specify a non-member code). The LLD comment has been updated to reflect 403/403 for `listProjects`.
+
+> **Implementation note (issue #396):** Two private helpers were extracted to satisfy CLAUDE.md's 20-line function budget: `upsertContextFields` (handles the `organisation_contexts` upsert leg) and `requireAdminOrRepoAdmin` (handles the gate check for `listProjects`). Both carry `// Justification:` comments in the source.
 
 **Validation (`validation.ts`):**
 
@@ -503,8 +518,11 @@ export const CreateProjectSchema = z.object({
 **Files:**
 
 - `src/app/api/projects/[id]/route.ts` (GET, PATCH, DELETE)
-- `src/app/api/projects/[id]/service.ts` (getProject, updateProject, deleteProject)
+- `src/app/api/projects/[id]/service.ts` (getProject, updateProject, deleteProject, requireOrgMembership, resolveProject)
+- `src/lib/api/context.ts` (ApiContext — added `orgId: string | null`)
+- `supabase/schemas/functions.sql` (patch_project DB function)
 - `tests/app/api/projects/get-by-id.test.ts`, `tests/app/api/projects/update.test.ts`, `tests/app/api/projects/delete.test.ts`
+- `tests/evaluation/projects-api-crud.eval.test.ts`
 
 **Internal decomposition — controller:**
 
@@ -549,32 +567,41 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
 ```ts
 export async function getProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse>;
-// 1. select * from projects where id=$1 (RLS limits to caller's orgs)
+// 1. select id, org_id, name, description, created_at, updated_at from projects where id=$1
 // 2. if not found -> ApiError(404)
-// 3. assertOrgAdminOrRepoAdmin on project.org_id
+// 3. assertOrgAdminOrRepoAdmin(ctx, project.org_id)
 
 export async function updateProject(
   ctx: ApiContext,
   projectId: string,
-  patch: UpdateProjectRequest,
+  patch: UpdateProjectInput,
 ): Promise<ProjectResponse>;
-// 1. resolve project (404 if missing)
-// 2. assertOrgAdminOrRepoAdmin(ctx, project.org_id)
-// 3. partition patch into projectFields (name, description) and contextFields
+// 1. requireOrgMembership(ctx, 'admin_or_repo_admin') — reads fcs-org-id cookie,
+//    single SELECT from user_organisations WHERE user_id=$1 AND org_id=$2, returns orgId
+// 2. partition patch into projectFields (name, description) and contextFields
 //    (glob_patterns, domain_notes, question_count)
-// 4. if projectFields non-empty: update projects (admin client); map unique_violation -> 409
-// 5. if contextFields non-empty: upsert organisation_contexts (org_id, project_id, context = merged)
-//    — read existing context first, merge only the supplied keys (preserves I7)
-// 6. return reloaded project row
+// 3. adminSupabase.rpc('patch_project', { p_project_id, p_org_id, p_project_fields, p_context_fields })
+//    — atomically updates projects row and merges context via jsonb ||
+//    — RAISE EXCEPTION 'project_not_found' if project not in org -> ApiError(404)
+//    — unique violation code 23505 -> ApiError(409, 'name_taken')
+// 4. return rpc result row (ProjectResponse shape)
 
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void>;
-// 1. resolve project (404 if missing)
-// 2. assertOrgAdmin(ctx, project.org_id)  ← Org Admin only (Story 1.5)
-// 3. select 1 from assessments where project_id = $1 limit 1
-// 4. if exists -> ApiError(409, 'project_not_empty')
-// 5. delete from projects where id = $1 (admin client)
-// 6. if 0 rows affected -> ApiError(404)  ← idempotent
+// 1. requireOrgMembership(ctx, 'admin') — fcs-org-id cookie + single membership SELECT
+// 2. adminSupabase.from('projects').delete({ count: 'exact' })
+//      .eq('id', projectId).eq('org_id', orgId)
+//    — count = 0 -> ApiError(404, 'project_not_found')  ← idempotent
 ```
+
+> **Implementation note (issue #397):** The LLD specified a 5–6 step flow for `updateProject` (resolveProject → assertOrgAdminOrRepoAdmin → partition → update projects → upsert organisation_contexts → reload) and a 4-step flow for `deleteProject` (resolveProject → assertOrgAdmin → assessment count check → delete). The implementation differs on two points:
+>
+> 1. **Org context from cookie, not project row.** Both `updateProject` and `deleteProject` read the currently selected org from the `fcs-org-id` cookie (`ApiContext.orgId`) and do a single `user_organisations` lookup scoped to that org. This replaces the `resolveProject` + `assertOrgAdmin(OrRepoAdmin)` pre-flight (saves one DB round-trip each).
+>
+> 2. **Atomic context merge via DB function.** `updateProject` calls a new Postgres function `patch_project(p_project_id, p_org_id, p_project_fields, p_context_fields)` instead of the read-then-upsert approach. The function uses `jsonb ||` for the context merge (atomic, preserves I7) and raises `project_not_found` if the project does not belong to `p_org_id`. This replaces steps 4–6 with a single RPC.
+>
+> 3. **I3 assessment check deferred.** The DELETE no longer checks for assessments before deleting (`assessments.project_id` does not exist in the current schema). Invariant I3 is deferred until that column is added.
+>
+> `ApiContext` now carries `orgId: string | null` (read from `fcs-org-id` cookie in `createApiContext`). The private `requireOrgMembership(ctx, role)` helper encapsulates the single-org gate for both `updateProject` and `deleteProject`.
 
 **Validation:**
 
