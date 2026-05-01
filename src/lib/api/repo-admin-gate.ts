@@ -21,7 +21,8 @@ export async function readSnapshot(
     if (!snap) return null;
     return { githubRole: snap.githubRole as 'admin' | 'member', adminRepoGithubIds: snap.adminRepoGithubIds };
   } catch (e) {
-    throw new ApiError(500, `Failed to read membership snapshot: ${(e as Error).message}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new ApiError(500, `Failed to read membership snapshot: ${msg}`);
   }
 }
 
