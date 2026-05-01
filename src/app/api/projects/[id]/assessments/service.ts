@@ -3,7 +3,7 @@
 
 import type { ApiContext } from '@/lib/api/context';
 import { ApiError } from '@/lib/api/errors';
-import { assertOrgAdminOrRepoAdmin, readSnapshot } from '@/lib/api/repo-admin-gate';
+import { assertOrgAdminOrRepoAdmin, type RepoAdminSnapshot } from '@/lib/api/repo-admin-gate';
 import { createGithubClient } from '@/lib/github/client';
 import {
   fetchRepoInfo,
@@ -28,9 +28,7 @@ async function assertProjectInSelectedOrg(ctx: ApiContext, projectId: string): P
   if (!data) throw new ApiError(404, 'Project not found');
 }
 
-async function enforcePerRepoAdmin(ctx: ApiContext, repositoryId: string): Promise<void> {
-  const snapshot = await readSnapshot(ctx, ctx.orgId!);
-  if (!snapshot) throw new ApiError(401, 'No membership for this organisation');
+async function enforcePerRepoAdmin(ctx: ApiContext, snapshot: RepoAdminSnapshot, repositoryId: string): Promise<void> {
   if (snapshot.githubRole === 'admin') return;
   const { data: repo } = await ctx.adminSupabase
     .from('repositories')
@@ -50,9 +48,9 @@ export async function createFcsForProject(
   body: CreateFcsBody,
 ): Promise<CreateFcsResponse> {
   if (!ctx.orgId) throw new ApiError(401, 'no_org_selected');
-  await assertOrgAdminOrRepoAdmin(ctx, ctx.orgId);
+  const snapshot = await assertOrgAdminOrRepoAdmin(ctx, ctx.orgId);
   await assertProjectInSelectedOrg(ctx, projectId);
-  await enforcePerRepoAdmin(ctx, body.repository_id);
+  await enforcePerRepoAdmin(ctx, snapshot, body.repository_id);
   const repoInfo = await fetchRepoInfo(ctx.adminSupabase, body.repository_id, ctx.orgId);
   const octokit = await createGithubClient(repoInfo.installationId);
   const prNumbers = body.merged_pr_numbers ?? [];
