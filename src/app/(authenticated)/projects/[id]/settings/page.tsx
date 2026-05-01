@@ -1,0 +1,70 @@
+// Project settings page — server component.
+// Loads project + organisation_contexts row keyed by (org_id, project_id);
+// renders SettingsForm. Org Member redirects to /projects/[id]; unknown
+// project returns 404.
+// Design reference: docs/design/lld-v11-e11-3-project-context-config.md §B.1
+// Issue: #421
+
+import { notFound, redirect } from 'next/navigation';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getOrgRole } from '@/lib/supabase/membership';
+import { SettingsForm, type SettingsInitial } from './settings-form';
+
+const DEFAULT_QUESTION_COUNT = 4;
+
+interface ProjectSettingsPageProps {
+  readonly params: Promise<{ id: string }>;
+}
+
+interface ProjectRow {
+  id: string;
+  org_id: string;
+  name: string;
+}
+
+interface ContextRow {
+  context: Record<string, unknown> | null;
+}
+
+function buildInitial(context: Record<string, unknown> | null): SettingsInitial {
+  const ctx = context ?? {};
+  return {
+    glob_patterns: Array.isArray(ctx.glob_patterns)
+      ? (ctx.glob_patterns as string[])
+      : [],
+    domain_notes: typeof ctx.domain_notes === 'string' ? ctx.domain_notes : '',
+    question_count:
+      typeof ctx.question_count === 'number' ? ctx.question_count : DEFAULT_QUESTION_COUNT,
+  };
+}
+
+export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps) {
+  const { id: projectId } = await params;
+  const supabase = await createServerSupabaseClient();
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, org_id, name')
+    .eq('id', projectId)
+    .maybeSingle<ProjectRow>();
+  if (!project) notFound();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/auth/sign-in');
+
+  const role = await getOrgRole(supabase, user.id, project.org_id);
+  if (role === null) redirect(`/projects/${projectId}`);
+
+  const { data: ctxRow } = await supabase
+    .from('organisation_contexts')
+    .select('context')
+    .eq('org_id', project.org_id)
+    .eq('project_id', projectId)
+    .maybeSingle<ContextRow>();
+
+  const initial = buildInitial(ctxRow?.context ?? null);
+
+  return (
+    <SettingsForm projectId={projectId} projectName={project.name} initial={initial} />
+  );
+}
