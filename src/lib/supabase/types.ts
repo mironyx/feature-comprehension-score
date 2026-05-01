@@ -751,7 +751,7 @@ export interface Database {
       patch_project: {
         Args: {
           p_project_id: string;
-          p_org_ids: string[];
+          p_org_id: string;
           p_project_fields: Json | null;
           p_context_fields: Json | null;
         };

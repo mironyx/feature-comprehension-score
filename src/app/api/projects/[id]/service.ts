@@ -8,19 +8,6 @@ import type { UpdateProjectInput } from '@/app/api/projects/validation';
 import type { ProjectResponse } from '@/types/projects';
 import type { Json } from '@/lib/supabase/types';
 
-type MembershipRow = { org_id: string; github_role: string; admin_repo_github_ids: number[] };
-
-// Justification: shared by updateProject and deleteProject (2 callers) — extracted to keep both under cc limit.
-async function fetchMemberships(ctx: ApiContext): Promise<MembershipRow[]> {
-  const { data, error } = await ctx.supabase
-    .from('user_organisations')
-    .select('org_id, github_role, admin_repo_github_ids')
-    .eq('user_id', ctx.user.id);
-  if (error) throw new ApiError(500, `Failed to check memberships: ${error.message}`);
-  if (!data?.length) throw new ApiError(401, 'no_membership');
-  return data as MembershipRow[];
-}
-
 // Justification: used only by getProject — provides the project row + org_id for the gate check.
 async function resolveProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse> {
   const { data, error } = await ctx.supabase
@@ -31,6 +18,26 @@ async function resolveProject(ctx: ApiContext, projectId: string): Promise<Proje
   if (error) throw new ApiError(500, `Failed to resolve project: ${error.message}`);
   if (!data) throw new ApiError(404, 'project_not_found');
   return data as ProjectResponse;
+}
+
+async function requireOrgMembership(
+  ctx: ApiContext,
+  role: 'admin' | 'admin_or_repo_admin',
+): Promise<string> {
+  if (!ctx.orgId) throw new ApiError(403, 'no_org_selected');
+  const { data, error } = await ctx.supabase
+    .from('user_organisations')
+    .select('github_role, admin_repo_github_ids')
+    .eq('user_id', ctx.user.id)
+    .eq('org_id', ctx.orgId)
+    .maybeSingle();
+  if (error) throw new ApiError(500, `Failed to check membership: ${error.message}`);
+  if (!data) throw new ApiError(403, 'forbidden');
+  const isAdmin = data.github_role === 'admin';
+  const isRepoAdmin = (data.admin_repo_github_ids as number[]).length > 0;
+  if (role === 'admin' && !isAdmin) throw new ApiError(403, 'forbidden');
+  if (role === 'admin_or_repo_admin' && !isAdmin && !isRepoAdmin) throw new ApiError(403, 'forbidden');
+  return ctx.orgId;
 }
 
 export async function getProject(ctx: ApiContext, projectId: string): Promise<ProjectResponse> {
@@ -45,12 +52,7 @@ export async function updateProject(
   patch: UpdateProjectInput,
 ): Promise<ProjectResponse> {
   const { name, description, glob_patterns, domain_notes, question_count } = patch;
-
-  const memberships = await fetchMemberships(ctx);
-  const authorisedOrgIds = memberships
-    .filter(m => m.github_role === 'admin' || m.admin_repo_github_ids.length > 0)
-    .map(m => m.org_id);
-  if (!authorisedOrgIds.length) throw new ApiError(403, 'forbidden');
+  const orgId = await requireOrgMembership(ctx, 'admin_or_repo_admin');
 
   const pf = Object.fromEntries(
     [['name', name], ['description', description]].filter(([, v]) => v !== undefined),
@@ -62,7 +64,7 @@ export async function updateProject(
 
   const { data, error } = await ctx.adminSupabase.rpc('patch_project', {
     p_project_id: projectId,
-    p_org_ids: authorisedOrgIds,
+    p_org_id: orgId,
     p_project_fields: Object.keys(pf).length ? (pf as Json) : null,
     p_context_fields: Object.keys(cf).length ? (cf as Json) : null,
   });
@@ -76,15 +78,13 @@ export async function updateProject(
 }
 
 export async function deleteProject(ctx: ApiContext, projectId: string): Promise<void> {
-  const memberships = await fetchMemberships(ctx);
-  const adminOrgIds = memberships.filter(m => m.github_role === 'admin').map(m => m.org_id);
-  if (!adminOrgIds.length) throw new ApiError(403, 'forbidden');
+  const orgId = await requireOrgMembership(ctx, 'admin');
 
   const { count, error } = await ctx.adminSupabase
     .from('projects')
     .delete({ count: 'exact' })
     .eq('id', projectId)
-    .in('org_id', adminOrgIds);
+    .eq('org_id', orgId);
   if (error) throw new ApiError(500, `Failed to delete project: ${error.message}`);
   if (!count) throw new ApiError(404, 'project_not_found');
 }

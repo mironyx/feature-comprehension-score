@@ -397,14 +397,14 @@ END;
 $$;
 
 -- patch_project: atomically updates project name/description and/or context fields
--- for a project that belongs to one of p_org_ids. Raises 'project_not_found' if the
--- project does not exist in any of the authorised orgs (covers both 404 and cross-org
--- access — callers cannot distinguish which). The context merge uses jsonb || so
--- existing keys not present in p_context_fields are preserved (Invariant I7).
+-- for a project owned by p_org_id. Raises 'project_not_found' if the project does
+-- not exist in that org (covers both 404 and cross-org access — callers cannot
+-- distinguish which). The context merge uses jsonb || so existing keys not present
+-- in p_context_fields are preserved (Invariant I7).
 -- Issue: #397
 CREATE OR REPLACE FUNCTION patch_project(
   p_project_id     uuid,
-  p_org_ids        uuid[],
+  p_org_id         uuid,
   p_project_fields jsonb,
   p_context_fields jsonb
 )
@@ -413,14 +413,11 @@ LANGUAGE plpgsql
 SET search_path = public
 AS $$
 DECLARE
-  v_org_id uuid;
-  v_row    projects%ROWTYPE;
+  v_row projects%ROWTYPE;
 BEGIN
-  SELECT org_id INTO v_org_id
-  FROM projects
-  WHERE id = p_project_id AND org_id = ANY(p_org_ids);
-
-  IF v_org_id IS NULL THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM projects WHERE id = p_project_id AND org_id = p_org_id
+  ) THEN
     RAISE EXCEPTION 'project_not_found';
   END IF;
 
@@ -438,7 +435,7 @@ BEGIN
 
   IF p_context_fields IS NOT NULL AND p_context_fields != '{}'::jsonb THEN
     INSERT INTO organisation_contexts (org_id, project_id, context)
-    VALUES (v_org_id, p_project_id, p_context_fields)
+    VALUES (p_org_id, p_project_id, p_context_fields)
     ON CONFLICT (org_id, project_id) DO UPDATE
       SET context    = organisation_contexts.context || EXCLUDED.context,
           updated_at = now();

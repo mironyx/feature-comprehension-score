@@ -37,8 +37,8 @@ let PATCH: RouteHandler;
 // Mock Supabase clients
 // ---------------------------------------------------------------------------
 
-// membershipsResult: array response from user_organisations SELECT
-let membershipsResult: { data: unknown; error: unknown };
+// Single-row membership result from user_organisations .maybeSingle()
+let membershipResult: { data: unknown; error: unknown };
 // rpcResult: response from adminSupabase.rpc('patch_project', ...)
 let rpcResult: { data: unknown; error: unknown };
 
@@ -49,24 +49,16 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     is: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
-    upsert: vi.fn(() => Promise.resolve(resolver())),
-    update: vi.fn(),
-    delete: vi.fn(),
-    limit: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.is.mockReturnValue(chain);
-  chain.upsert.mockReturnValue(chain);
-  chain.update.mockReturnValue(chain);
-  chain.delete.mockReturnValue(chain);
-  chain.limit.mockReturnValue(chain);
   return chain;
 }
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'user_organisations') return makeChain(() => membershipsResult);
+    if (table === 'user_organisations') return makeChain(() => membershipResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -98,9 +90,7 @@ const PROJECT_ROW = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-const ORG_ADMIN_MEMBERSHIP = [
-  { org_id: ORG_ID, github_role: 'admin', admin_repo_github_ids: [] },
-];
+const ORG_ADMIN_MEMBERSHIP = { github_role: 'admin', admin_repo_github_ids: [] };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,7 +99,10 @@ const ORG_ADMIN_MEMBERSHIP = [
 function makePatchRequest(body: unknown): NextRequest {
   return new NextRequest(`http://localhost/api/projects/${PROJECT_ID}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: `fcs-org-id=${ORG_ID}`,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -128,7 +121,7 @@ function patchProject(body: unknown, projectId = PROJECT_ID) {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  membershipsResult = { data: ORG_ADMIN_MEMBERSHIP, error: null };
+  membershipResult = { data: ORG_ADMIN_MEMBERSHIP, error: null };
   rpcResult = { data: { ...PROJECT_ROW }, error: null };
   ({ PATCH } = await import('@/app/api/projects/[id]/route'));
 });
@@ -145,10 +138,23 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
+  describe('Given no org cookie (no org selected)', () => {
+    it('then it returns 403 [req §Story 1.4, I5]', async () => {
+      const req = new NextRequest(`http://localhost/api/projects/${PROJECT_ID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'New Name' }),
+      });
+      const response = await PATCH(req, { params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(response.status).toBe(403);
+    });
+  });
+
   describe('Given an Org Member (member with empty admin_repo_github_ids)', () => {
     it('then it returns 403 and the project is unchanged [req §Story 1.4, I5]', async () => {
-      membershipsResult = {
-        data: [{ org_id: ORG_ID, github_role: 'member', admin_repo_github_ids: [] }],
+      membershipResult = {
+        data: { github_role: 'member', admin_repo_github_ids: [] },
         error: null,
       };
 
@@ -160,8 +166,8 @@ describe('PATCH /api/projects/[id]', () => {
 
   describe('Given a Repo Admin (member with non-empty admin_repo_github_ids)', () => {
     it('then it accepts the edit and returns 200 [req §Story 1.4]', async () => {
-      membershipsResult = {
-        data: [{ org_id: ORG_ID, github_role: 'member', admin_repo_github_ids: [101] }],
+      membershipResult = {
+        data: { github_role: 'member', admin_repo_github_ids: [101] },
         error: null,
       };
       rpcResult = { data: { ...PROJECT_ROW, name: 'Updated Name' }, error: null };
@@ -172,13 +178,13 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
-  describe('Given the caller has no membership rows', () => {
-    it('then it returns 401 [I5]', async () => {
-      membershipsResult = { data: [], error: null };
+  describe('Given the caller has no membership in the current org', () => {
+    it('then it returns 403 [I5]', async () => {
+      membershipResult = { data: null, error: null };
 
       const response = await patchProject({ name: 'New Name' });
 
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(403);
     });
   });
 
@@ -341,6 +347,13 @@ describe('PATCH /api/projects/[id]', () => {
       const body = await response.json();
 
       expect(body.org_id).toBe(ORG_ID);
+    });
+
+    it('then the rpc is called with the org_id from the cookie [req §Story 1.4]', async () => {
+      await patchProject({ name: 'New Name' });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0][1] as Record<string, unknown>;
+      expect(rpcArgs.p_org_id).toBe(ORG_ID);
     });
   });
 

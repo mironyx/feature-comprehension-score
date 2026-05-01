@@ -40,7 +40,7 @@ let DELETE: RouteHandler;
 // Mock Supabase clients
 // ---------------------------------------------------------------------------
 
-let membershipsResult: { data: unknown; error: unknown };
+let membershipResult: { data: unknown; error: unknown };
 let deleteResult: { count: number | null; error: unknown };
 
 function makeUserChain(resolver: () => { data: unknown; error: unknown }) {
@@ -48,16 +48,12 @@ function makeUserChain(resolver: () => { data: unknown; error: unknown }) {
     select: vi.fn(),
     eq: vi.fn(),
     is: vi.fn(),
-    in: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
-    limit: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.is.mockReturnValue(chain);
-  chain.in.mockReturnValue(chain);
-  chain.limit.mockReturnValue(chain);
   return chain;
 }
 
@@ -65,17 +61,15 @@ function makeAdminDeleteChain(resolver: () => { count: number | null; error: unk
   const chain = Object.assign(Promise.resolve(resolver()), {
     delete: vi.fn(),
     eq: vi.fn(),
-    in: vi.fn(),
   });
   chain.delete.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
-  chain.in.mockReturnValue(chain);
   return chain;
 }
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'user_organisations') return makeUserChain(() => membershipsResult);
+    if (table === 'user_organisations') return makeUserChain(() => membershipResult);
     return makeUserChain(() => ({ data: null, error: null }));
   }),
 };
@@ -104,14 +98,15 @@ const AUTH_USER = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDeleteRequest(): NextRequest {
+function makeDeleteRequest(withOrgCookie = true): NextRequest {
   return new NextRequest(`http://localhost/api/projects/${PROJECT_ID}`, {
     method: 'DELETE',
+    headers: withOrgCookie ? { Cookie: `fcs-org-id=${ORG_ID}` } : {},
   });
 }
 
-function deleteProject(projectId = PROJECT_ID) {
-  return DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: projectId }) });
+function deleteProject(projectId = PROJECT_ID, withOrgCookie = true) {
+  return DELETE(makeDeleteRequest(withOrgCookie), { params: Promise.resolve({ id: projectId }) });
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +116,7 @@ function deleteProject(projectId = PROJECT_ID) {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  membershipsResult = { data: [{ org_id: ORG_ID, github_role: 'admin' }], error: null };
+  membershipResult = { data: { github_role: 'admin', admin_repo_github_ids: [] }, error: null };
   deleteResult = { count: 1, error: null };
   ({ DELETE } = await import('@/app/api/projects/[id]/route'));
 });
@@ -138,10 +133,18 @@ describe('DELETE /api/projects/[id]', () => {
     });
   });
 
+  describe('Given no org cookie (no org selected)', () => {
+    it('then it returns 403 [req §Story 1.5, I5]', async () => {
+      const response = await deleteProject(PROJECT_ID, false);
+
+      expect(response.status).toBe(403);
+    });
+  });
+
   describe('Given a Repo Admin (member with non-empty admin_repo_github_ids)', () => {
     it('then it returns 403 — delete is Org Admin only [req §Story 1.5, I5]', async () => {
-      membershipsResult = {
-        data: [{ org_id: ORG_ID, github_role: 'member' }],
+      membershipResult = {
+        data: { github_role: 'member', admin_repo_github_ids: [101] },
         error: null,
       };
 
@@ -153,8 +156,8 @@ describe('DELETE /api/projects/[id]', () => {
 
   describe('Given an Org Member (member with empty admin_repo_github_ids)', () => {
     it('then it returns 403 [req §Story 1.5, I5]', async () => {
-      membershipsResult = {
-        data: [{ org_id: ORG_ID, github_role: 'member' }],
+      membershipResult = {
+        data: { github_role: 'member', admin_repo_github_ids: [] },
         error: null,
       };
 
@@ -164,13 +167,13 @@ describe('DELETE /api/projects/[id]', () => {
     });
   });
 
-  describe('Given the caller has no membership rows', () => {
-    it('then it returns 401 [I5]', async () => {
-      membershipsResult = { data: [], error: null };
+  describe('Given the caller has no membership in the current org', () => {
+    it('then it returns 403 [I5]', async () => {
+      membershipResult = { data: null, error: null };
 
       const response = await deleteProject();
 
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(403);
     });
   });
 

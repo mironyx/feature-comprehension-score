@@ -67,7 +67,7 @@ const PROJECT_ROW = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-let membershipsResult: { data: unknown; error: unknown };
+let membershipResult: { data: unknown; error: unknown };
 let rpcResult: { data: unknown; error: unknown };
 
 function makeChain(resolver: () => { data: unknown; error: unknown }) {
@@ -77,23 +77,16 @@ function makeChain(resolver: () => { data: unknown; error: unknown }) {
     is: vi.fn(),
     single: vi.fn(() => Promise.resolve(resolver())),
     maybeSingle: vi.fn(() => Promise.resolve(resolver())),
-    upsert: vi.fn(() => Promise.resolve(resolver())),
-    update: vi.fn(),
-    delete: vi.fn(),
-    limit: vi.fn(),
   });
   chain.select.mockReturnValue(chain);
   chain.eq.mockReturnValue(chain);
   chain.is.mockReturnValue(chain);
-  chain.update.mockReturnValue(chain);
-  chain.delete.mockReturnValue(chain);
-  chain.limit.mockReturnValue(chain);
   return chain;
 }
 
 const mockUserClient = {
   from: vi.fn((table: string) => {
-    if (table === 'user_organisations') return makeChain(() => membershipsResult);
+    if (table === 'user_organisations') return makeChain(() => membershipResult);
     return makeChain(() => ({ data: null, error: null }));
   }),
 };
@@ -109,7 +102,10 @@ const mockAdminClient = {
 function makePatchRequest(body: unknown): NextRequest {
   return new NextRequest(`http://localhost/api/projects/${PROJECT_ID}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: `fcs-org-id=${ORG_ID}`,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -125,8 +121,8 @@ function patchProject(body: unknown, projectId = PROJECT_ID) {
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(AUTH_USER);
-  membershipsResult = {
-    data: [{ org_id: ORG_ID, github_role: 'admin', admin_repo_github_ids: [] }],
+  membershipResult = {
+    data: { github_role: 'admin', admin_repo_github_ids: [] },
     error: null,
   };
   rpcResult = { data: { ...PROJECT_ROW }, error: null };
