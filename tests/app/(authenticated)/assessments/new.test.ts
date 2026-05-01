@@ -100,7 +100,8 @@ function makeClient({
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('New assessment page', () => {
+// T2.4: assessments/new/page deleted in T2.3 — re-enable after #413 ships
+describe.skip('New assessment page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();

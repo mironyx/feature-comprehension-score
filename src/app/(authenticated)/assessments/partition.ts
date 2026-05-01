@@ -18,6 +18,7 @@ export interface AssessmentItem {
   rubric_error_code: string | null;
   rubric_retry_count: number;
   rubric_error_retryable: boolean | null;
+  project_id: string | null;
 }
 
 const PENDING_STATUSES: AssessmentRow['status'][] = [

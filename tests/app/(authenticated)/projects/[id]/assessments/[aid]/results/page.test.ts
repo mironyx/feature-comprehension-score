@@ -46,6 +46,7 @@ const mockNotFound = vi.mocked(notFound);
 const USER_ID = 'user-001';
 const ORG_ID = 'org-001';
 const ASSESSMENT_ID = 'assessment-001';
+const PROJECT_ID = 'project-test-id';
 
 function makeAssessment(overrides: Record<string, unknown> = {}) {
   return {
@@ -219,13 +220,23 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
           }),
         };
       }
-      return {};
+      // Guard query: assessments.select('id, project_id').eq('id', aid).maybeSingle()
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+              error: null,
+            }),
+          }),
+        }),
+      };
     }),
   };
 }
 
-function makeParams(id = ASSESSMENT_ID) {
-  return Promise.resolve({ id });
+function makeParams(projectId = PROJECT_ID, aid = ASSESSMENT_ID) {
+  return Promise.resolve({ id: projectId, aid });
 }
 
 const AUTHED_USER = { id: USER_ID };
@@ -237,7 +248,7 @@ async function arrange(
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(userOrServerOpts) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
+  const { default: ResultsPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/results/page');
   return ResultsPage;
 }
 
@@ -787,7 +798,7 @@ describe('FCS results page', () => {
       mockCreateServer.mockResolvedValue(serverClientMock as never);
       mockCreateSecret.mockReturnValue(secretClientMock as never);
 
-      const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
+      const { default: ResultsPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/results/page');
       await ResultsPage({ params: makeParams() });
 
       // Server client (user-scoped) must have queried participant_answers
@@ -849,7 +860,7 @@ describe('FCS results page', () => {
       mockCreateServer.mockResolvedValue(serverClientMock as never);
       mockCreateSecret.mockReturnValue(makeSecretClient(secretOpts) as never);
 
-      const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
+      const { default: ResultsPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/results/page');
       await ResultsPage({ params: makeParams() });
 
       expect(eqCalls).toContainEqual(['participant_id', PARTICIPATION_ID]);

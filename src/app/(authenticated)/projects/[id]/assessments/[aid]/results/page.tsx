@@ -1,8 +1,7 @@
-// FCS results page — role-based view separation (LLD §3, ADR-0005, Stories 3.4 / 6.2).
-// Admin-only viewers see the aggregate comprehension score, per-question aggregates, and
-// reference answers (gated). Participant-only viewers see a self-directed view with their
-// own per-question scores, Naur layer labels, and submitted answers. Combined viewers see
-// the admin aggregate view plus a "My Scores" section. Issue: #104, #109, #297
+// FCS results page — project-scoped URL shape.
+// Guard: returns 404 when assessment.project_id !== projectId (Invariant I4).
+// Design reference: docs/design/lld-v11-e11-2-fcs-scoped-to-projects.md §B.3
+// Issues: #104, #109, #297, #412
 
 import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -26,12 +25,8 @@ interface AssessmentWithRelations extends AssessmentRow {
   organisations: { github_org_name: string };
 }
 
-// ---------------------------------------------------------------------------
-// Contract types
-// ---------------------------------------------------------------------------
-
 interface ResultsPageProps {
-  readonly params: Promise<{ id: string }>;
+  readonly params: Promise<{ id: string; aid: string }>;
 }
 
 interface ScoredQuestion {
@@ -60,10 +55,6 @@ interface ResultsData {
   isParticipant: boolean;
   myAnswers: MyAnswer[];
 }
-
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
 
 async function fetchResultsData(assessmentId: string, userId: string): Promise<ResultsData> {
   const adminSupabase = createSecretSupabaseClient();
@@ -153,10 +144,6 @@ async function fetchMyAnswers(assessmentId: string, participantId: string): Prom
   return (data ?? []) as MyAnswer[];
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function toPercent(score: number | null): string {
   if (score === null) return '—';
   return `${Math.round(score * 100)}%`;
@@ -196,10 +183,6 @@ const DEPTH_NOTES: Record<'conceptual' | 'detailed', string> = {
 const ANSWERS_WITHHELD_MESSAGE =
   'Reference answers will be visible once all participants have submitted and scoring is complete.';
 
-// ---------------------------------------------------------------------------
-// View components
-// ---------------------------------------------------------------------------
-
 interface HeaderSectionProps {
   assessment: AssessmentWithRelations;
   repoFullName: string;
@@ -232,9 +215,6 @@ interface AdminAggregateViewProps {
   revealAnswers: boolean;
   myAnswers?: MyAnswer[];
 }
-
-// QuestionHeader and PersonalScoresBlock are shared between AdminQuestionCard and
-// SelfDirectedView to avoid duplicating the Card/Badge/hint layout structure.
 
 function QuestionHeader({ q }: { q: ScoredQuestion }) {
   return (
@@ -363,18 +343,21 @@ function SelfDirectedView({ questions, myAnswers }: SelfDirectedViewProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export default async function ResultsPage({ params }: ResultsPageProps) {
-  const { id: assessmentId } = await params;
+  const { id: projectId, aid } = await params;
 
   const supabase = await createServerSupabaseClient();
+  const { data: row } = await supabase
+    .from('assessments')
+    .select('id, project_id')
+    .eq('id', aid)
+    .maybeSingle();
+  if (!row || row.project_id !== projectId) notFound();
+
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/sign-in');
 
-  const data = await fetchResultsData(assessmentId, user.id);
+  const data = await fetchResultsData(aid, user.id);
   const { assessment, questions, participantTotal, participantCompleted, isAdmin, isParticipant, myAnswers } = data;
 
   const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;

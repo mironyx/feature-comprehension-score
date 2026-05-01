@@ -17,7 +17,7 @@ vi.mock('@/lib/supabase/secret', () => ({
   createSecretSupabaseClient: vi.fn(() => ({})),
 }));
 
-vi.mock('@/app/(authenticated)/assessments/[id]/load-assessment-detail', () => ({
+vi.mock('@/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-detail', () => ({
   loadAssessmentDetail: vi.fn(),
 }));
 
@@ -37,7 +37,7 @@ vi.mock('next/navigation', () => ({
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
-import { loadAssessmentDetail } from '@/app/(authenticated)/assessments/[id]/load-assessment-detail';
+import { loadAssessmentDetail } from '@/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-detail';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockRedirect = vi.mocked(redirect);
@@ -57,6 +57,7 @@ const mockLoadDetail = vi.mocked(loadAssessmentDetail);
 
 const USER_ID = 'user-001';
 const ASSESSMENT_ID = 'assessment-abc';
+const PROJECT_ID = 'project-test-id';
 const GITHUB_PROVIDER_ID = '99999';
 
 // ---------------------------------------------------------------------------
@@ -134,12 +135,22 @@ function makeServerClient(
       }),
     },
     rpc: rpcSpy,
+    from: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+            error: null,
+          }),
+        }),
+      }),
+    }),
   };
   return { client, rpcSpy };
 }
 
-function makeParams(id = ASSESSMENT_ID) {
-  return Promise.resolve({ id });
+function makeParams(projectId = PROJECT_ID, aid = ASSESSMENT_ID) {
+  return Promise.resolve({ id: projectId, aid });
 }
 
 const AUTHED_USER = { id: USER_ID, user_metadata: { provider_id: GITHUB_PROVIDER_ID } };
@@ -174,7 +185,7 @@ async function arrangePage(opts: {
   });
 
   const { default: AssessmentPage } = await import(
-    '@/app/(authenticated)/assessments/[id]/page'
+    '@/app/(authenticated)/projects/[id]/assessments/[aid]/page'
   );
   return { AssessmentPage, serverRpcSpy };
 }
@@ -345,7 +356,7 @@ describe('AssessmentAdminView', () => {
 
   async function importAdminView() {
     const mod = await import(
-      '@/app/(authenticated)/assessments/[id]/assessment-admin-view'
+      '@/app/(authenticated)/projects/[id]/assessments/[aid]/assessment-admin-view'
     );
     return mod.AssessmentAdminView;
   }
@@ -477,7 +488,7 @@ describe('AssessmentAdminView', () => {
 describe('AssessmentSourceList', () => {
   async function importSourceList() {
     const mod = await import(
-      '@/app/(authenticated)/assessments/[id]/assessment-source-list'
+      '@/app/(authenticated)/projects/[id]/assessments/[aid]/assessment-source-list'
     );
     return mod.AssessmentSourceList;
   }

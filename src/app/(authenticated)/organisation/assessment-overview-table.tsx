@@ -52,7 +52,7 @@ function renderActionsCell(a: AssessmentListItem, onDelete: (assessment: Assessm
           <Trash2 size={16} />
         </button>
         <a
-          href={`/assessments/${a.id}`}
+          href={a.project_id ? `/projects/${a.project_id}/assessments/${a.id}` : '#'}
           className="text-text-secondary hover:text-accent"
           aria-label={`View details for ${featureLabel}`}
         >
@@ -67,7 +67,7 @@ function renderRow(a: AssessmentListItem, onDelete?: (assessment: AssessmentList
   return (
     <tr key={a.id} className="border-t border-border hover:bg-surface-hover">
       <td className="px-3 py-2">
-        <Link href={`/assessments/${a.id}/results`} className="text-text-primary hover:text-accent">
+        <Link href={a.project_id ? `/projects/${a.project_id}/assessments/${a.id}/results` : '#'} className="text-text-primary hover:text-accent">
           {formatFeature(a)}
         </Link>
       </td>

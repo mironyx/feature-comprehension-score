@@ -43,6 +43,7 @@ const mockRedirect = vi.mocked(redirect);
 
 const USER_ID = 'user-001';
 const ASSESSMENT_ID = 'assessment-001';
+const PROJECT_ID = 'project-test-id';
 
 function makeAssessment() {
   return {
@@ -106,11 +107,21 @@ function makeServerClient(user: { id: string } | null) {
         error: user ? null : new Error('no session'),
       }),
     },
+    from: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+            error: null,
+          }),
+        }),
+      }),
+    }),
   };
 }
 
-function makeParams(id = ASSESSMENT_ID) {
-  return Promise.resolve({ id });
+function makeParams(projectId = PROJECT_ID, aid = ASSESSMENT_ID) {
+  return Promise.resolve({ id: projectId, aid });
 }
 
 const AUTHED_USER = { id: USER_ID };
@@ -118,7 +129,7 @@ const AUTHED_USER = { id: USER_ID };
 async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
   mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: SubmittedPage } = await import('@/app/(authenticated)/assessments/[id]/submitted/page');
+  const { default: SubmittedPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page');
   return SubmittedPage;
 }
 

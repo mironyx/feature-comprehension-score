@@ -42,6 +42,7 @@ const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
 const USER_ID = 'user-001';
 const ORG_ID = 'org-001';
 const ASSESSMENT_ID = 'assessment-001';
+const PROJECT_ID = 'project-001';
 
 function makeAssessment(overrides: Record<string, unknown> = {}) {
   return {
@@ -148,14 +149,29 @@ function makeServerClient(user: { id: string } | null) {
         error: user ? null : new Error('no session'),
       }),
     },
+    from: vi.fn((table: string) => {
+      if (table === 'assessments') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    }),
   };
 }
 
 async function renderPage(opts: SecretClientOptions) {
   mockCreateServer.mockResolvedValue(makeServerClient({ id: USER_ID }) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
-  const { default: ResultsPage } = await import('@/app/(authenticated)/assessments/[id]/results/page');
-  const element = await ResultsPage({ params: Promise.resolve({ id: ASSESSMENT_ID }) });
+  const { default: ResultsPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/results/page');
+  const element = await ResultsPage({ params: Promise.resolve({ id: PROJECT_ID, aid: ASSESSMENT_ID }) });
   return renderToStaticMarkup(element);
 }
 

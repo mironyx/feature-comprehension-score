@@ -138,6 +138,7 @@ function makeItem(overrides: Partial<AssessmentItem> = {}): AssessmentItem {
     rubric_error_code: null,
     rubric_retry_count: 0,
     rubric_error_retryable: null,
+    project_id: 'proj-1',
     ...overrides,
   };
 }
@@ -389,7 +390,7 @@ describe('Assessments page', () => {
 
       const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
-      expect(JSON.stringify(result)).toContain('/assessments/done-2/results');
+      expect(JSON.stringify(result)).toContain('/projects/proj-1/assessments/done-2/results');
     });
 
     // P15: completed row shows formatted percentage when aggregate_score is non-null [lld §1]
@@ -428,7 +429,7 @@ describe('Assessments page', () => {
 
       const result = await AssessmentsPage({ searchParams: Promise.resolve({}) });
 
-      expect(JSON.stringify(result)).toContain('/assessments/scoring-2/results');
+      expect(JSON.stringify(result)).toContain('/projects/proj-1/assessments/scoring-2/results');
     });
   });
 

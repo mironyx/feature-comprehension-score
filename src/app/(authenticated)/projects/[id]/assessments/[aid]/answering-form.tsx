@@ -1,8 +1,9 @@
 'use client';
 
 // AnsweringForm — client component handling form state, submission, and relevance re-answer flow.
+// Adapted to project-scoped URL shape for post-submission redirect.
 // Design reference: docs/design/lld-phase-2-web-auth-db.md §2.5
-// Issue: #61
+// Issues: #61, #412
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -31,6 +32,7 @@ interface AssessmentInfo {
 }
 
 interface AnsweringFormProps {
+  readonly projectId: string;
   readonly assessment: AssessmentInfo;
   readonly questions: Question[];
   readonly sourcePrs?: FcsPr[];
@@ -126,7 +128,7 @@ function QuestionList({ questions, answers, relevanceResults, onChange }: Questi
   );
 }
 
-function useAnsweringForm(assessmentId: string, questions: Question[]) {
+function useAnsweringForm(projectId: string, assessmentId: string, questions: Question[]) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     Object.fromEntries(questions.map(q => [q.id, ''])),
@@ -147,7 +149,7 @@ function useAnsweringForm(assessmentId: string, questions: Question[]) {
       const payload = buildAnswerPayload(questions, answers, relevanceResults);
       const data = await postAnswers(assessmentId, payload);
       if (data.status === 'accepted') {
-        router.push(`/assessments/${assessmentId}/submitted`);
+        router.push(`/projects/${projectId}/assessments/${assessmentId}/submitted`);
       } else {
         setRelevanceResults(data.results);
       }
@@ -157,14 +159,14 @@ function useAnsweringForm(assessmentId: string, questions: Question[]) {
     } finally {
       setSubmitting(false);
     }
-  }, [assessmentId, answers, questions, relevanceResults, router, submitting]);
+  }, [assessmentId, answers, projectId, questions, relevanceResults, router, submitting]);
 
   return { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit };
 }
 
-export default function AnsweringForm({ assessment, questions, sourcePrs = [], sourceIssues = [] }: AnsweringFormProps) {
+export default function AnsweringForm({ projectId, assessment, questions, sourcePrs = [], sourceIssues = [] }: AnsweringFormProps) {
   const { answers, submitting, relevanceResults, submitError, handleChange, handleSubmit } =
-    useAnsweringForm(assessment.id, questions);
+    useAnsweringForm(projectId, assessment.id, questions);
 
   const ready = isSubmitReady(questions, answers, relevanceResults);
   const isReAnswer = relevanceResults !== null;
