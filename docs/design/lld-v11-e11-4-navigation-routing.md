@@ -1,8 +1,8 @@
 # LLD — V11 Epic E11.4: Navigation & Routing
 
 **Date:** 2026-05-02
-**Version:** 0.2
-**Status:** Revised (T4.1 implemented — issue #432)
+**Version:** 0.3
+**Status:** Revised (T4.1 implemented — issue #432; T4.2 implemented — issue #433)
 **Epic:** E11.4
 **HLD:** [v11-design.md §C1, §Level 3 — 3.V11.3](v11-design.md)
 **Requirements:** [v11-requirements.md §Epic 4](../requirements/v11-requirements.md#epic-4-navigation--routing-priority-high)
@@ -466,6 +466,8 @@ Each project page that needs breadcrumbs adds `<SetBreadcrumbs>` conditionally:
 ```
 
 Members on project-scoped assessment pages (reached via invitation link) do not render `<SetBreadcrumbs>`, so no breadcrumbs appear — satisfying I4.
+
+> **Implementation note (issue #433):** The admin path was extracted into a `renderAdminView(supabase, projectId, detail)` helper that performs a small `from('projects').select('name').eq('id', projectId).maybeSingle()` query before rendering. The `projectName` placeholder above resolves to `project?.name ?? 'Project'` — a graceful fallback if the row is not accessible (e.g. RLS race). The fetch is lazy: it only runs on the admin branch, so the member fast path pays no extra round-trip. The same commit also moved `supabase.auth.getUser()` above the existing assessments existence query so the row read happens with a confirmed session, not just RLS gating.
 
 **Layout change:** Wrap `{children}` with `<BreadcrumbProvider>`:
 
