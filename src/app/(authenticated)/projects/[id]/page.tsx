@@ -9,6 +9,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { getOrgRole } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 import { InlineEditHeader } from './inline-edit-header';
 import { DeleteButton } from './delete-button';
 import { AssessmentList } from './assessment-list';
@@ -46,6 +47,12 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
   return (
     <div className="space-y-section-gap">
       <TrackLastVisitedProject projectId={id} />
+      <SetBreadcrumbs
+        segments={[
+          { label: 'Projects', href: '/projects' },
+          { label: project.name },
+        ]}
+      />
       <PageHeader
         title={project.name}
         action={isAdmin ? <DeleteButton projectId={id} /> : null}

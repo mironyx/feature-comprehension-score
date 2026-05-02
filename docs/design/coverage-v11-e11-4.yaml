@@ -25,8 +25,20 @@ entries:
   - req: REQ-navigation-and-routing-breadcrumbs
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-breadcrumbs
     issue: 433
-    files: []
-    status: Draft
+    files:
+      - src/components/breadcrumb-provider.tsx
+      - src/components/set-breadcrumbs.tsx
+      - src/components/breadcrumbs-bar.tsx
+      - src/app/(authenticated)/layout.tsx
+      - src/app/(authenticated)/projects/[id]/page.tsx
+      - src/app/(authenticated)/projects/[id]/settings/page.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/page.tsx
+    status: Revised
+    # /lld-sync flipped Draft → Revised (issue #433). §B.2 gained an
+    # implementation note: admin assessment path fetches project name lazily
+    # via a small projects.select('name') query inside renderAdminView, with
+    # 'Project' fallback. Auth ordering on the page tightened to put
+    # auth.getUser() above the existence query.
 
   - req: REQ-navigation-and-routing-root-redirect
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited

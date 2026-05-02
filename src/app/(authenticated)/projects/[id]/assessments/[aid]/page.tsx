@@ -11,6 +11,7 @@ import type { AssessmentDetailResponse } from '@/app/api/assessments/[id]/route'
 import { loadAssessmentDetail } from './load-assessment-detail';
 import AnsweringForm from './answering-form';
 import { AssessmentAdminView } from './assessment-admin-view';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 import { logger } from '@/lib/logger';
 
 interface AssessmentPageProps {
@@ -49,10 +50,62 @@ function answering(projectId: string, d: AssessmentDetailResponse) {
   );
 }
 
+async function renderAdminView(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  projectId: string,
+  detail: AssessmentDetailResponse,
+) {
+  const { data: project } = await supabase
+    .from('projects')
+    .select('name')
+    .eq('id', projectId)
+    .maybeSingle();
+  return (
+    <>
+      <SetBreadcrumbs
+        segments={[
+          { label: 'Projects', href: '/projects' },
+          { label: project?.name ?? 'Project', href: `/projects/${projectId}` },
+          { label: 'Assessment' },
+        ]}
+      />
+      <AssessmentAdminView assessment={detail} />
+    </>
+  );
+}
+
+async function renderParticipantLinkAndContinue(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  adminSupabase: ReturnType<typeof createSecretSupabaseClient>,
+  user: { id: string; user_metadata?: Record<string, unknown> | null },
+  projectId: string,
+  aid: string,
+) {
+  const githubUserIdRaw = user.user_metadata?.['provider_id'];
+  const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
+  if (!githubUserId) return <AccessDeniedPage />;
+
+  // Uses the user's client (not adminSupabase) so auth.uid() resolves inside the
+  // SECURITY DEFINER function — see #133.
+  await supabase
+    .rpc('link_participant', { p_assessment_id: aid, p_github_user_id: githubUserId })
+    .then(({ error }) => {
+      if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort');
+    });
+
+  const refreshed = await loadAssessmentDetail(supabase, adminSupabase, user.id, aid);
+  if (!refreshed?.my_participation) return <AccessDeniedPage />;
+  if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage projectId={projectId} assessmentId={aid} />;
+  return answering(projectId, refreshed);
+}
+
 export default async function AssessmentPage({ params }: AssessmentPageProps) {
   const { id: projectId, aid } = await params;
 
   const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/auth/sign-in');
+
   const { data: row } = await supabase
     .from('assessments')
     .select('id, project_id')
@@ -61,34 +114,15 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!row || row.project_id !== projectId) notFound();
 
   const adminSupabase = createSecretSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/auth/sign-in');
-
   const detail = await loadAssessmentDetail(supabase, adminSupabase, user.id, aid);
   if (!detail) notFound();
 
   if (detail.caller_role === 'admin') {
-    return <AssessmentAdminView assessment={detail} />;
+    return renderAdminView(supabase, projectId, detail);
   }
 
   if (!detail.my_participation) {
-    const githubUserIdRaw = user.user_metadata?.['provider_id'];
-    const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
-
-    if (!githubUserId) return <AccessDeniedPage />;
-
-    // Uses the user's client (not adminSupabase) so auth.uid() resolves inside the
-    // SECURITY DEFINER function — see #133.
-    await supabase
-      .rpc('link_participant', { p_assessment_id: aid, p_github_user_id: githubUserId })
-      .then(({ error }) => {
-        if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort');
-      });
-
-    const refreshed = await loadAssessmentDetail(supabase, adminSupabase, user.id, aid);
-    if (!refreshed?.my_participation) return <AccessDeniedPage />;
-    if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage projectId={projectId} assessmentId={aid} />;
-    return answering(projectId, refreshed);
+    return renderParticipantLinkAndContinue(supabase, adminSupabase, user, projectId, aid);
   }
 
   if (detail.my_participation.status === 'submitted') {
