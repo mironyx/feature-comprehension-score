@@ -652,6 +652,80 @@ const { data } = await supabase
 - **No silent catch.**
 - **PRCC unaffected.** The PRCC creation path (webhook-driven) does not pass through `/api/projects/[id]/assessments`. Its `project_id` remains nullable. The CHECK constraint scopes only `type = 'fcs'`.
 
+<a id="LLD-v11-e11-2-fix-441"></a>
+
+### B.9 — Fix issue #441: replace bespoke list with `AssessmentOverviewTable`; org overview project column + filter
+
+**Requirements anchor:** `REQ-fcs-scoped-to-projects-project-scoped-assessment-list` (Story 2.2 AC 1)
+**Related enhancement:** org overview project column (no V11 REQ anchor — user-initiated, data already available via `project_id`)
+
+The initial T2.5 implementation built a bespoke card list (`assessment-list.tsx`) rather than reusing `AssessmentOverviewTable`. Story 2.2 AC 1 and the HLD §Level 2 non-responsibility clause both mandate reuse. This section corrects that and bundles the org overview extension because both require the same shared-component change.
+
+**Affected files:**
+
+- `src/app/api/assessments/helpers.ts` — add `project_name: string | null` to `AssessmentListItem` and `toListItem`
+- `src/app/(authenticated)/organisation/load-assessments.ts` — extend SELECT to LEFT JOIN `projects(name)`; map into `project_name`
+- `src/app/(authenticated)/organisation/assessment-overview-table.tsx` — add `showProjectColumn?: boolean` prop; insert optional "Project" column; add client-side project filter (reuse `ProjectFilter` shape from `src/app/(authenticated)/assessments/project-filter.tsx`)
+- `src/app/(authenticated)/organisation/page.tsx` — pass `showProjectColumn` to `DeleteableAssessmentTable` → `AssessmentOverviewTable`
+- `src/app/(authenticated)/projects/[id]/page.tsx` — fetch assessment rows inline (server component); replace `<AssessmentList>` with `<AssessmentOverviewTable assessments={rows} />`; keep empty-state CTA when `rows.length === 0`
+- `src/app/(authenticated)/projects/[id]/assessment-list.tsx` — **delete** (no longer needed)
+
+**Component contract extension:**
+
+```ts
+// assessment-overview-table.tsx
+interface AssessmentOverviewTableProps {
+  assessments: AssessmentListItem[];
+  onDelete?: (assessment: AssessmentListItem) => void;
+  showProjectColumn?: boolean; // default false — backward-compat with all existing callers
+}
+```
+
+When `showProjectColumn` is true: add "Project" as the second header column; each row cell renders `project_name ?? '—'`; render a client-side project dropdown above the table derived from the loaded rows (hidden when ≤ 1 distinct project, consistent with `ProjectFilter` on `/assessments`).
+
+**Data type extension:**
+
+```ts
+// src/app/api/assessments/helpers.ts
+export interface AssessmentListItem {
+  // ... existing fields unchanged
+  project_id: string | null;
+  project_name: string | null; // NEW — null for PRCC rows
+}
+```
+
+`toListItem` maps `row.projects?.name ?? null` into `project_name`. `loadOrgAssessmentsOverview` extends its SELECT to include `projects(name)` (LEFT JOIN — PRCC rows have no project).
+
+**Invariants:**
+
+| # | Invariant | Verified by |
+|---|-----------|-------------|
+| I10 | Project dashboard uses `AssessmentOverviewTable`, not a bespoke list (Story 2.2 AC 1) | Component identity test |
+| I11 | Org overview "Project" column shows `project_name` for FCS rows, `"—"` for PRCC rows | Unit test with `showProjectColumn=true` |
+| I12 | Project filter on org overview lists only projects present in the loaded rows | Filter population test |
+| I13 | Removing `assessment-list.tsx` leaves no broken import sites | `npx tsc --noEmit` |
+
+**BDD specs:**
+
+```
+describe('AssessmentOverviewTable — showProjectColumn')
+  it('renders Project column header when showProjectColumn=true')
+  it('renders project_name in each FCS row')
+  it('renders "—" in Project cell for PRCC rows (project_id=null)')
+  it('no Project column when showProjectColumn omitted (default)')
+
+describe('Project dashboard — shared table (REQ-fcs-scoped-to-projects-project-scoped-assessment-list)')
+  it('uses AssessmentOverviewTable, not the deleted card list')
+  it('renders Feature/PR, Repository, Type, Status, Score, Completion, Date columns')
+  it('filters by project_id — no sibling-project rows visible')
+  it('shows empty-state CTA when project has no assessments')
+
+describe('Org overview — project filter')
+  it('project filter shows distinct projects derived from loaded rows, not full org list')
+  it('selecting a project filters the table to that project only')
+  it('filter hidden when ≤ 1 distinct project in loaded rows')
+```
+
 <a id="LLD-v11-e11-2-out-of-scope"></a>
 
 ### B.8 Out-of-scope reminders
