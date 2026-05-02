@@ -118,8 +118,8 @@ function renderRow(a: AssessmentListItem, showProjectColumn?: boolean, onDelete?
   return (
     <tr key={a.id} className="border-t border-border hover:bg-surface-hover">
       {renderFeatureCell(a)}
-      <td className={TD}>{a.repository_name}</td>
       {showProjectColumn && <td className={TD}>{a.project_name ?? '—'}</td>}
+      <td className={TD}>{a.repository_name}</td>
       <td className={`${TD} uppercase`}>{a.type}</td>
       {renderStatusCell(a)}
       <td className={TD}>{formatScore(a.aggregate_score)}</td>
