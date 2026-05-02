@@ -300,6 +300,29 @@ EOF
 )"
 ```
 
+#### Coverage manifest
+
+After the LLD and issues are created, produce a coverage manifest at `docs/design/coverage-<version>-<epic-slug>.yaml`. This maps every REQ anchor from the requirements to its LLD section, issue number, implementation files, and status.
+
+Follow the pattern established by existing manifests (e.g. `coverage-v11-e11-1.yaml`):
+
+```yaml
+epic: <epic-slug>
+entries:
+  - req: REQ-<anchor-from-requirements>
+    lld: lld-<epic-slug>.md#<section-anchor>
+    issue: <number>
+    files: []
+    status: Draft
+    # files populated by /feature-end after implementation
+```
+
+Rules:
+- One entry per REQ anchor in the requirements for stories covered by this epic.
+- Stories already implemented by a prior epic get `status: Implemented` with the implementing epic's LLD and issue referenced. Add a comment noting the origin.
+- New stories get `status: Draft` with empty `files: []` — populated by `/feature-end` or `/lld-sync` after implementation.
+- If `/kickoff` already created a coverage matrix for this epic, update it rather than creating a new file.
+
 ### Step 5: Commit each artefact
 
 After producing each artefact, commit it individually:
