@@ -3,6 +3,7 @@
 // Design reference: docs/design/lld-v11-e11-1-project-management.md §B.6
 // Issue: #399, #413, #414
 
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -57,13 +58,27 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
         title={project.name}
         action={isAdmin ? <DeleteButton projectId={id} /> : null}
       />
+      <Link
+        href={`/projects/${id}/settings`}
+        className="inline-flex items-center text-label font-medium text-text-secondary hover:text-text-primary"
+      >
+        Settings
+      </Link>
       <InlineEditHeader
         projectId={id}
         initialName={project.name}
         initialDescription={project.description}
       />
       <section className="space-y-3">
-        <h2 className="text-heading text-text-primary">Assessments</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-heading text-text-primary">Assessments</h2>
+          <Link
+            href={`/projects/${id}/assessments/new`}
+            className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5"
+          >
+            New Assessment
+          </Link>
+        </div>
         <AssessmentList projectId={id} />
       </section>
     </div>
