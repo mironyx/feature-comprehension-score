@@ -500,5 +500,108 @@ describe('Results page')
 | T1 | #295 | My Assessments — show all statuses + link to results | FE | ~80 | 1 |
 | T2 | #296 | Organisation page — assessment overview + New Assessment | FE | ~120 | 1 |
 | T3 | #297 | Results page — role-based view separation | FE | ~150 | 1 |
+| T4 | #441 | Org overview: project name column + filter; project dashboard reuses overview table | FE | ~130 | 2 |
 
-All three tasks are in Wave 1 — no shared files, fully parallelisable.
+T1–T3 are in Wave 1 — no shared files, fully parallelisable.
+T4 depends on V11 E11.1–E11.4 being complete (projects exist, assessment `project_id` is non-null for FCS rows).
+
+---
+
+### §4 — Org Overview: Project Column + Filter; Project Dashboard Reuses Table
+
+**Task:** #441
+**Driver:** V11 post-implementation fix — two related issues resolved together:
+
+1. **Story 2.2 violation:** The project dashboard built a bespoke card list (`assessment-list.tsx`) instead of reusing `AssessmentOverviewTable` as required by Story 2.2 AC 1 ("same columns as the existing pre-V11 FCS assessment list … reuses the existing list component").
+2. **New enhancement:** The org overview table should surface project name and a project filter so admins can see which assessments belong to which project without navigating per-project.
+
+Both are fixed in one PR because the shared fix is to extend `AssessmentOverviewTable` with an optional project column and filter, then use it in both surfaces.
+
+#### Changes
+
+**1. `AssessmentListItem` — add `project_name: string | null`**
+
+Extend the type in `src/app/api/assessments/helpers.ts` and `toListItem` to carry the project name. PRCC rows have `project_id = null` and will have `project_name = null`.
+
+```ts
+export interface AssessmentListItem {
+  // ... existing fields
+  project_id: string | null;
+  project_name: string | null; // NEW — null for PRCC rows
+}
+```
+
+**2. `loadOrgAssessmentsOverview` — JOIN projects**
+
+```ts
+// load-assessments.ts
+.select(
+  '..., project_id, projects(name)',  // LEFT JOIN — PRCC rows have no project
+)
+```
+
+Map `row.projects?.name ?? null` into `project_name` via `toListItem`.
+
+**3. `AssessmentOverviewTable` — optional Project column + filter**
+
+Add a `showProjectColumn?: boolean` prop. When true:
+- Inserts "Project" as a header column.
+- Each row cell renders `project_name` or "—" for PRCC rows.
+- Renders a client-side project dropdown above the table (extracted as `ProjectFilter` if not already available from the pending queue — reuse `src/app/(authenticated)/assessments/project-filter.tsx` shape).
+
+```ts
+interface AssessmentOverviewTableProps {
+  assessments: AssessmentListItem[];
+  onDelete?: (assessment: AssessmentListItem) => void;
+  showProjectColumn?: boolean; // default false — backward-compat
+}
+```
+
+**4. Org page — pass `showProjectColumn`**
+
+```tsx
+<AssessmentOverviewTable
+  assessments={assessments}
+  onDelete={onDelete}
+  showProjectColumn
+/>
+```
+
+**5. Project dashboard — replace `assessment-list.tsx` with `AssessmentOverviewTable`**
+
+`src/app/(authenticated)/projects/[id]/page.tsx`:
+- Remove `<AssessmentList projectId={id} />` import.
+- Fetch assessments directly in the page (server component pattern) filtered by `project_id`.
+- Render `<AssessmentOverviewTable assessments={rows} />` (no `showProjectColumn` — scoped dashboard; no `onDelete` — deletion not available per-project in V11).
+- Keep the empty-state path: when `rows.length === 0`, render the existing "No assessments yet" text + "Create the first assessment" CTA.
+- Add a persistent "New Assessment" button above/alongside the section (Story 1.3 AC 1, Invariant I9 of E11.1 LLD).
+
+#### Invariants
+
+| # | Invariant | Verified by |
+|---|-----------|-------------|
+| I1 | Project dashboard uses `AssessmentOverviewTable`, not a bespoke list | Component identity test |
+| I2 | Org overview "Project" column shows project name for FCS rows and "—" for PRCC rows | Unit test on `AssessmentOverviewTable` with `showProjectColumn=true` |
+| I3 | Project filter on org overview is derived from the current dataset (not the full org project list) | Test: only projects represented in the loaded rows appear in the filter |
+| I4 | Removing `assessment-list.tsx` does not leave any import site broken | `npx tsc --noEmit` |
+
+#### BDD specs
+
+```
+describe('AssessmentOverviewTable — showProjectColumn')
+  it('renders a Project column header when showProjectColumn is true')
+  it('renders project_name in each row for FCS assessments')
+  it('renders "—" in the Project cell for PRCC rows (project_id = null)')
+  it('does NOT render a Project column when showProjectColumn is false (default)')
+
+describe('Project dashboard — shared table')
+  it('renders AssessmentOverviewTable filtered by project_id, not the bespoke card list')
+  it('renders all standard columns: Feature/PR, Repository, Type, Status, Score, Completion, Date')
+  it('renders New Assessment button even when assessments already exist')
+  it('renders empty state CTA when project has no assessments')
+
+describe('Org overview — project filter')
+  it('project filter shows distinct projects from the loaded assessment rows')
+  it('selecting a project filters the table to that project only')
+  it('selecting "All projects" shows all rows')
+```
