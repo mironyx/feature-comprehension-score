@@ -16,8 +16,8 @@
 
 Wire the application shell — NavBar, breadcrumbs, root redirect, and last-visited project persistence — to the project-first model established by E11.1–E11.3. After this epic:
 
-1. Admins see a "Projects" link in the NavBar and land on `/projects` (or their last-visited project) at sign-in.
-2. Org Members see "My Assessments" and land on `/assessments`.
+1. Admins see "Projects", "My Assessments", and "Organisation" links in the NavBar and land on `/projects` (or their last-visited project) at sign-in.
+2. Org Members see "My Assessments" only and land on `/assessments`.
 3. Project-scoped pages show contextual breadcrumbs (admin-only).
 4. Last-visited project is tracked in `localStorage` and cleared on sign-out.
 
@@ -32,12 +32,13 @@ graph LR
   subgraph NavBar
     A{role?}
     A -->|admin / repo_admin| B["Projects link → /projects"]
+    A -->|admin / repo_admin| E["My Assessments link → /assessments"]
     A -->|admin / repo_admin| C["Organisation link → /organisation"]
     A -->|member| D["My Assessments link → /assessments"]
   end
 ```
 
-The NavBar receives an `isAdminOrRepoAdmin` boolean from the authenticated layout. When `true`, it renders "Projects" and "Organisation" links. When `false`, it renders "My Assessments" only. The FCS logo links to `/projects` for admins, `/assessments` for members.
+The NavBar receives an `isAdminOrRepoAdmin` boolean from the authenticated layout. When `true`, it renders "Projects", "My Assessments", and "Organisation" links. When `false`, it renders "My Assessments" only. The FCS logo links to `/projects` for admins, `/assessments` for members. Both roles see "My Assessments" — admins are also assessment participants and need access to the cross-project pending queue.
 
 #### A.2 Root redirect (Stories 4.4, 4.6)
 
@@ -165,7 +166,7 @@ classDiagram
 
 | # | Invariant | Verified by |
 |---|-----------|-------------|
-| I1 | Admins (Org Admin + Repo Admin) see "Projects" link; Org Members see "My Assessments" | BDD spec + visual test (T4.1) |
+| I1 | Admins (Org Admin + Repo Admin) see "Projects", "My Assessments", and "Organisation" links; Org Members see "My Assessments" only | BDD spec + visual test (T4.1) |
 | I2 | FCS logo links to `/projects` for admins, `/assessments` for members | BDD spec (T4.1) |
 | I3 | `BreadcrumbsBar` renders segments from context when available, falls back to static map otherwise | BDD spec (T4.2) |
 | I4 | Members see no breadcrumbs on the assessment detail page (the only project-scoped route they can reach, via invitation link) | BDD spec — page does not render `SetBreadcrumbs` when role is null (T4.2) |
@@ -178,7 +179,7 @@ classDiagram
 
 Maps to v11-requirements §Epic 4 ACs. Story-level coverage:
 
-- **Story 4.1** — NavBar shows "Projects" for admins (including Repo Admins), "My Assessments" for members. FCS logo href is role-conditional. "Organisation" link shown for admins only (unchanged).
+- **Story 4.1** — NavBar shows "Projects", "My Assessments", and "Organisation" for admins (including Repo Admins). Members see "My Assessments" only. FCS logo href is role-conditional.
 - **Story 4.2** — Already done (E11.1 T1.5). Verified in T4.1 BDD specs.
 - **Story 4.3** — Breadcrumbs on `/projects/[id]` show `Projects > [Name]`; on `/projects/[id]/settings` show `Projects > [Name] > Settings`; on `/projects/[id]/assessments/[aid]` show `Projects > [Name] > Assessment`. No breadcrumbs for members on project routes.
 - **Story 4.4** — Root `/` redirects: admin with last-visited → project dashboard; admin without → `/projects`; member → `/assessments`.
@@ -189,9 +190,9 @@ Maps to v11-requirements §Epic 4 ACs. Story-level coverage:
 
 ```
 describe('NavBar role-conditional links')
-  it('Org Admin sees Projects + Organisation links, no My Assessments')
-  it('Repo Admin sees Projects + Organisation links, no My Assessments')
-  it('Org Member sees My Assessments link, no Projects or Organisation')
+  it('Org Admin sees Projects + My Assessments + Organisation links')
+  it('Repo Admin sees Projects + My Assessments + Organisation links')
+  it('Org Member sees My Assessments link only, no Projects or Organisation')
   it('FCS logo links to /projects for admin')
   it('FCS logo links to /assessments for member')
 
@@ -288,9 +289,15 @@ const MEMBER_ASSESSMENTS_LINK: NavLink = {
   matchPrefix: '/assessments',
 };
 
+const ADMIN_ASSESSMENTS_LINK: NavLink = {
+  href: '/assessments',
+  label: 'My Assessments',
+  matchPrefix: '/assessments',
+};
+
 // Link assembly
 const links: NavLink[] = isAdminOrRepoAdmin
-  ? [PROJECTS_LINK, ORGANISATION_LINK]
+  ? [PROJECTS_LINK, ADMIN_ASSESSMENTS_LINK, ORGANISATION_LINK]
   : [MEMBER_ASSESSMENTS_LINK];
 ```
 
