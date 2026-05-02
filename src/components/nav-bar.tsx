@@ -38,6 +38,7 @@ const ORGANISATION_LINK: NavLink = {
 };
 
 export function NavBar({ username, isAdminOrRepoAdmin, currentOrg, allOrgs }: NavBarProps) {
+  // #438: admins are also assessment participants — they need My Assessments between Projects and Organisation
   const links: NavLink[] = isAdminOrRepoAdmin
     ? [PROJECTS_LINK, MEMBER_ASSESSMENTS_LINK, ORGANISATION_LINK]
     : [MEMBER_ASSESSMENTS_LINK];
