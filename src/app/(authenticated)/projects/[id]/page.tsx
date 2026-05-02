@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { InlineEditHeader } from './inline-edit-header';
 import { DeleteButton } from './delete-button';
 import { AssessmentList } from './assessment-list';
+import { TrackLastVisitedProject } from './track-last-visited';
 
 interface ProjectDashboardPageProps {
   readonly params: Promise<{ id: string }>;
@@ -44,6 +45,7 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
 
   return (
     <div className="space-y-section-gap">
+      <TrackLastVisitedProject projectId={id} />
       <PageHeader
         title={project.name}
         action={isAdmin ? <DeleteButton projectId={id} /> : null}
