@@ -215,7 +215,7 @@ graph LR
 After the LLD is generated, write a coverage manifest at
 `docs/design/coverage-<epic-id>.yaml` (e.g. `coverage-v11-e11-2.yaml`) linking requirements stories to LLD sections.
 
-Schema (per ADR-0026):
+Schema:
 
 ```yaml
 epic: <epic-id>
@@ -227,6 +227,15 @@ entries:
     status: Approved # Draft | Approved | Implemented | Revised
 ```
 
+**Valid statuses and who sets them:**
+
+| Status | Meaning | Set by |
+|--------|---------|--------|
+| `Draft` | Story deferred — no implementing LLD section yet | `/lld` at creation |
+| `Approved` | LLD written, not yet implemented | `/lld` at creation |
+| `Implemented` | PR merged, `files:` populated | `/feature-end` after merge |
+| `Revised` | LLD corrected post-implementation (regression or design gap found) | `/lld-sync` on LLD patch |
+
 Rules:
 
 - One entry per REQ- anchor in the pilot epic's requirements doc. Read REQ- anchors with
@@ -237,6 +246,8 @@ Rules:
 - Initial `files: []` and `status: Approved` — `/feature-end` populates them at merge time.
 - If a story has no implementing LLD section yet (deferred or carried by a future task),
   emit the entry with `lld: null` and `status: Draft`, and flag it in the Step 1 overview.
+- Do NOT add fields outside the schema. `fix_issue:`, `fix_pr:`, and similar are not valid. Use YAML comments for notes.
+- Do NOT invent status values — `Regression`, `Pending`, etc. are not valid. Use `Revised` + a comment when an LLD is corrected.
 
 **Verify before exit:**
 
