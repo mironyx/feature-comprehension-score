@@ -39,7 +39,7 @@ const ORGANISATION_LINK: NavLink = {
 
 export function NavBar({ username, isAdminOrRepoAdmin, currentOrg, allOrgs }: NavBarProps) {
   const links: NavLink[] = isAdminOrRepoAdmin
-    ? [PROJECTS_LINK, ORGANISATION_LINK]
+    ? [PROJECTS_LINK, MEMBER_ASSESSMENTS_LINK, ORGANISATION_LINK]
     : [MEMBER_ASSESSMENTS_LINK];
   const logoHref = isAdminOrRepoAdmin ? '/projects' : '/assessments';
   return (
