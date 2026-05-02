@@ -1,0 +1,42 @@
+epic: v11-e11-4
+entries:
+  - req: REQ-navigation-and-routing-navbar-projects-link
+    lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-navbar-role-links
+    issue: 432
+    files: []
+    status: Draft
+
+  - req: REQ-navigation-and-routing-projects-list-page
+    lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create
+    issue: 398
+    files:
+      - src/app/(authenticated)/projects/page.tsx
+    status: Implemented
+    # Done in E11.1 T1.5. Org Member redirect verified. T4.1 inherits without rework.
+
+  - req: REQ-navigation-and-routing-breadcrumbs
+    lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-breadcrumbs
+    issue: 433
+    files: []
+    status: Draft
+
+  - req: REQ-navigation-and-routing-root-redirect
+    lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited
+    issue: 434
+    files: []
+    status: Draft
+
+  - req: REQ-navigation-and-routing-last-visited-project
+    lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited
+    issue: 434
+    files: []
+    status: Draft
+
+  - req: REQ-navigation-and-routing-deep-link-compatibility
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
+    issue: 412
+    files:
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/page.tsx
+    status: Implemented
+    # Done in E11.2 T2.3. Legacy /assessments/[aid] returns 404 (no route file).
+    # pid/aid mismatch guard in place. T4.3 verifies via BDD spec.
