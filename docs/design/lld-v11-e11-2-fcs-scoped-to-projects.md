@@ -173,6 +173,7 @@ classDiagram
 | I7 | The project filter on `/assessments` lists only projects represented in the user's pending queue | Filter populated from query result, not from `GET /api/projects` (T2.6) |
 | I8 | Project-scoped list filters strictly by `project_id` (no cross-project leak) | `.eq('project_id', pid)` predicate + integration test (T2.5) |
 | I9 | Legacy `POST /api/fcs` route is removed | `src/app/api/fcs/` directory deleted (T2.2); shared rubric helpers relocated |
+| I10 | The project dashboard assessment list surface is `AssessmentOverviewTable` (same columns as the org overview), filtered by `project_id` — not a bespoke card list (Story 2.2 AC 1) | Component identity test in fix #441 |
 
 ### Acceptance criteria
 
@@ -579,16 +580,13 @@ const { data } = await supabase
 
 **Tasks:**
 1. Lift the placeholder slot in dashboard page; render `AssessmentList` with rows.
-2. Reuse the existing list visual shape from `(authenticated)/assessments/page.tsx` (extract a shared `AssessmentRow` if it does not already exist; otherwise inline matching markup — minimise duplication).
-3. Tests: 5 specs from issue #414.
+2. **Use `AssessmentOverviewTable`** from `src/app/(authenticated)/organisation/assessment-overview-table.tsx` as the list surface — the requirements (Story 2.2 AC 1) and HLD (§Level 2 non-responsibilities) both mandate reuse of the existing component. A bespoke `assessment-list.tsx` card list was implemented instead; fix issue #441 replaces it.
+3. The `AssessmentOverviewTable` can be used without the `onDelete` prop (omit it — the dashboard does not offer deletion; that surface belongs to the org admin view or a future per-project admin flow).
+4. Tests: cover all observable columns (Feature/PR, Repository, Type, Status, Score, Completion, Date) present in the rendered table; verify the query filters by `project_id`.
 
-> **Implementation note (issue #414):** `AssessmentRow` was extracted as a private helper inside
-> `assessment-list.tsx` (not shared across files) to avoid duplicating markup in the two `.map()`
-> calls for pending and completed rows. 18 tests were written (vs. 5 BDD specs in the issue),
-> covering all observable properties including cross-project exclusion, PRCC exclusion, link
-> routing, and polling badge selection.
+> **Implementation deviation (issue #414 → fix #441):** `AssessmentRow` was built as a private card-list component rather than reusing `AssessmentOverviewTable`. This contradicts Story 2.2 AC 1 ("same columns as the existing pre-V11 FCS assessment list") and the HLD non-responsibility clause ("Does not duplicate the existing assessment list component"). Fix issue #441 replaces `assessment-list.tsx` with a thin wrapper around `AssessmentOverviewTable`.
 
-**Acceptance:** see issue #414.
+**Acceptance:** see fix issue #441.
 
 <a id="LLD-v11-e11-2-pending-queue"></a>
 
