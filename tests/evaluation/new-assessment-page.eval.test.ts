@@ -99,12 +99,19 @@ function makeClient(project: typeof MOCK_PROJECT | null = MOCK_PROJECT) {
   const eq2 = vi.fn().mockReturnValue({ maybeSingle });
   const eq1 = vi.fn().mockReturnValue({ eq: eq2 });
   const select = vi.fn().mockReturnValue({ eq: eq1 });
+
+  const assessmentsOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+  const assessmentsEq2 = vi.fn().mockReturnValue({ order: assessmentsOrder });
+  const assessmentsEq1 = vi.fn().mockReturnValue({ eq: assessmentsEq2 });
+  const assessmentsSelect = vi.fn().mockReturnValue({ eq: assessmentsEq1 });
+
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-001' } } }),
     },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === 'projects') return { select };
+      if (table === 'assessments') return { select: assessmentsSelect };
       return { select: vi.fn().mockReturnValue({ eq: vi.fn() }) };
     }),
   };

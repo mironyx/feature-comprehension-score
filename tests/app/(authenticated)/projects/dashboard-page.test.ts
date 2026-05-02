@@ -97,6 +97,7 @@ const MOCK_PROJECT = {
  * Builds a mock Supabase client for page.tsx queries:
  *   auth.getUser() → user
  *   .from('projects').select().eq().eq().maybeSingle() → project
+ *   .from('assessments').select().eq().eq().order() → [] (empty — tests focus on access control)
  *
  * getOrgRole is mocked separately via vi.mock('@/lib/supabase/membership').
  */
@@ -114,12 +115,22 @@ function makeClient({
   const makeSelectChain = (data: unknown) =>
     ({ select: vi.fn().mockReturnValue(makeEq1(data)) });
 
+  const makeOrder = (data: unknown) =>
+    ({ order: vi.fn().mockResolvedValue({ data, error: null }) });
+  const makeEq2Assessments = (data: unknown) =>
+    ({ eq: vi.fn().mockReturnValue(makeOrder(data)) });
+  const makeEq1Assessments = (data: unknown) =>
+    ({ eq: vi.fn().mockReturnValue(makeEq2Assessments(data)) });
+  const makeSelectAssessments = (data: unknown) =>
+    ({ select: vi.fn().mockReturnValue(makeEq1Assessments(data)) });
+
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
     },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === 'projects') return makeSelectChain(project);
+      if (table === 'assessments') return makeSelectAssessments([]);
       return makeSelectChain(null);
     }),
   };

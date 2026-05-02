@@ -6,6 +6,14 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
+// AssessmentOverviewTable became a 'use client' component in #441 (added useState
+// for the project filter). Stub useState so the component can be called as a plain
+// function via vi.importActual in a node environment.
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return { ...actual, useState: vi.fn((initial: unknown) => [initial, vi.fn()]), useEffect: vi.fn() };
+});
+
 // Match the mock pattern used in the sibling test file so JSX serialisation
 // via JSON.stringify works the same way (plain objects, no circular refs).
 vi.mock('next/link', () => ({
@@ -57,6 +65,8 @@ describe('AssessmentOverviewTable — double-null feature/PR edge', () => {
       rubric_error_code: null,
       rubric_retry_count: 0,
       rubric_error_retryable: null,
+      project_id: null,
+      project_name: null,
     };
     const result = await renderTable([item]);
     const rendered = JSON.stringify(result);
