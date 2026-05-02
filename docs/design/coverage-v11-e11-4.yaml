@@ -31,14 +31,20 @@ entries:
   - req: REQ-navigation-and-routing-root-redirect
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited
     issue: 434
-    files: []
-    status: Draft
+    files:
+      - src/app/page.tsx
+      - src/app/admin-root-redirect.tsx
+    status: Implemented
+    # /feature-end #434: §B.3 implemented exactly as designed; no LLD corrections.
 
   - req: REQ-navigation-and-routing-last-visited-project
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited
     issue: 434
-    files: []
-    status: Draft
+    files:
+      - src/app/(authenticated)/projects/[id]/page.tsx
+      - src/app/(authenticated)/projects/[id]/track-last-visited.tsx
+    status: Implemented
+    # /feature-end #434: TrackLastVisitedProject + clear-on-stale wired exactly per §B.3.
 
   - req: REQ-navigation-and-routing-deep-link-compatibility
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-route-migration
