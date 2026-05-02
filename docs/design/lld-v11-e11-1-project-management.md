@@ -169,6 +169,8 @@ classDiagram
 | I6 | The admin-repo snapshot is refreshed atomically with the membership upsert during sign-in | Single transaction in `resolveUserOrgsViaApp` (no partial state visible) |
 | I7 | `PATCH /api/projects/[id]` mutates only the fields present in the payload | BDD spec in T1.4 |
 | I8 | Org Members hitting `/projects`, `/projects/new`, `/projects/[id]` are redirected to `/assessments` | Page-level guard (T1.5/T1.6 BDD) |
+| I9 | The 'New assessment' CTA (link to `/projects/[id]/assessments/new`) is visible on the project dashboard regardless of whether assessments exist (Story 1.3 AC 1). The initial implementation placed it only inside `AssessmentList`'s empty-state branch — the fix hoists it to the page level. | Page-level render test; see fix issue #440 |
+| I10 | The project dashboard renders a 'Settings' link (href = `/projects/[id]/settings`) visible to both Org Admin and Repo Admin (Org Members have no UI path to settings). Initially omitted by E11.3 implementation; added by fix issue #440. | Dashboard page test |
 
 ### Acceptance criteria
 
@@ -223,6 +225,8 @@ describe('Project pages')
   it('Org Member visiting /projects/[id] is redirected to /assessments')
   it('Admin sees empty-state CTA on /projects when org has no projects')
   it('Admin clicks inline edit pencil → submits {name, description} → dashboard re-renders new values')
+  it('Admin sees New Assessment button when project already has assessments (not only in empty state)')
+  it('Admin sees Settings link on the dashboard; Org Member does not (redirected before render)')
 ```
 
 ---
@@ -668,7 +672,7 @@ export const UpdateProjectSchema = z.object({
 
 - Server component fetches the project via `getProject` service (direct, not HTTP); 404 on missing/cross-org/deleted.
 - Org Member → `redirect('/assessments')`.
-- Page renders: header with name + description + pencil (visible to admins/repo-admins), delete button (visible only to Org Admin), placeholder "Assessments" section + "New assessment" CTA (link to `/projects/[id]/assessments/new` — route created in E11.2; CTA renders disabled until E11.2 lands, with comment indicating that).
+- Page renders: header with name + description + pencil (visible to admins/repo-admins), delete button (visible only to Org Admin), a **'Settings' link** pointing to `/projects/${id}/settings` (admin/repo-admin only — see I10), and an **'Assessments'** section with `<AssessmentList projectId={id} />` plus a persistent **'New assessment'** button (link to `/projects/[id]/assessments/new`) in the section header — visible whether the project has assessments or not (I9). The CTA was initially placed only inside `AssessmentList`'s empty-state branch; the fix for issue #440 hoists it to the page so it always renders.
 - Inline edit submits PATCH `/api/projects/[id]` with `{name, description}`, optimistic update, error toast on 409.
 - Delete button confirms then DELETEs; redirects to `/projects` on 204; surfaces 409 "project not empty" inline.
 
