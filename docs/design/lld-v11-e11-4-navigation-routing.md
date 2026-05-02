@@ -167,7 +167,7 @@ classDiagram
 | I1 | Admins (Org Admin + Repo Admin) see "Projects" link; Org Members see "My Assessments" | BDD spec + visual test (T4.1) |
 | I2 | FCS logo links to `/projects` for admins, `/assessments` for members | BDD spec (T4.1) |
 | I3 | `BreadcrumbsBar` renders segments from context when available, falls back to static map otherwise | BDD spec (T4.2) |
-| I4 | Members see no breadcrumbs on project-scoped routes | BDD spec — page does not render `SetBreadcrumbs` when role is null (T4.2) |
+| I4 | Members see no breadcrumbs on the assessment detail page (the only project-scoped route they can reach, via invitation link) | BDD spec — page does not render `SetBreadcrumbs` when role is null (T4.2) |
 | I5 | Root redirect: admin with valid last-visited → `/projects/[id]`; admin without → `/projects`; member → `/assessments` | BDD spec (T4.3) |
 | I6 | Stale `lastVisitedProjectId` (deleted project) is cleared and admin is redirected to `/projects` | BDD spec (T4.3) |
 | I7 | Sign-out clears `lastVisitedProjectId` from `localStorage` | BDD spec (T4.3) |
