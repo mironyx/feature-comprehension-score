@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.1 |
+| Version | 1.2 |
 | Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
@@ -23,6 +23,7 @@
 | 0.7 | 2026-04-30 | LS / Claude | Add REQ- anchors per ADR-0026; write Given/When/Then acceptance criteria for all 18 stories; testability validation pass (no blocking issues); add OQ 5 (legacy URL redirect scope); status → Draft — Complete |
 | 1.0 | 2026-04-30 | LS / Claude | Resolve OQ 5: drop legacy URL redirect (pre-prod, no legacy URLs exist); Story 4.5 AC 4 returns 404 for legacy shape. Status → Final |
 | 1.1 | 2026-04-30 | LS / Claude | Address review batch on v1.0: Story 1.1 enforces case-insensitive name uniqueness per org; Story 1.2 list now shows creation date; Story 1.4 consolidated to a single `PATCH` endpoint with partial payloads; Story 1.5 reworked from archive (soft-delete) to hard-delete-only-when-empty (simplification); Story 2.2 list reuses the existing pre-V11 columns; ripple updates to Roles, Glossary, Cross-Cutting Concerns, Story 2.3, Story 4.4, Story 4.6, and testability table. |
+| 1.2 | 2026-05-02 | LS / Claude | Regression fix: add "My Assessments" to admin NavBar — admins are also assessment participants and need navigation to the cross-project pending queue. Updated Navigation Model (admin NavBar) and Story 4.1 ACs. |
 
 ---
 
@@ -111,7 +112,7 @@ Navigation differs by role. Admins are project-centric (they manage projects and
 After sign-in, admins land on `/projects`.
 
 ```
-NavBar: [FCS logo]  [Projects]  [Organisation]  [Org: Acme v]  [User v]
+NavBar: [FCS logo]  [Projects]  [My Assessments]  [Organisation]  [Org: Acme v]  [User v]
 
 /projects                              ← All projects list
 /projects/new                          ← Create project form
@@ -122,8 +123,12 @@ NavBar: [FCS logo]  [Projects]  [Organisation]  [Org: Acme v]  [User v]
 /projects/[id]/assessments/[aid]/submitted
 /projects/[id]/settings                ← Project context & config
 
+/assessments                           ← My Pending Assessments (same view as members)
+
 /organisation                          ← Org settings: repos registration, PRCC config, members
 ```
+
+> **Note:** Admins are also assessment participants. The "My Assessments" link gives admins access to the same cross-project pending queue that members see (Story 2.3). This ensures admins invited to assessments can find their pending work without navigating project by project.
 
 - `/projects/[id]/assessments/[aid]/results` — results page for a completed assessment.
 - `/projects/[id]/assessments/[aid]/submitted` — confirmation page shown to a participant immediately after submitting.
@@ -417,11 +422,12 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 **Acceptance Criteria:**
 
-- Given an Org Admin or Repo Admin is signed in, when any page renders, then the NavBar contains a "Projects" link with `href="/projects"`.
-- Given an Org Member is signed in, when any page renders, then the NavBar shows "My Assessments" (linking to `/assessments`) instead of "Projects".
+- Given an Org Admin or Repo Admin is signed in, when any page renders, then the NavBar contains a "Projects" link (`href="/projects"`), a "My Assessments" link (`href="/assessments"`), and an "Organisation" link (`href="/organisation"`).
+- Given an Org Member is signed in, when any page renders, then the NavBar shows only "My Assessments" (linking to `/assessments`) — no "Projects" or "Organisation" links.
 - Given an admin is on a project-scoped route, when they click the "Projects" link, then they navigate to `/projects` via the existing client-side router (no full-page reload).
+- Given an admin clicks "My Assessments" in the NavBar, when navigation completes, then they reach `/assessments` showing their pending FCS assessments (same view as members).
 
-> **Note:** Org Members do not see the Projects link — their NavBar shows "My Assessments" instead (see Navigation Model).
+> **Note:** Both admins and members see "My Assessments" — admins can be assessment participants. Org Members do not see "Projects" or "Organisation" (see Navigation Model).
 
 ---
 
