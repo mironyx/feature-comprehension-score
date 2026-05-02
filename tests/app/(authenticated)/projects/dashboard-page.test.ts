@@ -291,4 +291,56 @@ describe('/projects/[id] dashboard', () => {
       expect(rendered).toContain('"initialDescription"');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Property: Org Admin sees Settings link — #440
+  // [lld-v11-e11-3-project-context-config.md §B.1 I9]
+  // -------------------------------------------------------------------------
+
+  describe('Given an Org Admin on the project dashboard (#440)', () => {
+    it('renders a Settings link pointing to /projects/[id]/settings', async () => {
+      mockGetOrgRole.mockResolvedValue('admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`/projects/${PROJECT_ID}/settings`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property: Repo Admin also sees Settings link — #440
+  // [lld-v11-e11-3-project-context-config.md §B.1 I9]
+  // -------------------------------------------------------------------------
+
+  describe('Given a Repo Admin on the project dashboard (#440)', () => {
+    it('also sees the Settings link', async () => {
+      mockGetOrgRole.mockResolvedValue('repo_admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`/projects/${PROJECT_ID}/settings`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property: New Assessment button visible at page level — #440
+  // [req §Story 1.3 AC1] "shows a 'New assessment' entry point — always"
+  // [lld-v11-e11-1-project-management.md §B.6 I10]
+  // -------------------------------------------------------------------------
+
+  describe('Given a project with existing assessments (#440)', () => {
+    it('renders New Assessment button with correct href at page level, not only in empty state', async () => {
+      mockGetOrgRole.mockResolvedValue('admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`"href":"/projects/${PROJECT_ID}/assessments/new"`);
+    });
+  });
 });
