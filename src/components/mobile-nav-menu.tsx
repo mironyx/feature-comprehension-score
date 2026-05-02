@@ -8,6 +8,7 @@ import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { OrgSwitcher } from './org-switcher';
+import { SignOutButton } from './sign-out-button';
 import { useDismissEffect } from '@/hooks/use-dismiss-effect';
 import type { NavLink } from './nav-links';
 import type { Database } from '@/lib/supabase/types';
@@ -47,11 +48,7 @@ function MobilePanel({ links, username, currentOrg, allOrgs, onClose }: PanelPro
       </ul>
       <OrgSwitcher currentOrg={currentOrg} allOrgs={allOrgs} />
       <span className="text-label text-text-secondary">{username}</span>
-      <form method="POST" action="/auth/sign-out">
-        <button type="submit" className="text-label text-text-secondary hover:text-accent">
-          Sign out
-        </button>
-      </form>
+      <SignOutButton />
     </div>
   );
 }

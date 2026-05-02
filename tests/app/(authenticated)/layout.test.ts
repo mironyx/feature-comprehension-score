@@ -58,15 +58,21 @@ const mockOrg = {
 };
 
 /**
- * Builds a mock Supabase client matching fetchOrgContext's two parallel queries:
- * - organisations → .select('*').eq('id', orgId).maybeSingle()
- * - user_organisations → .select('org_id, github_role').eq('user_id', userId)
+ * Builds a mock Supabase client matching the layout's three queries:
+ * - organisations    → .select('*').eq('id', orgId).maybeSingle()
+ * - user_organisations (org switcher) → .select('org_id').eq('user_id', userId)
+ * - user_organisations (getOrgRole)   → .select('github_role, admin_repo_github_ids')
+ *                                        .eq('org_id', orgId).eq('user_id', userId).maybeSingle()
+ *
+ * @param adminRepoGithubIds — non-empty array triggers repo_admin derivation in getOrgRole
  */
 function makeMockClient(
   user: { id: string; user_metadata: Record<string, unknown> } | null,
   memberships: { org_id: string; github_role: string }[],
   currentOrg: typeof mockOrg | null,
+  adminRepoGithubIds: number[] = [],
 ) {
+  const snapshot = memberships.find((m) => m.org_id === ORG_ID) ?? null;
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
@@ -82,9 +88,27 @@ function makeMockClient(
           }),
         };
       }
+      // user_organisations — two query shapes:
+      //   list  : .select(...).eq('user_id', uid)            → resolves array
+      //   single: .select(...).eq('org_id', oid).eq('user_id', uid).maybeSingle()
       return {
         select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockResolvedValue({ data: memberships, error: null }),
+          eq: vi.fn().mockImplementation((col: string) => {
+            if (col === 'user_id') {
+              return Promise.resolve({ data: memberships, error: null });
+            }
+            // org_id branch — return chainable for the second .eq().maybeSingle()
+            return {
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: snapshot
+                    ? { github_role: snapshot.github_role, admin_repo_github_ids: adminRepoGithubIds }
+                    : null,
+                  error: null,
+                }),
+              }),
+            };
+          }),
         }),
       };
     }),
@@ -164,6 +188,99 @@ describe('Authenticated layout', () => {
 
       expect(mockRedirect).not.toHaveBeenCalled();
       expect(result).toBeTruthy();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Role propagation: layout passes correct isAdminOrRepoAdmin to NavBar.
+  // [lld §B.1] Layout uses getOrgRole (not github_role === 'admin') — the
+  // Repo Admin path (non-empty admin_repo_github_ids) was previously missed.
+  // These tests walk the returned JSX element tree to read the prop.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Walk a React element tree (plain objects) to find the first element whose
+   * props contain `isAdminOrRepoAdmin`.  Returns the prop value, or undefined.
+   */
+  function findIsAdminProp(node: unknown): boolean | undefined {
+    if (!node || typeof node !== 'object') return undefined;
+    const el = node as { props?: Record<string, unknown>; children?: unknown };
+    if (el.props && 'isAdminOrRepoAdmin' in el.props) {
+      return el.props['isAdminOrRepoAdmin'] as boolean;
+    }
+    const children = el.props?.children ?? (el as { children?: unknown }).children;
+    if (Array.isArray(children)) {
+      for (const child of children) {
+        const found = findIsAdminProp(child);
+        if (found !== undefined) return found;
+      }
+    } else if (children !== undefined) {
+      return findIsAdminProp(children);
+    }
+    return undefined;
+  }
+
+  describe('Given an Org Admin (github_role = admin)', () => {
+    it('then the layout passes isAdminOrRepoAdmin=true to NavBar', async () => {
+      // [lld §B.1, I1] Org Admin role → isAdminOrRepoAdmin = true
+      mockCreateServer.mockResolvedValue(
+        makeMockClient(
+          { id: USER_ID, user_metadata: { user_name: 'alice', provider_id: '42' } },
+          [{ org_id: ORG_ID, github_role: 'admin' }],
+          mockOrg,
+        ) as never,
+      );
+
+      const { default: AuthenticatedLayout } = await import(
+        '@/app/(authenticated)/layout'
+      );
+      const result = await AuthenticatedLayout({ children: null });
+
+      expect(findIsAdminProp(result)).toBe(true);
+    });
+  });
+
+  describe('Given a Repo Admin (github_role = member, admin_repo_github_ids non-empty)', () => {
+    it('then the layout passes isAdminOrRepoAdmin=true to NavBar', async () => {
+      // [lld §B.1, I1] Repo Admin (repo-level admin access) → isAdminOrRepoAdmin = true.
+      // This is the new V11 role path — the old layout used github_role === 'admin'
+      // which returned false for Repo Admins.
+      mockCreateServer.mockResolvedValue(
+        makeMockClient(
+          { id: USER_ID, user_metadata: { user_name: 'bob', provider_id: '43' } },
+          [{ org_id: ORG_ID, github_role: 'member' }],
+          mockOrg,
+          [99001], // non-empty adminRepoGithubIds → repo_admin
+        ) as never,
+      );
+
+      const { default: AuthenticatedLayout } = await import(
+        '@/app/(authenticated)/layout'
+      );
+      const result = await AuthenticatedLayout({ children: null });
+
+      expect(findIsAdminProp(result)).toBe(true);
+    });
+  });
+
+  describe('Given an Org Member (github_role = member, no repo admin access)', () => {
+    it('then the layout passes isAdminOrRepoAdmin=false to NavBar', async () => {
+      // [lld §B.1, I1] Plain member → isAdminOrRepoAdmin = false
+      mockCreateServer.mockResolvedValue(
+        makeMockClient(
+          { id: USER_ID, user_metadata: { user_name: 'carol', provider_id: '44' } },
+          [{ org_id: ORG_ID, github_role: 'member' }],
+          mockOrg,
+          [], // empty adminRepoGithubIds → null role → false
+        ) as never,
+      );
+
+      const { default: AuthenticatedLayout } = await import(
+        '@/app/(authenticated)/layout'
+      );
+      const result = await AuthenticatedLayout({ children: null });
+
+      expect(findIsAdminProp(result)).toBe(false);
     });
   });
 });

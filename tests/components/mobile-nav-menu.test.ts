@@ -75,6 +75,19 @@ vi.mock('@/components/org-switcher', () => ({
   }),
 }));
 
+// Stub SignOutButton — represented as a form with the same action so existing
+// sign-out assertions still pass without coupling to the inline form structure.
+vi.mock('@/components/sign-out-button', () => ({
+  SignOutButton: () => ({
+    type: 'form',
+    props: {
+      method: 'POST',
+      action: '/auth/sign-out',
+      'data-testid': 'sign-out-button',
+    },
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
