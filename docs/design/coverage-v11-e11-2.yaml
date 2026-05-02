@@ -20,15 +20,12 @@ entries:
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-project-scoped-list
     issue: 414
-    fix_issue: 441
     files:
       - src/app/(authenticated)/projects/[id]/assessment-list.tsx
       - src/app/(authenticated)/projects/[id]/page.tsx
-    status: Regression
+    status: Revised
     # Issue #414 built a bespoke card list instead of reusing AssessmentOverviewTable.
-    # Story 2.2 AC 1 ("same columns … reuses the existing list component") is violated.
-    # Fix design: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-fix-441 (issue #441).
-    # files will be updated by /feature-end after #441 merges.
+    # LLD corrected by §B.9 (fix issue #441). /feature-end for #441 will update files + status.
 
   - req: REQ-fcs-scoped-to-projects-my-pending-assessments
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
