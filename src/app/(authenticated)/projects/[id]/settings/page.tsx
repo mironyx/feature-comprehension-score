@@ -10,6 +10,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getOrgRole } from '@/lib/supabase/membership';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 import { SettingsForm, type SettingsInitial } from './settings-form';
 
 const DEFAULT_QUESTION_COUNT = 4;
@@ -67,6 +68,15 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
   const initial = buildInitial(ctxRow?.context ?? null);
 
   return (
-    <SettingsForm projectId={projectId} projectName={project.name} initial={initial} />
+    <>
+      <SetBreadcrumbs
+        segments={[
+          { label: 'Projects', href: '/projects' },
+          { label: project.name, href: `/projects/${projectId}` },
+          { label: 'Settings' },
+        ]}
+      />
+      <SettingsForm projectId={projectId} projectName={project.name} initial={initial} />
+    </>
   );
 }

@@ -11,6 +11,7 @@ import type { AssessmentDetailResponse } from '@/app/api/assessments/[id]/route'
 import { loadAssessmentDetail } from './load-assessment-detail';
 import AnsweringForm from './answering-form';
 import { AssessmentAdminView } from './assessment-admin-view';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 import { logger } from '@/lib/logger';
 
 interface AssessmentPageProps {
@@ -49,6 +50,30 @@ function answering(projectId: string, d: AssessmentDetailResponse) {
   );
 }
 
+async function renderAdminView(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  projectId: string,
+  detail: AssessmentDetailResponse,
+) {
+  const { data: project } = await supabase
+    .from('projects')
+    .select('name')
+    .eq('id', projectId)
+    .maybeSingle();
+  return (
+    <>
+      <SetBreadcrumbs
+        segments={[
+          { label: 'Projects', href: '/projects' },
+          { label: project?.name ?? 'Project', href: `/projects/${projectId}` },
+          { label: 'Assessment' },
+        ]}
+      />
+      <AssessmentAdminView assessment={detail} />
+    </>
+  );
+}
+
 export default async function AssessmentPage({ params }: AssessmentPageProps) {
   const { id: projectId, aid } = await params;
 
@@ -68,7 +93,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!detail) notFound();
 
   if (detail.caller_role === 'admin') {
-    return <AssessmentAdminView assessment={detail} />;
+    return renderAdminView(supabase, projectId, detail);
   }
 
   if (!detail.my_participation) {
