@@ -7,12 +7,12 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
+import { getOrgRole } from '@/lib/supabase/membership';
 import { NavBar } from '@/components/nav-bar';
 import { BreadcrumbsBar } from '@/components/breadcrumbs-bar';
 import type { Database } from '@/lib/supabase/types';
 
 type OrgRow = Database['public']['Tables']['organisations']['Row'];
-type MembershipRow = Pick<Database['public']['Tables']['user_organisations']['Row'], 'org_id' | 'github_role'>;
 
 interface AuthenticatedLayoutProps {
   readonly children: React.ReactNode;
@@ -23,17 +23,18 @@ interface AuthenticatedLayoutProps {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches the current org and all user memberships in parallel.
- * Uses two independent queries so neither blocks the other.
+ * Fetches the current org and the list of orgs the user is a member of, in parallel.
+ * Membership is read here only to power the org switcher; role derivation goes through
+ * `getOrgRole` (membership kernel) so Repo Admins are recognised.
  */
 async function fetchOrgContext(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   userId: string,
   orgId: string,
-): Promise<{ currentOrg: OrgRow | null; memberships: MembershipRow[]; allOrgs: OrgRow[] }> {
+): Promise<{ currentOrg: OrgRow | null; allOrgs: OrgRow[] }> {
   const [{ data: currentOrgData }, { data: memberships }] = await Promise.all([
     supabase.from('organisations').select('*').eq('id', orgId).maybeSingle(),
-    supabase.from('user_organisations').select('org_id, github_role').eq('user_id', userId),
+    supabase.from('user_organisations').select('org_id').eq('user_id', userId),
   ]);
 
   const otherOrgIds = (memberships ?? [])
@@ -49,7 +50,7 @@ async function fetchOrgContext(
     ...(otherOrgs ?? []),
   ];
 
-  return { currentOrg: currentOrgData, memberships: memberships ?? [], allOrgs };
+  return { currentOrg: currentOrgData, allOrgs };
 }
 
 // ---------------------------------------------------------------------------
@@ -72,20 +73,22 @@ export default async function AuthenticatedLayout({ children }: AuthenticatedLay
   }
 
   const username = String(user.user_metadata['user_name'] ?? user.email ?? '');
-  const { currentOrg, memberships, allOrgs } = await fetchOrgContext(supabase, user.id, orgId);
+  const [{ currentOrg, allOrgs }, role] = await Promise.all([
+    fetchOrgContext(supabase, user.id, orgId),
+    getOrgRole(supabase, user.id, orgId),
+  ]);
 
   if (!currentOrg) {
     redirect('/org-select');
   }
 
-  const membership = memberships.find((m) => m.org_id === orgId);
-  const isAdmin = membership?.github_role === 'admin';
+  const isAdminOrRepoAdmin = role !== null;
 
   return (
     <div>
       <NavBar
         username={username}
-        isAdmin={isAdmin}
+        isAdminOrRepoAdmin={isAdminOrRepoAdmin}
         currentOrg={currentOrg}
         allOrgs={allOrgs}
       />
