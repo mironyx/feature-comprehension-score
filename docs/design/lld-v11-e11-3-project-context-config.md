@@ -150,6 +150,7 @@ flowchart LR
 | I6 | A project with no project-scoped row in `organisation_contexts` (i.e. no row with `project_id = $1` — the table is shared with the org-level UI per ADR-0028, hence the legacy name) produces a rubric prompt with no `organisation_context` block | Resolver returns `undefined`; `extractArtefacts` passes `organisation_context: undefined` to the assembled set; `formatOrganisationContext` already omits the block when undefined (T3.2) |
 | I7 | The question count used by rubric generation equals the project's configured value when set | Integration test asserting `assessment.config_question_count === projectCtx.question_count` after creation (T3.2) |
 | I8 | The project resolver does not consult the org-level row (`project_id IS NULL`) | SQL predicate is `.eq('project_id', $1)` — not `.or()`; covered by unit test that creates an org-level row + a project row and asserts the resolver returns only the project row |
+| I9 | The project dashboard (`/projects/[id]/page.tsx`) renders a 'Settings' link to `/projects/[id]/settings` visible to Org Admin and Repo Admin. This entry-point was omitted by the initial E11.3 implementation; added by fix issue #440. Without it, `/projects/[id]/settings` is only reachable by direct URL — effectively inaccessible. | Dashboard page test (added in fix #440) |
 
 ### Acceptance criteria
 
@@ -175,6 +176,10 @@ describe('/projects/[id]/settings (T3.1)')
   it('Repo Admin successfully saves changes')
   it('Org Member is redirected to /assessments')
   it('Unknown projectId returns 404')
+
+describe('/projects/[id] dashboard — Settings affordance (fix #440)')
+  it('Admin dashboard renders a Settings link pointing to /projects/[id]/settings')
+  it('Repo Admin dashboard also renders the Settings link')
 
 describe('loadProjectPromptContext (T3.2)')
   it('returns parsed ProjectPromptContext when a row exists for the project')
@@ -235,6 +240,7 @@ These helpers already exist (E11.1 / E11.2). Inlining their logic is forbidden �
 **Files:**
 - `src/app/(authenticated)/projects/[id]/settings/page.tsx` (new — server component)
 - `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` (new — client component)
+- `src/app/(authenticated)/projects/[id]/page.tsx` — **add Settings link** in the page header or alongside the Delete button (admin/repo-admin only, Invariant I9). This was out of scope in E11.1 (B.8) and missed by E11.3; fix issue #440 owns it.
 - `src/app/api/projects/validation.ts` (extend `UpdateProjectSchema` with glob `.refine()`)
 - `tests/app/api/projects/validation.test.ts` (new — focused schema unit tests)
 - `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (new)
