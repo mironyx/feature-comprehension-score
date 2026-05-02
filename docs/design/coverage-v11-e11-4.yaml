@@ -4,7 +4,10 @@ entries:
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-navbar-role-links
     issue: 432
     files: []
-    status: Draft
+    status: Revised
+    # /lld-sync flipped from Draft → Revised (issue #432). Implementation notes
+    # added in §B.1 for parallelised layout reads + LAST_VISITED_PROJECT_KEY export.
+    # /feature-end populates `files:` after merge.
 
   - req: REQ-navigation-and-routing-projects-list-page
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create

@@ -1,7 +1,8 @@
 # LLD — V11 Epic E11.4: Navigation & Routing
 
 **Date:** 2026-05-02
-**Version:** 0.1
+**Version:** 0.2
+**Status:** Revised (T4.1 implemented — issue #432)
 **Epic:** E11.4
 **HLD:** [v11-design.md §C1, §Level 3 — 3.V11.3](v11-design.md)
 **Requirements:** [v11-requirements.md §Epic 4](../requirements/v11-requirements.md#epic-4-navigation--routing-priority-high)
@@ -269,6 +270,8 @@ const isAdminOrRepoAdmin = role !== null;
 
 Pass `isAdminOrRepoAdmin` to `NavBar` instead of `isAdmin`. The layout already queries `user_organisations` for the org switcher memberships — `getOrgRole` performs a separate lightweight query via `readMembershipSnapshot`. This is acceptable (two small DB reads) and avoids coupling the org-switcher query shape to the role-derivation logic.
 
+> **Implementation note (issue #432):** The two reads run concurrently via `Promise.all([fetchOrgContext, getOrgRole])`. The org-switcher query was also slimmed from `select('org_id, github_role')` to `select('org_id')` because `github_role` is no longer consumed by the layout — role derivation now flows entirely through `getOrgRole`. The `MembershipRow` type alias was deleted as a consequence.
+
 **NavBar change:**
 
 ```ts
@@ -329,6 +332,8 @@ export function SignOutButton() {
 6. Tests verifying link assembly for admin, repo_admin, and member roles.
 
 **Acceptance:** All NavBar BDD specs pass. Story 4.2 verified (redirect already exists from E11.1).
+
+> **Implementation note (issue #432):** `last-visited-project.ts` also exports the storage key string as `LAST_VISITED_PROJECT_KEY` (alongside the three helpers) so that tests and any cross-module reader can target the same key without re-typing the literal. The exported value matches the internal `STORAGE_KEY` constant declared in §B.3 (`'fcs:lastVisitedProjectId'`).
 
 <a id="LLD-v11-e11-4-breadcrumbs"></a>
 
@@ -502,6 +507,8 @@ Members on project-scoped assessment pages (reached via invitation link) do not 
 ```ts
 // src/lib/last-visited-project.ts
 const STORAGE_KEY = 'fcs:lastVisitedProjectId';
+
+export const LAST_VISITED_PROJECT_KEY = STORAGE_KEY;
 
 export function setLastVisitedProject(projectId: string): void {
   try { localStorage.setItem(STORAGE_KEY, projectId); } catch { /* SSR / incognito */ }
