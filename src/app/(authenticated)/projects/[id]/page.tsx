@@ -58,6 +58,7 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
         title={project.name}
         action={isAdmin ? <DeleteButton projectId={id} /> : null}
       />
+      {/* Visible to admin and repo_admin only — Org Members redirect at line 35 */}
       <Link
         href={`/projects/${id}/settings`}
         className="inline-flex items-center text-label font-medium text-text-secondary hover:text-text-primary"
