@@ -144,10 +144,19 @@ describe('NavBar', () => {
       expect(html).toContain('Organisation');
     });
 
-    it('then I do not see My Assessments', () => {
-      // [lld §B.1, I1] Admins do not see "My Assessments" — Projects replaces it
+    it('then I see My Assessments with /assessments href (#438)', () => {
+      // [issue #438] Admins are also assessment participants — they need the link
       const html = JSON.stringify(renderNavBar({ isAdminOrRepoAdmin: true }));
-      expect(html).not.toContain('My Assessments');
+      expect(html).toContain('My Assessments');
+      expect(html).toContain('"/assessments"');
+    });
+
+    it('then mobile nav menu also receives My Assessments (#438 AC3)', () => {
+      // [issue #438 AC3] Mobile nav must match desktop link set for admins
+      const html = JSON.stringify(renderNavBar({ isAdminOrRepoAdmin: true }));
+      const mobileSection = html.slice(html.indexOf('mobile-nav-menu'));
+      expect(mobileSection).toContain('My Assessments');
+      expect(mobileSection).toContain('/assessments');
     });
 
     it('then I do not see a Repositories link (deferred post-MVP)', () => {
