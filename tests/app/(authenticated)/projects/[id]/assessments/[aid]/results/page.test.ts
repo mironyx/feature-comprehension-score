@@ -175,6 +175,8 @@ interface ServerClientOptions {
    * client. Only relevant for participant self-view paths. Defaults to [].
    */
   participantAnswers?: object[];
+  /** Project name returned from the `projects` table. Used for admin breadcrumbs. */
+  projectName?: string;
 }
 
 /**
@@ -188,14 +190,17 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
   // Accept both the old signature (user directly) and the new options object.
   let user: { id: string } | null;
   let participantAnswers: object[];
+  let projectName: string | undefined;
 
   if (userOrOpts === null || (userOrOpts !== null && 'id' in (userOrOpts ?? {}))) {
     user = userOrOpts as { id: string } | null;
     participantAnswers = [];
+    projectName = undefined;
   } else {
     const opts = userOrOpts as ServerClientOptions;
     user = opts.user;
     participantAnswers = opts.participantAnswers ?? [];
+    projectName = opts.projectName;
   }
 
   return {
@@ -215,6 +220,18 @@ function makeServerClient(userOrOpts: { id: string } | null | ServerClientOption
                 eq: vi.fn().mockReturnValue({
                   order: vi.fn().mockResolvedValue({ data: participantAnswers, error: null }),
                 }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'projects') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: projectName !== undefined ? { name: projectName } : null,
+                error: null,
               }),
             }),
           }),
@@ -865,7 +882,14 @@ describe('FCS results page', () => {
           if (table === 'participant_answers') {
             return { select: vi.fn().mockReturnValue(makeEqChain()) };
           }
-          return {};
+          // projects query for admin breadcrumbs — return null name (fallback)
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+              }),
+            }),
+          };
         }),
       };
 
@@ -876,6 +900,48 @@ describe('FCS results page', () => {
       await ResultsPage({ params: makeParams() });
 
       expect(eqCalls).toContainEqual(['participant_id', PARTICIPATION_ID]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Breadcrumbs — Issue #446
+  // Story 4.3: admin sees breadcrumb trail; member sees no breadcrumb
+  // ---------------------------------------------------------------------------
+
+  describe('Results page breadcrumbs', () => {
+    // Property [#446, req §Story 4.3 AC1]: admin sees Projects > Project > Assessment #N > Results
+    describe('Given the caller is an admin', () => {
+      it('admin sees Projects > Project > Assessment #N > Results', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment(),
+          orgMembership: { github_role: 'admin' },
+          participation: null,
+          questions: [],
+          participants: [makeParticipant('submitted')],
+        }, { user: AUTHED_USER, projectName: 'Payments Service' });
+        const element = await ResultsPage({ params: makeParams() });
+        const json = JSON.stringify(element);
+        expect(json).toContain('"href":"/projects"');
+        expect(json).toContain('"Payments Service"');
+        expect(json).toContain(`"Assessment #${ASSESSMENT_ID}"`);
+        expect(json).toContain('"label":"Results"');
+      });
+    });
+
+    // Property [#446, req §Story 4.3 final clause]: member sees no breadcrumb component
+    describe('Given the caller is a member (not admin)', () => {
+      it('member sees no breadcrumb component', async () => {
+        const ResultsPage = await arrange({
+          assessment: makeAssessment(),
+          orgMembership: null,
+          participation: { id: 'part-001' },
+          questions: [],
+          participants: [makeParticipant('submitted')],
+        });
+        const element = await ResultsPage({ params: makeParams() });
+        const json = JSON.stringify(element);
+        expect(json).not.toContain('"href":"/projects"');
+      });
     });
   });
 });

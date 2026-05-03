@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 
 interface SubmittedPageProps {
   readonly params: Promise<{ id: string; aid: string }>;
@@ -31,7 +32,7 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
   const [assessmentResult, participantsResult] = await Promise.all([
     adminSupabase
       .from('assessments')
-      .select('feature_name')
+      .select('feature_name, org_id')
       .eq('id', aid)
       .single(),
     adminSupabase
@@ -42,14 +43,35 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
 
   if (assessmentResult.error || !assessmentResult.data) notFound();
 
-  const assessment = assessmentResult.data as { feature_name: string | null };
+  const assessment = assessmentResult.data as { feature_name: string | null; org_id: string };
   const participants = (participantsResult.data ?? []) as { id: string; status: string; user_id: string }[];
   if (!participants.some(p => p.user_id === user.id)) notFound();
   const total = participants.length;
   const completed = participants.filter(p => p.status === 'submitted').length;
 
+  const { data: orgMembership } = await adminSupabase
+    .from('user_organisations')
+    .select('github_role')
+    .eq('user_id', user.id)
+    .eq('org_id', assessment.org_id)
+    .maybeSingle();
+  const isAdmin = orgMembership?.github_role === 'admin';
+  const projectName = isAdmin
+    ? (await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()).data?.name
+    : undefined;
+
   return (
     <div className="space-y-section-gap text-center">
+      {isAdmin && (
+        <SetBreadcrumbs
+          segments={[
+            { label: 'Projects', href: '/projects' },
+            { label: projectName ?? 'Project', href: `/projects/${projectId}` },
+            { label: `Assessment #${aid}`, href: `/projects/${projectId}/assessments/${aid}` },
+            { label: 'Submitted' },
+          ]}
+        />
+      )}
       <h1 className="text-heading-xl font-display text-success">Answers Submitted</h1>
       <p className="text-body text-text-primary">Thank you. Your answers have been recorded.</p>
       {assessment.feature_name && <p className="text-body text-text-secondary">Feature: {assessment.feature_name}</p>}
