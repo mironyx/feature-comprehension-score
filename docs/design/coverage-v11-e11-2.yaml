@@ -8,6 +8,8 @@ entries:
     status: Revised
     # LLD corrected by issue #411 (pipeline path, enforcePerRepoAdmin signature, auth order).
     # files: populated by /feature-end after merge.
+    # Rev 2 (v11-requirements 1.3): new AC for post-create polling on the assessment-detail page —
+    # already implemented under issue #444 before rev 1.3 finalised. No new work; verification only.
 
   - req: REQ-fcs-scoped-to-projects-new-assessment-page
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-new-assessment-page
@@ -27,9 +29,12 @@ entries:
       - src/app/(authenticated)/organisation/load-assessments.ts
       - src/app/(authenticated)/organisation/page.tsx
       - src/app/(authenticated)/organisation/deleteable-assessment-table.tsx
-    status: Implemented
+    status: Revised
     # Issue #414 built a bespoke card list (assessment-list.tsx, now deleted).
     # Issue #441 corrected that: project dashboard now uses AssessmentOverviewTable.
+    # Rev 2 (v11-requirements 1.3): actions column parity with org list — replace direct
+    # AssessmentOverviewTable render with DeleteableAssessmentTable (delete + view-detail icons).
+    # See lld-v11-e11-2 §Pending changes — Rev 2.
 
   - req: REQ-fcs-scoped-to-projects-my-pending-assessments
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue
@@ -38,6 +43,9 @@ entries:
       - src/app/(authenticated)/assessments/page.tsx
       - src/app/(authenticated)/assessments/project-filter.tsx
     status: Revised
+    # Rev 2 (v11-requirements 1.3): empty-state copy must communicate participant-only scope;
+    # admin-no-participant case now has explicit AC. Query is unchanged (already participant-scoped).
+    # See lld-v11-e11-2 §Pending changes — Rev 2.
 
   - req: REQ-fcs-scoped-to-projects-filter-pending-by-project
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue

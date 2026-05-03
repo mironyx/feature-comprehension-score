@@ -38,6 +38,10 @@ Wire `project_id` into the FCS creation flow as a hard requirement, scope the as
 
 Out of scope: settings page (E11.3), context resolver wiring (E11.3), NavBar / breadcrumbs / root redirect (E11.4).
 
+#### Recent revisions
+
+- **Rev 2 (2026-05-03):** v11-requirements rev 1.3 added Design Principle 8 (single shared admin detail view), Story 2.1 AC for post-create polling (already shipped via [#444](https://github.com/mironyx/feature-comprehension-score/issues/444)), Story 2.2 ACs for actions-column parity with the org list, and Story 2.3 ACs sharpening the participant-only scoping and empty-state copy. New design covered in [§Pending changes — Rev 2](#pending-changes-rev-2).
+
 ### Behavioural flows
 
 #### A.1 Create FCS assessment (Story 2.1)
@@ -996,3 +1000,167 @@ graph LR
 | 2 | T2.2 | Wave 1 | New API + RPC change + pipeline relocation + delete legacy `/api/fcs`. |
 | 3 | T2.3 | Wave 2 | Route migration; deletes legacy `assessments/[id]/`. |
 | 4 | T2.4, T2.5, T2.6 | Wave 3 (T2.3); T2.5/T2.6 also need T2.1 | Three FE tasks touch disjoint files — parallelisable. |
+
+---
+
+<a id="pending-changes-rev-2"></a>
+
+## Pending changes — Rev 2
+
+Triggered by [v11-requirements rev 1.3](../requirements/v11-requirements.md#change-log) (2026-05-03). Rev 1.3 touches three E11.2 stories — only two need new code; Story 2.1's new AC was already satisfied by issue [#444](https://github.com/mironyx/feature-comprehension-score/issues/444).
+
+### Story REQ-fcs-scoped-to-projects-create-fcs-assessment (Story 2.1 — post-create polling, already shipped)
+
+**Status:** No new work. The new AC ("auto-updates as the rubric job progresses") was implemented under issue [#444](https://github.com/mironyx/feature-comprehension-score/issues/444) before rev 1.3 was finalised. The fix wired `PollingStatusBadge` into the admin assessment-detail view's `rubric_generation` row, matching the org-overview behaviour.
+
+**Verification:** Story 2.1's existing manifest entry remains `Revised`; comment updated to note rev 1.3 AC coverage (see manifest update below).
+
+---
+
+### Story REQ-fcs-scoped-to-projects-project-scoped-assessment-list (Story 2.2 — actions column parity)
+
+**Stories:** 2.2 (rev 1.3 amendment)
+**Issue:** [#450](https://github.com/mironyx/feature-comprehension-score/issues/450) (bundled with Story 1.3 because both edit `projects/[id]/page.tsx`; cross-referenced from E11.1 §Pending changes — Rev 2)
+**Section to amend:** [§B.5 — Task T2.5: Project-scoped list on dashboard](#LLD-v11-e11-2-project-scoped-list) and the [§B.9 fix-#441 follow-up](#LLD-v11-e11-2-fix-441)
+
+**Files:**
+
+- `src/app/(authenticated)/projects/[id]/page.tsx` — replace direct render of `<AssessmentOverviewTable>` with `<DeleteableAssessmentTable initialAssessments={...} />` (no `showProjectColumn` — context is implicit on this page).
+- `tests/app/(authenticated)/projects/[id]/page.test.ts` (existing) — extend with assertions for the actions-column rendering.
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Per-row delete + view-detail icons | `DeleteableAssessmentTable` | [`src/app/(authenticated)/organisation/deleteable-assessment-table.tsx`](../../src/app/(authenticated)/organisation/deleteable-assessment-table.tsx) |
+| Confirmation dialog | `DeleteAssessmentDialog` (already wired into `DeleteableAssessmentTable`) | [`src/app/(authenticated)/organisation/delete-assessment-dialog.tsx`](../../src/app/(authenticated)/organisation/delete-assessment-dialog.tsx) |
+| DELETE endpoint | `DELETE /api/assessments/[id]` (existing) | `src/app/api/assessments/[id]/route.ts` |
+| Project column toggle | `showProjectColumn` prop — **omit** on project-scoped dashboard | `assessment-overview-table.tsx` |
+
+**Change shape:**
+
+```tsx
+// projects/[id]/page.tsx (Rev 2 — actions column)
+import { DeleteableAssessmentTable } from '@/app/(authenticated)/organisation/deleteable-assessment-table';
+// …existing load…
+return (
+  <div className="space-y-section-gap">
+    {/* …header (Settings + New Assessment + Delete from Story 1.3 Rev 2)… */}
+    <section className="space-y-3">
+      {assessments.length === 0 ? (
+        <EmptyState projectId={id} />
+      ) : (
+        <DeleteableAssessmentTable initialAssessments={assessments} />
+      )}
+    </section>
+  </div>
+);
+```
+
+> **Why not call the import path `from '@/app/(authenticated)/projects/...'`?** `DeleteableAssessmentTable` lives under `organisation/` because it was first introduced for the org overview list (issue #319). Moving it to a neutral location (e.g. `src/components/assessments/`) is tempting but out of scope — Story 2.2 rev 1.3 says "the same `DeleteableAssessmentTable` component is reused", not "extract a shared one". Defer the rename to a future tidy-up; for now, import from the existing path.
+
+**Authorisation note.** The page already redirects `role === null` (Org Members) to `/assessments` at the membership check. Anyone reaching the table is admin or repo_admin — both have GitHub-level rights to delete assessments their org owns (existing `DELETE /api/assessments/[id]` policy applies). No new auth code needed.
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 2.2):**
+
+> Given a project with at least one assessment, when an admin views the project dashboard, then the assessment list renders an Actions column with the same controls as the organisation overview list — a delete icon (opens the existing delete-confirmation dialog) and a view-detail icon linking to `/projects/[id]/assessments/[aid]`. The same `DeleteableAssessmentTable` component is reused; project-scope means rendering it without `showProjectColumn`.
+>
+> Given an admin clicks the view-detail icon on an assessment row, when navigation completes, then the URL is `/projects/[id]/assessments/[aid]` and the existing admin detail view (Design Principle 8) renders showing repo, source PRs/issues, status, and participant list.
+
+**BDD specs:**
+
+```
+describe('Project dashboard — actions column (rev 1.3)')
+  it('renders Trash2 (delete) and MoreHorizontal (view-detail) icons per assessment row')
+  it('clicking delete opens DeleteAssessmentDialog and on confirm removes the row')
+  it('clicking view-detail navigates to /projects/[id]/assessments/[aid]')
+  it('does not render the Project column (showProjectColumn omitted)')
+  it('omits the actions column when assessment list is empty (empty state path)')
+```
+
+**Invariants reaffirmed:**
+
+- **DP 8** (single shared admin detail view) — view-detail click leads to the same route group `/projects/[id]/assessments/[aid]`, where `assessment-admin-view.tsx` (already used since #441) renders. No per-context branch.
+- **Story 2.4 / I (URL shape)** — view-detail icon href must be the project-first form `/projects/[id]/assessments/[aid]`, never the legacy `/assessments/[aid]`.
+
+---
+
+### Story REQ-fcs-scoped-to-projects-my-pending-assessments (Story 2.3 — strict participant-scoped empty state)
+
+**Stories:** 2.3 (rev 1.3 amendment)
+**Issue:** [#452](https://github.com/mironyx/feature-comprehension-score/issues/452)
+**Section to amend:** [§B.6 — Task T2.6: Pending queue rewrite + project filter](#LLD-v11-e11-2-pending-queue)
+
+**Files:**
+
+- `src/app/(authenticated)/assessments/page.tsx` — change empty-state copy to communicate participant-only scope; behaviour for admins-with-no-participation is already correct (the query already filters by `assessment_participants.user_id = current user`), so no auth change needed.
+- `tests/app/(authenticated)/assessments/page.test.ts` (existing) — extend assertions for empty-state copy and the admin-no-participant path.
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Authenticated-user fetch | `supabase.auth.getUser()` | existing |
+| Participant query | `from('assessment_participants').select(... assessments!inner ...)` filtered by `user_id` | existing in `assessments/page.tsx:26-40` |
+| Empty-state component | none — `<p>` with copy is sufficient (existing pattern) | existing in `assessments/page.tsx:57` |
+
+**Copy change:**
+
+The current empty-state at [page.tsx:57](../../src/app/(authenticated)/assessments/page.tsx) reads:
+
+```
+No pending assessments.
+```
+
+Rev 2 replaces this with:
+
+```
+No pending assessments. You'll see assessments here when you've been added to one as a participant.
+```
+
+> **Why not split into a separate component?** The empty state is a single paragraph, rendered conditionally. Extraction would be ceremony.
+
+> **Wording rationale.** Rev 1.3 AC requires the copy to "communicate participant-only scope, gives a concrete example". The example AC text is offered as illustrative ("for example…"), not mandated verbatim — implementation may rewrite as long as the meaning sticks. The copy above matches the example because it tested cleanly with users; deviation requires fresh testing.
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 2.3):**
+
+> 1. Given a participant has no pending FCS assessments, when they view `/assessments`, then the page shows an empty state whose copy explains the participant-only scope — for example "No pending assessments. You'll see assessments here when you've been added to one as a participant." The copy must communicate that the queue is participant-scoped.
+> 2. Given an Org Admin or Repo Admin who has not been added to any FCS assessment as a participant signs in and visits `/assessments`, when the page renders, then the empty state described above is shown — the page does not surface assessments the admin created but is not a participant on. Admins manage assessments they created from the project dashboard, not from this page.
+
+**BDD specs:**
+
+```
+describe('My Pending Assessments empty state (rev 1.3)')
+  it('renders updated copy when the participant has no pending submissions')
+  it('renders the same empty state for admin with no participant rows (admin who created but did not participate)')
+  it('renders the list (not the empty state) when participant has at least one pending row')
+```
+
+**Invariants reaffirmed:**
+
+- **Strict participant scoping (rev 1.3 Note).** The page's filter is `assessment_participants.user_id = current user` only — there is **no** branch that surfaces assessments the user created but is not a participant on. The existing query already implements this; the change is copy-only. The new test for the admin-no-participant path locks the invariant in place.
+
+---
+
+### Design Principle 8 (single shared admin detail view) — already met
+
+**Status:** No new work. DP 8 codifies the pattern already established by issue [#441](https://github.com/mironyx/feature-comprehension-score/issues/441): the admin assessment-detail view at `src/app/(authenticated)/projects/[id]/assessments/[aid]/assessment-admin-view.tsx` is rendered for both org and project contexts, with `Project` shown as one of the assessment's attributes.
+
+**Verification:** No code change required for DP 8. Future PRs touching the admin detail view must continue this pattern — call it out in §B.7 Cross-cutting (one-liner addition below) so it cannot be quietly reverted.
+
+**§B.7 Cross-cutting addition (Rev 2):**
+
+> **DP 8 — single admin detail view.** The admin path of `assessments/[aid]/page.tsx` renders one component (`assessment-admin-view.tsx`) regardless of how the user reached the page. Project is rendered as a field; there is no per-context detail page. Any new field surfaced in one context must surface in the other.
+
+(That bullet will be added under §B.7 by the implementing PR for issue A — keep the LLD's existing §B.7 untouched until then.)
+
+---
+
+### Tasks (Rev 2)
+
+| Task | Story | Issue | Files | Estimated diff |
+|------|-------|-------|-------|----------------|
+| T2.7 | 2.2 | [#450](https://github.com/mironyx/feature-comprehension-score/issues/450) (bundled with E11.1 Story 1.3) | `projects/[id]/page.tsx`, tests | ~30 lines (incl. tests) — bundled into #450 |
+| T2.8 | 2.3 | [#452](https://github.com/mironyx/feature-comprehension-score/issues/452) | `assessments/page.tsx`, tests | ~20 lines (copy + 1 new test) |
+
+T2.7 and T2.8 touch different files — parallelisable.
