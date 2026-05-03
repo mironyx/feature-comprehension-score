@@ -7,6 +7,7 @@ import type { AssessmentDetailResponse, ParticipantDetail } from '@/app/api/asse
 import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PollingStatusBadge } from '@/app/(authenticated)/assessments/polling-status-badge';
 import { AssessmentSourceList } from './assessment-source-list';
 
 interface AdminViewProps {
@@ -35,7 +36,11 @@ export function AssessmentAdminView({ assessment }: AdminViewProps) {
           </div>
           <div>
             <dt className="text-caption text-text-secondary">Status</dt>
-            <dd><StatusBadge status={assessment.status} /></dd>
+            <dd>
+              {assessment.status === 'rubric_generation'
+                ? <PollingStatusBadge assessmentId={assessment.id} initialStatus="rubric_generation" />
+                : <StatusBadge status={assessment.status} />}
+            </dd>
           </div>
         </dl>
       </Card>
