@@ -54,7 +54,7 @@ export default async function AssessmentsPage(
     <div className="space-y-section-gap">
       <PageHeader title="My Pending Assessments" />
       {items.length === 0
-        ? <p className="text-body text-text-secondary">No pending assessments.</p>
+        ? <p className="text-body text-text-secondary">No pending assessments. You&apos;ll see assessments here when you&apos;ve been added to one as a participant.</p>
         : (
           <ProjectFilter
             items={items}

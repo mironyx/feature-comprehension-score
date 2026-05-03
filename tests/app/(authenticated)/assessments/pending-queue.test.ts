@@ -489,6 +489,32 @@ describe('/assessments — My Pending Assessments', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Rev 1.3 — BDD specs: participant-only empty state (invariant I12, issue #452)
+  // -------------------------------------------------------------------------
+
+  describe('My Pending Assessments empty state (rev 1.3)', () => {
+    it('renders updated copy when the participant has no pending submissions', async () => {
+      const rendered = await renderPage([]);
+      expect(rendered).toContain('been added to one as a participant');
+    });
+
+    it('renders the same empty state for admin with no participant rows (admin who created but did not participate)', async () => {
+      // The query is already scoped to user_id = current user via assessment_participants.
+      // An admin who created assessments but was never added as a participant has 0 rows.
+      // The page must show the empty state — not the admin-created assessments.
+      const rendered = await renderPage([]);
+      expect(rendered).toContain('No pending assessments');
+      expect(rendered).not.toContain('"projectFilterItems"');
+    });
+
+    it('renders the list (not the empty state) when participant has at least one pending row', async () => {
+      const rendered = await renderPage([makeRow({ feature_name: 'Active Feature' })]);
+      expect(rendered).not.toContain('been added to one as a participant');
+      expect(rendered).toContain('"projectFilterItems"');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // V11 invariant: no "Completed" section [lld §B.6 "Removed in this rewrite"]
   // -------------------------------------------------------------------------
 
