@@ -175,6 +175,8 @@ classDiagram
 | I8 | Org Members hitting `/projects`, `/projects/new`, `/projects/[id]` are redirected to `/assessments` | Page-level guard (T1.5/T1.6 BDD) |
 | I9 | The 'New assessment' CTA (link to `/projects/[id]/assessments/new`) is visible on the project dashboard regardless of whether assessments exist (Story 1.3 AC 1). The initial implementation placed it only inside `AssessmentList`'s empty-state branch — the fix hoists it to the page level. | Page-level render test; see fix issue #440 |
 | I10 | The project dashboard renders a 'Settings' link (href = `/projects/[id]/settings`) visible to both Org Admin and Repo Admin (Org Members have no UI path to settings). Initially omitted by E11.3 implementation; added by fix issue #440. | Dashboard page test |
+| I11 | *(rev 1.3)* The Settings link on the project dashboard is a header-area icon-and-label control rendered alongside the "New Assessment" CTA — not a faint inline `text-secondary` link in the page body. Reachable without scrolling on 1280×720. | Dashboard page test (issue #450) |
+| I12 | *(rev 1.3, Story 1.6)* The project settings page renders a "Back to project" link near the top of the content area (above the form, below the breadcrumb registration) for both admin and repo_admin. Visible without scrolling on 1280×720. Breadcrumbs remain in addition. | Settings page test (issue #451) |
 
 ### Acceptance criteria
 
@@ -183,8 +185,10 @@ Maps directly to v11-requirements §Epic 1 ACs. Story-level coverage:
 - **Story 1.1** — POST validates name (1–200 chars), enforces case-insensitive uniqueness (409), accepts optional context fields, returns 201 with redirect target.
 - **Story 1.2** — GET /api/projects lists all projects in caller's org regardless of repo-admin scope; returns name, description, created_at, updated_at; redirect for Org Members on `/projects`.
 - **Story 1.3** — `/projects/[id]` renders project header + (placeholder) assessment list slot + "New assessment" CTA; 404 on missing/cross-org/deleted; redirect for Org Members.
+  - **Rev 1.3 amendment** — Settings affordance is a header-area icon-and-label control with the same visual prominence as the "New Assessment" button, visible without scrolling on a 1280×720 viewport. The faint inline `text-secondary` link from rev 9 is rejected. See [§Pending changes — Rev 2](#pending-changes-rev-2) for design and issue [#450](https://github.com/mironyx/feature-comprehension-score/issues/450).
 - **Story 1.4** — PATCH accepts any subset of `{name, description, glob_patterns, domain_notes, question_count}`; partial-only mutation; 400 on validation; 409 on duplicate name; 403 for Org Members.
 - **Story 1.5** — DELETE requires Org Admin (403 for Repo Admin); 409 if project has assessments; 204 on success; 404 on already-deleted (idempotent for the caller).
+- **Story 1.6** *(new in rev 1.3)* — `/projects/[id]/settings` renders a "Back to project" link near the top of the content area (above the form, below the breadcrumb registration), visible without scrolling on 1280×720. Clicking returns to `/projects/[id]`. Accessible name identifies the destination by project name or generic "Back to project" label. Rendered for both admin and repo_admin roles. See [§Pending changes — Rev 2](#pending-changes-rev-2) for design and issue [#451](https://github.com/mironyx/feature-comprehension-score/issues/451).
 
 ### BDD specs
 
@@ -231,6 +235,18 @@ describe('Project pages')
   it('Admin clicks inline edit pencil → submits {name, description} → dashboard re-renders new values')
   it('Admin sees New Assessment button when project already has assessments (not only in empty state)')
   it('Admin sees Settings link on the dashboard; Org Member does not (redirected before render)')
+
+# Rev 1.3 additions — see §Pending changes — Rev 2 for full BDD specs
+describe('Project dashboard — Settings affordance (rev 1.3, issue #450)')
+  it('renders Settings link with icon and label inside the page header action slot')
+  it('renders Settings alongside New Assessment as a sibling header control')
+  it('does not render the legacy faint inline Settings link')
+
+describe('Project settings page — Back to project (Story 1.6, rev 1.3, issue #451)')
+  it('renders an anchor pointing to /projects/[id]')
+  it('uses an accessible name that identifies the destination (project name or "Back to project")')
+  it('renders for both admin and repo_admin roles')
+  it('positions the link above the settings form, below the breadcrumb registration')
 ```
 
 ---
