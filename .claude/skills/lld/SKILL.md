@@ -225,6 +225,7 @@ entries:
     issue: null      # GitHub issue number; populated by /feature-end
     files: []        # populated by /feature-end after merge
     status: Approved # Draft | Approved | Implemented | Revised
+    lld_revision: r1 # latest LLD revision shipped; bumped by /lld-sync
 ```
 
 **Valid statuses and who sets them:**

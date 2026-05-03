@@ -106,6 +106,9 @@ the LLD sections you just changed:
   matching entry's `status` from `Implemented` (or `Approved`) to `Revised`.
 - For a **new** Part B section added under an Addition, append a new manifest entry pointing
   at the new anchor with `status: Revised` and the implementing files in `files:`.
+- For each entry whose `### Story <REQ>` block was just deleted from a `## Pending changes — Rev N`
+  section (Step 3c below), set `lld_revision` to the revision number that just shipped (e.g. `r2`)
+  and flip `status` to `Implemented`. This is the only place `lld_revision` is written.
 - Do **not** touch `files:` for entries unrelated to this issue — `/feature-end` owns the
   initial population.
 
@@ -116,11 +119,26 @@ Manifest ownership summary (for reference):
 | `/lld` | Creates manifest, one row per REQ- anchor, empty `files`, `status: Approved` | `Approved` |
 | `/feature-end` | Populates `files:` after merge | `Implemented` |
 | `/lld-sync` | Updates entries for sections changed by Corrections/Additions | `Revised` |
+| `/lld-sync` | Removes shipped Rev X blocks; bumps `lld_revision` for those entries | `Implemented` |
 
 Update the LLD's Document Control table:
 - Bump `Version` (e.g., `0.1` → `0.2`).
 - Change `Status` from `Draft` to `Revised` (or `Revised` → `Revised v2`).
 - Add a `Revised` row: `| Revised | [today's date] | Issue #N |`
+
+### Step 3c: Remove shipped Rev X blocks
+
+After reconciling Part B against shipped code, locate any `## Pending changes — Rev N`
+sections at the end of the LLD. For each `### Story <REQ>` block whose REQ matches an
+entry that this sync just flipped to `Implemented` (Step 3b), delete the block. Leave
+unrelated blocks intact — partial sync is allowed.
+
+If a `## Pending changes — Rev N` section becomes empty after deletions, delete the
+section heading and its leading separator (`---`) too. Multiple Rev sections may stack;
+remove only the ones whose blocks are now fully absorbed.
+
+The corresponding manifest entries get their `lld_revision` bumped and `status` flipped
+to `Implemented` in Step 3b.
 
 ### Step 4: Produce the sync report
 

@@ -98,6 +98,44 @@ git commit -m "docs: design health patch for #<issue> — <summary>"
 
 ---
 
+## Revision Mode
+
+If the user invokes `/architect` with an explicit compare-revisions intent —
+e.g. a flag like `--compare-rev r9`, or prompt phrasing like "update LLDs for
+v11 rev 10 against rev 9" — and prior LLDs already exist, the skill operates
+in **revision mode** instead of the greenfield creation process.
+
+**Behaviour:**
+
+1. **Diff the requirements file** across the two revisions (`git show <ref>:<path>`).
+   Filter to REQ-anchored content. Trust agent judgement to ignore prose
+   polishing, change-log churn, and frontmatter noise.
+2. **For each affected story**, locate the LLD that owns the matching
+   manifest entry. In that LLD:
+   - **Part A** — extend in place *if required* with a "Recent revisions"
+     mention (a one-line bullet or short paragraph extension noting the new
+     revision and what it covers).
+   - **Part B** — append `## Pending changes — Rev N` at the end of the file,
+     where `N` is the next available revision number (r2, r3, …). Within that
+     section, write one `### Story <REQ>` block per changed story, following
+     the standard Part B style (file paths, component reuse, contracts, BDD
+     specs).
+3. **Manifest** — flip affected entries to `status: Revised`. Do **not**
+   touch `lld_revision` here — that field is owned by `/lld-sync`.
+4. **Stacking is allowed.** If a previous Rev N section already exists and
+   has not yet shipped, append the new section alongside it.
+5. **Commits per LLD touched** — same convention as the greenfield creation
+   process.
+
+For all LLD content rules and downstream steps (issue creation, enrichment,
+execution waves, dependency graph, manifest update, commits, session log,
+report) follow the standard Process below. Revision mode only changes
+*where* new LLD content lands — a `## Pending changes — Rev N` section
+instead of the body. Everything else (new issues for new work, board
+placement, parallelisation analysis) is identical to greenfield.
+
+---
+
 ## Decision Logic
 
 For each item in the plan, determine the artefact type:
@@ -314,6 +352,7 @@ entries:
     issue: <number>
     files: []
     status: Approved # Draft | Approved | Implemented | Revised
+    lld_revision: r1 # latest LLD revision shipped; bumped by /lld-sync
     # files: populated by /feature-end after merge
 ```
 
