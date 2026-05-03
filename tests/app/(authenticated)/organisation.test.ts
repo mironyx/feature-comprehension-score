@@ -8,6 +8,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Module mocks
 // ---------------------------------------------------------------------------
 
+// AssessmentOverviewTable became a 'use client' component in #441 (added useState
+// for the project filter). Stub useState so the component can be called as a plain
+// function via vi.importActual in node tests.
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return { ...actual, useState: vi.fn((initial: unknown) => [initial, vi.fn()]), useEffect: vi.fn() };
+});
+
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: vi.fn(),
 }));
@@ -186,6 +194,7 @@ function makeAssessmentItem(overrides: Partial<{
   rubric_retry_count: number;
   rubric_error_retryable: boolean | null;
   project_id: string | null;
+  project_name: string | null;
 }> = {}) {
   return {
     id: 'assess-001',
@@ -204,6 +213,7 @@ function makeAssessmentItem(overrides: Partial<{
     rubric_retry_count: 0,
     rubric_error_retryable: null,
     project_id: 'proj-1',
+    project_name: null,
     ...overrides,
   };
 }

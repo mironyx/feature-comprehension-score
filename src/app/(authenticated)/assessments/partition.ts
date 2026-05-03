@@ -1,7 +1,5 @@
 // Pure partition helper for project-scoped FCS assessment lists.
 // Originally extracted in #295 to keep Page modules to permitted exports.
-// Still consumed by projects/[id]/assessment-list.tsx (#414/#425) after the
-// /assessments page was rewritten in #415/#427.
 // Design reference: docs/design/lld-nav-results.md §1
 // Issue: #295
 

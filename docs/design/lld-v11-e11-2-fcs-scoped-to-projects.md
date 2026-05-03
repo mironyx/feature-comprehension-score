@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.6 |
+| Version | 0.7 |
 | Status | Revised |
 | Author | LS / Claude |
 | Created | 2026-05-01 |
@@ -13,6 +13,7 @@
 | Revised | 2026-05-01 | Issue #412 |
 | Revised | 2026-05-01 | Issue #411 |
 | Revised | 2026-05-01 | Issue #415 |
+| Revised | 2026-05-03 | Issue #441 |
 | Epic | E11.2 (#409) |
 | Parent HLD | [v11-design.md §C3, §3.V11.1](v11-design.md#c3-feature-comprehension-score-fcs--extended) |
 | Implementation plan | [docs/plans/2026-04-30-v11-implementation-plan.md](../plans/2026-04-30-v11-implementation-plan.md) |
@@ -665,7 +666,7 @@ The initial T2.5 implementation built a bespoke card list (`assessment-list.tsx`
 
 - `src/app/api/assessments/helpers.ts` — add `project_name: string | null` to `AssessmentListItem` and `toListItem`
 - `src/app/(authenticated)/organisation/load-assessments.ts` — extend SELECT to LEFT JOIN `projects(name)`; map into `project_name`
-- `src/app/(authenticated)/organisation/assessment-overview-table.tsx` — add `showProjectColumn?: boolean` prop; insert optional "Project" column; add client-side project filter (reuse `ProjectFilter` shape from `src/app/(authenticated)/assessments/project-filter.tsx`)
+- `src/app/(authenticated)/organisation/assessment-overview-table.tsx` — add `showProjectColumn?: boolean` prop; insert optional "Project" column; add client-side project filter using inline `buildProjectList`/`renderProjectFilter` helpers (see implementation note below)
 - `src/app/(authenticated)/organisation/page.tsx` — pass `showProjectColumn` to `DeleteableAssessmentTable` → `AssessmentOverviewTable`
 - `src/app/(authenticated)/projects/[id]/page.tsx` — fetch assessment rows inline (server component); replace `<AssessmentList>` with `<AssessmentOverviewTable assessments={rows} />`; keep empty-state CTA when `rows.length === 0`
 - `src/app/(authenticated)/projects/[id]/assessment-list.tsx` — **delete** (no longer needed)
@@ -725,6 +726,10 @@ describe('Org overview — project filter')
   it('selecting a project filters the table to that project only')
   it('filter hidden when ≤ 1 distinct project in loaded rows')
 ```
+
+> **Implementation note (issue #441 — ProjectFilter reuse):** The spec said to "reuse `ProjectFilter` shape from `src/app/(authenticated)/assessments/project-filter.tsx`". In practice `project-filter.tsx` is a full React component with its own rendering concerns, not a composable data shape. The implementation used inline `buildProjectList`/`renderProjectFilter` helpers within `assessment-overview-table.tsx` instead, keeping the component self-contained and avoiding coupling to the `/assessments` page's specific component.
+
+> **Implementation note (issue #441 — column order bug):** During post-PR review, the `renderRow` function was found to emit cells as Feature → Repository → Project when `showProjectColumn=true`, mismatching the header order (Feature → Project → Repository). Fixed in commit f54be00 by moving the conditional Project cell above the Repository cell.
 
 <a id="LLD-v11-e11-2-out-of-scope"></a>
 
