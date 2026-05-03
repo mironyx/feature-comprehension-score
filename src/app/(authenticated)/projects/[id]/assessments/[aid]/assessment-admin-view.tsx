@@ -20,9 +20,6 @@ export function AssessmentAdminView({ assessment }: AdminViewProps) {
 
   return (
     <div className="space-y-section-gap">
-      <a href="/organisation" className="text-caption text-accent hover:text-accent-hover">
-        ← Back to Organisation
-      </a>
       <PageHeader
         title={assessment.feature_name ?? `PR #${assessment.pr_number}`}
         subtitle={assessment.feature_description ?? undefined}
