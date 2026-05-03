@@ -15,6 +15,7 @@ import TruncationDetailsCard from '@/components/assessment/TruncationDetailsCard
 import { FormattedText } from '@/components/ui/formatted-text';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 
 type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
 type QuestionRow = Database['public']['Tables']['assessment_questions']['Row'];
@@ -360,6 +361,10 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
   const data = await fetchResultsData(aid, user.id);
   const { assessment, questions, participantTotal, participantCompleted, isAdmin, isParticipant, myAnswers } = data;
 
+  const projectName = isAdmin
+    ? (await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()).data?.name
+    : undefined;
+
   const repoFullName = `${assessment.organisations.github_org_name}/${assessment.repositories.github_repo_name}`;
   const revealAnswers = shouldRevealReferenceAnswers({
     participantCompleted,
@@ -370,6 +375,16 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
 
   return (
     <div className="space-y-section-gap">
+      {isAdmin && (
+        <SetBreadcrumbs
+          segments={[
+            { label: 'Projects', href: '/projects' },
+            { label: projectName ?? 'Project', href: `/projects/${projectId}` },
+            { label: `Assessment #${aid}`, href: `/projects/${projectId}/assessments/${aid}` },
+            { label: 'Results' },
+          ]}
+        />
+      )}
       <h1 className="text-heading-xl font-display">Assessment Results</h1>
 
       <HeaderSection

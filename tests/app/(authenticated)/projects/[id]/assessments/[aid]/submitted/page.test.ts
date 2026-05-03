@@ -25,6 +25,17 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
+vi.mock('next/link', () => ({
+  default: ({ href, children, className }: { href: string; children: unknown; className?: string }) => ({
+    type: 'a',
+    props: { href, children, className },
+  }),
+}));
+
+vi.mock('@/lib/supabase/membership', () => ({
+  getOrgRole: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -32,6 +43,7 @@ vi.mock('next/navigation', () => ({
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { redirect } from 'next/navigation';
+import { getOrgRole } from '@/lib/supabase/membership';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
@@ -42,12 +54,14 @@ const mockRedirect = vi.mocked(redirect);
 // ---------------------------------------------------------------------------
 
 const USER_ID = 'user-001';
+const ORG_ID = 'org-001';
 const ASSESSMENT_ID = 'assessment-001';
 const PROJECT_ID = 'project-test-id';
 
 function makeAssessment() {
   return {
     id: ASSESSMENT_ID,
+    org_id: ORG_ID,
     feature_name: 'Scoring Engine',
     repositories: { github_repo_name: 'feature-comprehension-score' },
     organisations: { github_org_name: 'acme' },
@@ -99,7 +113,7 @@ function makeSecretClient(opts: SecretClientOptions) {
   };
 }
 
-function makeServerClient(user: { id: string } | null) {
+function makeServerClient(user: { id: string } | null, projectName?: string) {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -107,15 +121,29 @@ function makeServerClient(user: { id: string } | null) {
         error: user ? null : new Error('no session'),
       }),
     },
-    from: vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          maybeSingle: vi.fn().mockResolvedValue({
-            data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
-            error: null,
+    from: vi.fn((table: string) => {
+      if (table === 'projects') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: projectName !== undefined ? { name: projectName } : null,
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { id: ASSESSMENT_ID, project_id: PROJECT_ID },
+              error: null,
+            }),
           }),
         }),
-      }),
+      };
     }),
   };
 }
@@ -126,9 +154,15 @@ function makeParams(projectId = PROJECT_ID, aid = ASSESSMENT_ID) {
 
 const AUTHED_USER = { id: USER_ID };
 
-async function arrange(opts: SecretClientOptions, user: { id: string } | null = AUTHED_USER) {
-  mockCreateServer.mockResolvedValue(makeServerClient(user) as never);
+async function arrange(
+  opts: SecretClientOptions,
+  user: { id: string } | null = AUTHED_USER,
+  projectName?: string,
+  orgRole: 'admin' | null = null,
+) {
+  mockCreateServer.mockResolvedValue(makeServerClient(user, projectName) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
+  vi.mocked(getOrgRole).mockResolvedValue(orgRole);
   const { default: SubmittedPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page');
   return SubmittedPage;
 }
@@ -162,6 +196,46 @@ describe('Assessment submitted confirmation page', () => {
       const result = await SubmittedPage({ params: makeParams() });
       expect(result).toBeTruthy();
       expect(mockRedirect).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Breadcrumbs — Issue #446
+  // Story 4.3: admin sees breadcrumb trail; member sees no breadcrumb
+  // ---------------------------------------------------------------------------
+
+  describe('Submitted page breadcrumbs', () => {
+    // Property [#446, req §Story 4.3 AC2]: admin sees Projects > Project > Assessment #N > Submitted
+    describe('Given the caller is an admin', () => {
+      it('admin sees Projects > Project > Assessment #N > Submitted', async () => {
+        const SubmittedPage = await arrange(
+          { assessment: makeAssessment(), participants: makeParticipants(1, 1) },
+          AUTHED_USER,
+          'Payments Service',
+          'admin',
+        );
+        const element = await SubmittedPage({ params: makeParams() });
+        const json = JSON.stringify(element);
+        expect(json).toContain('"href":"/projects"');
+        expect(json).toContain('"Payments Service"');
+        expect(json).toContain(`"Assessment #${ASSESSMENT_ID}"`);
+        expect(json).toContain('"label":"Submitted"');
+      });
+    });
+
+    // Property [#446, req §Story 4.3 final clause]: member sees no breadcrumb component
+    describe('Given the caller is a member (not admin)', () => {
+      it('member sees no breadcrumb component', async () => {
+        const SubmittedPage = await arrange(
+          { assessment: makeAssessment(), participants: makeParticipants(1, 1) },
+          AUTHED_USER,
+          undefined,
+          null,
+        );
+        const element = await SubmittedPage({ params: makeParams() });
+        const json = JSON.stringify(element);
+        expect(json).not.toContain('"href":"/projects"');
+      });
     });
   });
 });
