@@ -48,6 +48,17 @@ entries:
     # getProject service call → inline queries (consistent with B.5);
     # toast → inline error state with 5 s auto-dismiss; delete-button.test.ts separate file
     # issue #408: getOrgRole added to membership.ts; second user_organisations query eliminated
+    # Rev 2 (v11-requirements 1.3): Settings affordance must be header-area icon-and-label
+    # control with same prominence as "New Assessment" — see lld-v11-e11-1 §Pending changes — Rev 2.
+
+  - req: REQ-project-management-back-to-project-from-settings
+    lld: lld-v11-e11-1-project-management.md#pending-changes-rev-2
+    issue: 451
+    files: []
+    status: Approved
+    # NEW story added in v11-requirements rev 1.3 (Story 1.6). Visible "Back to project"
+    # link on /projects/[id]/settings, above the settings form, below the breadcrumb
+    # registration. Section anchor moves to a stable §B slot on first /lld-sync after merge.
 
   - req: REQ-project-management-edit-project
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-projects-api-read-edit-delete

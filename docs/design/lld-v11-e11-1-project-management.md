@@ -24,6 +24,10 @@ Stand up the `Project` entity end-to-end so V11's other epics have a stable foun
 
 Out of scope (covered by other E11 epics): assessment-list filter integration (E11.2), settings page (E11.3), NavBar / breadcrumbs / root redirect / last-visited (E11.4).
 
+#### Recent revisions
+
+- **Rev 2 (2026-05-03):** v11-requirements rev 1.3 added Story 1.6 ("Back to project" affordance on settings page) and reshaped Story 1.3's Settings affordance from a faint inline link to a header-area icon-and-label control. New design covered in [§Pending changes — Rev 2](#pending-changes-rev-2).
+
 ### Behavioural flows
 
 #### A.1 Create project (Story 1.1)
@@ -711,3 +715,176 @@ export const UpdateProjectSchema = z.object({
 - Settings page (`/projects/[id]/settings`) — **E11.3** (extends PATCH endpoint additively).
 - NavBar "Projects" item, breadcrumbs, root redirect, last-visited — **E11.4**.
 - The Org-Member redirect on `/projects` (Story 4.2) is implemented here in T1.5 so the page works on day one. E11.4 inherits this without rework.
+
+---
+
+<a id="pending-changes-rev-2"></a>
+
+## Pending changes — Rev 2
+
+Triggered by [v11-requirements rev 1.3](../requirements/v11-requirements.md#change-log) (2026-05-03). Two stories revise this epic: Story 1.3 amends the Settings affordance shape on the project dashboard, and Story 1.6 is a new story for a "Back to project" link on the settings page.
+
+### Story REQ-project-management-view-project-dashboard (Story 1.3 — Settings affordance prominence)
+
+**Stories:** 1.3 (rev 1.3 amendment)
+**Issue:** [#450](https://github.com/mironyx/feature-comprehension-score/issues/450) (bundles 1.3 + Story 2.2 because both edit `projects/[id]/page.tsx`)
+**Section to amend:** [§B.6 — Task T1.6: Project dashboard + inline edit](#LLD-v11-e11-1-project-dashboard-inline-edit)
+
+**Files:**
+
+- `src/app/(authenticated)/projects/[id]/page.tsx` — replace the inline `text-secondary` Settings link (currently lines 81–86) with a header-area icon-and-label control rendered alongside "New Assessment".
+- `src/app/(authenticated)/projects/[id]/page.test.ts` (or `.tsx`) — extend with assertion for the new affordance shape.
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Settings icon | `Settings` from `lucide-react` | `lucide-react` (same package as `Trash2`, `MoreHorizontal` already used in `assessment-overview-table.tsx`) |
+| Anchor button styling | Existing "New Assessment" Tailwind classes (`inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5`) | `projects/[id]/page.tsx:97-99` |
+| Page header layout | `PageHeader` `action` slot | `src/components/ui/page-header.tsx` |
+
+**Layout pattern.** The current page renders `PageHeader` (with `DeleteButton` action), then a faint Settings link, then `InlineEditHeader`, then the assessments section with a "New Assessment" link in its sub-header. Rev 2 layout:
+
+- Move "New Assessment" out of the assessments sub-header into the page header `action` slot, joined with **Settings** as a sibling icon-and-label control. Both render in the page header's right-hand action area at the same visual prominence.
+- Keep the empty-state CTA ("Create the first assessment") in the assessment list section — that empty-state path is unchanged.
+- Keep `DeleteButton` in the page header as today (admin-only). Settings + New Assessment render for both admin and repo_admin (the page already redirects Org Members at the role check).
+
+**Action slot composition sketch:**
+
+```tsx
+// projects/[id]/page.tsx (Rev 2 — header action slot)
+const headerActions = (
+  <div className="flex items-center gap-2">
+    <Link
+      href={`/projects/${id}/settings`}
+      className="inline-flex items-center gap-1.5 rounded-sm text-label font-medium border border-border h-9 px-3.5 text-text-primary hover:bg-surface-raised"
+      aria-label="Project settings"
+    >
+      <Settings size={16} aria-hidden />
+      Settings
+    </Link>
+    <Link
+      href={`/projects/${id}/assessments/new`}
+      className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5"
+    >
+      New Assessment
+    </Link>
+    {isAdmin && <DeleteButton projectId={id} />}
+  </div>
+);
+return (
+  <div className="space-y-section-gap">
+    <TrackLastVisitedProject projectId={id} />
+    <SetBreadcrumbs segments={[{ label: 'Projects', href: '/projects' }, { label: project.name }]} />
+    <PageHeader title={project.name} action={headerActions} />
+    <InlineEditHeader projectId={id} initialName={project.name} initialDescription={project.description} />
+    {/* …assessments section, no New Assessment link in sub-header… */}
+  </div>
+);
+```
+
+> **Why button-like Settings (not a primary button)?** Visual prominence parity with "New Assessment" is required by AC, but Settings is not the primary action on this page — Settings stays as a secondary control (bordered, surface-raised hover) while "New Assessment" remains the accent-coloured CTA. Both occupy the same header strip and are reachable without scrolling on 1280×720.
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 1.3):**
+
+> Given an admin views `/projects/[id]`, when the page renders, then a Settings affordance is visible in the page-header area (icon + "Settings" label, not a small inline link), positioned with the same visual prominence as the "New Assessment" button, and is reachable without scrolling on a 1280×720 viewport.
+
+**BDD specs:**
+
+```
+describe('Project dashboard — Settings affordance (rev 1.3)')
+  it('renders Settings link with icon and label inside the page header action slot')
+  it('renders Settings alongside New Assessment as a sibling header control')
+  it('does not render the legacy faint inline Settings link')
+  it('Settings link href is /projects/[id]/settings')
+```
+
+**Out of scope:** Settings page back-navigation — covered in Story 1.6 below.
+
+---
+
+### Story REQ-project-management-back-to-project-from-settings (Story 1.6 — NEW)
+
+**Stories:** 1.6 (new in rev 1.3)
+**Issue:** [#451](https://github.com/mironyx/feature-comprehension-score/issues/451)
+**Section to amend:** none yet — this story has no prior LLD section. Implementation belongs alongside the settings page (E11.3 §B.1), but the affordance itself is project-management navigation. Anchor created here as the source of truth; E11.3 §B.1 LLD will reference it.
+
+**Files:**
+
+- `src/app/(authenticated)/projects/[id]/settings/page.tsx` — add a "Back to project" link rendered above the `<SettingsForm>`. Server component already has `project.name` and `projectId` in scope.
+- `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (existing) — extend with assertion for the back link.
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Left-arrow icon | `ArrowLeft` from `lucide-react` | `lucide-react` (peer of `Settings`, `Trash2`) |
+| Anchor styling | Reuse the secondary-button class set defined for Settings affordance above (`inline-flex items-center gap-1.5 rounded-sm text-label font-medium border border-border h-9 px-3.5 text-text-primary hover:bg-surface-raised`) | new shared Tailwind utility — keep inline for now (one extra call site does not justify extraction) |
+| Project name + id | Already loaded by the page server component | `projects/[id]/settings/page.tsx:48-53` |
+
+**Placement.** Rendered as the first element inside the page content area, **above** `<SettingsForm>` and **below** the `<SetBreadcrumbs>` registration (which renders into the global breadcrumb bar, not the page body). On a 1280×720 viewport this places the back affordance ~80–100 px below the top of the viewport — visible without scrolling per AC.
+
+**Sketch:**
+
+```tsx
+// projects/[id]/settings/page.tsx (Rev 2 — back-to-project link)
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
+// …existing imports + load…
+
+return (
+  <>
+    <SetBreadcrumbs segments={[
+      { label: 'Projects', href: '/projects' },
+      { label: project.name, href: `/projects/${projectId}` },
+      { label: 'Settings' },
+    ]} />
+    <Link
+      href={`/projects/${projectId}`}
+      className="inline-flex items-center gap-1.5 rounded-sm text-label font-medium border border-border h-9 px-3.5 text-text-primary hover:bg-surface-raised mb-section-gap"
+      aria-label={`Back to ${project.name}`}
+    >
+      <ArrowLeft size={16} aria-hidden />
+      Back to {project.name}
+    </Link>
+    <SettingsForm projectId={projectId} projectName={project.name} initial={initial} />
+  </>
+);
+```
+
+> **Accessible name choice.** AC offers two options ("Back to <project name>" or generic "Back to project"). The sketch above uses the project-name form because the page already loads `project.name` for breadcrumbs — no extra cost — and a named destination is more informative for screen-reader users. Implementation may switch to the generic label if name length causes overflow on narrow viewports; mobile responsiveness is not pinned by AC.
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 1.6):**
+
+> 1. Given an admin is on `/projects/[id]/settings`, when the page renders, then a "Back to project" link/button is visible without scrolling on a 1280×720 viewport, positioned at or near the top of the settings content area.
+> 2. Given the admin clicks the "Back to project" link, when navigation completes, then the URL is `/projects/[id]` and the project dashboard renders.
+> 3. Given the link is rendered, when its accessible name is read, then it identifies the destination by project name (e.g. "Back to Payment Service") or by the generic "Back to project" label.
+> 4. Given a Repo Admin views the page, when it renders, then the same link is shown.
+
+**BDD specs:**
+
+```
+describe('Project settings page — Back to project (Story 1.6)')
+  it('renders an anchor pointing to /projects/[id]')
+  it('uses an accessible name that identifies the destination (project name or "Back to project")')
+  it('renders for both admin and repo_admin roles')
+  it('positions the link above the settings form, below the breadcrumb registration')
+```
+
+**Invariants reaffirmed:**
+
+- Org Members never reach this page — the existing redirect at [page.tsx:58-59](../../src/app/(authenticated)/projects/[id]/settings/page.tsx) sends `role === null` to `/assessments`. The new link does not change auth behaviour.
+- Breadcrumbs (Story 4.3, E11.4 §B.2) remain in addition to the Back link — the two affordances coexist per the rev 1.3 Note.
+
+**Manifest entry added (`coverage-v11-e11-1.yaml`):** see entry for `REQ-project-management-back-to-project-from-settings` (issue [#451](https://github.com/mironyx/feature-comprehension-score/issues/451)). Section moves into a stable §B anchor on first /lld-sync after merge.
+
+---
+
+### Tasks (Rev 2)
+
+| Task | Story | Issue | Files | Estimated diff |
+|------|-------|-------|-------|----------------|
+| T1.7 | 1.3 + 2.2 | [#450](https://github.com/mironyx/feature-comprehension-score/issues/450) | `projects/[id]/page.tsx`, tests | ~120–150 lines |
+| T1.8 | 1.6 | [#451](https://github.com/mironyx/feature-comprehension-score/issues/451) | `projects/[id]/settings/page.tsx`, tests | ~30–50 lines |
+
+T1.7 and T1.8 touch different files — parallelisable.
