@@ -5,6 +5,7 @@
 // to it, so /projects/[id] would be a no-op redirect loop. Unknown project
 // returns 404.
 // Design reference: docs/design/lld-v11-e11-3-project-context-config.md §B.1
+// Design reference: docs/design/lld-v11-e11-1-project-management.md §Story 1.6 (Back to project link)
 // Issue: #421
 
 import Link from 'next/link';
