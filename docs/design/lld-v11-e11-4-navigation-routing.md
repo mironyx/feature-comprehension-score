@@ -23,6 +23,10 @@ Wire the application shell — NavBar, breadcrumbs, root redirect, and last-visi
 
 Out of scope: project CRUD (E11.1), FCS scoping (E11.2), context config (E11.3).
 
+#### Recent revisions
+
+- **Rev 2 (2026-05-03):** v11-requirements rev 1.3 extended Story 4.3 to enumerate every project-scoped admin URL. Issue [#446](https://github.com/mironyx/feature-comprehension-score/issues/446) shipped breadcrumbs for `/results` and `/submitted`; the new-assessment page (`/projects/[id]/assessments/new`) is still missing them. New design covered in [§Pending changes — Rev 2](#pending-changes-rev-2).
+
 ### Behavioural flows
 
 #### A.1 NavBar role-conditional links (Story 4.1)
@@ -657,3 +661,85 @@ graph LR
   T1 --> T2
   T1 --> T3
 ```
+
+---
+
+<a id="pending-changes-rev-2"></a>
+
+## Pending changes — Rev 2
+
+Triggered by [v11-requirements rev 1.3](../requirements/v11-requirements.md#change-log) (2026-05-03). Story 4.3 extended its breadcrumb enumeration to cover **every** project-scoped admin URL. Two of the three additions are already shipped (issue [#446](https://github.com/mironyx/feature-comprehension-score/issues/446) — `/results` and `/submitted`); the third (`/projects/[id]/assessments/new`) is the only remaining gap.
+
+### Story REQ-navigation-and-routing-breadcrumbs (Story 4.3 — new-assessment breadcrumbs)
+
+**Stories:** 4.3 (rev 1.3 amendment, partial — `/results` and `/submitted` already done in #446)
+**Issue:** [#454](https://github.com/mironyx/feature-comprehension-score/issues/454)
+**Section to amend:** [§B.2 — Task T4.2: Breadcrumbs for project-scoped routes](#LLD-v11-e11-4-breadcrumbs)
+
+**Files:**
+
+- `src/app/(authenticated)/projects/[id]/assessments/new/page.tsx` — add `<SetBreadcrumbs>` registration. Server component already loads `project.name` at line 30, so no extra round-trip.
+- `tests/app/(authenticated)/projects/[id]/assessments/new/page.test.ts` (existing) — extend with breadcrumb assertion.
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Breadcrumb registration component | `SetBreadcrumbs` | [`src/components/set-breadcrumbs.tsx`](../../src/components/set-breadcrumbs.tsx) |
+| Breadcrumb provider context | `BreadcrumbProvider` (already in layout) | [`src/components/breadcrumb-provider.tsx`](../../src/components/breadcrumb-provider.tsx) |
+
+**Page integration sketch:**
+
+```tsx
+// projects/[id]/assessments/new/page.tsx (Rev 2 — breadcrumbs)
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
+// …existing imports + load…
+
+return (
+  <div className="space-y-section-gap">
+    <SetBreadcrumbs segments={[
+      { label: 'Projects', href: '/projects' },
+      { label: project.name, href: `/projects/${projectId}` },
+      { label: 'New Assessment' },
+    ]} />
+    <PageHeader title="New Assessment" subtitle="Create an FCS assessment for your team" />
+    <CreateAssessmentForm projectId={projectId} repositories={repos ?? []} />
+  </div>
+);
+```
+
+> **Why no admin-only guard?** This page is reachable only by admin and repo_admin — the existing `if (!role) redirect('/assessments')` at line 37 sends Org Members away before render. Admins should see breadcrumbs; this matches the rev 1.3 Note ("breadcrumb requirement applies to **every** project-scoped admin page").
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 4.3):**
+
+> Given an admin is on `/projects/[id]/assessments/new`, when the page renders, then breadcrumbs show `Projects > [Project Name] > New Assessment`, with the first two segments as links.
+
+**BDD specs:**
+
+```
+describe('New assessment page breadcrumbs (Story 4.3 rev 1.3)')
+  it('admin sees Projects > [Project Name] > New Assessment with the first two segments as links')
+  it('repo_admin sees the same breadcrumb chain')
+  it('Org Member never reaches this page (verified by existing redirect; spec lock)')
+```
+
+**Invariants reaffirmed:**
+
+- **I4 (members see no breadcrumbs).** Members redirect at line 37 before `<SetBreadcrumbs>` is reached. The provider's `setSegments` is never called for members on this page; `<BreadcrumbsBar>` falls through to its static map (which has no entry for `/projects/[id]/assessments/new`), so nothing renders. No new guard needed.
+- **DP 8 / shared admin views.** The new-assessment page is admin-and-repo-admin only by construction. No member-facing variant of this page exists, so there is no risk of leaking breadcrumbs to non-admins.
+
+---
+
+### §B.2 verification — `/results` and `/submitted` (already shipped via #446)
+
+Issue [#446](https://github.com/mironyx/feature-comprehension-score/issues/446) added `<SetBreadcrumbs>` to the results and submitted pages, satisfying two of the three rev 1.3 additions to Story 4.3. The implementation pattern matches the §B.2 template (server component loads project name, conditionally renders `<SetBreadcrumbs>` for admin/participant). No further design work required for those two ACs.
+
+The manifest entry for `REQ-navigation-and-routing-breadcrumbs` keeps `status: Revised` — Rev 2 covers the new-assessment gap; no status flip needed because the entry is already at Revised from the earlier #433 lld-sync.
+
+---
+
+### Tasks (Rev 2)
+
+| Task | Story | Issue | Files | Estimated diff |
+|------|-------|-------|-------|----------------|
+| T4.4 | 4.3 (new-assessment) | [#454](https://github.com/mironyx/feature-comprehension-score/issues/454) | `projects/[id]/assessments/new/page.tsx`, tests | ~20–30 lines |

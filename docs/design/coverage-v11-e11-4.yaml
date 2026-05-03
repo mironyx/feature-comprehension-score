@@ -41,12 +41,17 @@ entries:
       - src/app/(authenticated)/projects/[id]/page.tsx
       - src/app/(authenticated)/projects/[id]/settings/page.tsx
       - src/app/(authenticated)/projects/[id]/assessments/[aid]/page.tsx
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/results/page.tsx  # Added by #446
+      - src/app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page.tsx  # Added by #446
     status: Revised
     # /lld-sync flipped Draft → Revised (issue #433). §B.2 gained an
     # implementation note: admin assessment path fetches project name lazily
     # via a small projects.select('name') query inside renderAdminView, with
     # 'Project' fallback. Auth ordering on the page tightened to put
     # auth.getUser() above the existence query.
+    # Rev 2 (v11-requirements 1.3): Story 4.3 ACs extended to enumerate every project-scoped
+    # admin URL. /results and /submitted shipped under #446. /projects/[id]/assessments/new
+    # remains — covered by lld-v11-e11-4 §Pending changes — Rev 2.
 
   - req: REQ-navigation-and-routing-root-redirect
     lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-root-redirect-last-visited
