@@ -36,6 +36,10 @@ Move FCS rubric context from the org level to the project level, in two slices:
 
 Out of scope: project metadata edit on the dashboard (E11.1, already shipped); PRCC context — not changing in V11; cross-project context reuse.
 
+#### Recent revisions
+
+- **Rev 2 (2026-05-03):** v11-requirements rev 1.3 extended Story 3.1 with three structured fields already present at org-context level (domain vocabulary, focus areas, exclusions). UI parity is the driver — schema and engine already accept the fields. New design covered in [§Pending changes — Rev 2](#pending-changes-rev-2).
+
 ### Behavioural flows
 
 #### A.1 Edit project context & settings (Story 3.1)
@@ -722,3 +726,179 @@ The plan ([2026-04-30-v11-implementation-plan.md §Parallelisation Map](../plans
 - **T3.2 ↔ all other E11.2 tasks (#410, #412–#415):** parallel-safe.
 
 Recommended plan patch: change the E11.2 ↔ E11.3 edge in the parallelisation map from `parallel-safe` to `coordinate rubric pipeline ownership — T3.2 follows T2.2`.
+
+---
+
+<a id="pending-changes-rev-2"></a>
+
+## Pending changes — Rev 2
+
+Triggered by [v11-requirements rev 1.3](../requirements/v11-requirements.md#change-log) (2026-05-03). One story revises this epic: Story 3.1 extends the project context form with structured fields already present at org level — domain vocabulary, focus areas, exclusions — so users see UI parity between project-context and org-context surfaces.
+
+### Story REQ-project-context-and-config-configure-project-context-and-settings (Story 3.1 — extended fields)
+
+**Stories:** 3.1 (rev 1.3 amendment)
+**Issue:** [#453](https://github.com/mironyx/feature-comprehension-score/issues/453)
+**Sections to amend:** [§B.1 — Settings page + glob parseability](#LLD-v11-e11-3-settings-page) and (verification only) [§B.2 — Project context resolver + FCS rubric wiring](#LLD-v11-e11-3-resolver-and-pipeline)
+
+**Files:**
+
+- `src/components/context/tag-input.tsx` (new — extracted from `OrgContextForm`'s inline `TagInput`)
+- `src/components/context/vocab-row.tsx` (new — extracted from `OrgContextForm`'s inline `VocabRow`)
+- `src/app/(authenticated)/organisation/org-context-form.tsx` — replace the local `TagInput` and `VocabRow` definitions with imports from `src/components/context/`. Behaviour unchanged.
+- `src/app/(authenticated)/projects/[id]/settings/settings-form.tsx` — extend with vocabulary / focus-areas / exclusions sections; widen state and PATCH payload.
+- `src/app/(authenticated)/projects/[id]/settings/page.tsx` — extend `buildInitial()` to read `domain_vocabulary`, `focus_areas`, `exclusions` from the context JSON.
+- `src/app/api/projects/validation.ts` — extend `UpdateProjectSchema` and `CreateProjectSchema` with the three new optional fields, mirroring `OrganisationContextSchema`.
+- `src/app/api/projects/[id]/service.ts` — extend the `cf` (context fields) destructuring + filter to include the three new fields.
+- `tests/app/(authenticated)/projects/[id]/settings/page.test.ts` (existing) — assert vocab/focus/exclusions render with prior data.
+- `tests/app/api/projects/validation.test.ts` (existing) — extend with cap and shape tests for the three new fields.
+- `tests/lib/engine/fcs-pipeline-project-context.test.ts` (existing) — extend with one BDD spec proving the four shared fields reach the LLM prompt for a project (Story 3.1 AC 8).
+
+**Reused helpers — DO NOT re-implement:**
+
+| Need | Use this | Defined in |
+|------|---------|------------|
+| Tag-list editor (focus areas, exclusions) | `TagInput` (extracted from org form to `src/components/context/tag-input.tsx`) | originally [`org-context-form.tsx:31-73`](../../src/app/(authenticated)/organisation/org-context-form.tsx) |
+| Vocabulary row (term + definition) | `VocabRow` (extracted to `src/components/context/vocab-row.tsx`) | originally [`org-context-form.tsx:88-110`](../../src/app/(authenticated)/organisation/org-context-form.tsx) |
+| Domain notes textarea | inline `<textarea>` (already in `settings-form.tsx`); no extraction | `settings-form.tsx:227-239` |
+| Glob list | `GlobPatternList` (already extracted in `settings-form.tsx`) | `settings-form.tsx:74-134` |
+| Server-side context schema | `OrganisationContextSchema` already declares all six fields | [`src/lib/engine/prompts/artefact-types.ts:37-53`](../../src/lib/engine/prompts/artefact-types.ts) |
+| RPC merge semantics | `patch_project` already does `context || EXCLUDED.context` JSON-merge | [`supabase/schemas/functions.sql:439-445`](../../supabase/schemas/functions.sql) — no SQL change |
+
+**Why extract TagInput / VocabRow rather than copy?** Two call sites with the same logic (currently org form, will become both forms) — the V11 design principle "minimise changes" applies to *features*, not to forbidding micro-refactors. Two copies will drift; one shared component will not. Extraction is a ~70-line move (no logic change, just file relocation + named exports). The existing `OrgContextForm` test coverage continues to apply via the imported components.
+
+**Validation extension:**
+
+```ts
+// src/app/api/projects/validation.ts (Rev 2 — additive only)
+import { z } from 'zod';
+
+const VocabRowSchema = z.object({
+  term: z.string().min(1).max(100),
+  definition: z.string().min(1).max(500),
+});
+
+// Mirror the caps used in OrganisationContextSchema (max 5) so project and
+// org forms agree.
+const FocusAreasSchema = z.array(z.string().min(1)).max(5);
+const ExclusionsSchema = z.array(z.string().min(1)).max(5);
+const VocabularySchema = z.array(VocabRowSchema).max(20);
+
+export const UpdateProjectSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    glob_patterns: GlobPatternsSchema.optional(),
+    domain_notes: z.string().max(2000).optional(),
+    domain_vocabulary: VocabularySchema.optional(),  // NEW
+    focus_areas: FocusAreasSchema.optional(),         // NEW
+    exclusions: ExclusionsSchema.optional(),          // NEW
+    question_count: z.number().int().min(3).max(8).optional(),
+  })
+  .refine((o) => Object.keys(o).length > 0, { message: 'at_least_one_field' });
+```
+
+> **Cap choice (vocab=20, focus/excl=5).** Focus areas and exclusions match `OrganisationContextSchema`'s explicit `.max(5)`. The org schema does not cap vocabulary (`z.array(z.object({...})).optional()`), but a defensive cap of 20 here prevents users pasting a 1000-row spreadsheet and bloating the prompt. If a user reports the cap is too tight, raise it — it is not a load-bearing constraint.
+
+> **Vocab field caps (term=100, definition=500).** Org schema does not cap individual vocab entries either. Pin them here so a single oversized entry cannot blow the prompt budget. Same rationale: defensive, not load-bearing.
+
+**Service extension:**
+
+```ts
+// src/app/api/projects/[id]/service.ts (Rev 2 — extend cf)
+const {
+  name, description,
+  glob_patterns, domain_notes, question_count,
+  domain_vocabulary, focus_areas, exclusions,  // NEW
+} = patch;
+
+const cf = Object.fromEntries(
+  [
+    ['glob_patterns', glob_patterns],
+    ['domain_notes', domain_notes],
+    ['question_count', question_count],
+    ['domain_vocabulary', domain_vocabulary],  // NEW
+    ['focus_areas', focus_areas],               // NEW
+    ['exclusions', exclusions],                 // NEW
+  ].filter(([, v]) => v !== undefined),
+);
+```
+
+The RPC's `context || EXCLUDED.context` merge handles the new keys automatically — they slot into the same JSON blob.
+
+**Form extension shape:**
+
+```ts
+// src/app/(authenticated)/projects/[id]/settings/settings-form.tsx (Rev 2)
+export interface SettingsInitial {
+  glob_patterns: string[];
+  domain_notes: string;
+  question_count: number;
+  domain_vocabulary: { term: string; definition: string }[];  // NEW
+  focus_areas: string[];                                       // NEW
+  exclusions: string[];                                        // NEW
+}
+
+// State:
+//   const [vocabulary, setVocabulary] = useState(makeVocabRows(initial.domain_vocabulary));
+//   const [focusAreas, setFocusAreas] = useState(initial.focus_areas);
+//   const [exclusions, setExclusions] = useState(initial.exclusions);
+//
+// buildChangedSubset → also diff vocabulary / focus_areas / exclusions; include
+// in PATCH payload only when the user changed them.
+```
+
+> **State shape parity with `OrgContextForm`.** Use the same `_id` ref pattern for vocabulary rows (stable React keys across reorders). The extracted `VocabRow` component already exposes the contract.
+
+**Pipeline / rubric wiring (Story 3.1 AC 8 verification only).**
+
+The rubric prompt builder already reads `domain_vocabulary`, `focus_areas`, `exclusions`, `domain_notes` from `OrganisationContext` — see [`src/lib/engine/prompts/`](../../src/lib/engine/prompts/) (the schema in `artefact-types.ts` already exposes all four). `loadProjectPromptContext` returns the full JSON blob. Therefore the AC
+
+> Given the rubric generator runs for an FCS assessment in the project, when it builds the prompt, then domain vocabulary, focus areas, exclusions, and domain notes from the project context are injected.
+
+is **already true** at the engine layer; only the data path needs to be filled in (form → API → JSON column → resolver → prompt). The form/API/column path is what Story 3.1 rev 2 wires up.
+
+**No change to §B.2.** Add a verification spec to `tests/lib/engine/fcs-pipeline-project-context.test.ts` that pins all four fields appear in the assembled prompt for a project where context contains all of them; no engine code change.
+
+**Acceptance criteria (verbatim from rev 1.3 §Story 3.1):**
+
+> 1. Given an admin on `/projects/[id]/settings` edits any of the project context fields (glob patterns, domain vocabulary, focus areas, exclusions, domain notes, question count) and saves, when the API processes the request, then values are persisted to the `organisation_contexts` row keyed by `project_id`.
+> 2. Given a project has no prior context row, when an admin opens settings, then the form renders with empty glob patterns, no domain-vocabulary rows, no focus areas, no exclusions, empty domain notes, and the system default question count selected.
+> 3. Given the question count submitted is outside 3–5, when validation runs, then the API returns 400 with a range error and the row is not modified. (V11 cap is 3–8; rev 1.3 wording lags but the API enforces 3–8 — see §B.1 above.)
+> 4. Given a glob pattern is unparseable, when validation runs, then the API returns 400 identifying the offending pattern.
+> 5. Given a Repo Admin saves changes, when the API authorises, then the changes are accepted.
+> 6. Given an Org Member requests `/projects/[id]/settings`, when the route resolves, then they are redirected to `/assessments`.
+> 7. Given the settings page is rendered, when an admin compares it to the organisation-level context form (`OrgContextForm`), then the project form exposes at minimum the same field shapes for: domain vocabulary (list of term + definition rows), focus areas (tag list), exclusions (tag list), domain notes (free-text area). Project-only fields (glob patterns, question count) are additional.
+> 8. Given the rubric generator runs for an FCS assessment in the project, when it builds the prompt, then domain vocabulary, focus areas, exclusions, and domain notes from the project context are injected.
+
+**BDD specs:**
+
+```
+describe('Project settings — extended context fields (rev 1.3)')
+  it('renders empty vocabulary/focus/exclusions sections when context row is absent')
+  it('renders existing vocabulary rows from organisation_contexts.context.domain_vocabulary')
+  it('PATCH payload includes only the fields the user changed (vocabulary, focus, exclusions, others)')
+  it('validation rejects vocabulary > 20 rows / individual term > 100 / definition > 500')
+  it('validation rejects focus_areas > 5 / exclusions > 5')
+  it('extracted TagInput is the same component used by OrgContextForm (import path test)')
+  it('extracted VocabRow is the same component used by OrgContextForm (import path test)')
+
+describe('FCS rubric uses extended project context (rev 1.3 AC 8)')
+  it('domain_vocabulary, focus_areas, exclusions, and domain_notes all appear in the assembled rubric prompt for a project')
+```
+
+**Invariants reaffirmed:**
+
+- **Schema is single-source.** Form/validation/service all use field names matching `OrganisationContextSchema`. No translation layer.
+- **No SQL migration needed.** The `context` jsonb column already accepts arbitrary JSON; the RPC merge handles new keys without alteration.
+- **Org form behaviour unchanged.** Extracting `TagInput` / `VocabRow` to `src/components/context/` must not change `OrgContextForm`'s rendered output — extraction is move-only.
+
+---
+
+### Tasks (Rev 2)
+
+| Task | Story | Issue | Files | Estimated diff |
+|------|-------|-------|-------|----------------|
+| T3.3 | 3.1 | [#453](https://github.com/mironyx/feature-comprehension-score/issues/453) | extracted components + form + validation + service + tests | ~150–180 lines |
+
+T3.3 is a single issue but a larger one. If review feedback says ">200 line PR", split into T3.3a (extract components, no behaviour change) and T3.3b (form/validation/service extension). Keep it together unless that signal arrives.
