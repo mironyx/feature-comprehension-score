@@ -173,7 +173,8 @@ classDiagram
 | I1 | Admins (Org Admin + Repo Admin) see "Projects", "My Assessments", and "Organisation" links; Org Members see "My Assessments" only | BDD spec + visual test (T4.1) |
 | I2 | FCS logo links to `/projects` for admins, `/assessments` for members | BDD spec (T4.1) |
 | I3 | `BreadcrumbsBar` renders segments from context when available, falls back to static map otherwise | BDD spec (T4.2) |
-| I4 | Members see no breadcrumbs on the assessment detail page (the only project-scoped route they can reach, via invitation link) | BDD spec — page does not render `SetBreadcrumbs` when role is null (T4.2) |
+| I4 | Members see no breadcrumbs on any project-scoped route they can reach (assessment detail, results, submitted via invitation link) | BDD spec — pages do not render `SetBreadcrumbs` when role is null (T4.2) |
+| I9 | *(rev 1.3, Story 4.3 enumeration)* Every project-scoped admin URL renders breadcrumbs back through the project dashboard to the projects list. The full URL set is: `/projects/[id]`, `/projects/[id]/settings`, `/projects/[id]/assessments/new`, `/projects/[id]/assessments/[aid]`, `/projects/[id]/assessments/[aid]/results`, `/projects/[id]/assessments/[aid]/submitted`. /results and /submitted shipped under #446; /new is the remaining gap. | BDD spec coverage across all six pages (issues #433, #446, #454) |
 | I5 | Root redirect: admin with valid last-visited → `/projects/[id]`; admin without → `/projects`; member → `/assessments` | BDD spec (T4.3) |
 | I6 | Stale `lastVisitedProjectId` (deleted project) is cleared and admin is redirected to `/projects` | BDD spec (T4.3) |
 | I7 | Sign-out clears `lastVisitedProjectId` from `localStorage` | BDD spec (T4.3) |
@@ -186,6 +187,7 @@ Maps to v11-requirements §Epic 4 ACs. Story-level coverage:
 - **Story 4.1** — NavBar shows "Projects", "My Assessments", and "Organisation" for admins (including Repo Admins). Members see "My Assessments" only. FCS logo href is role-conditional.
 - **Story 4.2** — Already done (E11.1 T1.5). Verified in T4.1 BDD specs.
 - **Story 4.3** — Breadcrumbs on `/projects/[id]` show `Projects > [Name]`; on `/projects/[id]/settings` show `Projects > [Name] > Settings`; on `/projects/[id]/assessments/[aid]` show `Projects > [Name] > Assessment`. No breadcrumbs for members on project routes.
+  - **Rev 1.3 amendment** — Story 4.3 ACs extended to enumerate **every** project-scoped admin URL. New chains: `/results` shows `Projects > [Name] > Assessment #[aid] > Results` (first three segments as links); `/submitted` shows `Projects > [Name] > Assessment #[aid] > Submitted`; `/assessments/new` shows `Projects > [Name] > New Assessment` (first two segments as links). Members continue to see no breadcrumbs on any project-scoped route. `/results` + `/submitted` shipped under issue [#446](https://github.com/mironyx/feature-comprehension-score/issues/446); `/assessments/new` covered by issue [#454](https://github.com/mironyx/feature-comprehension-score/issues/454). See [§Pending changes — Rev 2](#pending-changes-rev-2).
 - **Story 4.4** — Root `/` redirects: admin with last-visited → project dashboard; admin without → `/projects`; member → `/assessments`.
 - **Story 4.5** — Already done (E11.2). Deep-links work; `pid`/`aid` mismatch → 404; legacy `/assessments/[aid]` → 404.
 - **Story 4.6** — `lastVisitedProjectId` written on project dashboard visit; cleared on sign-out; stale values detected and cleared at root redirect.
@@ -208,6 +210,14 @@ describe('BreadcrumbsBar — project-scoped routes')
   it('Project name breadcrumb segment links to /projects/[id]')
   it('Member on /projects/[id]/assessments/[aid] sees no breadcrumbs')
   it('Static routes (/assessments, /organisation) still use ROUTE_MAP fallback')
+
+# Rev 1.3 additions — Story 4.3 enumerated every project-scoped admin URL.
+# /results + /submitted already shipped via #446; /new covered by #454.
+describe('BreadcrumbsBar — rev 1.3 enumerated admin routes')
+  it('/projects/[id]/assessments/[aid]/results shows Projects > [Name] > Assessment #[aid] > Results (issue #446 — shipped)')
+  it('/projects/[id]/assessments/[aid]/submitted shows Projects > [Name] > Assessment #[aid] > Submitted (issue #446 — shipped)')
+  it('/projects/[id]/assessments/new shows Projects > [Name] > New Assessment (issue #454)')
+  it('Members never see breadcrumbs on /results or /submitted (existing redirect for /new)')
 
 describe('Root redirect')
   it('Unauthenticated visitor redirected to /auth/sign-in')
