@@ -32,6 +32,10 @@ vi.mock('next/link', () => ({
   }),
 }));
 
+vi.mock('@/lib/supabase/membership', () => ({
+  getOrgRole: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -39,6 +43,7 @@ vi.mock('next/link', () => ({
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
 import { redirect } from 'next/navigation';
+import { getOrgRole } from '@/lib/supabase/membership';
 
 const mockCreateServer = vi.mocked(createServerSupabaseClient);
 const mockCreateSecret = vi.mocked(createSecretSupabaseClient);
@@ -78,11 +83,10 @@ function makeParticipants(total: number, completed: number) {
 interface SecretClientOptions {
   assessment: object | null;
   participants: object[];
-  orgMembership?: { github_role: string } | null;
 }
 
 function makeSecretClient(opts: SecretClientOptions) {
-  const { assessment, participants, orgMembership = null } = opts;
+  const { assessment, participants } = opts;
   return {
     from: vi.fn((table: string) => {
       if (table === 'assessments') {
@@ -101,17 +105,6 @@ function makeSecretClient(opts: SecretClientOptions) {
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockResolvedValue({ data: participants, error: null }),
-          }),
-        };
-      }
-      if (table === 'user_organisations') {
-        return {
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                maybeSingle: vi.fn().mockResolvedValue({ data: orgMembership, error: null }),
-              }),
-            }),
           }),
         };
       }
@@ -165,9 +158,11 @@ async function arrange(
   opts: SecretClientOptions,
   user: { id: string } | null = AUTHED_USER,
   projectName?: string,
+  orgRole: 'admin' | null = null,
 ) {
   mockCreateServer.mockResolvedValue(makeServerClient(user, projectName) as never);
   mockCreateSecret.mockReturnValue(makeSecretClient(opts) as never);
+  vi.mocked(getOrgRole).mockResolvedValue(orgRole);
   const { default: SubmittedPage } = await import('@/app/(authenticated)/projects/[id]/assessments/[aid]/submitted/page');
   return SubmittedPage;
 }
@@ -214,13 +209,10 @@ describe('Assessment submitted confirmation page', () => {
     describe('Given the caller is an admin', () => {
       it('admin sees Projects > Project > Assessment #N > Submitted', async () => {
         const SubmittedPage = await arrange(
-          {
-            assessment: makeAssessment(),
-            participants: makeParticipants(1, 1),
-            orgMembership: { github_role: 'admin' },
-          },
+          { assessment: makeAssessment(), participants: makeParticipants(1, 1) },
           AUTHED_USER,
           'Payments Service',
+          'admin',
         );
         const element = await SubmittedPage({ params: makeParams() });
         const json = JSON.stringify(element);
@@ -234,11 +226,12 @@ describe('Assessment submitted confirmation page', () => {
     // Property [#446, req §Story 4.3 final clause]: member sees no breadcrumb component
     describe('Given the caller is a member (not admin)', () => {
       it('member sees no breadcrumb component', async () => {
-        const SubmittedPage = await arrange({
-          assessment: makeAssessment(),
-          participants: makeParticipants(1, 1),
-          orgMembership: null,
-        });
+        const SubmittedPage = await arrange(
+          { assessment: makeAssessment(), participants: makeParticipants(1, 1) },
+          AUTHED_USER,
+          undefined,
+          null,
+        );
         const element = await SubmittedPage({ params: makeParams() });
         const json = JSON.stringify(element);
         expect(json).not.toContain('"href":"/projects"');

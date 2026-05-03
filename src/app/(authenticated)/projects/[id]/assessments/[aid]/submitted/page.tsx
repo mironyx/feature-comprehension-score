@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createSecretSupabaseClient } from '@/lib/supabase/secret';
+import { getOrgRole } from '@/lib/supabase/membership';
 import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 
 interface SubmittedPageProps {
@@ -49,13 +50,8 @@ export default async function SubmittedPage({ params }: SubmittedPageProps) {
   const total = participants.length;
   const completed = participants.filter(p => p.status === 'submitted').length;
 
-  const { data: orgMembership } = await adminSupabase
-    .from('user_organisations')
-    .select('github_role')
-    .eq('user_id', user.id)
-    .eq('org_id', assessment.org_id)
-    .maybeSingle();
-  const isAdmin = orgMembership?.github_role === 'admin';
+  const callerRole = await getOrgRole(supabase, user.id, assessment.org_id);
+  const isAdmin = callerRole === 'admin';
   const projectName = isAdmin
     ? (await supabase.from('projects').select('name').eq('id', projectId).maybeSingle()).data?.name
     : undefined;
