@@ -128,17 +128,22 @@ Update the LLD's Document Control table:
 
 ### Step 3c: Remove shipped Rev X blocks
 
-After reconciling Part B against shipped code, locate any `## Pending changes — Rev N`
-sections at the end of the LLD. For each `### Story <REQ>` block whose REQ matches an
-entry that this sync just flipped to `Implemented` (Step 3b), delete the block. Leave
-unrelated blocks intact — partial sync is allowed.
+After reconciling Part B against shipped code, locate any `## Pending changes —
+Rev N` sections. For each `### Story <REQ>` block in those sections whose REQ
+matches an entry Step 3b just touched:
 
-If a `## Pending changes — Rev N` section becomes empty after deletions, delete the
-section heading and its leading separator (`---`) too. Multiple Rev sections may stack;
-remove only the ones whose blocks are now fully absorbed.
+- If the story is **completely new** (no existing Part B section in the body),
+  promote the addendum block to a permanent Part B section first — refined to
+  reflect what shipped, with a stable `<a id="LLD-<epic-id>-<story-slug>"></a>`
+  anchor derived from the REQ. Update the manifest entry's `lld:` to point at
+  the new anchor.
+- Then delete the block from the `## Pending changes` section.
 
-The corresponding manifest entries get their `lld_revision` bumped and `status` flipped
-to `Implemented` in Step 3b.
+Leave unrelated blocks intact — partial sync is allowed. If a `## Pending
+changes — Rev N` section becomes empty after deletions, delete the section
+heading and its leading separator (`---`) too.
+
+Step 3b handles `lld_revision` and `status` for both cases.
 
 ### Step 4: Produce the sync report
 
