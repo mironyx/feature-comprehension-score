@@ -112,9 +112,12 @@ in **revision mode** instead of the greenfield creation process.
    polishing, change-log churn, and frontmatter noise.
 2. **For each affected story**, locate the LLD that owns the matching
    manifest entry. In that LLD:
-   - **Part A** — extend in place *if required* with a "Recent revisions"
-     mention (a one-line bullet or short paragraph extension noting the new
-     revision and what it covers).
+   - **Part A** — update in place to reflect the new revision. At minimum,
+     note the revision in a "Recent revisions" line. Beyond that: extend the
+     AC list, BDD specs, invariants, and behavioural flows wherever Rev N
+     introduces new stories or changes that belong in human-reviewable
+     Part A — do not treat the Rev N section in Part B as a substitute for
+     missing Part A content.
    - **Part B** — append `## Pending changes — Rev N` at the end of the file,
      where `N` is the next available revision number (r2, r3, …). Within that
      section, write one `### Story <REQ>` block per changed story, following
