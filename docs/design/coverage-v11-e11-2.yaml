@@ -18,14 +18,18 @@ entries:
     # files: populated by /feature-end after merge.
 
   - req: REQ-fcs-scoped-to-projects-project-scoped-assessment-list
-    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-project-scoped-list
-    issue: 414
+    lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-fix-441
+    issue: 441
     files:
-      - src/app/(authenticated)/projects/[id]/assessment-list.tsx
       - src/app/(authenticated)/projects/[id]/page.tsx
-    status: Revised
-    # Issue #414 built a bespoke card list instead of reusing AssessmentOverviewTable.
-    # LLD corrected by §B.9 (fix issue #441). /feature-end for #441 will update files + status.
+      - src/app/(authenticated)/organisation/assessment-overview-table.tsx
+      - src/app/api/assessments/helpers.ts
+      - src/app/(authenticated)/organisation/load-assessments.ts
+      - src/app/(authenticated)/organisation/page.tsx
+      - src/app/(authenticated)/organisation/deleteable-assessment-table.tsx
+    status: Implemented
+    # Issue #414 built a bespoke card list (assessment-list.tsx, now deleted).
+    # Issue #441 corrected that: project dashboard now uses AssessmentOverviewTable.
 
   - req: REQ-fcs-scoped-to-projects-my-pending-assessments
     lld: lld-v11-e11-2-fcs-scoped-to-projects.md#LLD-v11-e11-2-pending-queue

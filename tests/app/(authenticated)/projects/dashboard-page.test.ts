@@ -97,6 +97,7 @@ const MOCK_PROJECT = {
  * Builds a mock Supabase client for page.tsx queries:
  *   auth.getUser() → user
  *   .from('projects').select().eq().eq().maybeSingle() → project
+ *   .from('assessments').select().eq().eq().order() → [] (empty — tests focus on access control)
  *
  * getOrgRole is mocked separately via vi.mock('@/lib/supabase/membership').
  */
@@ -114,12 +115,22 @@ function makeClient({
   const makeSelectChain = (data: unknown) =>
     ({ select: vi.fn().mockReturnValue(makeEq1(data)) });
 
+  const makeOrder = (data: unknown) =>
+    ({ order: vi.fn().mockResolvedValue({ data, error: null }) });
+  const makeEq2Assessments = (data: unknown) =>
+    ({ eq: vi.fn().mockReturnValue(makeOrder(data)) });
+  const makeEq1Assessments = (data: unknown) =>
+    ({ eq: vi.fn().mockReturnValue(makeEq2Assessments(data)) });
+  const makeSelectAssessments = (data: unknown) =>
+    ({ select: vi.fn().mockReturnValue(makeEq1Assessments(data)) });
+
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: USER_ID } } }),
     },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === 'projects') return makeSelectChain(project);
+      if (table === 'assessments') return makeSelectAssessments([]);
       return makeSelectChain(null);
     }),
   };
@@ -289,6 +300,58 @@ describe('/projects/[id] dashboard', () => {
       expect(rendered).toContain('"initialName"');
       expect(rendered).toContain(MOCK_PROJECT.name);
       expect(rendered).toContain('"initialDescription"');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property: Org Admin sees Settings link — #440
+  // [lld-v11-e11-3-project-context-config.md §B.1 I9]
+  // -------------------------------------------------------------------------
+
+  describe('Given an Org Admin on the project dashboard (#440)', () => {
+    it('renders a Settings link pointing to /projects/[id]/settings', async () => {
+      mockGetOrgRole.mockResolvedValue('admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`/projects/${PROJECT_ID}/settings`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property: Repo Admin also sees Settings link — #440
+  // [lld-v11-e11-3-project-context-config.md §B.1 I9]
+  // -------------------------------------------------------------------------
+
+  describe('Given a Repo Admin on the project dashboard (#440)', () => {
+    it('also sees the Settings link', async () => {
+      mockGetOrgRole.mockResolvedValue('repo_admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`/projects/${PROJECT_ID}/settings`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property: New Assessment button visible at page level — #440
+  // [req §Story 1.3 AC1] "shows a 'New assessment' entry point — always"
+  // [lld-v11-e11-1-project-management.md §B.6 I10]
+  // -------------------------------------------------------------------------
+
+  describe('Given a project with existing assessments (#440)', () => {
+    it('renders New Assessment button with correct href at page level, not only in empty state', async () => {
+      mockGetOrgRole.mockResolvedValue('admin');
+      const client = makeClient();
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
+
+      expect(JSON.stringify(result)).toContain(`"href":"/projects/${PROJECT_ID}/assessments/new"`);
     });
   });
 });

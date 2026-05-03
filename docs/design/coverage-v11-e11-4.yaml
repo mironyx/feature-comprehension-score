@@ -13,6 +13,14 @@ entries:
     # /lld-sync flipped Draft → Revised (issue #432). Implementation notes added
     # in §B.1 for parallelised layout reads + LAST_VISITED_PROJECT_KEY export.
     # Status stays Revised (outranks Implemented until next feature confirms shape).
+    # v1.2: Story 4.1 updated — admins also see "My Assessments" link. Issue #438 covers fix.
+
+  - req: REQ-navigation-and-routing-admin-my-assessments
+    lld: lld-v11-e11-4-navigation-routing.md#LLD-v11-e11-4-navbar-role-links
+    issue: 438
+    files: []
+    status: Draft
+    # Regression fix: admin NavBar must include "My Assessments" link to /assessments.
 
   - req: REQ-navigation-and-routing-projects-list-page
     lld: lld-v11-e11-1-project-management.md#LLD-v11-e11-1-project-pages-list-create

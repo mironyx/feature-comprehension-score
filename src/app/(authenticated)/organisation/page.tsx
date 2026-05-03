@@ -69,7 +69,7 @@ export default async function OrganisationPage() {
     {
       id: 'assessments',
       label: 'Assessments',
-      content: <DeleteableAssessmentTable initialAssessments={assessments} />,
+      content: <DeleteableAssessmentTable initialAssessments={assessments} showProjectColumn />,
     },
     {
       id: 'context',

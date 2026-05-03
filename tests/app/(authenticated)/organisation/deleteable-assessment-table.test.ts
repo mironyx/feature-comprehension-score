@@ -127,6 +127,7 @@ function makeAssessmentItem(overrides: Partial<AssessmentListItem> = {}): Assess
     rubric_retry_count: 0,
     rubric_error_retryable: null,
     project_id: 'proj-1',
+    project_name: null,
     ...overrides,
   };
 }

@@ -12,10 +12,12 @@ import { DeleteAssessmentDialog } from './delete-assessment-dialog';
 
 export interface DeleteableAssessmentTableProps {
   initialAssessments: AssessmentListItem[];
+  showProjectColumn?: boolean;
 }
 
 export function DeleteableAssessmentTable({
   initialAssessments,
+  showProjectColumn,
 }: DeleteableAssessmentTableProps): React.ReactElement {
   const [assessments, setAssessments] = useState<AssessmentListItem[]>(initialAssessments);
   useEffect(() => { setAssessments(initialAssessments); }, [initialAssessments]);
@@ -56,7 +58,7 @@ export function DeleteableAssessmentTable({
 
   return (
     <>
-      <AssessmentOverviewTable assessments={assessments} onDelete={onDelete} />
+      <AssessmentOverviewTable assessments={assessments} onDelete={onDelete} showProjectColumn={showProjectColumn} />
       <DeleteAssessmentDialog
         assessment={target}
         isDeleting={isDeleting}

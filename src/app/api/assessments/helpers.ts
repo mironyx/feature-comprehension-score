@@ -40,6 +40,7 @@ export interface AssessmentListItem {
   rubric_retry_count: number;
   rubric_error_retryable: boolean | null;
   project_id: string | null;
+  project_name: string | null;
 }
 
 export const VALID_TYPES = new Set<string>(['prcc', 'fcs']);
@@ -66,7 +67,8 @@ export function toListItem(
          conclusion: Conclusion; config_comprehension_depth: ComprehensionDepth;
          created_at: string;
          rubric_error_code?: string | null; rubric_retry_count?: number | null;
-         rubric_error_retryable?: boolean | null; project_id?: string | null },
+         rubric_error_retryable?: boolean | null; project_id?: string | null;
+         projects?: unknown },
   counts: ParticipantCounts,
 ): AssessmentListItem {
   return {
@@ -86,6 +88,7 @@ export function toListItem(
     rubric_retry_count: row.rubric_retry_count ?? 0,
     rubric_error_retryable: row.rubric_error_retryable ?? null,
     project_id: row.project_id ?? null,
+    project_name: (row.projects as { name: string } | null)?.name ?? null,
   };
 }
 

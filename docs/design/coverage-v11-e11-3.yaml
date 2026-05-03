@@ -7,6 +7,7 @@ entries:
       - src/app/(authenticated)/projects/[id]/settings/page.tsx
       - src/app/(authenticated)/projects/[id]/settings/settings-form.tsx
       - src/app/api/projects/[id]/service.ts
+      - src/app/(authenticated)/projects/[id]/page.tsx  # Settings link entry point — fix #440
     status: Implemented
 
   - req: REQ-project-context-and-config-rubric-uses-project-context
