@@ -7,106 +7,16 @@
 import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { validateOrgContext } from './org-context-validation';
 import type { OrganisationContext } from '@/lib/engine/prompts';
+import { TagInput } from '@/components/context/tag-input';
+import { VocabRow } from '@/components/context/vocab-row';
+
+const INPUT_CLASSES = 'rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary';
 
 interface OrgContextFormProps {
   readonly orgId: string;
   readonly initial: OrganisationContext;
-}
-
-// ---------------------------------------------------------------------------
-// Tag input sub-component
-// ---------------------------------------------------------------------------
-
-interface TagInputProps {
-  readonly label: string;
-  readonly items: string[];
-  readonly max: number;
-  readonly onAdd: (value: string) => void;
-  readonly onRemove: (index: number) => void;
-}
-
-function TagInput({ label, items, max, onAdd, onRemove }: TagInputProps) {
-  const [draft, setDraft] = useState('');
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const trimmed = draft.trim();
-    if (!trimmed || items.length >= max) return;
-    onAdd(trimmed);
-    setDraft('');
-  }
-
-  return (
-    <div className="space-y-2">
-      <label className="text-label text-text-secondary block">{label} (max {max})</label>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item, i) => (
-          <Badge key={`${item}-${i}`} className="bg-surface-raised text-text-primary gap-1">
-            {item}
-            <button
-              type="button"
-              onClick={() => onRemove(i)}
-              className="ml-1 text-text-secondary hover:text-destructive"
-              aria-label={`Remove ${item}`}
-            >
-              x
-            </button>
-          </Badge>
-        ))}
-      </div>
-      {items.length < max && (
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type and press Enter"
-          className="w-full rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary"
-        />
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Vocabulary row sub-component
-// ---------------------------------------------------------------------------
-
-interface VocabRowProps {
-  readonly term: string;
-  readonly definition: string;
-  readonly onChange: (field: 'term' | 'definition', value: string) => void;
-  readonly onRemove: () => void;
-}
-
-const INPUT_CLASSES = 'rounded-sm border border-border bg-background px-3 py-1.5 text-body text-text-primary placeholder:text-text-secondary';
-
-function VocabRow({ term, definition, onChange, onRemove }: VocabRowProps) {
-  return (
-    <div className="flex gap-2 items-start">
-      <input
-        type="text"
-        value={term}
-        onChange={(e) => onChange('term', e.target.value)}
-        placeholder="Term"
-        className={`flex-1 ${INPUT_CLASSES}`}
-      />
-      <input
-        type="text"
-        value={definition}
-        onChange={(e) => onChange('definition', e.target.value)}
-        placeholder="Definition"
-        className={`flex-[2] ${INPUT_CLASSES}`}
-      />
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} aria-label="Remove row">
-        x
-      </Button>
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------

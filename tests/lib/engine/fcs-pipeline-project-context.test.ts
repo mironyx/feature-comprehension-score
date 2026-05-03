@@ -341,4 +341,42 @@ describe('FCS rubric — project-context wiring', () => {
     };
     expect(AssembledArtefactSetSchema.safeParse(overBound).success).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // Rev 1.3 AC 8 — issue #453
+  // [req §Story 3.1 AC 8, lld §Pending changes — Rev 2, Invariant I11]
+  // "domain vocabulary, focus areas, exclusions, and domain notes from the
+  //  project context are injected" into the assembled rubric prompt.
+  // The engine already reads all four fields from OrganisationContext;
+  // this test pins the data-path from loadProjectPromptContext through
+  // extractArtefacts to the artefacts.organisation_context object.
+  // -------------------------------------------------------------------------
+
+  it('domain_vocabulary, focus_areas, exclusions, and domain_notes all appear in the assembled rubric prompt for a project [req §Story 3.1 AC8, #453]', async () => {
+    vi.mocked(loadProjectPromptContext).mockResolvedValue({
+      domain_vocabulary: [
+        { term: 'ADR', definition: 'Architecture Decision Record' },
+        { term: 'FCS', definition: 'Feature Comprehension Score' },
+      ],
+      focus_areas: ['rubric generation', 'context loading'],
+      exclusions: ['test harness', 'generated fixtures'],
+      domain_notes: 'Use British English throughout. Follow ADR conventions.',
+    });
+
+    const adminSupabase = makeMockAdminClient();
+    await triggerRubricGeneration(makeTriggerParams(adminSupabase));
+    await flushAsync();
+
+    const artefacts = captureGenerateRubricArtefacts();
+    const ctx = artefacts.organisation_context;
+
+    // All four shared fields must be present in the assembled context
+    expect(ctx?.domain_vocabulary).toEqual([
+      { term: 'ADR', definition: 'Architecture Decision Record' },
+      { term: 'FCS', definition: 'Feature Comprehension Score' },
+    ]);
+    expect(ctx?.focus_areas).toEqual(['rubric generation', 'context loading']);
+    expect(ctx?.exclusions).toEqual(['test harness', 'generated fixtures']);
+    expect(ctx?.domain_notes).toBe('Use British English throughout. Follow ADR conventions.');
+  });
 });

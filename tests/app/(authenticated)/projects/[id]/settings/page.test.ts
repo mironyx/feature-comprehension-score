@@ -362,3 +362,102 @@ describe('/projects/[id]/settings page [#421, lld §B.1, req §Story 3.1]', () =
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Extended context fields — rev 1.3, issue #453
+// [req §Story 3.1 AC 2, AC 7, lld §Pending changes — Rev 2, I10]
+// ---------------------------------------------------------------------------
+
+describe('Project settings — extended context fields (rev 1.3) [#453]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    mockGetOrgRole.mockResolvedValue('admin');
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 7: No context row → empty vocabulary, focus_areas, exclusions
+  // [req §Story 3.1 AC 2: "no domain-vocabulary rows, no focus areas, no exclusions"]
+  // [lld §Pending changes — Rev 2, Invariant I10]
+  // -------------------------------------------------------------------------
+
+  describe('Given a project with no organisation_contexts row', () => {
+    it('renders empty vocabulary/focus/exclusions sections when context row is absent [req §Story 3.1 AC2, #453]', async () => {
+      const client = makeClient({ contextRow: null });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await callPage();
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('"domain_vocabulary":[]');
+      expect(rendered).toContain('"focus_areas":[]');
+      expect(rendered).toContain('"exclusions":[]');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 8: Existing context row with domain_vocabulary → rows passed to form
+  // [req §Story 3.1 AC 7: "domain vocabulary (list of term + definition rows)"]
+  // [lld §Pending changes — Rev 2]
+  // -------------------------------------------------------------------------
+
+  describe('Given an existing organisation_contexts row with domain_vocabulary', () => {
+    it('renders existing vocabulary rows from organisation_contexts.context.domain_vocabulary [req §Story 3.1 AC7, #453]', async () => {
+      const client = makeClient({
+        contextRow: {
+          context: {
+            domain_vocabulary: [
+              { term: 'ADR', definition: 'Architecture Decision Record' },
+              { term: 'FCS', definition: 'Feature Comprehension Score' },
+            ],
+            focus_areas: ['rubric generation', 'context loading'],
+            exclusions: ['test harness', 'fixtures'],
+          },
+        },
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await callPage();
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('ADR');
+      expect(rendered).toContain('Architecture Decision Record');
+      expect(rendered).toContain('FCS');
+      expect(rendered).toContain('Feature Comprehension Score');
+    });
+
+    it('passes existing focus_areas from the context row to the form [req §Story 3.1 AC7, #453]', async () => {
+      const client = makeClient({
+        contextRow: {
+          context: {
+            focus_areas: ['rubric generation', 'context loading'],
+          },
+        },
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await callPage();
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('rubric generation');
+      expect(rendered).toContain('context loading');
+    });
+
+    it('passes existing exclusions from the context row to the form [req §Story 3.1 AC7, #453]', async () => {
+      const client = makeClient({
+        contextRow: {
+          context: {
+            exclusions: ['test harness', 'fixtures'],
+          },
+        },
+      });
+      mockCreateServer.mockResolvedValue(client as never);
+
+      const result = await callPage();
+      const rendered = JSON.stringify(result);
+
+      expect(rendered).toContain('test harness');
+      expect(rendered).toContain('fixtures');
+    });
+  });
+});
