@@ -1,18 +1,19 @@
 // Project dashboard page — server component.
 // Fetches project and membership, applies role-based access guards.
 // Design reference: docs/design/lld-v11-e11-1-project-management.md §B.6
-// Issue: #399, #413, #414, #441
+// Issue: #399, #413, #414, #441, #450
 
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import { Settings } from 'lucide-react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { getOrgRole } from '@/lib/supabase/membership';
 import { fetchParticipantCounts, toListItem } from '@/app/api/assessments/helpers';
 import { PageHeader } from '@/components/ui/page-header';
 import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
-import { AssessmentOverviewTable } from '@/app/(authenticated)/organisation/assessment-overview-table';
+import { DeleteableAssessmentTable } from '@/app/(authenticated)/organisation/deleteable-assessment-table';
 import { InlineEditHeader } from './inline-edit-header';
 import { DeleteButton } from './delete-button';
 import { TrackLastVisitedProject } from './track-last-visited';
@@ -64,6 +65,26 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
   const isAdmin = role === 'admin';
   const assessments = await loadProjectAssessments(supabase, id);
 
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <Link
+        href={`/projects/${id}/settings`}
+        className="inline-flex items-center gap-1.5 rounded-sm text-label font-medium border border-border h-9 px-3.5 text-text-primary hover:bg-surface-raised"
+        aria-label="Project settings"
+      >
+        <Settings size={16} aria-hidden />
+        Settings
+      </Link>
+      <Link
+        href={`/projects/${id}/assessments/new`}
+        className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5"
+      >
+        New Assessment
+      </Link>
+      {isAdmin && <DeleteButton projectId={id} />}
+    </div>
+  );
+
   return (
     <div className="space-y-section-gap">
       <TrackLastVisitedProject projectId={id} />
@@ -73,32 +94,14 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
           { label: project.name },
         ]}
       />
-      <PageHeader
-        title={project.name}
-        action={isAdmin ? <DeleteButton projectId={id} /> : null}
-      />
-      {/* Visible to admin and repo_admin only — Org Members redirect at line 54 */}
-      <Link
-        href={`/projects/${id}/settings`}
-        className="inline-flex items-center text-label font-medium text-text-secondary hover:text-text-primary"
-      >
-        Settings
-      </Link>
+      <PageHeader title={project.name} action={headerActions} />
       <InlineEditHeader
         projectId={id}
         initialName={project.name}
         initialDescription={project.description}
       />
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-heading text-text-primary">Assessments</h2>
-          <Link
-            href={`/projects/${id}/assessments/new`}
-            className="inline-flex items-center rounded-sm text-label font-medium bg-accent text-background h-9 px-3.5"
-          >
-            New Assessment
-          </Link>
-        </div>
+        <h2 className="text-heading text-text-primary">Assessments</h2>
         {assessments.length === 0 ? (
           <div className="space-y-3">
             <p className="text-body text-text-secondary">No assessments yet.</p>
@@ -110,7 +113,7 @@ export default async function ProjectDashboardPage({ params }: ProjectDashboardP
             </Link>
           </div>
         ) : (
-          <AssessmentOverviewTable assessments={assessments} />
+          <DeleteableAssessmentTable initialAssessments={assessments} />
         )}
       </section>
     </div>

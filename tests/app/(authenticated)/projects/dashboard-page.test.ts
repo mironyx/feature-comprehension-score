@@ -238,7 +238,7 @@ describe('/projects/[id] dashboard', () => {
   // -------------------------------------------------------------------------
 
   describe('Given a Repo Admin (getOrgRole returns "repo_admin")', () => {
-    it('passes null action to PageHeader — DeleteButton not rendered', async () => {
+    it('renders Settings and New Assessment in the action slot — no DeleteButton [#450 rev 1.3]', async () => {
       mockGetOrgRole.mockResolvedValue('repo_admin');
       const client = makeClient();
       mockCreateServer.mockResolvedValue(client as never);
@@ -246,7 +246,11 @@ describe('/projects/[id] dashboard', () => {
       const result = await ProjectDashboardPage({ params: Promise.resolve({ id: PROJECT_ID }) });
       const rendered = JSON.stringify(result);
 
-      expect(rendered).toContain('"action":null');
+      // Rev 1.3 (issue #450): action slot always has Settings + New Assessment.
+      // DeleteButton is admin-only — excluded via {isAdmin && <DeleteButton/>}.
+      expect(rendered).not.toContain('"action":null');
+      expect(rendered).toContain(`/projects/${PROJECT_ID}/settings`);
+      expect(rendered).toContain(`/projects/${PROJECT_ID}/assessments/new`);
     });
   });
 
