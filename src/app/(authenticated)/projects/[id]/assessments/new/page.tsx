@@ -8,6 +8,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getSelectedOrgId } from '@/lib/supabase/org-context';
 import { readMembershipSnapshot, snapshotToOrgRole } from '@/lib/supabase/membership';
 import { PageHeader } from '@/components/ui/page-header';
+import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
 import CreateAssessmentForm from './create-assessment-form';
 import type { JSX } from 'react';
 
@@ -46,6 +47,11 @@ export default async function NewAssessmentPage({ params }: NewAssessmentPagePro
 
   return (
     <div className="space-y-section-gap">
+      <SetBreadcrumbs segments={[
+        { label: 'Projects', href: '/projects' },
+        { label: project.name, href: `/projects/${projectId}` },
+        { label: 'New Assessment' },
+      ]} />
       <PageHeader title="New Assessment" subtitle="Create an FCS assessment for your team" />
       <CreateAssessmentForm projectId={projectId} repositories={repos ?? []} />
     </div>

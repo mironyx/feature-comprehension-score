@@ -49,6 +49,12 @@ vi.mock('@/components/ui/page-header', () => ({
     ({ type: 'div', props: { 'data-title': title, children: action } }),
 }));
 
+// Stub SetBreadcrumbs to expose segments in serialised output
+vi.mock('@/components/set-breadcrumbs', () => ({
+  SetBreadcrumbs: ({ segments }: { segments: unknown }) =>
+    ({ type: 'div', props: { 'data-breadcrumbs': JSON.stringify(segments) } }),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks
 // ---------------------------------------------------------------------------
@@ -345,6 +351,64 @@ describe('/projects/[id]/assessments/new page', () => {
       mockSnapshotToOrgRole.mockReturnValue('admin');
 
       await expect(callPage()).resolves.not.toThrow();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Breadcrumbs — Issue #454 (Story 4.3 rev 1.3)
+  // -------------------------------------------------------------------------
+
+  describe('New assessment page breadcrumbs (Story 4.3 rev 1.3)', () => {
+    // Property: admin sees Projects > [Project Name] > New Assessment with first two as links
+    describe('Given an Org Admin on the new assessment page', () => {
+      it('admin sees Projects > [Project Name] > New Assessment with the first two segments as links', async () => {
+        const client = makeClient({ repos: ORG_REPOS });
+        mockCreateServer.mockResolvedValue(client as never);
+        mockReadSnapshot.mockResolvedValue(ADMIN_SNAPSHOT);
+        mockSnapshotToOrgRole.mockReturnValue('admin');
+
+        const element = await callPage();
+        const json = JSON.stringify(element);
+
+        expect(json).toContain('"label":"Projects"');
+        expect(json).toContain('"href":"/projects"');
+        expect(json).toContain(`"label":"${MOCK_PROJECT.name}"`);
+        expect(json).toContain(`"href":"/projects/${PROJECT_ID}"`);
+        expect(json).toContain('"label":"New Assessment"');
+        // Third segment has no href
+        expect(json).not.toContain('"label":"New Assessment","href"');
+      });
+    });
+
+    // Property: repo_admin sees the same breadcrumb chain
+    describe('Given a Repo Admin on the new assessment page', () => {
+      it('repo_admin sees Projects > [Project Name] > New Assessment with the first two segments as links', async () => {
+        const client = makeClient({ repos: ADMIN_REPOS });
+        mockCreateServer.mockResolvedValue(client as never);
+        mockReadSnapshot.mockResolvedValue(REPO_ADMIN_SNAPSHOT);
+        mockSnapshotToOrgRole.mockReturnValue('repo_admin');
+
+        const element = await callPage();
+        const json = JSON.stringify(element);
+
+        expect(json).toContain('"label":"Projects"');
+        expect(json).toContain('"href":"/projects"');
+        expect(json).toContain(`"label":"${MOCK_PROJECT.name}"`);
+        expect(json).toContain(`"href":"/projects/${PROJECT_ID}"`);
+        expect(json).toContain('"label":"New Assessment"');
+      });
+    });
+
+    // Spec lock: Org Member never reaches this page (existing redirect at line 37)
+    describe('Given an Org Member (snapshotToOrgRole returns null)', () => {
+      it('Org Member never reaches this page — redirects before breadcrumbs render (spec lock)', async () => {
+        const client = makeClient();
+        mockCreateServer.mockResolvedValue(client as never);
+        mockReadSnapshot.mockResolvedValue({ githubRole: 'member', adminRepoGithubIds: [] });
+        mockSnapshotToOrgRole.mockReturnValue(null);
+
+        await expect(callPage()).rejects.toThrow('NEXT_REDIRECT:/assessments');
+      });
     });
   });
 });
