@@ -155,12 +155,15 @@ flowchart LR
 | I7 | The question count used by rubric generation equals the project's configured value when set | Integration test asserting `assessment.config_question_count === projectCtx.question_count` after creation (T3.2) |
 | I8 | The project resolver does not consult the org-level row (`project_id IS NULL`) | SQL predicate is `.eq('project_id', $1)` — not `.or()`; covered by unit test that creates an org-level row + a project row and asserts the resolver returns only the project row |
 | I9 | The project dashboard (`/projects/[id]/page.tsx`) renders a 'Settings' link to `/projects/[id]/settings` visible to Org Admin and Repo Admin. This entry-point was omitted by the initial E11.3 implementation; added by fix issue #440. Without it, `/projects/[id]/settings` is only reachable by direct URL — effectively inaccessible. | Dashboard page test (added in fix #440) |
+| I10 | *(rev 1.3, Story 3.1)* The project settings form exposes the same field shapes as `OrgContextForm` for the four shared fields: domain vocabulary (term + definition rows), focus areas (tag list), exclusions (tag list), domain notes (free-text). Project-only fields (glob patterns, question count) are additional. `TagInput` and `VocabRow` are shared components in `src/components/context/`. | Form-shape test + import-path test (issue #453) |
+| I11 | *(rev 1.3, Story 3.1 AC 8)* The assembled rubric prompt for an FCS assessment in a project includes domain vocabulary, focus areas, exclusions, and domain notes from the project's context row when present. (Engine reads these from `OrganisationContext`; the resolver already returns the full shape.) | Pipeline integration test (issue #453) |
 
 ### Acceptance criteria
 
 Maps to v11-requirements §Epic 3 ACs:
 
 - **Story 3.1** — Save persists glob_patterns / domain_notes / question_count to `organisation_contexts` keyed by `project_id`; empty form when no row exists; out-of-range question_count returns 400; unparseable glob returns 400 identifying the pattern; Repo Admin can save; Org Member reaching `/projects/[id]/settings` via direct URL is redirected to `/assessments`.
+  - **Rev 1.3 amendment** — The form additionally exposes domain vocabulary (term + definition rows), focus areas (tag list), and exclusions (tag list) — the same field shapes already on `OrgContextForm`. PATCH validates and persists the new fields; empty state shows no vocab rows / no focus areas / no exclusions. The assembled rubric prompt for an assessment in the project includes all four shared fields (vocab, focus, exclusions, notes), extending Story 3.2 AC 1. See [§Pending changes — Rev 2](#pending-changes-rev-2) and issue [#453](https://github.com/mironyx/feature-comprehension-score/issues/453).
 - **Story 3.2** — FCS prompt for an assessment in project P contains content matched by P's globs and P's domain_notes verbatim; assessment has exactly `project.question_count` questions; project with no project-scoped row in `organisation_contexts` yields a prompt with no context block and the org-level row (`project_id IS NULL`) is not queried; the resolved context shape used at generation time matches the project's config at creation time.
 
 ### BDD specs (epic-level summary)
@@ -197,6 +200,18 @@ describe('FCS rubric — project-context wiring (T3.2)')
   it('the assembled prompt contains files matched by the project glob_patterns')
   it('a project with no context row produces an assembled set with organisation_context = undefined')
   it('the question count submitted to the LLM equals the project context question_count when set')
+
+# Rev 1.3 additions — see §Pending changes — Rev 2 for full BDD specs
+describe('Project settings — extended context fields (rev 1.3, issue #453)')
+  it('renders empty vocabulary/focus/exclusions sections when context row is absent')
+  it('renders existing vocabulary rows from organisation_contexts.context.domain_vocabulary')
+  it('PATCH payload includes only fields the user changed')
+  it('validation rejects vocabulary > 20 rows / term > 100 / definition > 500')
+  it('validation rejects focus_areas > 5 / exclusions > 5')
+  it('extracted TagInput and VocabRow are shared with OrgContextForm')
+
+describe('FCS rubric uses extended project context (rev 1.3 AC 8, issue #453)')
+  it('domain_vocabulary, focus_areas, exclusions, and domain_notes all appear in the assembled rubric prompt for a project')
 ```
 
 ---
