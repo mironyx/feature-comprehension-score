@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.2 |
+| Version | 1.3 |
 | Status | Final |
 | Author | LS / Claude |
 | Created | 2026-04-29 |
-| Last updated | 2026-04-30 (rev 9) |
+| Last updated | 2026-05-03 (rev 10) |
 
 ## Change Log
 
@@ -24,6 +24,7 @@
 | 1.0 | 2026-04-30 | LS / Claude | Resolve OQ 5: drop legacy URL redirect (pre-prod, no legacy URLs exist); Story 4.5 AC 4 returns 404 for legacy shape. Status → Final |
 | 1.1 | 2026-04-30 | LS / Claude | Address review batch on v1.0: Story 1.1 enforces case-insensitive name uniqueness per org; Story 1.2 list now shows creation date; Story 1.4 consolidated to a single `PATCH` endpoint with partial payloads; Story 1.5 reworked from archive (soft-delete) to hard-delete-only-when-empty (simplification); Story 2.2 list reuses the existing pre-V11 columns; ripple updates to Roles, Glossary, Cross-Cutting Concerns, Story 2.3, Story 4.4, Story 4.6, and testability table. |
 | 1.2 | 2026-05-02 | LS / Claude | Regression fix: add "My Assessments" to admin NavBar — admins are also assessment participants and need navigation to the cross-project pending queue. Updated Navigation Model (admin NavBar) and Story 4.1 ACs. |
+| 1.3 | 2026-05-03 | LS / Claude | Address user-testing feedback after #440/#441 landed: Story 1.3 — Settings affordance prominence; new Story 1.6 — "Back to project" on settings; Story 2.1 — auto-polling on post-create detail; Story 2.2 — actions column parity with org list (delete + view-detail icons); Story 2.3 — explicit participant-only scope, empty-state copy; Story 3.1 — extend project context with domain vocabulary, focus areas, exclusions (parity with org context); Story 4.3 — breadcrumbs cover /results, /submitted, /assessments/new. New Design Principle 8 — single shared admin detail view. Open Questions 6, 7, 8 added then resolved inline. Three implementation bugs (polling regression, stale "Back to Organisation" link, missing /results breadcrumbs) flagged for separate filing — not requirements changes. |
 
 ---
 
@@ -65,6 +66,7 @@ No data migration is required — the product is not yet in production.
 5. **No migration.** Product is not in production. No backward-compatibility shims or default-project creation.
 6. **Small PRs.** Each story targets < 200 lines of change.
 7. **Minimise changes to existing code.** V11 should prefer additive changes (new tables, new routes, new components) over rewrites of existing flows. Refactor existing code only where the project model strictly requires it.
+8. **Single shared admin detail view.** The admin assessment-detail view (the page showing repo, source PRs/issues, status, and participant list) is a single component shared between organisation and project contexts. The Project field is always rendered as one of the assessment's attributes — there are no separate per-context detail pages or per-context conditional rendering. Same principle as the shared `AssessmentOverviewTable` (delivered in #441): one component, project shown as a column/field in both contexts.
 
 ---
 
@@ -211,8 +213,11 @@ Projects are the new top-level container for FCS work. This epic covers all life
 - Given an admin requests `/projects/[id]` where `id` does not exist or belongs to another org, when the route resolves, then the response is a 404.
 - Given a project ID that has been deleted, when an admin requests its dashboard, then the response is 404 (deleted projects do not render).
 - Given an Org Member requests `/projects/[id]`, when the route resolves, then they are redirected to `/assessments`.
+- Given an admin views `/projects/[id]`, when the page renders, then a Settings affordance is visible in the page-header area (icon + "Settings" label, not a small inline link), positioned with the same visual prominence as the "New Assessment" button, and is reachable without scrolling on a 1280×720 viewport.
 
 > **Note:** This is the per-project assessment list. The cross-project view (all pending assessments filterable by project) is covered in Story 2.3.
+>
+> **Settings affordance prominence:** The link to `/projects/[id]/settings` must be a recognisable button-like control (icon-and-label pattern). The current rev-9 implementation rendered it as a faint `text-secondary` inline link wedged between the page header and the inline-edit row — that is rejected as not intuitive. Place the Settings control in the page-header action slot, alongside (or as a sibling of) the "New Assessment" call to action.
 
 ---
 
@@ -255,6 +260,25 @@ Projects are the new top-level container for FCS work. This epic covers all life
 
 ---
 
+<a id="REQ-project-management-back-to-project-from-settings"></a>
+
+### Story 1.6: "Back to project" affordance on settings page
+
+**As an** Org Admin or Repo Admin viewing project settings,
+**I want to** see a clearly visible "Back to project" link on the settings page,
+**so that** I can return to the project dashboard without relying on breadcrumbs.
+
+**Acceptance Criteria:**
+
+- Given an admin is on `/projects/[id]/settings`, when the page renders, then a "Back to project" link/button is visible without scrolling on a 1280×720 viewport, positioned at or near the top of the settings content area.
+- Given the admin clicks the "Back to project" link, when navigation completes, then the URL is `/projects/[id]` and the project dashboard renders.
+- Given the link is rendered, when its accessible name is read, then it identifies the destination by project name (e.g. "Back to Payment Service") or by the generic "Back to project" label — implementation may choose, but the affordance must communicate that it returns to the project dashboard, not to the projects list.
+- Given a Repo Admin views the page, when it renders, then the same link is shown (this affordance is admin-and-repo-admin only — Org Members are redirected before reaching the page, see Story 3.1).
+
+> **Note:** Breadcrumbs (Story 4.3) remain on the page. This is an additional, more prominent control because breadcrumbs alone tested as not obvious to users. Implementation may render this as a button, a link with a leading arrow icon, or both.
+
+---
+
 ## Epic 2: FCS Scoped to Projects [Priority: High]
 
 All FCS assessments must belong to a project. This epic wires the project FK into the FCS creation flow, scopes assessment lists to the project, and provides a cross-project pending view for participants.
@@ -277,6 +301,7 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 - Given a Repo Admin submits the form with a repo where they do not hold GitHub admin permission (e.g. by tampering with the request), when the API authorises, then it returns 403 and no assessment is created.
 - Given the API receives an assessment creation request without `project_id`, when validation runs, then it returns a 400 and no assessment is created.
 - Given an Org Member POSTs to the assessment creation endpoint, when the API authorises, then it returns 403 and no assessment is created.
+- Given the user is redirected to `/projects/[id]/assessments/[aid]` immediately after creation and the assessment is in `rubric_generation` status, when the page is rendered, then the status indicator auto-updates as the rubric job progresses (no manual refresh required) and reflects the terminal status (`awaiting_responses`, `rubric_failed`, etc.) without further user action. This matches the polling behaviour already present in the org overview table for `rubric_generation` rows.
 
 > **Note:** The assessment creation form and flow are unchanged from the existing FCS creation flow. The only addition is that `project_id` is pre-populated from the current project context and passed to the API on submit.
 >
@@ -298,6 +323,8 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 - Given two projects A and B each with assessments, when an admin views project A's dashboard, then no assessment from project B appears in the list.
 - Given a project with no assessments, when its dashboard loads, then the assessment list shows the empty-state component.
 - Given the assessment list query, when it executes, then it filters by `project_id` matching the current route's project (verifiable via the API request payload or query log).
+- Given a project with at least one assessment, when an admin views the project dashboard, then the assessment list renders an Actions column with the same controls as the organisation overview list — a delete icon (opens the existing delete-confirmation dialog) and a view-detail icon linking to `/projects/[id]/assessments/[aid]`. The same `DeleteableAssessmentTable` component is reused; project-scope means rendering it without `showProjectColumn` (the project context is implicit on this page).
+- Given an admin clicks the view-detail icon on an assessment row, when navigation completes, then the URL is `/projects/[id]/assessments/[aid]` and the existing admin detail view (Design Principle 8) renders showing repo, source PRs/issues, status, and participant list.
 
 ---
 
@@ -309,13 +336,16 @@ All FCS assessments must belong to a project. This epic wires the project FK int
 **I want to** see all FCS assessments where I have a pending submission — across all projects — when I sign in,
 **so that** I can find and complete my outstanding assessments without knowing which project they belong to.
 
+> **Strictly participant-scoped.** When any signed-in user (member or admin) visits `/assessments`, they act as a participant and see only assessments where they have a pending submission. Admins are not exempt from this scoping — if an admin has not been added to any assessment as a participant, the list is empty and that is correct behaviour, not a bug. Admins manage assessments they created from the project dashboard (Story 1.3 + Story 2.2 actions column), not from this page.
+
 **Acceptance Criteria:**
 
 - Given a participant has pending submissions on three FCS assessments across two projects, when they navigate to `/assessments`, then the page lists those three assessments, each labelled with its project name.
 - Given a participant has submitted one of the three assessments, when they reload `/assessments`, then the submitted assessment no longer appears in the list.
-- Given a participant has no pending FCS assessments, when they view `/assessments`, then the page shows an empty state.
+- Given a participant has no pending FCS assessments, when they view `/assessments`, then the page shows an empty state whose copy explains the participant-only scope — for example "No pending assessments. You'll see assessments here when you've been added to one as a participant." The copy must communicate that the queue is participant-scoped, not a list of "all assessments I have access to".
 - Given a participant has a pending submission, when they view `/assessments`, then the parent project is shown as a label (deleted projects cannot occur here because deletion requires the project to have no assessments — see Story 1.5).
 - Given the page is rendered in V11, when the list loads, then it contains only FCS assessments — no PRCC items appear.
+- Given an Org Admin or Repo Admin who has not been added to any FCS assessment as a participant signs in and visits `/assessments`, when the page renders, then the empty state described above is shown — the page does not surface assessments the admin created but is not a participant on. Admins manage assessments they created from the project dashboard (Story 1.3 / Story 2.2), not from this page.
 
 ---
 
@@ -368,21 +398,25 @@ Moves context configuration from org level to project level. Each project gets i
 ### Story 3.1: Configure project context and settings
 
 **As an** Org Admin or Repo Admin,
-**I want to** configure a project's context and settings on a single settings page — context file glob patterns (e.g. `docs/adr/*.md`), free-text domain notes (vocabulary, architectural principles, focus areas, exclusions), and the FCS question count (3–5),
-**so that** the LLM question generator has the right context and the right output volume for the project.
+**I want to** configure a project's context and settings on a single settings page — context file glob patterns (e.g. `docs/adr/*.md`), domain vocabulary (term + definition rows), focus areas, exclusions, free-text domain notes, and the FCS question count (3–5),
+**so that** the LLM question generator has the right context and the right output volume for the project, with the same expressive structure already available at the org-context level.
 
 **Acceptance Criteria:**
 
-- Given an admin on `/projects/[id]/settings` edits the glob patterns, domain notes, and question count and saves, when the API processes the request, then values are persisted to the `organisation_contexts` row keyed by `project_id`.
-- Given a project has no prior context row, when an admin opens settings, then the form renders with empty glob patterns, empty domain notes, and the system default question count selected.
+- Given an admin on `/projects/[id]/settings` edits any of the project context fields (glob patterns, domain vocabulary, focus areas, exclusions, domain notes, question count) and saves, when the API processes the request, then values are persisted to the `organisation_contexts` row keyed by `project_id`.
+- Given a project has no prior context row, when an admin opens settings, then the form renders with empty glob patterns, no domain-vocabulary rows, no focus areas, no exclusions, empty domain notes, and the system default question count selected.
 - Given the question count submitted is outside 3–5, when validation runs, then the API returns 400 with a range error and the row is not modified.
 - Given a glob pattern is unparseable (e.g. malformed bracket expression), when validation runs, then the API returns 400 identifying the offending pattern and the row is not modified.
 - Given a Repo Admin saves changes, when the API authorises, then the changes are accepted (Repo Admins can configure project context).
 - Given an Org Member requests `/projects/[id]/settings`, when the route resolves, then they are redirected to `/assessments` (admin-only route).
+- Given the settings page is rendered, when an admin compares it to the organisation-level context form (`OrgContextForm`), then the project form exposes at minimum the same field shapes for: domain vocabulary (list of term + definition rows), focus areas (tag list), exclusions (tag list), domain notes (free-text area). Project-only fields (glob patterns, question count) are additional. Per-field maxima may diverge from the org form where justified, but the field types and editing affordances must match — no structurally different UI for the same conceptual data.
+- Given the rubric generator runs for an FCS assessment in the project, when it builds the prompt, then domain vocabulary, focus areas, exclusions, and domain notes from the project context are injected (extending Story 3.2 AC 1 — the assertion that "domain notes verbatim" appear in the prompt now applies to all four structured fields).
 
-> **Note:** All three settings live on one settings page (`/projects/[id]/settings`) and one edit form. Combined into a single story to keep PR overhead low — the underlying data model is one row in `organisation_contexts` keyed by `project_id`.
+> **Note:** All settings live on one settings page (`/projects/[id]/settings`) and one edit form. Combined into a single story to keep PR overhead low — the underlying data model is one row in `organisation_contexts` keyed by `project_id`.
 >
 > **Question count is a configuration, not an override.** There is no org-level baseline being overridden — each project sets its own count, defaulting to the system default if unset.
+>
+> **UI parity with org context.** Project context must offer the same structured fields the org-context form already exposes (domain vocabulary, focus areas, exclusions, domain notes). Reason: user testing showed users expect the same shape in both places, and the org context UI exists today even though the org form is inert for FCS in V11 (Design Principle 4). The data model is the same `organisation_contexts.context` JSON blob — adding fields to the project form is additive, not a schema change.
 
 ---
 
@@ -459,10 +493,13 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 
 - Given an admin is on `/projects/[id]/assessments/[aid]`, when the page renders, then breadcrumbs show `Projects > [Project Name] > Assessment #[aid]`, with the first two segments as links.
 - Given an admin is on `/projects/[id]/settings`, when the page renders, then breadcrumbs show `Projects > [Project Name] > Settings`.
+- Given an admin is on `/projects/[id]/assessments/[aid]/results`, when the page renders, then breadcrumbs show `Projects > [Project Name] > Assessment #[aid] > Results`, with the first three segments as links.
+- Given an admin or participant is on `/projects/[id]/assessments/[aid]/submitted`, when the page renders, then breadcrumbs show `Projects > [Project Name] > Assessment #[aid] > Submitted`. (For members, see the member-specific clause below — members do not see breadcrumbs.)
+- Given an admin is on `/projects/[id]/assessments/new`, when the page renders, then breadcrumbs show `Projects > [Project Name] > New Assessment`, with the first two segments as links.
 - Given an admin clicks the project-name breadcrumb segment, when navigation completes, then the URL is `/projects/[id]`.
-- Given an Org Member is on `/projects/[id]/assessments/[aid]`, when the page renders, then no breadcrumb component is rendered.
+- Given an Org Member is on any project-scoped route (assessment detail, results, or submitted), when the page renders, then no breadcrumb component is rendered.
 
-> **Note:** Breadcrumbs are admin-only. Org Members do not see breadcrumbs — they reach assessments from `/assessments` or invitation links and do not navigate the project hierarchy.
+> **Note:** Breadcrumbs are admin-only. Org Members do not see breadcrumbs — they reach assessments from `/assessments` or invitation links and do not navigate the project hierarchy. The breadcrumb requirement applies to **every** project-scoped admin page in V11: dashboard parent, settings, new-assessment, detail, results, and submitted. Any admin-reachable URL under `/projects/[id]/...` must render the appropriate breadcrumb chain back to the projects list and through the project dashboard.
 
 ---
 
@@ -560,6 +597,9 @@ Updates the application shell — NavBar, breadcrumbs, root redirect, and URL st
 | 3 | **Resolved.** PRCC product features deferred from V11. Foundation: nullable `project_id` FK on repos and PRCC assessments only. No UI change. | — | — | — |
 | 4 | **Resolved.** PRCC participants use direct invitation links in V11. No PRCC list view for members. | — | — | — |
 | 5 | **Resolved.** No legacy URL redirect needed — product is pre-production, no `/assessments/[aid]` URLs exist in the wild. Story 4.5 AC 4 updated to specify 404 for the legacy shape. | — | — | — |
+| 6 | **Resolved (rev 10).** Settings page back-navigation: breadcrumbs alone tested as not obvious. Decision: add a dedicated "Back to project" link/button on the settings page (Story 1.6). Breadcrumbs remain in addition. | — | — | — |
+| 7 | **Resolved (rev 10).** Project context vs. org context UI: user expects parity. Decision: extend project context form (Story 3.1) with the same structured fields the org context already exposes — domain vocabulary, focus areas, exclusions, domain notes. Glob patterns and question count remain project-only. Org form stays as-is in V11 (still inert per Design Principle 4). | — | — | — |
+| 8 | **Resolved (rev 10).** "My Assessments" is strictly the participant queue. When any signed-in user (admin or member) visits `/assessments`, they act as a participant — admin role does not change the data shown. An admin who has not been added to any assessment as a participant sees an empty list, and that is correct behaviour. Admins manage their created assessments from the project dashboard, not from `/assessments`. Story 2.3 ACs and Note updated accordingly. | — | — | — |
 
 ---
 
@@ -576,6 +616,13 @@ Pass over every acceptance criterion in §Epics 1–4. Outcome: no blocking issu
 | 2 | 2.2 | 1 | What columns appear in the project-scoped list. | Resolved: same columns as the existing pre-V11 FCS assessment list — list component is reused, only the data filter changes. |
 | 2 | 2.3a | 4 | "Hide filter when only 1 project" is a UI judgement call. | Specified deterministically (hidden when count == 1) so the AC is testable. |
 | 4 | 4.5 | 4 | Whether legacy URL support is needed at all. | Resolved: pre-prod, no legacy URLs exist; AC 4 specifies 404 for the legacy shape. |
+| 1 | 1.3 | new | "Settings affordance prominence" risks vagueness ("intuitive", "prominent"). | Resolved: AC pins specific tests — header-area placement, icon-and-label control, same prominence as "New Assessment", visible without scrolling on a 1280×720 viewport. |
+| 1 | 1.6 | all | "Clearly visible" / "near the top" risks vagueness. | Resolved: viewport size pinned (1280×720), placement pinned (top of settings content area, no scroll), accessible-name requirement specified. |
+| 2 | 2.1 | new | "Auto-updates" risks vagueness. | Resolved: AC ties the behaviour to the existing org-overview polling — same `rubric_generation` polling component, no manual refresh. Implementation can reuse `PollingStatusBadge`. |
+| 2 | 2.2 | new | "Same actions as org list" needs an explicit list. | Resolved: AC enumerates the two icons (delete + view-detail) and references the existing `DeleteableAssessmentTable` component for reuse. |
+| 2 | 2.3 | new | "Empty-state copy" risks subjective wording. | Resolved: AC requires the copy to communicate participant-only scope, gives a concrete example, and adds a separate AC for the admin-no-participant case. Implementation may choose final wording but must match the intent. |
+| 3 | 3.1 | new | "Same field shapes as org context" needs concrete fields. | Resolved: AC enumerates the four shared fields (vocabulary, focus areas, exclusions, domain notes) and lists project-only additions (glob patterns, question count). Reuses existing `OrganisationContext` JSON shape — no schema change. |
+| 4 | 4.3 | extended | Original ACs covered detail and settings pages only. | Resolved: ACs now enumerate every project-scoped admin URL (dashboard, settings, new, detail, results, submitted). |
 
 No vague qualifiers ("appropriate", "user-friendly", "fast") remain. Every AC has a precondition that can be set up in a test and an outcome that can be asserted.
 
