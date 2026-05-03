@@ -36,6 +36,7 @@ export function AssessmentAdminView({ assessment }: AdminViewProps) {
           </div>
           <div>
             <dt className="text-caption text-text-secondary">Status</dt>
+            {/* Justification: LLD §T2 pre-dates V11 rubric_generation status. AC #444 requires auto-polling to match the org overview table pattern. */}
             <dd>
               {assessment.status === 'rubric_generation'
                 ? <PollingStatusBadge assessmentId={assessment.id} initialStatus="rubric_generation" />
