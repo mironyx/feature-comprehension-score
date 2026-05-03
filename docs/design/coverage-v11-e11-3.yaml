@@ -2,18 +2,18 @@ epic: v11-e11-3
 entries:
   - req: REQ-project-context-and-config-configure-project-context-and-settings
     lld: lld-v11-e11-3-project-context-config.md#LLD-v11-e11-3-settings-page
-    issue: 421
+    issue: 453
+    lld_revision: r2
     files:
       - src/app/(authenticated)/projects/[id]/settings/page.tsx
       - src/app/(authenticated)/projects/[id]/settings/settings-form.tsx
       - src/app/api/projects/[id]/service.ts
+      - src/app/api/projects/validation.ts
       - src/app/(authenticated)/projects/[id]/page.tsx  # Settings link entry point — fix #440
-    status: Revised
-    # Rev 2 (v11-requirements 1.3): extend project context form with domain vocabulary, focus
-    # areas, exclusions (UI parity with OrgContextForm). Schema and engine already accept
-    # all four shared fields; only the form/API/service path is gated. TagInput and VocabRow
-    # extracted from org-context-form.tsx to src/components/context/. Rubric injection AC
-    # already true at engine level — verification spec only. See lld-v11-e11-3 §Pending changes — Rev 2.
+      - src/components/context/tag-input.tsx            # extracted #453
+      - src/components/context/vocab-row.tsx            # extracted #453
+      - src/app/(authenticated)/organisation/org-context-form.tsx  # import-only update #453
+    status: Implemented
 
   - req: REQ-project-context-and-config-rubric-uses-project-context
     lld: lld-v11-e11-3-project-context-config.md#LLD-v11-e11-3-resolver-and-pipeline
