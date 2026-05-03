@@ -5,9 +5,12 @@
 // to it, so /projects/[id] would be a no-op redirect loop. Unknown project
 // returns 404.
 // Design reference: docs/design/lld-v11-e11-3-project-context-config.md §B.1
+// Design reference: docs/design/lld-v11-e11-1-project-management.md §Story 1.6 (Back to project link)
 // Issue: #421
 
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+import { ArrowLeft } from 'lucide-react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getOrgRole } from '@/lib/supabase/membership';
 import { SetBreadcrumbs } from '@/components/set-breadcrumbs';
@@ -76,6 +79,14 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
           { label: 'Settings' },
         ]}
       />
+      <Link
+        href={`/projects/${projectId}`}
+        className="inline-flex items-center gap-1.5 rounded-sm text-label font-medium border border-border h-9 px-3.5 text-text-primary hover:bg-surface-raised mb-section-gap"
+        aria-label={`Back to ${project.name}`}
+      >
+        <ArrowLeft size={16} aria-hidden />
+        Back to {project.name}
+      </Link>
       <SettingsForm projectId={projectId} projectName={project.name} initial={initial} />
     </>
   );

@@ -9,6 +9,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Module mocks — must precede component imports (vitest hoisting rules)
 // ---------------------------------------------------------------------------
 
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    'aria-label': ariaLabel,
+    children,
+  }: {
+    href: string;
+    'aria-label'?: string;
+    children?: unknown;
+  }) => ({ type: 'a', props: { href, 'aria-label': ariaLabel, children } }),
+}));
+
+vi.mock('lucide-react', () => ({
+  ArrowLeft: () => ({ type: 'svg', props: { 'data-testid': 'icon-arrow-left' } }),
+}));
+
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: vi.fn(),
 }));
@@ -280,6 +296,69 @@ describe('/projects/[id]/settings page [#421, lld §B.1, req §Story 3.1]', () =
       mockCreateServer.mockResolvedValue(client as never);
 
       await expect(callPage()).rejects.toThrow('NEXT_REDIRECT:/auth/sign-in');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 7: "Back to project" link — Story 1.6, rev 1.3 (#451)
+  // [lld §Pending changes — Rev 2 §Story 1.6, req §REQ-project-management-back-to-project-from-settings]
+  // -------------------------------------------------------------------------
+
+  describe('Project settings page — Back to project (Story 1.6, #451)', () => {
+    describe('Given an Org Admin on the settings page', () => {
+      it('renders an anchor pointing to /projects/[id] [lld §Story 1.6, #451]', async () => {
+        const client = makeClient();
+        mockCreateServer.mockResolvedValue(client as never);
+
+        const result = await callPage();
+        const children = (result as { props: { children: unknown[] } }).props.children;
+        const backLink = children.find(
+          (c) => (c as { props?: { href?: string } })?.props?.href === `/projects/${PROJECT_ID}`,
+        );
+
+        expect(backLink).toBeDefined();
+      });
+
+      it('uses an accessible name that identifies the destination by project name [lld §Story 1.6, #451]', async () => {
+        const client = makeClient();
+        mockCreateServer.mockResolvedValue(client as never);
+
+        const result = await callPage();
+        const rendered = JSON.stringify(result);
+
+        expect(rendered).toContain(`Back to ${MOCK_PROJECT.name}`);
+      });
+
+      it('positions the link above the settings form in the component tree [lld §Story 1.6, #451]', async () => {
+        const client = makeClient();
+        mockCreateServer.mockResolvedValue(client as never);
+
+        const result = await callPage();
+        const children = (result as { props: { children: unknown[] } }).props.children;
+        const linkIdx = children.findIndex(
+          (c) => (c as { props?: { href?: string } })?.props?.href === `/projects/${PROJECT_ID}`,
+        );
+        const formIdx = children.findIndex(
+          (c) => (c as { props?: { initial?: unknown } })?.props?.initial !== undefined,
+        );
+
+        expect(linkIdx).toBeGreaterThanOrEqual(0);
+        expect(linkIdx).toBeLessThan(formIdx);
+      });
+    });
+
+    describe('Given a Repo Admin on the settings page', () => {
+      it('renders the back link for repo_admin role [lld §Story 1.6 AC4, #451]', async () => {
+        const client = makeClient();
+        mockCreateServer.mockResolvedValue(client as never);
+        mockGetOrgRole.mockResolvedValue('repo_admin');
+
+        const result = await callPage();
+        const rendered = JSON.stringify(result);
+
+        expect(rendered).toContain(`/projects/${PROJECT_ID}`);
+        expect(rendered).toContain(`Back to ${MOCK_PROJECT.name}`);
+      });
     });
   });
 });
