@@ -385,15 +385,16 @@ describe('AssessmentAdminView', () => {
     });
   });
 
-  // A3 — Back to Organisation link points to /organisation [lld §T2, issue AC]
+  // A3 — No 'Back to Organisation' link rendered (#445 — removed; breadcrumbs handle nav)
   describe('Given the admin view header', () => {
-    it('then shows a Back to Organisation link pointing to /organisation', async () => {
+    it('then does not render a Back to Organisation link (#445)', async () => {
       const AssessmentAdminView = await importAdminView();
       const detail = makeAdminDetail();
       const html = renderToStaticMarkup(
         AssessmentAdminView({ assessment: detail }) as React.ReactElement,
       );
-      expect(html).toContain('/organisation');
+      expect(html).not.toContain('Back to Organisation');
+      expect(html).not.toContain('/organisation');
     });
   });
 
