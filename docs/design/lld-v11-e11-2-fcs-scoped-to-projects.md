@@ -179,17 +179,24 @@ classDiagram
 | I8 | Project-scoped list filters strictly by `project_id` (no cross-project leak) | `.eq('project_id', pid)` predicate + integration test (T2.5) |
 | I9 | Legacy `POST /api/fcs` route is removed | `src/app/api/fcs/` directory deleted (T2.2); shared rubric helpers relocated |
 | I10 | The project dashboard assessment list surface is `AssessmentOverviewTable` (same columns as the org overview), filtered by `project_id` — not a bespoke card list (Story 2.2 AC 1) | Component identity test in fix #441 |
+| I11 | *(rev 1.3, Story 2.2)* The project dashboard assessment list renders `DeleteableAssessmentTable` (delete + view-detail icons per row), not the bare `AssessmentOverviewTable`. `showProjectColumn` is omitted (project context is implicit on this page). | Dashboard page test (issue #450) |
+| I12 | *(rev 1.3, Story 2.3)* The empty state on `/assessments` communicates the participant-only scope — i.e. the page is *not* a list of assessments the signed-in user has access to, but a queue of assessments where they have a pending submission. An admin who has not been added as a participant on any assessment sees the same empty state. | Page test for both copy and admin-no-participant path (issue #452) |
+| I13 | *(rev 1.3, Design Principle 8)* The admin assessment-detail view is **one** component (`assessment-admin-view.tsx`) shared between organisation and project contexts — not separate per-context detail pages. Project is rendered as a field on the assessment, the same way `AssessmentOverviewTable` shows it as a column. | Component-identity check; any new admin detail field must surface in both contexts |
 
 ### Acceptance criteria
 
 Maps to v11-requirements §Epic 2 ACs:
 
 - **Story 2.1** — POST creates a row with `project_id = pid`; per-repo admin check enforced; missing `project_id` (path) ⇒ 404; Org Member ⇒ 403; tampered repo for Repo Admin ⇒ 403.
+  - **Rev 1.3 amendment** — After creation, the detail page auto-polls during `rubric_generation` (no manual refresh) and reflects terminal status without further user action. **Already shipped under issue [#444](https://github.com/mironyx/feature-comprehension-score/issues/444)** — verification only; no new work in Rev 2.
 - **Story 2.2** — Dashboard list filters by `project_id` and `type = 'fcs'`; reuses existing list shape; empty state CTA.
+  - **Rev 1.3 amendment** — Actions column parity with the org overview: dashboard renders `DeleteableAssessmentTable` (delete + view-detail icons) instead of the bare overview table. View-detail link routes to `/projects/[id]/assessments/[aid]` (Design Principle 8). See [§Pending changes — Rev 2](#pending-changes-rev-2) and issue [#450](https://github.com/mironyx/feature-comprehension-score/issues/450).
 - **Story 2.3** — `/assessments` shows pending FCS items across projects, each labelled with project name; submitted items disappear on reload; PRCC excluded.
+  - **Rev 1.3 amendment** — The page is **strictly participant-scoped**: the empty state must communicate that the queue lists assessments where the signed-in user has been added as a participant. An Org Admin or Repo Admin who has not been added as a participant sees the empty state — admin-created assessments are not surfaced here. See issue [#452](https://github.com/mironyx/feature-comprehension-score/issues/452).
 - **Story 2.3a** — Filter offers "All projects" + distinct projects from queue; hidden when only one.
 - **Story 2.4** — Project-first URLs resolve; mismatch ⇒ 404; results & submitted pages also migrated.
 - **Story 4.5** — Legacy `/assessments/[aid]` ⇒ 404 (directory deleted); auth round-trip preserves the original URL.
+- **Design Principle 8 (rev 1.3)** — Admin assessment-detail view is **one** shared component (`assessment-admin-view.tsx`) for both org and project contexts. **Already met by issue [#441](https://github.com/mironyx/feature-comprehension-score/issues/441)** — Invariant I13 locks it in place; future PRs touching the admin detail view must preserve it.
 
 ### BDD specs (epic-level summary)
 
@@ -229,6 +236,18 @@ describe('/assessments — My Pending Assessments')
 describe('/projects/[id]/assessments/new')
   it('Org Admin sees all org repos; Repo Admin sees only admin-snapshot repos')
   it('Submitting posts to /api/projects/[id]/assessments and routes to detail on success')
+
+# Rev 1.3 additions — see §Pending changes — Rev 2 for full BDD specs
+describe('Project dashboard — actions column (rev 1.3, issue #450)')
+  it('renders Trash2 (delete) and MoreHorizontal (view-detail) icons per assessment row')
+  it('clicking delete opens DeleteAssessmentDialog and on confirm removes the row')
+  it('clicking view-detail navigates to /projects/[id]/assessments/[aid]')
+  it('does not render the Project column (showProjectColumn omitted)')
+
+describe('My Pending Assessments empty state (rev 1.3, issue #452)')
+  it('renders updated copy when the participant has no pending submissions')
+  it('renders the same empty state for admin with no participant rows')
+  it('renders the list (not the empty state) when participant has at least one pending row')
 ```
 
 ---
