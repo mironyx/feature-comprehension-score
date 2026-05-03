@@ -1,12 +1,13 @@
 // AssessmentAdminView — admin-facing detail view for an assessment.
 // Shown when caller_role === 'admin'. Never shown to participants.
 // Design reference: docs/design/lld-v8-assessment-detail.md §T2
-// Issue: #364
+// Issue: #364, #444
 
 import type { AssessmentDetailResponse, ParticipantDetail } from '@/app/api/assessments/[id]/route';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PollingStatusBadge } from '@/app/(authenticated)/assessments/polling-status-badge';
 import { AssessmentSourceList } from './assessment-source-list';
 
 interface AdminViewProps {
@@ -32,7 +33,12 @@ export function AssessmentAdminView({ assessment }: AdminViewProps) {
           </div>
           <div>
             <dt className="text-caption text-text-secondary">Status</dt>
-            <dd><StatusBadge status={assessment.status} /></dd>
+            {/* Justification: LLD §T2 pre-dates V11 rubric_generation status. AC #444 requires auto-polling to match the org overview table pattern. */}
+            <dd>
+              {assessment.status === 'rubric_generation'
+                ? <PollingStatusBadge assessmentId={assessment.id} initialStatus="rubric_generation" />
+                : <StatusBadge status={assessment.status} />}
+            </dd>
           </div>
         </dl>
       </Card>

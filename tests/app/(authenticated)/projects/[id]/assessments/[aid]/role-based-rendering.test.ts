@@ -21,6 +21,15 @@ vi.mock('@/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-d
   loadAssessmentDetail: vi.fn(),
 }));
 
+vi.mock('@/app/(authenticated)/assessments/polling-status-badge', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- vi.mock factories run before ESM imports; require() is the only option here
+  const React = require('react') as typeof import('react');
+  return {
+    PollingStatusBadge: ({ assessmentId }: { assessmentId: string; initialStatus: string }) =>
+      React.createElement('span', { className: 'polling-status-badge-mock', 'data-id': assessmentId }),
+  };
+});
+
 vi.mock('next/navigation', () => ({
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -478,6 +487,39 @@ describe('AssessmentAdminView', () => {
       // Both status values must appear somewhere in the rendered output
       expect(html.toLowerCase()).toContain('pending');
       expect(html.toLowerCase()).toContain('submitted');
+    });
+  });
+
+  // A9 — renders PollingStatusBadge for rubric_generation status (#444)
+  describe('Given assessment.status === rubric_generation', () => {
+    it('renders PollingStatusBadge when assessment.status === rubric_generation', async () => {
+      const AssessmentAdminView = await importAdminView();
+      const detail = makeAdminDetail({ status: 'rubric_generation' });
+      const html = renderToStaticMarkup(
+        AssessmentAdminView({ assessment: detail }) as React.ReactElement,
+      );
+      expect(html).toContain('polling-status-badge-mock');
+    });
+  });
+
+  // A10 — renders static StatusBadge for terminal statuses (#444)
+  describe('Given assessment.status is a terminal status', () => {
+    it('renders static StatusBadge for terminal statuses', async () => {
+      const AssessmentAdminView = await importAdminView();
+      const detail = makeAdminDetail({ status: 'awaiting_responses' });
+      const html = renderToStaticMarkup(
+        AssessmentAdminView({ assessment: detail }) as React.ReactElement,
+      );
+      expect(html).not.toContain('polling-status-badge-mock');
+    });
+
+    it('renders static StatusBadge when status is rubric_failed', async () => {
+      const AssessmentAdminView = await importAdminView();
+      const detail = makeAdminDetail({ status: 'rubric_failed' });
+      const html = renderToStaticMarkup(
+        AssessmentAdminView({ assessment: detail }) as React.ReactElement,
+      );
+      expect(html).not.toContain('polling-status-badge-mock');
     });
   });
 });
