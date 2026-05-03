@@ -292,9 +292,11 @@ export function SettingsForm({ projectId, projectName, initial }: SettingsFormPr
               onRemove={() => setVocabulary((prev) => prev.filter((_, idx) => idx !== i))}
             />
           ))}
-          <Button type="button" variant="secondary" size="sm" onClick={addVocabRow}>
-            + Add term
-          </Button>
+          {vocabulary.length < 20 && (
+            <Button type="button" variant="secondary" size="sm" onClick={addVocabRow}>
+              + Add term
+            </Button>
+          )}
         </fieldset>
 
         <TagInput
