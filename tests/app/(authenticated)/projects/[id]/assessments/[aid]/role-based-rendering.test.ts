@@ -22,7 +22,7 @@ vi.mock('@/app/(authenticated)/projects/[id]/assessments/[aid]/load-assessment-d
 }));
 
 vi.mock('@/app/(authenticated)/assessments/polling-status-badge', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- vi.mock factories run before ESM imports; require() is the only option here
   const React = require('react') as typeof import('react');
   return {
     PollingStatusBadge: ({ assessmentId }: { assessmentId: string; initialStatus: string }) =>
@@ -506,6 +506,15 @@ describe('AssessmentAdminView', () => {
     it('renders static StatusBadge for terminal statuses', async () => {
       const AssessmentAdminView = await importAdminView();
       const detail = makeAdminDetail({ status: 'awaiting_responses' });
+      const html = renderToStaticMarkup(
+        AssessmentAdminView({ assessment: detail }) as React.ReactElement,
+      );
+      expect(html).not.toContain('polling-status-badge-mock');
+    });
+
+    it('renders static StatusBadge when status is rubric_failed', async () => {
+      const AssessmentAdminView = await importAdminView();
+      const detail = makeAdminDetail({ status: 'rubric_failed' });
       const html = renderToStaticMarkup(
         AssessmentAdminView({ assessment: detail }) as React.ReactElement,
       );

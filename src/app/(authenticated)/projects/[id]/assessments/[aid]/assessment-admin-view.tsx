@@ -1,7 +1,7 @@
 // AssessmentAdminView — admin-facing detail view for an assessment.
 // Shown when caller_role === 'admin'. Never shown to participants.
 // Design reference: docs/design/lld-v8-assessment-detail.md §T2
-// Issue: #364
+// Issue: #364, #444
 
 import type { AssessmentDetailResponse, ParticipantDetail } from '@/app/api/assessments/[id]/route';
 import { PageHeader } from '@/components/ui/page-header';
