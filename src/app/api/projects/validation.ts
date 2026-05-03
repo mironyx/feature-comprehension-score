@@ -35,12 +35,24 @@ const GlobPatternsSchema = z
   .max(50)
   .superRefine(refineGlobs);
 
+const VocabRowSchema = z.object({
+  term: z.string().min(1).max(100),
+  definition: z.string().min(1).max(500),
+});
+
+const VocabularySchema = z.array(VocabRowSchema).max(20);
+const FocusAreasSchema = z.array(z.string().min(1)).max(5);
+const ExclusionsSchema = z.array(z.string().min(1)).max(5);
+
 export const CreateProjectSchema = z.object({
   org_id: z.string().uuid(),
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   glob_patterns: GlobPatternsSchema.optional(),
   domain_notes: z.string().max(2000).optional(),
+  domain_vocabulary: VocabularySchema.optional(),
+  focus_areas: FocusAreasSchema.optional(),
+  exclusions: ExclusionsSchema.optional(),
   question_count: z.number().int().min(3).max(8).optional(),
 });
 
@@ -50,6 +62,9 @@ export const UpdateProjectSchema = z
     description: z.string().max(2000).optional(),
     glob_patterns: GlobPatternsSchema.optional(),
     domain_notes: z.string().max(2000).optional(),
+    domain_vocabulary: VocabularySchema.optional(),
+    focus_areas: FocusAreasSchema.optional(),
+    exclusions: ExclusionsSchema.optional(),
     question_count: z.number().int().min(3).max(8).optional(),
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'at_least_one_field' });

@@ -6,14 +6,19 @@
 // Design reference: docs/design/lld-v11-e11-3-project-context-config.md §B.1
 // Issue: #421
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { TagInput } from '@/components/context/tag-input';
+import { VocabRow } from '@/components/context/vocab-row';
 
 export interface SettingsInitial {
   glob_patterns: string[];
   domain_notes: string;
   question_count: number;
+  domain_vocabulary: { term: string; definition: string }[];
+  focus_areas: string[];
+  exclusions: string[];
 }
 
 interface SettingsFormProps {
@@ -31,6 +36,9 @@ interface PatchPayload {
   glob_patterns?: string[];
   domain_notes?: string;
   question_count?: number;
+  domain_vocabulary?: { term: string; definition: string }[];
+  focus_areas?: string[];
+  exclusions?: string[];
 }
 
 const INPUT_CLASSES =
@@ -41,15 +49,26 @@ const QUESTION_COUNT_MAX = 8;
 const DOMAIN_NOTES_MAX = 2000;
 const GLOBS_MAX = 50;
 
+function arraysEqual<T>(a: T[], b: T[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function vocabEqual(
+  a: { term: string; definition: string }[],
+  b: { term: string; definition: string }[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every((row, i) => row.term === b[i]!.term && row.definition === b[i]!.definition)
+  );
+}
+
 function buildChangedSubset(
   current: SettingsInitial,
   initial: SettingsInitial,
 ): PatchPayload {
   const out: PatchPayload = {};
-  if (
-    current.glob_patterns.length !== initial.glob_patterns.length ||
-    current.glob_patterns.some((p, i) => p !== initial.glob_patterns[i])
-  ) {
+  if (!arraysEqual(current.glob_patterns, initial.glob_patterns)) {
     out.glob_patterns = current.glob_patterns;
   }
   if (current.domain_notes !== initial.domain_notes) {
@@ -57,6 +76,15 @@ function buildChangedSubset(
   }
   if (current.question_count !== initial.question_count) {
     out.question_count = current.question_count;
+  }
+  if (!vocabEqual(current.domain_vocabulary, initial.domain_vocabulary)) {
+    out.domain_vocabulary = current.domain_vocabulary;
+  }
+  if (!arraysEqual(current.focus_areas, initial.focus_areas)) {
+    out.focus_areas = current.focus_areas;
+  }
+  if (!arraysEqual(current.exclusions, initial.exclusions)) {
+    out.exclusions = current.exclusions;
   }
   return out;
 }
@@ -154,13 +182,34 @@ async function patchProject(
 }
 
 export function SettingsForm({ projectId, projectName, initial }: SettingsFormProps) {
+  const nextVocabId = useRef(0);
+  const makeVocabRows = (rows: { term: string; definition: string }[]) =>
+    rows.map((r) => ({ ...r, _id: nextVocabId.current++ }));
+
   const [globs, setGlobs] = useState(initial.glob_patterns);
   const [domainNotes, setDomainNotes] = useState(initial.domain_notes);
   const [questionCount, setQuestionCount] = useState(initial.question_count);
+  const [vocabulary, setVocabulary] = useState(() => makeVocabRows(initial.domain_vocabulary));
+  const [focusAreas, setFocusAreas] = useState(initial.focus_areas);
+  const [exclusions, setExclusions] = useState(initial.exclusions);
   const [globErrors, setGlobErrors] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const addVocabRow = useCallback(() => {
+    const id = nextVocabId.current++;
+    setVocabulary((prev) => [...prev, { term: '', definition: '', _id: id }]);
+  }, []);
+
+  const updateVocabRow = useCallback(
+    (index: number, field: 'term' | 'definition', value: string) => {
+      setVocabulary((prev) =>
+        prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+      );
+    },
+    [],
+  );
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
@@ -169,8 +218,16 @@ export function SettingsForm({ projectId, projectName, initial }: SettingsFormPr
       setGlobErrors({});
       setSuccess(false);
 
+      const strippedVocab = vocabulary.map(({ term, definition }) => ({ term, definition }));
       const subset = buildChangedSubset(
-        { glob_patterns: globs, domain_notes: domainNotes, question_count: questionCount },
+        {
+          glob_patterns: globs,
+          domain_notes: domainNotes,
+          question_count: questionCount,
+          domain_vocabulary: strippedVocab,
+          focus_areas: focusAreas,
+          exclusions,
+        },
         initial,
       );
       if (Object.keys(subset).length === 0) {
@@ -195,7 +252,7 @@ export function SettingsForm({ projectId, projectName, initial }: SettingsFormPr
       }
       setError('Failed to save changes. Please try again.');
     },
-    [projectId, globs, domainNotes, questionCount, initial],
+    [projectId, globs, domainNotes, questionCount, vocabulary, focusAreas, exclusions, initial],
   );
 
   return (
@@ -222,6 +279,40 @@ export function SettingsForm({ projectId, projectName, initial }: SettingsFormPr
             setGlobs((prev) => prev.filter((_, idx) => idx !== i));
             setGlobErrors({});
           }}
+        />
+
+        <fieldset className="space-y-2">
+          <legend className="text-label text-text-secondary">Domain vocabulary</legend>
+          {vocabulary.map((row, i) => (
+            <VocabRow
+              key={row._id}
+              term={row.term}
+              definition={row.definition}
+              onChange={(field, value) => updateVocabRow(i, field, value)}
+              onRemove={() => setVocabulary((prev) => prev.filter((_, idx) => idx !== i))}
+            />
+          ))}
+          {vocabulary.length < 20 && (
+            <Button type="button" variant="secondary" size="sm" onClick={addVocabRow}>
+              + Add term
+            </Button>
+          )}
+        </fieldset>
+
+        <TagInput
+          label="Focus areas"
+          items={focusAreas}
+          max={5}
+          onAdd={(v) => setFocusAreas((prev) => [...prev, v])}
+          onRemove={(i) => setFocusAreas((prev) => prev.filter((_, idx) => idx !== i))}
+        />
+
+        <TagInput
+          label="Exclusions"
+          items={exclusions}
+          max={5}
+          onAdd={(v) => setExclusions((prev) => [...prev, v])}
+          onRemove={(i) => setExclusions((prev) => prev.filter((_, idx) => idx !== i))}
         />
 
         <div className="space-y-2">

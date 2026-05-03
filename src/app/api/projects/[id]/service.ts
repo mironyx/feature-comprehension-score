@@ -51,15 +51,25 @@ export async function updateProject(
   projectId: string,
   patch: UpdateProjectInput,
 ): Promise<ProjectResponse> {
-  const { name, description, glob_patterns, domain_notes, question_count } = patch;
+  const {
+    name, description,
+    glob_patterns, domain_notes, question_count,
+    domain_vocabulary, focus_areas, exclusions,
+  } = patch;
   const orgId = await requireOrgMembership(ctx, 'admin_or_repo_admin');
 
   const pf = Object.fromEntries(
     [['name', name], ['description', description]].filter(([, v]) => v !== undefined),
   );
   const cf = Object.fromEntries(
-    [['glob_patterns', glob_patterns], ['domain_notes', domain_notes], ['question_count', question_count]]
-      .filter(([, v]) => v !== undefined),
+    [
+      ['glob_patterns', glob_patterns],
+      ['domain_notes', domain_notes],
+      ['question_count', question_count],
+      ['domain_vocabulary', domain_vocabulary],
+      ['focus_areas', focus_areas],
+      ['exclusions', exclusions],
+    ].filter(([, v]) => v !== undefined),
   );
 
   const { data, error } = await ctx.adminSupabase.rpc('patch_project', {

@@ -32,6 +32,15 @@ interface ContextRow {
   context: Record<string, unknown> | null;
 }
 
+function isVocabRow(v: unknown): v is { term: string; definition: string } {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as Record<string, unknown>).term === 'string' &&
+    typeof (v as Record<string, unknown>).definition === 'string'
+  );
+}
+
 function buildInitial(context: Record<string, unknown> | null): SettingsInitial {
   const ctx = context ?? {};
   return {
@@ -41,6 +50,15 @@ function buildInitial(context: Record<string, unknown> | null): SettingsInitial 
     domain_notes: typeof ctx.domain_notes === 'string' ? ctx.domain_notes : '',
     question_count:
       typeof ctx.question_count === 'number' ? ctx.question_count : DEFAULT_QUESTION_COUNT,
+    domain_vocabulary: Array.isArray(ctx.domain_vocabulary)
+      ? ctx.domain_vocabulary.filter(isVocabRow)
+      : [],
+    focus_areas: Array.isArray(ctx.focus_areas)
+      ? (ctx.focus_areas as string[]).filter((s) => typeof s === 'string')
+      : [],
+    exclusions: Array.isArray(ctx.exclusions)
+      ? (ctx.exclusions as string[]).filter((s) => typeof s === 'string')
+      : [],
   };
 }
 

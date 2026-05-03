@@ -138,6 +138,155 @@ describe('UpdateProjectSchema — context-fields validation [#421, LLD §B.1, re
 });
 
 // ---------------------------------------------------------------------------
+// UpdateProjectSchema — extended context fields (rev 1.3) [#453]
+// [req §Story 3.1 AC 7 / AC 8, lld §Pending changes — Rev 2]
+// Caps: domain_vocabulary max 20 rows, term max 100, definition max 500.
+//       focus_areas max 5, exclusions max 5.
+// ---------------------------------------------------------------------------
+
+describe('UpdateProjectSchema — extended context fields (rev 1.3) [#453]', () => {
+
+  // Property 12: accepts a valid domain_vocabulary, focus_areas, exclusions payload [lld Rev2 validation]
+  describe('Given a payload with valid domain_vocabulary, focus_areas, and exclusions', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'ADR', definition: 'Architecture Decision Record' },
+        ],
+        focus_areas: ['rubric generation'],
+        exclusions: ['test fixtures'],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Property 13: rejects domain_vocabulary with more than 20 rows [lld §Rev2 — VocabularySchema max 20]
+  describe('Given a domain_vocabulary payload with 21 rows (exceeds cap of 20)', () => {
+    it('When parsed, Then the result fails [#453, lld §Rev2]', () => {
+      const rows = Array.from({ length: 21 }, (_, i) => ({
+        term: `term-${i}`,
+        definition: `definition-${i}`,
+      }));
+
+      const result = UpdateProjectSchema.safeParse({ domain_vocabulary: rows });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // Property 14: rejects a vocab row where term exceeds 100 characters [lld §Rev2 — term max 100]
+  describe('Given a domain_vocabulary row with a term longer than 100 characters', () => {
+    it('When parsed, Then the result fails [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'a'.repeat(101), definition: 'valid definition' },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // Property 15: rejects a vocab row where definition exceeds 500 characters [lld §Rev2 — definition max 500]
+  describe('Given a domain_vocabulary row with a definition longer than 500 characters', () => {
+    it('When parsed, Then the result fails [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'valid term', definition: 'x'.repeat(501) },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // Property 16: rejects focus_areas with more than 5 items [lld §Rev2 — FocusAreasSchema max 5]
+  describe('Given a focus_areas payload with 6 items (exceeds cap of 5)', () => {
+    it('When parsed, Then the result fails [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        focus_areas: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // Property 17: accepts focus_areas with exactly 5 items (boundary) [lld §Rev2]
+  describe('Given a focus_areas payload with exactly 5 items (boundary)', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        focus_areas: ['a', 'b', 'c', 'd', 'e'],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Property 18: rejects exclusions with more than 5 items [lld §Rev2 — ExclusionsSchema max 5]
+  describe('Given an exclusions payload with 6 items (exceeds cap of 5)', () => {
+    it('When parsed, Then the result fails [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        exclusions: ['a', 'b', 'c', 'd', 'e', 'f'],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // Property 19: accepts exclusions with exactly 5 items (boundary) [lld §Rev2]
+  describe('Given an exclusions payload with exactly 5 items (boundary)', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        exclusions: ['a', 'b', 'c', 'd', 'e'],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Property 20: accepts vocabulary with exactly 20 rows (upper boundary) [lld §Rev2]
+  describe('Given a domain_vocabulary payload with exactly 20 rows (boundary)', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const rows = Array.from({ length: 20 }, (_, i) => ({
+        term: `term-${i}`,
+        definition: `definition-${i}`,
+      }));
+
+      const result = UpdateProjectSchema.safeParse({ domain_vocabulary: rows });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Property 21: accepts a vocab term of exactly 100 chars (boundary) [lld §Rev2]
+  describe('Given a vocab row with term of exactly 100 characters (boundary)', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'a'.repeat(100), definition: 'valid definition' },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Property 22: accepts a vocab definition of exactly 500 chars (boundary) [lld §Rev2]
+  describe('Given a vocab row with definition of exactly 500 characters (boundary)', () => {
+    it('When parsed, Then the result is successful [#453, lld §Rev2]', () => {
+      const result = UpdateProjectSchema.safeParse({
+        domain_vocabulary: [
+          { term: 'valid term', definition: 'x'.repeat(500) },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CreateProjectSchema — mirror: also rejects unparseable globs, accepts max=8
 // [lld §B.1 task 2: "also raise the matching bound on CreateProjectSchema"]
 // ---------------------------------------------------------------------------

@@ -119,6 +119,61 @@ beforeEach(async () => {
   ({ PATCH } = await import('@/app/api/projects/[id]/route'));
 });
 
+// ---------------------------------------------------------------------------
+// Rev 1.3 (issue #453) — new context fields flow through to p_context_fields
+// AC4: PATCH payload contains only fields the user changed
+// The service destructures domain_vocabulary, focus_areas, exclusions and
+// populates cf. This block pins that they actually reach the RPC argument.
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/projects/[id] — rev 1.3 context fields reach RPC [#453 eval]', () => {
+
+  describe('Given a PATCH with domain_vocabulary', () => {
+    it('When the route processes the request, Then p_context_fields includes domain_vocabulary [#453, AC4]', async () => {
+      const vocab = [{ term: 'ADR', definition: 'Architecture Decision Record' }];
+
+      await patchProject({ domain_vocabulary: vocab });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0]![1] as Record<string, unknown>;
+      const cf = rpcArgs['p_context_fields'] as Record<string, unknown>;
+      expect(cf['domain_vocabulary']).toEqual(vocab);
+    });
+  });
+
+  describe('Given a PATCH with focus_areas', () => {
+    it('When the route processes the request, Then p_context_fields includes focus_areas [#453, AC4]', async () => {
+      const areas = ['rubric generation', 'context loading'];
+
+      await patchProject({ focus_areas: areas });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0]![1] as Record<string, unknown>;
+      const cf = rpcArgs['p_context_fields'] as Record<string, unknown>;
+      expect(cf['focus_areas']).toEqual(areas);
+    });
+  });
+
+  describe('Given a PATCH with exclusions', () => {
+    it('When the route processes the request, Then p_context_fields includes exclusions [#453, AC4]', async () => {
+      const excl = ['test harness', 'fixtures'];
+
+      await patchProject({ exclusions: excl });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0]![1] as Record<string, unknown>;
+      const cf = rpcArgs['p_context_fields'] as Record<string, unknown>;
+      expect(cf['exclusions']).toEqual(excl);
+    });
+  });
+
+  describe('Given a PATCH with only project fields (name)', () => {
+    it('When the route processes the request, Then p_context_fields is null — new fields absent from payload do not appear [#453, AC4]', async () => {
+      await patchProject({ name: 'Updated Name' });
+
+      const rpcArgs = vi.mocked(mockAdminClient.rpc).mock.calls[0]![1] as Record<string, unknown>;
+      expect(rpcArgs['p_context_fields']).toBeNull();
+    });
+  });
+});
+
 describe('PATCH /api/projects/[id] — glob error shape contract [#421 eval]', () => {
 
   describe("Given a PATCH with glob_patterns: ['['] (unparseable bracket)", () => {

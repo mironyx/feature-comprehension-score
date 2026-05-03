@@ -73,6 +73,13 @@ This is the curated list of helpers, types, and entry points that every new feat
 | `loadOrgRetrievalSettings(...)` | `@/lib/supabase/org-retrieval-settings` | Loads retrieval settings with defaults applied. |
 | `RetrievalSettingsSchema`, `DEFAULT_RETRIEVAL_SETTINGS` | `@/lib/supabase/org-retrieval-settings` | Zod schema + defaults. |
 
+## Shared form components (context editing)
+
+| Symbol | Path | Purpose |
+|---|---|---|
+| `TagInput` | `@/components/context/tag-input` | Tag-list editor: label, badge list with remove buttons, Enter-to-add input that hides at `max`. Used by `OrgContextForm` and `SettingsForm` for focus areas and exclusions. Extracted from `org-context-form.tsx` in issue #453. Do not re-implement inline. |
+| `VocabRow` | `@/components/context/vocab-row` | Single vocabulary row: term + definition inputs plus a remove button. Used by both context forms. Extracted from `org-context-form.tsx` in issue #453. Do not re-implement inline. |
+
 ## Type sources
 
 | Type | Path | Purpose |
