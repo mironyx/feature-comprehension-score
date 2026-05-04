@@ -33,16 +33,26 @@ Scan the repository's requirements, design documents, and source code to detect:
 
 Read the full contents of:
 - `docs/requirements/` — All requirement documents
-- `docs/design/` — All design documents
+- `docs/design/` — All design documents (HLD + LLDs)
+- `docs/design/coverage-*.yaml` — Coverage manifests (per ADR-0026 §Stage 2)
 - `docs/adr/` — All Architecture Decision Records
-- `docs/plans/` — Implementation plans (secondary reference)
+- `docs/plans/` — Implementation plans
 - `CLAUDE.md` — Project context and current phase
 
-Build a mental map of:
-- Every Epic and Story (by ID, e.g., "Story 2.3")
-- Every ADR (by number and title)
-- Every design document section
-- Every cross-reference between them
+Build a map keyed by **stable IDs** (per ADR-0026, project-wide as of 2026-05-04):
+- Every story by its `REQ-<epic-slug>-<story-slug>` anchor — `grep -n '<a id="REQ-'`
+  across `docs/requirements/`. The story number (e.g. "Story 2.3") is for human
+  reading; the anchor is the identity used for traceability checks.
+- Every LLD Part B section by its `LLD-<epic-id>-<section-slug>` anchor —
+  `grep -n '<a id="LLD-'` across `docs/design/`.
+- Every ADR by number and title.
+- Every plan epic by its `Requirements covered:` list of REQ- anchors.
+- Every epic GitHub issue body's `## Requirements covered` block (when scanning
+  issue tracker state).
+
+Pre-V11 requirements docs may not have REQ- anchors (per ADR-0026 scope decision —
+historical artefacts not retrofitted). For those, fall back to story-number
+heuristics; explicitly note the fallback in the report.
 
 ### Step 1b: Inventory source code
 
@@ -66,8 +76,25 @@ Scan `tests/` for test artefacts:
 
 ### Step 2: Trace coverage
 
-For each requirement story:
-- Is there a design document section that describes HOW this story will be implemented?
+**Mechanical pass first (per ADR-0026):**
+
+- For each `REQ-` anchor, check whether it appears in any plan epic's
+  `Requirements covered:` list. A REQ- anchor with no plan reference is an
+  uncovered requirement at the plan level — flag as Critical.
+- For each `REQ-` anchor, check whether it appears in any coverage manifest
+  (`docs/design/coverage-*.yaml`) as the `req:` key. Missing → uncovered at LLD
+  level. Flag as Critical for implemented epics, Warning for not-yet-designed
+  epics.
+- For each manifest entry, dereference the `lld:` field and check the named
+  LLD- anchor exists in the named file. Broken link → Critical (mechanical
+  failure, not a judgment call).
+- For each `LLD-` anchor in `docs/design/`, check whether it appears in some
+  manifest's `lld:` field. Orphaned LLD section → Warning.
+
+**Inferential pass (LLM, after the mechanical pass):**
+
+For each requirement story (after the mechanical checks):
+- Is there a design section that describes HOW this story will be implemented?
 - Is there an ADR that covers the key decisions involved?
 - Are acceptance criteria specific enough to be testable?
 
@@ -78,6 +105,9 @@ For each design artefact:
 For each ADR:
 - Is it referenced in the requirements appendix or design doc?
 - Is its status current (not superseded without a replacement)?
+
+The mechanical pass catches rename/move drift deterministically. The inferential
+pass catches semantic drift (the AC says X but the design implements Y).
 
 ### Step 3: Score and classify
 

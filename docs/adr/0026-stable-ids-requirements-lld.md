@@ -91,8 +91,12 @@ Placement: an HTML anchor immediately before the story's `###` heading:
 The story number (1.1) is retained for human reading and dependency ordering.
 The slug is the stable linkable identity.
 
-Scope: applied to the pilot epic only (V11). Existing requirements docs are not
-retrofitted unless the Stage 7 retro decides to promote this project-wide.
+Scope: project-wide. Originally piloted on V11 (Stage 1 of the SPDD-inspired rollout
+plan); promoted project-wide on 2026-05-04 after the V11 pilot landed cleanly and the
+V12 requirements doc was written following the same convention. All new requirements
+docs from V12 onwards MUST emit REQ- anchors on every story heading. Existing pre-V11
+requirements docs are not retrofitted (no value in churning historical artefacts);
+new artefacts and revisions follow the convention.
 
 ### LLD- anchors (LLD Part B sections)
 
@@ -146,8 +150,15 @@ contract only.
   the heading text. This makes broken references detectable with `grep`.
 - LLD file naming convention (already `lld-<epic>-<task>.md` per ADR-0018) now
   doubles as the namespace for LLD anchors — no new naming system to learn.
-- The pilot scope (V11 epic only) keeps rollout risk low. Stage 7 retro decides
-  whether to retrofit existing artefacts.
+- Project-wide as of 2026-05-04 (V11 pilot succeeded; V12 written under the same
+  convention). Pre-V11 requirements docs not retrofitted — the cost of churning
+  historical artefacts outweighs the marginal benefit, since drift detection on those
+  versions is not the active workflow.
+- Downstream skills must propagate REQ- anchors: `/kickoff` lists `Requirements
+  covered:` per epic in the plan and per epic issue body; `/architect` and `/lld`
+  carry them into LLD Part B sections (already required by this ADR); the
+  `requirements-design-drift` agent uses anchor presence/absence as its mechanical
+  coverage check (no longer pure LLM inference).
 - `/requirements` skill must emit REQ- anchors when writing story headings (Step 3).
 - `/lld` skill must emit LLD- anchors on Part B sections and initialise the coverage
   manifest (Stage 2).

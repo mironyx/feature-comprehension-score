@@ -17,8 +17,12 @@ plan that sequences epics and creates one GitHub issue per epic. It does
 within each epic.
 
 See [ADR-0021](../../../docs/adr/0021-project-bootstrap-pipeline.md) for
-the pipeline rationale and [ADR-0018](../../../docs/adr/0018-epic-task-organisation.md)
-for the epic model.
+the pipeline rationale, [ADR-0018](../../../docs/adr/0018-epic-task-organisation.md)
+for the epic model, and [ADR-0026](../../../docs/adr/0026-stable-ids-requirements-lld.md)
+for stable REQ- anchors (project-wide as of 2026-05-04). Every epic produced by this
+skill — both in the plan and in its issue body — must list the `REQ-` anchors of the
+stories it covers, so traceability survives into the issue tracker and downstream
+drift scans.
 
 **Model:** Use Opus for this skill and any sub-agents. Pass `model: "opus"`
 when launching agents.
@@ -208,6 +212,7 @@ Required structure:
 ### Epic E<n>.1 — <name>
 - **HLD anchor:** <link to capability or component section>
 - **Scope:** <one-sentence what>
+- **Requirements covered:** <bullet list of `REQ-<epic-slug>-<story-slug>` anchors from `docs/requirements/<version>-requirements.md` — every story this epic owns. Per ADR-0026.>
 - **Owns (components):** <component names from the HLD this epic creates or substantially modifies>
 - **Touches (components):** <components this epic reads or lightly extends without owning>
 - **Depends on:** <none | E<n>.0>
@@ -259,7 +264,9 @@ matrix.
 ### Step 7: Create epic issues on the board
 
 Propose the list of epics with their titles, scopes, and dependencies as
-a summary table. **Wait for user confirmation** before creating anything.
+a summary table. The summary must include each epic's `Requirements covered`
+list (REQ- anchors) so the user can verify story coverage at a glance.
+**Wait for user confirmation** before creating anything.
 
 For each epic:
 
@@ -267,6 +274,13 @@ For each epic:
 BODY=$(cat <<'EOF'
 ## Scope
 <one paragraph>
+
+## Requirements covered
+<!-- Per ADR-0026. List the REQ- anchors of every story this epic owns.
+Format: bullet list of `REQ-<epic-slug>-<story-slug>` with the story number
+and a one-line title for human readability. -->
+- `REQ-<epic-slug>-<story-slug>` — Story <n>.<m>: <title>
+- `REQ-<epic-slug>-<story-slug>` — Story <n>.<m>: <title>
 
 ## Exit criteria
 - [ ] <observable signal 1>
@@ -355,6 +369,12 @@ implementation.
   serialise them rather than pretending they parallelise.
 - **Drift scans are gates.** Do not proceed past Step 3 or Step 6 without
   running the scan and showing the matrix.
+- **REQ- anchors propagate downstream (ADR-0026, project-wide).** Every epic in
+  the plan and every epic issue body lists the `REQ-<epic-slug>-<story-slug>`
+  anchors of the stories it owns. If the requirements doc lacks anchors, stop —
+  re-run `/requirements` to emit them rather than proceeding with text-only
+  references. Coverage at the plan level is the user's last chance to spot a
+  story that fell off the truck before issues are cut.
 - **Respect existing ADRs.** If requirements contradict an accepted ADR,
   stop and ask — do not silently re-decide.
 - **Reference, do not duplicate.** HLD references requirements; ADRs
