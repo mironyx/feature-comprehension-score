@@ -87,7 +87,7 @@ and `Read` when you have specific leads.
 **Capture as you go:** note the affected files and the chain of reasoning.
 You will need these for the issue body.
 
-### Step 4: Check LLD coverage
+### Step 4: Check LLD coverage and manifest
 
 Read the relevant LLD(s) in `docs/design/`. The bug often exists because the
 design was incomplete or wrong.
@@ -96,26 +96,56 @@ design was incomplete or wrong.
 - Does the LLD specify the behaviour that is broken?
 - Is there a gap between what the LLD says and what the code does?
 
-Note the LLD gap (if any) — this goes into the issue body so that `/lld-sync`
-or `/architect` can patch it later.
+**Locate the manifest entry.** For the affected code, find the matching
+coverage manifest entry:
 
-If no LLD exists for the affected area, note that too.
+```bash
+grep -r "<REQ-anchor or LLD anchor>" docs/design/coverage-*.yaml
+```
 
-### Step 5: Assess complexity
+Capture from the entry:
 
-Based on the investigation, classify the bug:
+- `req:` — the REQ anchor
+- `lld:` — the stable LLD anchor (`LLD-<epic-id>-<section-slug>`, per
+  [ADR-0026](../../docs/adr/0026-stable-lld-anchors.md))
+- `status:` — `Draft` | `Approved` | `Implemented` | `Revised`
+- `lld_revision:` — last shipped revision (e.g. `r1`)
 
-**Simple** — all of these are true:
-- Single component or module affected
-- Clear, localised fix (< 50 lines)
-- No architectural implications
-- Existing tests can be extended to cover the fix
+If no LLD exists, or no manifest entry matches the affected area, note that
+explicitly — it is itself a design-system gap.
 
-**Complex** — any of these are true:
-- Multiple components or modules affected
-- Fix requires changing interfaces or contracts
-- Architectural decision needed (new pattern, new dependency)
-- Cross-cutting concern (auth, data model, shared utility)
+The manifest status feeds Step 5: it is the primary signal for whether this
+is a code-only fix, an LLD gap, or missing functionality.
+
+### Step 5: Classify the bug
+
+Based on the investigation and the manifest status, classify the bug into
+one of three classes. Each maps to a distinct downstream path.
+
+**Code-only** — the LLD is accurate; only the implementation is wrong.
+
+- Manifest status is `Implemented` and the LLD spec matches intent.
+- Fix touches `src/` only; no design artefacts change.
+- Downstream: `/feature <N>` to implement.
+
+**LLD gap** — the design was wrong or incomplete; code and LLD must change.
+
+- Manifest status is `Implemented` but the LLD spec is missing/incorrect, or
+  the code has diverged from a still-correct LLD.
+- Fix touches `src/`; the LLD will be patched after merge.
+- Downstream: `/feature <N>` implements; after merge `/lld-sync` flips the
+  manifest entry to `Revised` and patches the LLD.
+
+**Missing functionality** — the story was never implemented.
+
+- Manifest status is `Draft`, or no manifest entry exists for the area.
+- Needs design before implementation.
+- Downstream: `/architect` adds an LLD section, then `/feature <N>`.
+
+Add the `needs-design` label whenever the class is **Missing functionality**,
+or whenever the bug spans multiple components, requires an architectural
+decision (new pattern, new dependency), or touches a cross-cutting concern
+(auth, data model, shared utility).
 
 ### Step 6: Create or enrich the issue
 
@@ -146,6 +176,13 @@ Compose the issue body:
 - `src/path/to/file.ts` — [what's wrong here]
 - `src/path/to/other.ts` — [relationship to the bug]
 
+## Manifest reference
+
+`docs/design/coverage-<epic-slug>.yaml` — REQ-<anchor> (status: `<current>`,
+lld_revision: `<rN>`)
+
+Or: No manifest entry covers this area — design-system gap.
+
 ## LLD gap
 
 [What the design doc missed or got wrong. Reference the specific LLD file
@@ -174,26 +211,30 @@ describe('[context]', () => {
 
 ## Design reference
 
-[Link to relevant LLD, or "none — new LLD section needed"]
+`docs/design/lld-<epic-slug>.md#LLD-<epic-id>-<section-slug>` (stable anchor
+per [ADR-0026](../../docs/adr/0026-stable-lld-anchors.md))
+
+Or: none — new LLD section needed.
 ```
 
-Create the issue:
+Create the issue. Use `kind:task` for **Code-only** and **LLD gap** classes;
+add `needs-design` for **Missing functionality** or when an architectural
+decision is required:
 
 ```bash
 BODY=$(cat <<'EOF'
 [composed body]
 EOF
 )
+
+# Code-only or LLD gap class:
 RESULT=$(./scripts/gh-create-issue.sh \
   --title "fix: [concise bug title]" \
   --body "$BODY" \
   --labels "kind:task" \
   --add-to-board)
-```
 
-For **complex** bugs, add the `needs-design` label:
-
-```bash
+# Missing functionality, or architectural decision needed:
 RESULT=$(./scripts/gh-create-issue.sh \
   --title "fix: [concise bug title]" \
   --body "$BODY" \
@@ -213,21 +254,28 @@ Present a concise summary:
 **Symptom:** [what was reported]
 **Root cause:** [what was found]
 **Affected files:** [list]
+**Manifest entry:** REQ-<anchor> (status: `<current>`, lld_revision: `<rN>`) | none
 **LLD gap:** [yes/no — brief description]
-**Complexity:** Simple | Complex
+**Class:** Code-only | LLD gap | Missing functionality
 **Issue:** #N (created | enriched)
 
 ### Next step
 
-[For simple bugs:]
-Run `/feature <N>` to implement the fix.
+[Code-only:]
+Run `/feature <N>` to implement the fix. No design artefacts change.
 
-[For complex bugs:]
-Run `/architect` to design the fix (issue has `needs-design` label),
-then `/feature <N>` to implement.
+[LLD gap:]
+Run `/feature <N>` to fix the code. After merge, `/lld-sync` will patch the
+LLD and flip the manifest entry to `Revised`.
+
+[Missing functionality:]
+Run `/architect` to design the LLD section (issue carries `needs-design`),
+then `/feature <N>` to implement. After merge, `/lld-sync` finalises the
+manifest.
 ```
 
-**Stop here.** Do not proceed to `/feature` or `/architect` automatically.
+**Stop here.** Do not proceed to `/feature`, `/architect`, or `/lld-sync`
+automatically.
 
 ## Guidelines
 
@@ -241,6 +289,11 @@ then `/feature <N>` to implement.
 - **LLD gaps matter.** If the design was incomplete, noting this in the issue
   prevents the same class of bug from recurring. This is the feedback loop
   that improves the design process.
+- **Manifest is the bridge.** The coverage manifest connects bugs to REQs,
+  LLDs, and downstream skills. Always look up the matching manifest entry —
+  its status determines the bug class and which skill runs next. Reference
+  the stable LLD anchor (`LLD-<epic-id>-<section-slug>`, ADR-0026) so the
+  link survives LLD rewrites.
 - **Do not over-scope.** If the investigation reveals multiple bugs, create
   one issue per bug. Do not bundle unrelated fixes.
 - **Respect existing issue content.** When enriching an existing issue,
