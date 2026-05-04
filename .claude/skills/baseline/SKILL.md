@@ -1,4 +1,4 @@
-Ok, ---
+---
 name: baseline
 description: Reconcile reality (code, issues, docs, git history) into a consolidated as-built requirements document. Produces a point-in-time snapshot in docs/reports/baseline/. Use at phase transitions, before from-scratch reimplementations, or when requirements docs feel stale. Propose-only — never mutates requirements, design, or issues.
 allowed-tools: Read, Write, Bash, Glob, Grep, WebFetch
@@ -20,9 +20,27 @@ Write only the report file in `docs/reports/baseline/`.
 
 ## Instructions
 
+### 0. Parse arguments
+
+`/baseline` runs against all versions. `/baseline <version>` (e.g. `/baseline v1`) scopes
+the run to a single requirements doc — useful when reconciling one version before a
+forward-port (e.g. v1 → v13) rather than the whole project.
+
+When scoped, the report's title becomes `Baseline: <version> as-built` and the coverage
+matrix only includes epics from that version. Code, tests, and manifests are still read
+project-wide — a v1 story may have been delivered by code that lives anywhere.
+
 ### 1. Gather data
 
 Read broadly. The goal is to build a complete picture, not sample.
+
+**First, check baseline freshness.** If `docs/reports/baseline/` has a prior report:
+- Compute days since the most recent report.
+- Count commits touching `src/`, `supabase/schemas/`, or `docs/requirements/` since that
+  date: `git log --since=<date> --oneline -- src/ supabase/schemas/ docs/requirements/ | wc -l`.
+- If > 7 days OR > 50 commits, surface a one-line warning to the user before continuing:
+  *"Prior baseline is N days old, M relevant commits since — proceeding with full re-scan."*
+This is informational, not a gate.
 
 **Requirements — read ALL files in `docs/requirements/`:**
 - Current version (e.g. `v1-requirements.md`) — the intended spec.
@@ -52,6 +70,21 @@ Read broadly. The goal is to build a complete picture, not sample.
 - Most recent `docs/reports/drift/*-drift-report.md` — known mismatches.
 - Most recent `docs/reports/baseline/*` — previous baseline, if any, for delta.
 
+**Coverage manifests (per ADR-0026):**
+- Read all `docs/design/coverage-*.yaml` files.
+- For each entry, the `status` field is authoritative for that story's delivery state:
+  - `Implemented` → classify the linked REQ- as **Delivered** without re-deriving.
+  - `Revised` → classify as **Delivered**, but note in the report that drift-scan owns
+    the spec-vs-code reconciliation for revised entries.
+  - `Approved` → evidence of design intent only, not delivery. Treat the story as
+    `Not started` unless code evidence suggests otherwise.
+  - `Draft` → ignore for delivery classification.
+- The `files:` array in each entry lists the source files that delivered the story —
+  use this to short-circuit the AC-level verification in Step 2 for entries marked
+  `Implemented` or `Revised`.
+- Track which requirements versions have **no** coverage manifest at all — listed in
+  the "Manifest coverage" section of the report (Step 5).
+
 ### 2. Reconcile: code vs docs
 
 For each epic/story in the requirements docs, determine its actual status by cross-referencing code:
@@ -65,6 +98,13 @@ For each epic/story in the requirements docs, determine its actual status by cro
 | **Descoped** | Was in requirements but explicitly removed or deferred (ADR, session log, or issue close reason). |
 
 **Code is primary.** When code and docs disagree, record what the code does and flag the discrepancy. Do not silently adopt the doc version.
+
+**Use REQ- anchors when present (per ADR-0026).** Stories in v11+ requirements docs
+have a stable `REQ-<epic-slug>-<story-slug>` anchor immediately above their heading.
+When citing such a story in the report, reference the anchor as well as the story
+number (e.g. `Story 1.1 — REQ-project-management-create-project`). Older versions
+(v1–v10) have no anchors; cite by epic + story number only. Do not retrofit anchors —
+that decision is owned by ADR-0026 Stage 7 retro.
 
 **AC-level verification, not file-level.** For any story you are about to classify as Delivered or Partial, enumerate its acceptance criteria and check each one against the code — not just whether the relevant file exists. A page that exists but queries the wrong data scope fails an AC and is Divergent, not Partial. A route that exists but skips an auth or ownership check fails an AC. File existence is necessary but not sufficient.
 
@@ -119,6 +159,17 @@ Save to `docs/reports/baseline/YYYY-MM-DD-baseline.md` using this structure:
 
 | Epic | Source file | Stories | Delivered | Partial | Divergent | Not started | Descoped | Coverage % |
 |------|------------|---------|-----------|---------|-----------|-------------|----------|------------|
+
+## Manifest coverage (per ADR-0026)
+
+| Requirements version | Coverage manifest? | Notes |
+|----------------------|-------------------|-------|
+| v1 | No | Pre-ADR-0026 — anchors not retrofitted |
+| v11 | Yes (per-epic) | Pilot scope per ADR-0026 |
+| ... |
+
+Versions without a manifest rely on code-vs-spec inference for delivery classification —
+lower confidence. Surface this so the reader can weight findings appropriately.
 
 ## Delivered (matches spec)
 
@@ -178,6 +229,21 @@ has since been fixed, list it under "Resolved since last report" instead.
 | # | Location | Doc says | Code does | Verified at | Severity | Recommendation |
 |---|----------|----------|-----------|-------------|----------|---------------|
 
+## Migration candidates
+
+For stories classified `Not started` or `Partial` in older requirements versions
+(v1–v(N-1)), suggest an action: **Carry** to the next active version, **Drop** (no
+longer relevant), or **Defer** (still wanted, but not next). Do not propose carrying
+into a version that already supersedes the story (e.g. PRCC stories carried into v12).
+
+| Source | Story | Status | Suggested action | Rationale |
+|--------|-------|--------|------------------|-----------|
+| v1-requirements.md | 3.5 FCS Without Full Participation | Not started | Carry to v13 | Pre-projects spec; needs re-specification under v11 project model |
+| ... |
+
+This section is the bridge to `/requirements` — it tells the next requirements pass
+which legacy stories need attention.
+
 ## Delta from Previous Baseline
 
 [If a previous baseline exists: what changed — new deliveries, resolved divergences, new gaps. If first baseline: "N/A — first baseline."]
@@ -190,6 +256,7 @@ Keep terminal output under 20 lines:
 - Coverage matrix (compact).
 - Counts: delivered / partial / divergent / not started / descoped.
 - Top 3 divergences or gaps.
+- Migration-candidates count (Carry / Drop / Defer).
 - Count of emergent features by category.
 - File path to the full report.
 
