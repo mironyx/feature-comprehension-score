@@ -353,6 +353,33 @@ describe('AssessmentPage — role-based rendering (T2)', () => {
       fetchSpy.mockRestore();
     });
   });
+
+  // P11 — Admin participant is linked when they visit the assessment page [issue #460]
+  describe('Given caller_role is admin and the admin has a github provider_id (issue #460)', () => {
+    it('then link_participant RPC is called with their github_user_id', async () => {
+      const { AssessmentPage, serverRpcSpy } = await arrangePage({ detail: makeAdminDetail() });
+      await AssessmentPage({ params: makeParams() });
+      expect(serverRpcSpy).toHaveBeenCalledWith('link_participant', {
+        p_assessment_id: ASSESSMENT_ID,
+        p_github_user_id: parseInt(GITHUB_PROVIDER_ID, 10),
+      });
+    });
+  });
+
+  // P12 — Admin with no github user id still renders admin view (graceful degradation) [issue #460]
+  describe('Given caller_role is admin but user has no github provider_id (issue #460)', () => {
+    it('then admin view still renders and link_participant is not called', async () => {
+      const userWithoutGithubId = { id: USER_ID, user_metadata: {} };
+      const { AssessmentPage, serverRpcSpy } = await arrangePage({
+        detail: makeAdminDetail(),
+        user: userWithoutGithubId,
+      });
+      const result = await AssessmentPage({ params: makeParams() });
+      const html = renderToStaticMarkup(result as React.ReactElement);
+      expect(html).not.toContain('Access Denied');
+      expect(serverRpcSpy).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

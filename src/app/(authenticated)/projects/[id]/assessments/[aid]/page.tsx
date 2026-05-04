@@ -74,6 +74,23 @@ async function renderAdminView(
   );
 }
 
+// Uses the user's client (not adminSupabase) so auth.uid() resolves inside the
+// SECURITY DEFINER function — see #133.
+async function linkParticipantBestEffort(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  user: { user_metadata?: Record<string, unknown> | null },
+  aid: string,
+): Promise<void> {
+  const githubUserIdRaw = user.user_metadata?.['provider_id'];
+  const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
+  if (!githubUserId) return;
+  await supabase
+    .rpc('link_participant', { p_assessment_id: aid, p_github_user_id: githubUserId })
+    .then(({ error }) => {
+      if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort');
+    });
+}
+
 async function renderParticipantLinkAndContinue(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   adminSupabase: ReturnType<typeof createSecretSupabaseClient>,
@@ -81,18 +98,7 @@ async function renderParticipantLinkAndContinue(
   projectId: string,
   aid: string,
 ) {
-  const githubUserIdRaw = user.user_metadata?.['provider_id'];
-  const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
-  if (!githubUserId) return <AccessDeniedPage />;
-
-  // Uses the user's client (not adminSupabase) so auth.uid() resolves inside the
-  // SECURITY DEFINER function — see #133.
-  await supabase
-    .rpc('link_participant', { p_assessment_id: aid, p_github_user_id: githubUserId })
-    .then(({ error }) => {
-      if (error) logger.error({ err: error }, 'link_participant failed — participant linking is best-effort');
-    });
-
+  await linkParticipantBestEffort(supabase, user, aid);
   const refreshed = await loadAssessmentDetail(supabase, adminSupabase, user.id, aid);
   if (!refreshed?.my_participation) return <AccessDeniedPage />;
   if (refreshed.my_participation.status === 'submitted') return <AlreadySubmittedPage projectId={projectId} assessmentId={aid} />;
@@ -118,6 +124,7 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!detail) notFound();
 
   if (detail.caller_role === 'admin') {
+    await linkParticipantBestEffort(supabase, user, aid);
     return renderAdminView(supabase, projectId, detail);
   }
 
