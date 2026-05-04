@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.4 |
-| Status | Draft — Structure (Gate 1 — pre-Epic review resolved, ready for epic walkthrough) |
+| Version | 0.5 |
+| Status | Draft — Structure (Gate 1 — epic-pass review applied; 4 open OQs flagged) |
 | Author | LS / Claude |
 | Created | 2026-05-02 |
-| Last updated | 2026-05-04 (rev 4) |
+| Last updated | 2026-05-04 (rev 5) |
 
 ## Change Log
 
@@ -18,6 +18,7 @@
 | 0.2 | 2026-05-02 | LS / Claude | Gate 1 review: project link optional, PRCC question count from repo, Repo Admin can skip, queue clarified; resolved all 4 OQs |
 | 0.3 | 2026-05-03 | LS / Claude | Gate 1 review pass: restored V1 contract gaps (artefact extraction, draft/min-size/exempt skip, trivial commit + debounce); flagged repo schema add (`repositories.project_id`); reworked Story 3.1 — full results visible to PRCC participants after completion (incl. reference answers); reworked Story 3.3 — unified My Assessments queue (FCS+PRCC, pending+completed); added Story 3.3a (admin access to My Assessments); added repo→project unlink to Story 1.4; revised V1 Story 3.4/6.1 reference-answer policy in Cross-Cutting Concerns; new `[Review]` markers for URL shape, external contributor auth, and artefact-extraction story split. |
 | 0.4 | 2026-05-04 | LS / Claude | Resolved 6 pre-Epic `[Review]` comments: dropped awkward "PRCC question count is independent" phrasing in Context (it is just one of the repo settings); resolved URL shape — single PRCC URL `/assessments/[aid]`, FCS keeps `/projects/[pid]/assessments/[aid]` (new Design Principle 3, restores V11 invariant, closes OQ 6); confirmed reference-answer revision (DP 9, no softer alternative needed); clarified `/organisation` repos table is an extension of the existing registered-repos tab (no new "PRCC repos" tab); reframed project link as context-source-only with repo-level context as a deferred future enhancement; added External Contributor to Roles table (cross-references OQ 7, still open). |
+| 0.5 | 2026-05-04 | LS / Claude | Resolved 14 epic-pass `[Review]` comments. **Major:** introduced unified `[skip-prcc]` skip model in Story 2.7 (replaces V1 `min_pr_size`, exempt-pattern auto-skip, and trivial-commit heuristic with one explicit declarative mechanism + admin override). Story 2.8 rewritten — debounce raised to 5 min configurable, `[skip-prcc]` on push commits replaces "trivial commit" rule, answers retained on invalidation (per L238). Resolved OQ 7 (PRCC org-members-only in V12; OSS use case deferred to V13) and OQ 8 (artefact extraction bundled, reuses existing FCS code). Added Epic 1 layout reference (registered-repos table + per-repo settings page). Story 2.3 Check Run display contract added. Story 2.5 wording aligned with rubric. Story 3.1 explicitly names Repo Admin alongside Org Admin (L376). Story 3.3a clarified as NavBar-only wiring (queue itself is identical for admin/member, per L433). Story 3.4 access matrix added — Repo Admin sees list, detail only for admin repos (L452). New `[Review]` markers on Story 2.7 (skip token + retroactive skip path) and Story 2.8 (trigger model — current open/ready vs merge-time vs hybrid). New OQs 9, 10, 11 (skip token, trigger model, retroactive skip). |
 
 ---
 
@@ -194,11 +195,12 @@ Wires the repo→project link (optional) and per-repo PRCC settings into the exi
 ### Story 1.3: View repo PRCC status on organisation settings
 
 **As an** Org Admin or Repo Admin,
-**I want to** see all registered repos on the organisation settings page with their project link and PRCC status,
-**so that** I can scan which repos have PRCC active and which projects they belong to.
+**I want to** see all registered repos on the organisation settings page with their PRCC status and (when set) the project that supplies their rubric context,
+**so that** I can scan which repos have PRCC active and where they pull their context from.
 
 *(Acceptance criteria in next pass)*
 
+> **Note:** Per Design Principle 2, the project link is a context-source pointer only — a PRCC repo does not "belong to" a project. The repos table column is labelled "Context project" (or similar) to reflect this, not "Project".
 ---
 
 <a id="REQ-prcc-configuration-change-project-link"></a>
@@ -212,6 +214,30 @@ Wires the repo→project link (optional) and per-repo PRCC settings into the exi
 *(Acceptance criteria in next pass)*
 
 > **Note:** "Remove" sets `repositories.project_id` to NULL — the repo continues to have PRCC enabled (if previously enabled) but rubric generation falls back to code-only context per Design Principle 2. Existing assessments retain the `project_id` they were created with (Cross-Cutting Concerns §Data Integrity).
+
+---
+
+### Epic 1 layout reference (informative)
+
+To anchor Stories 1.1–1.4, the two repo-related surfaces are:
+
+**`/organisation` — registered-repos table (existing tab, gains PRCC columns):**
+
+| Column | Source | Notes |
+|--------|--------|-------|
+| Repo name | `repositories.github_repo_name` | Existing |
+| Status | `repositories.status` | Existing (active / inactive) |
+| PRCC | `repository_config.prcc_enabled` | New column — chip showing Enabled / Disabled |
+| Context project | `repositories.project_id` → `projects.name` | New column — project name (link) or "—" with "Link" action |
+| Settings | — | New action — opens `/organisation/repos/[repoId]` |
+
+**`/organisation/repos/[repoId]` — per-repo PRCC settings page (new):**
+
+- **PRCC section:** enabled toggle, enforcement mode (Soft/Hard), score threshold (Hard only), question count, exempt file patterns (for context filtering — see §Skip semantics).
+- **Context section:** current context project (with "Link" / "Change" / "Unlink" action). Read-only display of the project's glob patterns + domain notes for transparency (the actual edit happens on the project's settings page).
+- **History section:** recent PRCC assessments for this repo (last 10), each with PR# and outcome.
+
+These layouts inform Stories 1.2, 1.3, 1.4 ACs in the next pass — they are not normative on their own.
 
 ---
 
@@ -231,13 +257,14 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 
 *(Acceptance criteria in next pass — see Notes below for the V1 contract this story must preserve.)*
 
-> **V1 contract to preserve (carried forward from V1 Story 2.1):**
+> **V1 contract, with V12 revisions (see §Skip semantics below):**
 > - **Triggers (assessment created):** PR opened (when not draft), PR moved from draft to ready-for-review, required reviewer added to a PR that already has an assessment (existing assessment is updated to include the new participant — same questions).
-> - **Trigger (participant removed):** required reviewer removed → participant removed from the assessment, their existing responses soft-deleted.
-> - **Skip — neutral conclusion:** PR is below `min_pr_size` (line count) — Check Run set to `neutral` with explanation.
-> - **Skip — neutral conclusion:** all changed files match `exempt_file_patterns` — Check Run set to `neutral` with explanation.
+> - **Reviewer removed:** the participant's row is marked `removed` (existing `assessment_participants.status` enum), but their submitted answers are **retained verbatim** — never deleted, never soft-deleted. Audit / learning value is preserved. The aggregate is recomputed excluding the removed participant.
 > - **Skip — no Check Run:** PR is in draft state. PRCC re-evaluates on draft→ready transition.
+> - **Skip — `[skip]` marker (V12 unified skip):** see §Skip semantics below — replaces V1's automatic min-size and exempt-pattern auto-skip rules.
 > - **PRCC disabled on the repo:** event acknowledged, no assessment created, no Check Run.
+
+> **Note on exempt file patterns (in response to L241 review):** `repository_config.exempt_file_patterns` is configured per repo (existing column). In V12 it is used **only** for context filtering during rubric generation — files matching the pattern are excluded from the LLM prompt (e.g. `package-lock.json`, `*.snap`). It does **not** trigger an automatic PRCC skip the way V1 specified. Skipping a PRCC assessment is now an explicit author/admin action (see §Skip semantics).
 
 ---
 
@@ -251,11 +278,13 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 
 *(Acceptance criteria in next pass)*
 
-> **[Review]:** V1 Story 2.2 was a dedicated "PR Artefact Extraction" story covering: which artefacts are pulled (diff, full file content, PR title/description, linked issues, test files), what to do when the PR has > 50 changed files (focus on most substantive by lines changed up to a token limit), and the "thin artefacts → thin questions" contract. V12 currently bundles all of this into Story 2.2. Two options:
-> - **(a) Keep bundled** — write the artefact-extraction contract as ACs on Story 2.2 (questions, file selection rule, token limits, thin-artefact behaviour). One bigger story, one PR.
-> - **(b) Split out Story 2.2a "PRCC artefact extraction"** — mirrors V1 2.2 verbatim. Two smaller stories, two PRs, easier to test extraction in isolation.
-> Recommend (b) if the extraction logic differs meaningfully from FCS extraction (which today reads multiple merged PRs); recommend (a) if extraction is genuinely shared and PRCC just supplies different inputs.
+> **Resolved (rev 5).** Story 2.2 keeps artefact extraction bundled. PRCC reuses the existing FCS extraction code (Token Budget — V5 Epic 1; agentic retrieval — V2 Epic 17 if enabled), with PRCC supplying a single PR as input where FCS supplies multiple merged PRs. The "> 50 files" V1 heuristic is dropped — the actual bound is the model's context window, enforced inside the existing extraction pipeline. OQ 8 closed in rev 5.
 
+> **Story 2.2 ACs (next pass) must specify:**
+> - Inputs PRCC supplies to the existing extraction pipeline: PR diff, changed-file contents, PR title/description, linked issue numbers (closing keywords), test files in the PR.
+> - Reuse points: token budget (V5 Epic 1) for context-window enforcement; exempt file patterns (Story 2.1 note) for file filtering.
+> - The "thin artefacts → thin questions" contract — no failure if artefacts are sparse, the rubric just reflects what was available.
+> - Where PRCC differs from FCS extraction (single PR vs multiple merged PRs) — list the specific call-site differences only; do not re-implement shared steps.
 ---
 
 <a id="REQ-prcc-webhook-and-assessment-flow-check-run-management"></a>
@@ -263,11 +292,24 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 ### Story 2.3: GitHub Check Run management
 
 **As a** PR Author or Reviewer,
-**I want to** see a GitHub Check Run on the PR showing the comprehension assessment status,
-**so that** I know I need to answer questions and whether the gate has passed.
+**I want to** see a GitHub Check Run on the PR with a clear status summary at every lifecycle stage,
+**so that** I know what is required of me and what the current outcome is.
 
-*(Acceptance criteria in next pass)*
+*(Acceptance criteria in next pass — see Notes below for the Check Run display contract.)*
 
+> **Check Run display contract (informs ACs):**
+>
+> | Lifecycle stage | Check Run state | Title | Summary content |
+> |---|---|---|---|
+> | Just created, rubric generating | `in_progress` | "Comprehension Check — generating questions" | "Generating comprehension questions for [N] participants. This usually takes < 30s." |
+> | Awaiting answers | `in_progress` | "Comprehension Check — [k] of [N] answered" | List participants by GitHub handle with ✓ (submitted) / ⏳ (pending). Link: "Answer comprehension questions →". |
+> | Scoring in progress | `in_progress` | "Comprehension Check — scoring" | "All [N] participants submitted. Scoring in progress." |
+> | Passed (Soft or Hard) | `success` | "Comprehension Check — passed" | Aggregate score (Hard) or "All participants answered relevantly" (Soft). Link: "View results →". |
+> | Failed (Hard, below threshold) | `failure` | "Comprehension Check — failed" | "Aggregate comprehension: 58% (threshold: 70%)". No per-participant breakdown. Link: "View results →". |
+> | Skipped (`[skip]` marker, admin skip, draft) | `neutral` | "Comprehension Check — skipped" | Skip reason (e.g. "Marked `[skip-prcc]` in PR description") + skipped-by + timestamp. |
+> | LLM error / rubric_failed | `neutral` | "Comprehension Check — error" | "Could not generate questions: [reason]". Admin retry action available in-app. |
+>
+> **Never displays:** individual participant scores, individual answer text, reference answers (those live on the in-app results page — see Story 3.1).
 ---
 
 <a id="REQ-prcc-webhook-and-assessment-flow-prcc-answering"></a>
@@ -287,11 +329,10 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 ### Story 2.5: Relevance validation (Soft mode)
 
 **As the** system,
-**I want to** validate that PRCC answers are genuine attempts in Soft mode,
-**so that** the gate has meaning even without a score threshold.
+**I want to** validate each participant's answers against the rubric for relevance in Soft mode,
+**so that** the gate has meaning even without a score threshold — gibberish or copy-paste answers are caught while genuine attempts pass.
 
-*(Acceptance criteria in next pass)*
-
+*(Acceptance criteria in next pass — relevance is a binary check against each rubric question; reuses the existing relevance detection from V1 Story 4.4.)*
 ---
 
 <a id="REQ-prcc-webhook-and-assessment-flow-score-based-evaluation"></a>
@@ -308,13 +349,53 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 
 <a id="REQ-prcc-webhook-and-assessment-flow-prcc-gate-skip"></a>
 
-### Story 2.7: PRCC gate skip
+### Story 2.7: PRCC gate skip — `[skip-prcc]` marker + admin override
 
-**As an** Org Admin or Repo Admin,
-**I want to** skip the PRCC gate for a specific PR when justified,
-**so that** emergency hotfixes or time-critical changes are not blocked.
+**As a** PR author or admin,
+**I want to** skip the PRCC gate either declaratively (a marker in the PR body, a commit message, or a PR comment) or by an admin action,
+**so that** trivial PRs, emergency hotfixes, and scope-irrelevant PRs do not require a comprehension assessment, without relying on opaque automatic heuristics.
 
-*(Acceptance criteria in next pass)*
+*(Acceptance criteria in next pass — see §Skip semantics below for the unified skip model that this story implements.)*
+
+---
+
+### Story 2.7 supplement — §Skip semantics (unified skip model, V12 revision)
+
+V1 specified three independent skip rules: small PRs (`min_pr_size`), exempt-only file changes (`exempt_file_patterns`), and "trivial commits" on push (`trivial_commit_threshold`). V12 collapses all of these into one explicit, declarative mechanism plus an admin override.
+
+**The `[skip-prcc]` marker.** PRCC is skipped when any of the following is present:
+
+1. **PR body** — the literal string `[skip-prcc]` (or configurable alias) appears anywhere in the PR description.
+2. **Commit message** — the literal string `[skip-prcc]` appears in the message of the PR's HEAD commit (or any commit since the last PRCC trigger, if the PR has been updated).
+3. **PR comment** — a top-level PR comment by an Org Admin, Repo Admin, or the PR author whose body is `[skip-prcc]` (optionally followed by `: <reason>`).
+4. **Admin action in-app** — Org Admin (any repo) or Repo Admin (their repos) clicks "Skip PRCC" on the assessment page with a mandatory reason.
+
+When skipped:
+- Check Run conclusion = `neutral`.
+- Check Run summary names the skip source (e.g. "Skipped via `[skip-prcc]` in PR body" / "Skipped by @alice: hotfix for prod incident").
+- Skip metadata recorded on the assessment row: `skip_reason`, `skipped_by` (user or `system` if marker-driven), `skipped_at`.
+- Skipped assessments appear in `/assessments` (if user is a participant) and in the org overview (Story 3.4) with outcome `Skipped`.
+
+**Dropped from V12 (was in V1):**
+- Automatic skip on PR size below `min_pr_size`.
+- Automatic skip on all-files-match-`exempt_file_patterns`.
+- Automatic skip on "trivial commit" heuristic in Story 2.8 (replaced by `[skip-prcc]` on push).
+
+`exempt_file_patterns` is **kept** but repurposed for context filtering only — see Story 2.1 note.
+
+**Schema impact.** No new columns — existing `skip_reason` / `skipped_by` / `skipped_at` columns on `assessments` already cover this. The marker source goes into `skip_reason` as free text. `min_pr_size` and `trivial_commit_threshold` columns become unused; we leave them in `repository_config` for now (no destructive migration in v12) but flag them as deprecated.
+
+**Open Question 9 — marker token.** `[skip-prcc]` is the proposed token. Aliases? Three options on the `[Review]` marker below.
+
+> **[Review]: Skip marker token.** Options:
+> - **(a) `[skip-prcc]` only** — explicit and PRCC-specific; coexists with `[skip ci]` and similar without ambiguity. Recommended.
+> - **(b) `[skip-prcc]` + `[skip prcc]` + case-insensitive variants** — forgiving on punctuation and casing. Slightly more parsing.
+> - **(c) Repurpose `[skip ci]`** — many CI systems already understand this. PRCC users wouldn't need to learn a new token. Risk: skips PRCC even when the user intended only to skip CI.
+
+> **[Review]: Forgotten marker — admin retroactive skip.** L321 raised the question of what happens if the author forgets `[skip-prcc]`. Two options once an assessment has been generated:
+> - **(a) Author or admin adds `[skip-prcc]` in a subsequent comment** — webhook re-evaluates and skips. Question: what happens to in-flight participants who already started? Their answers are retained (per L238 rule); status flips to `Skipped` and no further answers required.
+> - **(b) Admin uses in-app "Skip PRCC" action** — same effect, no comment needed. Already covered in skip source 4 above.
+> Recommend supporting both. Authors and reviewers prefer (a) (in-context); admins handling exceptions prefer (b).
 
 ---
 
@@ -323,18 +404,38 @@ The core PRCC pipeline: webhook-triggered assessment creation, Check Run managem
 ### Story 2.8: PR update handling
 
 **As the** system,
-**I want to** handle new commits pushed to a PR under assessment, with debounce and a trivial-commit exception,
-**so that** the assessment reflects the current state of the PR, cannot be gamed by answer-then-push, and does not punish minor fixes.
+**I want to** handle new commits pushed to a PR under assessment, debouncing rapid pushes and honouring `[skip-prcc]` markers,
+**so that** the assessment reflects the current state of the PR, cannot be gamed by answer-then-push, and does not regenerate for minor fixes when the author marks the commit as skip-worthy.
 
-*(Acceptance criteria in next pass — see Notes below for the V1 contract this story must preserve.)*
+*(Acceptance criteria in next pass — see contract below.)*
 
-> **V1 contract to preserve (carried forward from V1 Story 2.8 — schema already supports this via `sync_debounce` table and `repository_config.trivial_commit_threshold`):**
-> - **In-progress + new commits → invalidate + regenerate.** If a PR has an in-progress assessment (not all participants answered) and new non-trivial commits arrive, the existing assessment is invalidated (`status = invalidated`, `superseded_by` set) and a new assessment is generated. Participants who already answered must answer again.
-> - **Completed + new commits → new assessment, history retained.** If a PR has a completed assessment and new non-trivial commits arrive, a new assessment is generated; the previous assessment is retained for history (linked via `superseded_by`).
-> - **No commits → status unchanged.** A completed, passed assessment with no further commits stays `success`.
-> - **60-second debounce.** Multiple commits within 60s collapse to a single regeneration (existing `sync_debounce` table).
-> - **Trivial commit exception.** Pushes that change ≤ `trivial_commit_threshold` lines (default 5) or only modify documentation/comments do NOT invalidate the existing assessment. Heuristic is configurable per repo.
-> - **UX notice in answering form.** "Finish your PR before requesting review — new commits will require a new assessment."
+> **PR update contract (V12 revision):**
+> - **In-progress + new commits without `[skip-prcc]` → invalidate + regenerate.** Existing assessment marked `invalidated`, `superseded_by` set on the new assessment. Participants who already answered must answer again. Their previous answers are **retained** on the invalidated assessment row (per L238 rule — never deleted).
+> - **In-progress + new commits with `[skip-prcc]` in the commit message → no regeneration.** The commit is treated as not-PR-relevant. Existing assessment continues. (Replaces V1's "trivial commit" heuristic — author declares intent explicitly instead of relying on a line-count heuristic.)
+> - **Completed + new commits without `[skip-prcc]` → new assessment, history retained.** Previous assessment kept; new assessment created and linked via `superseded_by`.
+> - **Completed + new commits with `[skip-prcc]` → no new assessment.** Marker treats the push as PRCC-irrelevant; previous outcome stands.
+> - **No commits → status unchanged.**
+> - **Debounce.** Multiple commits within the configurable debounce window (`repository_config.regen_debounce_seconds`, default `300` — 5 minutes) collapse to a single regeneration. Old V1 default of 60s is too short in practice; raise to 5 min and make configurable per repo.
+> - **UX notice in answering form.** "Finish your PR before requesting review — new commits will require a new assessment, unless you tag them with `[skip-prcc]`."
+
+> **L348 / partial-skip status.** If `[skip-prcc]` arrives **after** the assessment was generated and partially answered, the assessment is marked `Skipped` with the marker as the reason. Submitted answers are retained on the row (audit / learning). The Check Run becomes `neutral`. There is no separate "partial skip" status — `Skipped` plus the participant-level submission counts already convey the picture. (Recommend; happy to add a `partial_skip` flag if you want it surfaced more strongly.)
+
+---
+
+### §Trigger model — open design fork (L336)
+
+L336 raised a real question: pre-merge debounce does not help if a PR sits open for days. Three live options for the **trigger model** — when does PRCC fire?
+
+| Option | Trigger | Author experience | Risk |
+|---|---|---|---|
+| **(a) Open / ready-for-review (current V1 + V12 default)** | When PR opened, draft→ready, or reviewer added. | Author answers up front; questions visible alongside review. | Stale PRs accumulate; if author keeps PR open while iterating, debounce only goes so far. |
+| **(b) Merge-time only (L336 radical)** | When user attempts to merge (e.g. `pull_request` `closed` with `merged: false` / pre-merge check). | Author works freely; gate fires at the actual merge moment. | GitHub's merge UX must be willing to wait for PRCC; assessment is the slowest part of the path to green. Reviewers may already have approved before they know about PRCC. |
+| **(c) Hybrid — author opt-in.** | Default open / ready-for-review (a). Author can defer with `[defer-prcc]` marker to say "don't trigger until I push without that marker or remove it". | Author chooses. | Two paths to support; harder to reason about. |
+
+> **[Review]: Trigger model.** Recommend (a) for V12 as the simplest match to existing infrastructure (webhook handlers, Check Run lifecycle). (b) is a real product re-think — interesting but worth testing the assumption with the partner customer first. (c) is a compromise that probably collects the worst of both. Pick:
+> - **(a) Keep open/ready trigger** (default). Add the `[skip-prcc]` model to handle "don't bother me yet" cases.
+> - **(b) Move to merge-time trigger.** Re-scope Story 2.1 events list (remove `opened`, `ready_for_review`, `review_requested`; add `merge attempted` detection — typically via a required-status-check pattern).
+> - **(c) Hybrid with `[defer-prcc]`** — both events fire, marker controls.
 
 ---
 
@@ -360,10 +461,9 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 
 ### Story 3.1: PRCC assessment results page
 
-**As a** PRCC participant or Org Admin,
+**As a** PRCC participant, Org Admin, or Repo Admin,
 **I want to** see the full results of a completed PRCC assessment — including the rubric, my own answers and scores, and the team aggregate — as a Naur Theory Building learning surface,
 **so that** I close the loop on what I demonstrated I understood and what the artefacts intended.
-
 *(Acceptance criteria in next pass — see Notes below for the visibility contract.)*
 
 > **Visibility contract (revises V1 Story 6.1):**
@@ -400,9 +500,9 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 *(Acceptance criteria in next pass — see Notes below for the queue contract.)*
 
 > **Queue contract (extends V11 Story 2.3 / 2.3a):**
-> - **Items shown:** every assessment where the signed-in user is enrolled as a participant, regardless of type (FCS or PRCC) or status (pending, submitted, completed). Excludes assessments where the user was removed (`status = removed`) and assessments superseded by a regeneration (only the latest in a `superseded_by` chain appears).
-> - **Each row shows:** type label (FCS/PRCC), project name (if any), repo + PR# (PRCC) or feature name (FCS), the user's own status (Pending / Submitted / Completed), the team outcome (only when the assessment is fully complete: Passed / Failed / Skipped + aggregate score), and a link to the appropriate detail or results page.
-> - **Filters:** project (V11 Story 2.3a, retained), type (FCS / PRCC / All), status (Pending / Submitted / Completed / All). Default view: Pending.
+> - **Items shown:** every assessment where the signed-in user is enrolled as a participant, regardless of type (FCS or PRCC) or status (pending, submitted, completed, skipped). Excludes assessments where the user was removed (`status = removed`) and assessments superseded by a regeneration (only the latest in a `superseded_by` chain appears).
+> - **Each row shows:** type label (FCS/PRCC), context project name (always shown when set — for PRCC this is the link target; for FCS this is the owner project), repo + PR# (PRCC) or feature name (FCS), the user's own status (Pending / Submitted / Completed), the team outcome when the assessment is finalised (Passed / Failed / Skipped + aggregate score), and a link to the appropriate detail or results page.
+> - **Filters:** project (V11 Story 2.3a, retained), type (FCS / PRCC / All), status (Pending / Submitted / Completed / Skipped / All). Default view: Pending.
 > - **Empty states:** distinct empty states for "no pending" and "no items at all".
 > - **PRCC items without a project link** show "—" or "(no project)" in the project column. Type/status filters still apply.
 
@@ -412,19 +512,15 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 
 <a id="REQ-prcc-reporting-and-visibility-admin-access-my-assessments"></a>
 
-### Story 3.3a: Admin access to My Assessments
+### Story 3.3a: Admin access to My Assessments (NavBar wiring only)
 
-**As an** Org Admin or Repo Admin who is also a participant on a PRCC or FCS assessment (e.g. PR author, required reviewer, nominated reviewer),
-**I want to** access `/assessments` and see my own participation queue,
-**so that** I can discover and complete my own assessments without relying on the GitHub Check Run alone, and revisit my completed assessments alongside non-admin teammates.
+**As an** Org Admin or Repo Admin,
+**I want** the "My Assessments" link in the NavBar so I can reach `/assessments` from any page,
+**so that** I have the same path to my own participation queue that Org Members do.
 
-*(Acceptance criteria in next pass — see Notes below.)*
+*(Acceptance criteria in next pass — trivially small story.)*
 
-> **Notes:**
-> - The NavBar gains a "My Assessments" link for admins (alongside Projects and Organisation). See Navigation Model.
-> - The queue at `/assessments` is exactly the same query for admins and members: scoped to the signed-in user's participations. An admin who happens to be a participant on zero assessments sees the empty state, not an admin-wide list.
-> - A combined "all assessments in the org" admin view is Story 3.4 (org-level overview), not this story. Story 3.3a is the admin's own participation queue.
-> - This story closes the V12-rev-2 gap where admins had no in-app discovery path for their own PRCC assignments.
+> **Confirmed by L433: the queue itself has no admin/member distinction.** `/assessments` is the same page, same query, same display for everyone — scoped to the signed-in user's own participations. Story 3.3 is the queue spec; Story 3.3a is **only** the navigation wiring (admin NavBar gains the link; the route was already accessible). Considered merging into Story 3.3 — kept separate so the navigation change is its own commit.
 
 ---
 
@@ -432,11 +528,21 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 
 ### Story 3.4: PRCC assessments in organisation assessment overview
 
-**As an** Org Admin,
-**I want to** see PRCC assessments in the organisation-level assessment overview,
-**so that** I can monitor PRCC activity across all repos.
+**As an** Org Admin or Repo Admin,
+**I want to** see PRCC assessments in the organisation-level overview, with row-level access scoped to my admin reach,
+**so that** I can monitor PRCC activity but cannot peek at repos I do not administer.
 
-*(Acceptance criteria in next pass)*
+*(Acceptance criteria in next pass — see access matrix below.)*
+
+> **Access matrix (responds to L452):**
+>
+> | Role | List visibility | Detail visibility |
+> |---|---|---|
+> | **Org Admin** | All PRCC assessments in the org | All assessments — full results |
+> | **Repo Admin** | All PRCC assessments in the org **as a list** (rows show repo name, PR#, type, outcome, date) — agreed per L452 | Detail (Story 3.1 results page) only for assessments on **repos they administer**. Clicking a row for a non-admin repo → access denied page or row is non-clickable. |
+> | **Org Member** | Not accessible (their queue is `/assessments`, not the org overview) | — |
+>
+> Rationale: a Repo Admin needs to see org-wide PRCC activity to coordinate with peers ("which repos are flunking?") but should not be able to read the rubric / scores for repos they have no GitHub admin role on. List rows leak only metadata that is already visible in GitHub itself (PR number, repo, outcome). Detail leaks rubric content + answers.
 
 ---
 
@@ -461,11 +567,14 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 - Existing org-scoped RLS policies on `assessments`, `assessment_questions`, `assessment_participants`, and `participant_answers` extend to PRCC assessments without change.
 - The Check Run link is the primary access path for participants. Org members also discover assessments via `/assessments` (Story 3.3 / 3.3a).
 
-> **[Review]: External contributor sign-in.** V1 Story 5.1 + ADR-0020 scoped GitHub OAuth to org members (sign-in succeeds only when the user belongs to an installed-app org). PRCC's participant pool can include external contributors (PR authors who are not org members). Three options:
-> - **(a) PRCC is org-members-only.** External-contributor PRs simply do not enrol the author as a PRCC participant; required reviewers (always org members in practice) still answer; the PR is gated on reviewer answers only. Simplest. Forfeits the author's perspective.
-> - **(b) Limited-purpose sign-in for assessment URLs.** A non-org-member who arrives at `/assessments/[aid]` can authenticate via GitHub OAuth and gain access *only* to the specific assessments where their `github_user_id` matches an `assessment_participants` row. They never see `/projects`, `/organisation`, or any other org data. Requires a new auth path.
-> - **(c) GitHub App impersonation token.** The Check Run link carries a short-lived signed token that grants single-assessment access without GitHub OAuth. No GitHub session needed. New ADR territory; more complex but cleanest UX.
-> Recommend (a) for V12 if the partner customer's PRCC use cases all involve org-member authors; (b) if external contributors are routine and a per-assessment sign-in is acceptable; (c) only if (a) is too restrictive and (b) creates friction.
+> **External contributor sign-in — the OSS-maintainer use case (responds to L484).** L484 reframes the question concretely: the use case for external contributors is the OSS-maintainer scenario — the maintainer (org member) wants Soft mode running on contributor PRs to gauge whether the contributor understands their own change before the maintainer invests review time. The question is "is it worth the complication?"
+>
+> **Recommendation: defer to V13. V12 ships PRCC as org-members-only.**
+> - **Rationale:** Your immediate users (and the dogfooding case) are internal teams where authors and reviewers are all org members. The OSS use case is real but narrower; it deserves its own design (likely centred on Soft mode, no admin actions, single-assessment auth scope) and probably a dedicated ADR.
+> - **What V12 does:** if a PR author is not an org member, they are simply not enrolled as a PRCC participant. Required reviewers (org members) still answer; the gate is on reviewer answers only. This is what V1 quietly assumed but never specified.
+> - **What changes in `What We Are NOT Building`:** add "PRCC participation by non-org-member authors (the OSS-maintainer / external contributor use case) — V13".
+>
+> **Reasonable, or push back?** If the OSS use case is more central than I think, say so and I'll re-open this with a Story-2.4-onwards external-author path.
 
 ### Data Integrity
 
@@ -476,8 +585,8 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 ### Context Resolution
 
 - PRCC rubric generation reads project-level context (glob patterns, domain notes) from the project linked to the assessment's repo at creation time. Same resolution path as FCS (Story 3.2 in V11). If no project is linked, rubric generation proceeds with no injected context (code-only).
-- Repo-level exempt file patterns are applied during artefact fetching. Files matching exempt patterns are excluded from the LLM prompt.
-- PRCC question count comes from the repo-level setting (`repository_config.prcc_question_count`), not the project's FCS question count.
+- Repo-level **exempt file patterns** are applied during artefact fetching for context filtering — files matching the patterns are excluded from the LLM prompt (e.g. lockfiles, snapshots). They do **not** trigger an automatic PRCC skip — see §Skip semantics under Story 2.7.
+- PRCC question count comes from the repo-level setting (`repository_config.prcc_question_count`), alongside the other repo-level operational settings.
 
 ### Observability
 
@@ -513,6 +622,7 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 - **Custom prompt templates per repo.** V12 uses the same fixed prompt templates as FCS (Naur's three layers). Customisable per-repo is a future enhancement.
 - **PRCC for non-GitHub repos.** GitHub only, same as V1.
 - **Repo→project bulk linking.** One repo at a time. Bulk operations deferred.
+- **PRCC participation by non-org-member authors (OSS-maintainer use case).** External contributors (PR authors who are not org members) are not enrolled as PRCC participants in V12. Required reviewers (org members) still answer; the PRCC gate is on reviewer answers only. The OSS-maintainer use case (Soft mode running on contributor PRs to gauge contributor understanding) is real but deserves its own design — deferred to V13. See OQ 7 resolution.
 
 ---
 
@@ -526,18 +636,23 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 | 4 | **Resolved (rev 2), then revised (rev 3).** Originally: queue is pending-only. Revised: `/assessments` is now a unified queue of FCS+PRCC, pending+completed, filterable by project/type/status. Completed items show outcome and aggregate score. Admins also have access (Story 3.3a). External contributor sign-in is now a separate open question — see OQ 7. | — | — | — |
 | 5 | **Resolved (rev 3, confirmed rev 4).** PRCC participants see the full rubric (questions, reference answers, weights), their own submitted answers, and their own per-question scores once an assessment is `completed`. Same policy applies to FCS. Other participants' individual scores remain private. Revises V1 Story 3.4 and V1 Story 6.1. Rationale: Naur Theory Building learning surface; AI-era reality of solo human reviewer. See Design Principle 9. | — | — | — |
 | 6 | **Resolved (rev 4).** PRCC always uses `/assessments/[aid]`; FCS always uses `/projects/[pid]/assessments/[aid]`. The PRCC assessment may carry a `project_id` (when the repo is linked) but the link is purely a context-source pointer and does not embed in the URL. Restores the V11 invariant of one URL per assessment type. See Design Principle 3. | — | — | — |
-| 7 | **Open.** External contributor sign-in. Today's OAuth scope (V1 Story 5.1, ADR-0020) only admits org members. PRCC PR authors may be external contributors. Options on the Cross-Cutting Concerns `[Review]` marker: (a) PRCC is org-members-only (drop external authors as participants), (b) limited-purpose sign-in scoped to specific assessment URLs, (c) signed-token Check Run link with no OAuth required. | Auth scope, ADR-0020, who counts as a participant | (a) org-only; (b) limited sign-in; (c) signed token | Author perspective coverage, auth complexity, new ADR likely |
-| 8 | **Open.** Artefact-extraction story split. V1 had a dedicated Story 2.2 for PR artefact extraction; V12 currently bundles it into Story 2.2 (assessment creation). Options on Story 2.2 `[Review]` marker: (a) keep bundled and write extraction as ACs of 2.2, (b) split out Story 2.2a "PRCC artefact extraction". | Story sizing, testability, V1 contract preservation | (a) bundle; (b) split | PR sizing, single-PR target (< 200 lines) |
+| 7 | **Resolved (rev 5).** PRCC is org-members-only in V12. Non-org-member PR authors are not enrolled as participants; reviewers (org members) still answer; gate is on reviewer answers. The OSS-maintainer use case (Soft mode for external contributors) is real but deferred to V13 with its own design. See "What We Are NOT Building" entry. Push back via L484 review marker if this is wrong. | — | — | — |
+| 8 | **Resolved (rev 5).** Artefact extraction stays bundled into Story 2.2 ACs. PRCC reuses existing FCS extraction code (token budget V5 E1, agentic retrieval V2 E17). The "> 50 files" V1 heuristic is dropped — the actual bound is the model's context window, enforced by the existing extraction pipeline. See Story 2.2. | — | — | — |
+| 9 | **Open (new in rev 5).** Skip marker token. Replaces V1's automatic skip rules (min PR size, exempt-pattern auto-skip, trivial-commit heuristic). Options on Story 2.7 `[Review]` marker: (a) `[skip-prcc]` only; (b) `[skip-prcc]` + variants; (c) repurpose `[skip ci]`. | Author UX, parser simplicity, collision with CI tools | (a) explicit token; (b) lenient parser; (c) reuse `[skip ci]` | Author learnability vs collision risk |
+| 10 | **Open (new in rev 5).** Trigger model — when does PRCC fire on a PR? Options on Story 2.8 `[Review]` marker: (a) open / ready-for-review (current default); (b) merge-time only (L336 radical); (c) hybrid with `[defer-prcc]`. | Author workflow, PR staleness, GitHub merge UX integration | (a) open/ready; (b) merge-time; (c) hybrid | Webhook surface, author iteration cycle, reviewer ordering |
+| 11 | **Open (new in rev 5).** Forgotten skip marker — admin retroactive skip path. Options on Story 2.7 `[Review]` marker: (a) author/admin adds `[skip-prcc]` in subsequent comment → webhook re-evaluates; (b) admin uses in-app "Skip PRCC" action only. Recommend supporting both. | UX for skipping after assessment generated | (a) comment marker; (b) in-app only | Comment-parser surface, admin friction |
 
 ---
 
 ## Next Steps
 
-1. Address remaining `[Review]` markers — two are still open: Story 2.2 (artefact extraction split, OQ 8) and Cross-Cutting Concerns §Security & Authorisation (external contributor sign-in, OQ 7).
-2. Walk Epics 1–3 with the user — pre-Epic structural decisions are settled in rev 4.
-3. Gate 1 sign-off — full structure validated.
-4. Write acceptance criteria (Step 4) — including the V1-contract notes captured under Stories 2.1, 2.8, and the visibility contract under Story 3.1.
-5. Gate 2: full document review.
+1. Address remaining `[Review]` markers (rev 5) — four open, all design choices on the new skip / trigger model:
+   - **Story 2.7** — Skip marker token (OQ 9) and forgotten-marker retroactive path (OQ 11).
+   - **Story 2.8** — Trigger model: open/ready vs merge-time vs hybrid (OQ 10).
+   - **Cross-Cutting §Security** — Confirmation that org-members-only is acceptable for V12 (OQ 7 closed pending push-back from L484).
+2. Gate 1 sign-off once those four resolve.
+3. Write acceptance criteria (Step 4) — including the V1-contract notes captured under Stories 2.1, 2.8, the visibility contract under Story 3.1, the Check Run display contract under Story 2.3, the access matrix under Story 3.4, and the §Skip semantics under Story 2.7.
+4. Gate 2: full document review.
 
 ---
 
