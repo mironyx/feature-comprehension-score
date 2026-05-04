@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.3 |
-| Status | Draft — Structure (Gate 1 review pending) |
+| Version | 0.4 |
+| Status | Draft — Structure (Gate 1 — pre-Epic review resolved, ready for epic walkthrough) |
 | Author | LS / Claude |
 | Created | 2026-05-02 |
-| Last updated | 2026-05-03 (rev 3) |
+| Last updated | 2026-05-04 (rev 4) |
 
 ## Change Log
 
@@ -17,6 +17,7 @@
 | 0.1 | 2026-05-02 | LS / Claude | Initial structure draft |
 | 0.2 | 2026-05-02 | LS / Claude | Gate 1 review: project link optional, PRCC question count from repo, Repo Admin can skip, queue clarified; resolved all 4 OQs |
 | 0.3 | 2026-05-03 | LS / Claude | Gate 1 review pass: restored V1 contract gaps (artefact extraction, draft/min-size/exempt skip, trivial commit + debounce); flagged repo schema add (`repositories.project_id`); reworked Story 3.1 — full results visible to PRCC participants after completion (incl. reference answers); reworked Story 3.3 — unified My Assessments queue (FCS+PRCC, pending+completed); added Story 3.3a (admin access to My Assessments); added repo→project unlink to Story 1.4; revised V1 Story 3.4/6.1 reference-answer policy in Cross-Cutting Concerns; new `[Review]` markers for URL shape, external contributor auth, and artefact-extraction story split. |
+| 0.4 | 2026-05-04 | LS / Claude | Resolved 6 pre-Epic `[Review]` comments: dropped awkward "PRCC question count is independent" phrasing in Context (it is just one of the repo settings); resolved URL shape — single PRCC URL `/assessments/[aid]`, FCS keeps `/projects/[pid]/assessments/[aid]` (new Design Principle 3, restores V11 invariant, closes OQ 6); confirmed reference-answer revision (DP 9, no softer alternative needed); clarified `/organisation` repos table is an extension of the existing registered-repos tab (no new "PRCC repos" tab); reframed project link as context-source-only with repo-level context as a deferred future enhancement; added External Contributor to Roles table (cross-references OQ 7, still open). |
 
 ---
 
@@ -26,7 +27,7 @@ V1 specified PRCC (PR Comprehension Check) as a preventative quality gate: when 
 
 V11 introduced Projects as the organising layer for FCS assessments and explicitly deferred PRCC product features. The only PRCC-related change in V11 was a nullable `project_id` FK on the `assessments` table — foundation work to avoid future schema migration. PRCC webhook handling, Check Run management, and the answering/scoring flow were not implemented.
 
-V12 implements PRCC end-to-end, adapted for the V11 project model. PRCC can be enabled on any registered repo, with or without a project link. If the repo is linked to a project, the project's rubric-generation context (glob patterns, domain notes) is used for PRCC assessments — the same context used for FCS assessments in that project. If the repo is not linked to a project, rubric generation proceeds with code-only context. PRCC operational settings (enforcement mode, score threshold, question count, minimum PR size, exempt file patterns) remain at the repo level. PRCC question count is independent of the project's FCS question count — a project might use 8 questions for FCS while a linked repo uses 3 for PRCC.
+V12 implements PRCC end-to-end, adapted for the V11 project model. PRCC can be enabled on any registered repo, with or without a project link. If the repo is linked to a project, the project's rubric-generation context (glob patterns, domain notes) is used for PRCC assessments — the same context used for FCS assessments in that project. If the repo is not linked to a project, rubric generation proceeds with code-only context. All PRCC operational settings — enforcement mode, score threshold, question count, minimum PR size, exempt file patterns — live together on the repo (existing `repository_config` columns; see Epic 1 schema note). The project link is a context source, not a settings override.
 
 This is a clean-sheet document. It does not re-state the V1 PRCC stories verbatim; it re-specifies them for the post-V11 architecture.
 
@@ -55,15 +56,14 @@ This is a clean-sheet document. It does not re-state the V1 PRCC stories verbati
 ## Design Principles / Constraints
 
 1. **Project context for PRCC.** PRCC rubric generation uses the linked project's context (glob patterns, domain notes). There is no separate PRCC-specific context store. If the project has no context configured, rubric generation proceeds with no injected context.
-2. **Repo→project link optional.** A repo can have PRCC enabled with or without a project link. If linked, PRCC uses the project's context for rubric generation. If not linked, PRCC proceeds with code-only context (plus repo-level exempt file patterns). Two assessment URL shapes exist (`/projects/[pid]/assessments/[aid]` for project-linked, `/assessments/[aid]` for unlinked) — both are explicitly documented and the shape is determined by the data, not the user's role.
-3. **Repo settings for PRCC operations.** Enforcement mode, score threshold, question count, minimum PR size, and exempt file patterns remain per-repo settings (as in V1). They are not inherited from the project.
-4. **One project per repo.** A repo links to exactly one project at a time. Re-linking to a different project is allowed and takes effect for future assessments.
-5. **Shared assessment engine.** PRCC and FCS use the same rubric generation, answer scoring, and aggregate calculation engine. The only difference is the trigger (webhook vs manual), the enforcement (Check Run gate vs retrospective), and the source of artefacts (single PR vs multiple merged PRs).
-6. **No data migration.** Product is pre-production. No backward-compatibility for V1-spec PRCC flows that were never implemented.
-7. **Small PRs.** Each story targets < 200 lines of change.
-8. **Reference answers as a learning surface (revision of V1).** Once an assessment is fully complete (all participants submitted, scoring finalised, Check Run conclusion set), the rubric — questions, reference answers, and the participant's own scored answers — becomes visible to that participant. Applies to both PRCC and FCS. Rationale: in an AI-augmented team where a single human reviewer is increasingly common, the line between "answer leakage" and "Theory Building" has thinned. The reference answer is the most concentrated artefact of design intent; withholding it from people who already passed (or failed) the assessment removes the strongest learning moment. The Check Run remains the audit surface; this view is the learning surface. Other participants' individual scores remain private.
-
-> **[Review]:** This principle revises V1 Story 3.4 (FCS self-view: reference answers NOT shown) and V1 Story 6.1 (PRCC results page: reference answers NOT shown — "prevents answer sharing on future PRs"). Cross-PR reuse is still possible — same person, same repo, similar question shapes. If you want a softer revision: (a) keep reference answers hidden in PRCC only, show them in FCS only (preserves V1 PRCC stance); (b) gate by mode — show reference answers only after an admin "publishes results"; (c) accept the revision as written. Default below assumes (c).
+2. **Repo→project link optional, used as context source only.** A repo can have PRCC enabled with or without a project link. The link is a pointer to the project whose context (glob patterns, domain notes) feeds PRCC rubric generation. If not linked, PRCC proceeds with code-only context (plus repo-level exempt patterns). The link does not affect the URL of the resulting assessment, does not move the assessment "into" the project's URL hierarchy, and does not override any repo-level operational setting. Repo-level context (when a repo wants its own context independent of any project) is a future enhancement — see "What We Are NOT Building".
+3. **One URL shape per assessment type.** PRCC assessments are always reachable at `/assessments/[aid]`. FCS assessments are reachable at `/projects/[pid]/assessments/[aid]` (V11 — FCS requires a project). The PRCC `aid` carries the project link as a property of the row, so the URL does not need to embed `pid`. This restores the V11 invariant (one URL per assessment type) and removes the dual-shape ambiguity from rev 2.
+4. **Repo settings for PRCC operations.** Enforcement mode, score threshold, question count, minimum PR size, and exempt file patterns remain per-repo settings (as in V1). They are not inherited from the project.
+5. **One project per repo.** A repo links to exactly one project at a time. Re-linking to a different project (or unlinking) is allowed and takes effect for future assessments.
+6. **Shared assessment engine.** PRCC and FCS use the same rubric generation, answer scoring, and aggregate calculation engine. The only difference is the trigger (webhook vs manual), the enforcement (Check Run gate vs retrospective), and the source of artefacts (single PR vs multiple merged PRs).
+7. **No data migration.** Product is pre-production. No backward-compatibility for V1-spec PRCC flows that were never implemented.
+8. **Small PRs.** Each story targets < 200 lines of change.
+9. **Reference answers as a learning surface (revision of V1, confirmed).** Once an assessment is fully complete (all participants submitted, scoring finalised, Check Run conclusion set), the rubric — questions, reference answers, and the participant's own scored answers — becomes visible to that participant. Applies to both PRCC and FCS. Rationale: in an AI-augmented team where a single human reviewer is increasingly common, the line between "answer leakage" and "Theory Building" has thinned. The reference answer is the most concentrated artefact of design intent; withholding it from people who already engaged with the questions removes the strongest learning moment. The Check Run remains the audit surface; this view is the learning surface. Other participants' individual scores remain private.
 
 ---
 
@@ -79,31 +79,28 @@ After sign-in, admins land on their last-visited project or `/projects`.
 NavBar: [FCS logo]  [Projects]  [My Assessments]  [Organisation]  [Org: Acme v]  [User v]
 
 /projects                              ← All projects list
-/projects/[id]                         ← Project dashboard — FCS + PRCC assessments (for linked repos)
-/projects/[id]/settings                ← Project context & config
+/projects/[id]                         ← Project dashboard — FCS assessments + PRCC assessments for linked repos
+/projects/[id]/settings                ← Project context & config (also feeds PRCC for linked repos)
 /projects/[id]/assessments/new         ← Create FCS assessment
-/projects/[id]/assessments/[aid]       ← Assessment detail (when assessment has a project)
+/projects/[id]/assessments/[aid]       ← FCS assessment detail (FCS always has a project — V11)
 /projects/[id]/assessments/[aid]/results
 /projects/[id]/assessments/[aid]/submitted
 
 /assessments                           ← My Assessments — admin's own participation queue (FCS+PRCC, pending+completed). See Story 3.3a.
-/assessments/[aid]                     ← Assessment detail (when assessment has no project — PRCC only)
+/assessments/[aid]                     ← PRCC assessment detail (always — project link, if any, is a row property, not a URL parent)
 /assessments/[aid]/results
 /assessments/[aid]/submitted
 
-/organisation                          ← Org settings: registered repos, PRCC config, repo→project links
+/organisation                          ← Org settings: existing registered-repos tab gains PRCC columns + per-repo settings link
 /organisation/repos/[repoId]           ← Per-repo PRCC settings page
 ```
 
-> **[Review]:** Two URL shapes for assessment detail (`/projects/[pid]/assessments/[aid]` for project-linked, `/assessments/[aid]` for unlinked PRCC) is a deliberate choice with trade-offs. V11 Story 4.5 AC4 explicitly returned 404 for `/assessments/[aid]` — V12 brings that shape back. Three live alternatives:
-> - **(a) Two URL shapes (current draft)** — route resolves by data shape. Simple but loses the V11 invariant.
-> - **(b) Mandatory repo→project link for PRCC** — collapses to one URL shape. Loses the "PRCC without project" use case in Design Principle 2; every repo with PRCC must first be linked.
-> - **(c) Different prefix for unlinked PRCC** — e.g. `/repos/[rid]/prcc/[aid]`. Three URL patterns total but each pattern means exactly one thing.
+**URL convention (resolves rev 2 ambiguity):** PRCC always uses `/assessments/[aid]`; FCS always uses `/projects/[pid]/assessments/[aid]`. The PRCC row may carry a `project_id` (when the repo is linked) but that is purely a context-source pointer — it does not change the URL. Why: FCS requires a project (V11 invariant) so embedding `pid` makes sense; PRCC's project link is optional and may be added/changed/removed over the lifetime of a repo, so embedding `pid` would create a moving URL. One URL per assessment type, deterministic from the type alone.
 
-- `/organisation` — the org settings page gains a repos table with columns: repo name, linked project (or "—"), PRCC status (enabled/disabled), and a link to per-repo settings.
-- `/organisation/repos/[repoId]` — per-repo PRCC settings: enable/disable toggle, enforcement mode, threshold, question count, min PR size, exempt patterns. Also shows the current project link (if any) with a "Link to project" or "Change project" action.
-- PRCC assessments that have a project appear in the project dashboard alongside FCS assessments, distinguished by type label.
-- PRCC assessments without a project appear on the org-level assessment overview (Story 3.4) but not in any project dashboard.
+- **`/organisation`** — extends the existing registered-repos tab. No new "PRCC repos" tab. Existing columns (repo name, status, etc.) gain: linked project (or "—" + "Link" action), PRCC enabled (toggle preview), and a link to per-repo settings. Adding a repo to PRCC = enabling the toggle on its row in the existing table. Same surface for FCS-only repos and PRCC-enabled repos; PRCC is a column, not a separate registry.
+- **`/organisation/repos/[repoId]`** — per-repo PRCC settings: enable/disable toggle, enforcement mode, threshold, question count, min PR size, exempt patterns. Also shows the current project link (if any) with a "Link to project" / "Change project" / "Unlink" action.
+- **Project dashboard** — FCS assessments always appear here. PRCC assessments appear here when their repo is linked to this project (joined via `assessments.project_id`).
+- **Org-level assessment overview (Story 3.4)** — all PRCC assessments appear here, including those without a project link. This is the catch-all admin view.
 
 ### Org Member
 
@@ -113,10 +110,10 @@ After sign-in, members land on `/assessments` (My Assessments — see Story 3.3 
 NavBar: [FCS logo]  [My Assessments]  [Org: Acme v]  [User v]
 
 /assessments                           ← Unified queue (FCS + PRCC, pending + completed), filterable by project, type, status
-/projects/[id]/assessments/[aid]       ← Assessment detail (when assessment has a project)
+/projects/[id]/assessments/[aid]       ← FCS assessment detail (FCS always has a project)
 /projects/[id]/assessments/[aid]/results
 /projects/[id]/assessments/[aid]/submitted
-/assessments/[aid]                     ← Assessment detail (when assessment has no project — PRCC only)
+/assessments/[aid]                     ← PRCC assessment detail (always)
 /assessments/[aid]/results
 /assessments/[aid]/submitted
 ```
@@ -128,14 +125,13 @@ NavBar: [FCS logo]  [My Assessments]  [Org: Acme v]  [User v]
 
 A PR author or reviewer clicks the "Answer comprehension questions" link in the GitHub Check Run:
 
-1. If the assessment has a project: link points to `/projects/[pid]/assessments/[aid]`.
-2. If the assessment has no project: link points to `/assessments/[aid]`.
-3. If unauthenticated → GitHub OAuth sign-in → redirect back to the assessment URL.
-4. If authenticated but not a participant → access denied.
-5. If authenticated and a participant → answering form renders.
-6. After submission → confirmation at the same URL base + `/submitted`.
+1. Link always points to `/assessments/[aid]` (PRCC URL convention — see Design Principle 3).
+2. If unauthenticated → GitHub OAuth sign-in → redirect back to the assessment URL.
+3. If authenticated but not a participant → access denied.
+4. If authenticated and a participant → answering form renders.
+5. After submission → confirmation at `/assessments/[aid]/submitted`.
 
-The URL shape is determined by whether the assessment has a `project_id` — not by user role. Both shapes are valid and the route handler resolves the correct assessment regardless.
+> **Note on project link as context source.** The repo→project link in V12 exists solely to point PRCC rubric generation at the project's context (glob patterns, domain notes). It does not carry into the URL, does not appear in breadcrumbs, and does not give the project "ownership" of the PRCC assessment in any other sense. A future enhancement may add **repo-level** context configuration that overrides the project link — at that point the link becomes a fallback rather than the only path. Out of scope for V12 (see "What We Are NOT Building").
 
 ### Root redirect (extends V11 Story 4.4)
 
@@ -153,8 +149,9 @@ The URL shape is determined by whether the assessment has a `project_id` — not
 | **Org Admin** | Persistent | GitHub org admin/owner. Full access: create/edit/delete projects; link repos to projects; configure PRCC per repo; create FCS assessments; skip PRCC gates on any repo. |
 | **Repo Admin** | Persistent | GitHub org member with admin access to at least one org repo. Can create/edit projects; link repos to projects (within their admin repos); configure PRCC on repos they admin; create FCS assessments; skip PRCC gates on repos they administer. Cannot delete projects. |
 | **Org Member** | Persistent | GitHub org member (neither org admin nor repo admin). Can view and submit assessments they are invited to. Sees their pending queue at `/assessments`. No project or repo management access. |
-| **Author** | Contextual | PR author in a PRCC assessment. Assigned automatically when a PR triggers PRCC. |
-| **Reviewer** | Contextual | Required reviewer on a PR in a PRCC assessment. Assigned automatically. |
+| **External Contributor** | Persistent (limited) | A GitHub user who is NOT a member of the org but is the author or a reviewer of a PR on a PRCC-enabled repo in that org. By V1's auth model (Story 5.1, ADR-0020) they cannot sign in to the app at all. V12 must decide whether to admit them as participants — see Cross-Cutting Concerns §Security & Authorisation and Open Question 7. Listed here so the role appears wherever it is referenced (Glossary, navigation notes, security section). |
+| **Author** | Contextual | PR author in a PRCC assessment. Assigned automatically when a PR triggers PRCC. May be an Org Member, Repo Admin, Org Admin, or External Contributor. |
+| **Reviewer** | Contextual | Required reviewer on a PR in a PRCC assessment. Assigned automatically. May be an Org Member, Repo Admin, Org Admin, or (rare) External Contributor. |
 
 ---
 
@@ -376,7 +373,7 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 > - **Available only after completion** — `status = completed`, all participants either submitted or marked `did_not_participate`, and scoring finalised. While in-progress, the page shows progress only.
 > - **Skipped assessments** show outcome + skip reason + skipped-by + skipped-at; no rubric content (rubric may not have been generated).
 >
-> **[Review]:** This is the principal V1 reversal. V1 Story 6.1 explicitly forbade reference answers on PRCC results pages "to prevent answer sharing on future PRs". See Design Principle 8 for the rationale and softer-revision options.
+> **Note:** This is the principal V1 reversal, confirmed in rev 4. V1 Story 6.1 explicitly forbade reference answers on PRCC results pages ("to prevent answer sharing on future PRs"). V12 reverses that for both PRCC and FCS — see Design Principle 9 for the Naur Theory Building rationale.
 
 ---
 
@@ -500,13 +497,13 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 - **PRCC and FCS are aligned.** Once an assessment reaches `status = completed` (all participants either submitted or marked `did_not_participate`, scoring finalised), the rubric — questions, reference answers, weights — becomes visible on the results page to: (a) every participant on that assessment, viewing their own scored answers alongside; (b) Org Admins / Repo Admins, without other participants' submitted answer text or per-participant scores.
 - **Rationale (Naur Theory Building).** The reference answer is the most concentrated artefact of design intent the rubric produces. Withholding it from the people who already engaged with the questions removes the strongest learning moment. The Check Run remains the audit/team surface; the in-app results page is the learning surface.
 - **What is still private.** Per-participant individual scores remain visible only to the participant themselves. Other participants' submitted answer text is never shown.
-- **V1 lines this revises.** V1 Story 3.4 ("Reference answers are **not** shown in the self-view"); V1 Story 6.1 ("the questions (reference answers NOT shown for PRCC — prevents answer sharing on future PRs)"). See Design Principle 8 for trade-offs.
+- **V1 lines this revises.** V1 Story 3.4 ("Reference answers are **not** shown in the self-view"); V1 Story 6.1 ("the questions (reference answers NOT shown for PRCC — prevents answer sharing on future PRs)"). See Design Principle 9 for the rationale.
 
 ---
 
 ## What We Are NOT Building
 
-- **Repo-level PRCC context.** PRCC uses the linked project's context if a project link exists. There is no separate "PRCC context" configuration on the repo independent of the project. If no project is linked (or the linked project has no context), PRCC proceeds without injected context.
+- **Repo-level PRCC context (deferred, not rejected).** V12 sources PRCC context only from the linked project. There is no separate "PRCC context" configuration on the repo independent of the project. If no project is linked, PRCC proceeds without injected context. A future enhancement may add a repo-level context block that overrides the project link (so the project link becomes a fallback) — explicitly out of scope for V12 but the data model should not preclude it.
 - **Multiple projects per repo.** A repo links to exactly one project. Multi-project repo membership is out of scope.
 - **PR decorator (V1 Epic 7).** Exploratory reflection questions posted as PR comments. Deferred to a future version.
 - **PRCC self-reassessment.** Unlike FCS (Story 3.6), PRCC is a gate — new commits trigger a new assessment, not a self-directed re-answer.
@@ -523,12 +520,12 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 
 | # | Question | Context | Options | Impact |
 |---|----------|---------|---------|--------|
-| 1 | **Resolved.** Project link is optional. PRCC can be enabled on any registered repo with or without a project link. If linked, the project's context is used; if not, code-only context. Two URL shapes exist (`/projects/[pid]/assessments/[aid]` for linked, `/assessments/[aid]` for unlinked) — both documented in the Navigation Model. | — | — | — |
-| 2 | **Resolved.** PRCC question count comes from repo config (`repository_config.prcc_question_count`). It is independent of the project's FCS question count. A project might use 8 questions for FCS while a linked repo uses 3 for PRCC — different use cases, different volumes. | — | — | — |
+| 1 | **Resolved (rev 2, refined rev 4).** Project link is optional. PRCC can be enabled on any registered repo with or without a project link. If linked, the project's context is used; if not, code-only context. PRCC URL shape is `/assessments/[aid]` regardless of link status — see OQ 6 / Design Principle 3. | — | — | — |
+| 2 | **Resolved.** PRCC question count is one of the repo-level operational settings on `repository_config.prcc_question_count`, alongside enforcement mode, threshold, min PR size, and exempt patterns. The project's FCS question count is a separate setting on a separate entity. | — | — | — |
 | 3 | **Resolved.** Repo Admin can skip PRCC gates on repos they administer. Org Admin can skip on any repo. Updated Story 2.7 and Roles table accordingly. | — | — | — |
 | 4 | **Resolved (rev 2), then revised (rev 3).** Originally: queue is pending-only. Revised: `/assessments` is now a unified queue of FCS+PRCC, pending+completed, filterable by project/type/status. Completed items show outcome and aggregate score. Admins also have access (Story 3.3a). External contributor sign-in is now a separate open question — see OQ 7. | — | — | — |
-| 5 | **Resolved (rev 3).** PRCC participants see the full rubric (questions, reference answers, weights), their own submitted answers, and their own per-question scores once an assessment is `completed`. Same policy applies to FCS. Other participants' individual scores remain private. Revises V1 Story 3.4 and V1 Story 6.1. Rationale: Naur Theory Building learning surface; AI-era reality of solo human reviewer. See Design Principle 8 for trade-offs and softer-revision options. | — | — | — |
-| 6 | **Open.** URL shape for unlinked PRCC assessments. V11 Story 4.5 AC4 returned 404 for `/assessments/[aid]`; V12 brings that shape back as the canonical URL for assessments with no project link. Options on the Navigation Model `[Review]` marker: (a) two URL shapes, (b) mandatory repo→project link for PRCC, (c) different prefix (`/repos/[rid]/prcc/[aid]`). | URL routing and deep-link compatibility | (a) two shapes; (b) link mandatory; (c) different prefix | Routing complexity, V11 invariant, deep-link stability |
+| 5 | **Resolved (rev 3, confirmed rev 4).** PRCC participants see the full rubric (questions, reference answers, weights), their own submitted answers, and their own per-question scores once an assessment is `completed`. Same policy applies to FCS. Other participants' individual scores remain private. Revises V1 Story 3.4 and V1 Story 6.1. Rationale: Naur Theory Building learning surface; AI-era reality of solo human reviewer. See Design Principle 9. | — | — | — |
+| 6 | **Resolved (rev 4).** PRCC always uses `/assessments/[aid]`; FCS always uses `/projects/[pid]/assessments/[aid]`. The PRCC assessment may carry a `project_id` (when the repo is linked) but the link is purely a context-source pointer and does not embed in the URL. Restores the V11 invariant of one URL per assessment type. See Design Principle 3. | — | — | — |
 | 7 | **Open.** External contributor sign-in. Today's OAuth scope (V1 Story 5.1, ADR-0020) only admits org members. PRCC PR authors may be external contributors. Options on the Cross-Cutting Concerns `[Review]` marker: (a) PRCC is org-members-only (drop external authors as participants), (b) limited-purpose sign-in scoped to specific assessment URLs, (c) signed-token Check Run link with no OAuth required. | Auth scope, ADR-0020, who counts as a participant | (a) org-only; (b) limited sign-in; (c) signed token | Author perspective coverage, auth complexity, new ADR likely |
 | 8 | **Open.** Artefact-extraction story split. V1 had a dedicated Story 2.2 for PR artefact extraction; V12 currently bundles it into Story 2.2 (assessment creation). Options on Story 2.2 `[Review]` marker: (a) keep bundled and write extraction as ACs of 2.2, (b) split out Story 2.2a "PRCC artefact extraction". | Story sizing, testability, V1 contract preservation | (a) bundle; (b) split | PR sizing, single-PR target (< 200 lines) |
 
@@ -536,10 +533,11 @@ Result pages, organisation-level PRCC overview, and integration with the existin
 
 ## Next Steps
 
-1. Address `[Review]` markers (Design Principle 8, Navigation Model URL shape, Story 2.2 artefact extraction split, Cross-Cutting external-contributor sign-in) and Open Questions 6–8 via review comments.
-2. Gate 1: validate epic structure, story organisation, navigation model, and the visibility revision (DP 8).
-3. Write acceptance criteria (Step 4) — including the V1-contract notes captured under Stories 2.1, 2.8, and the visibility contract under Story 3.1.
-4. Gate 2: full document review.
+1. Address remaining `[Review]` markers — two are still open: Story 2.2 (artefact extraction split, OQ 8) and Cross-Cutting Concerns §Security & Authorisation (external contributor sign-in, OQ 7).
+2. Walk Epics 1–3 with the user — pre-Epic structural decisions are settled in rev 4.
+3. Gate 1 sign-off — full structure validated.
+4. Write acceptance criteria (Step 4) — including the V1-contract notes captured under Stories 2.1, 2.8, and the visibility contract under Story 3.1.
+5. Gate 2: full document review.
 
 ---
 
