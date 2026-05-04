@@ -83,6 +83,9 @@ async function linkParticipantBestEffort(
 ): Promise<void> {
   const githubUserIdRaw = user.user_metadata?.['provider_id'];
   const githubUserId = typeof githubUserIdRaw === 'string' ? parseInt(githubUserIdRaw, 10) : undefined;
+  // No github id (or non-numeric provider_id → parseInt NaN): skip RPC.
+  // Admin callers still render the admin view; participant callers fall through
+  // to loadAssessmentDetail → null my_participation → <AccessDeniedPage />.
   if (!githubUserId) return;
   await supabase
     .rpc('link_participant', { p_assessment_id: aid, p_github_user_id: githubUserId })
@@ -124,6 +127,9 @@ export default async function AssessmentPage({ params }: AssessmentPageProps) {
   if (!detail) notFound();
 
   if (detail.caller_role === 'admin') {
+    // Best-effort: sets user_id on the admin's participant row so it appears in
+    // their My Pending Assessments list. detail is not reloaded — admin view
+    // does not depend on my_participation.
     await linkParticipantBestEffort(supabase, user, aid);
     return renderAdminView(supabase, projectId, detail);
   }
